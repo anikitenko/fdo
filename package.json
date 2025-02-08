@@ -1,0 +1,55 @@
+{
+  "name": "fdo",
+  "productName": "fdo",
+  "version": "1.0.0",
+  "description": "My Electron application description",
+  "main": ".webpack/main",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "publish": "electron-forge publish",
+    "lint": "echo \"No linting configured\""
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.7",
+    "@babel/preset-react": "^7.26.3",
+    "@electron-forge/cli": "^7.6.1",
+    "@electron-forge/maker-deb": "^7.6.1",
+    "@electron-forge/maker-rpm": "^7.6.1",
+    "@electron-forge/maker-squirrel": "^7.6.1",
+    "@electron-forge/maker-zip": "^7.6.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.6.1",
+    "@electron-forge/plugin-fuses": "^7.6.1",
+    "@electron-forge/plugin-webpack": "^7.6.1",
+    "@electron/fuses": "^1.8.0",
+    "@vercel/webpack-asset-relocator-loader": "^1.7.3",
+    "babel-loader": "^9.2.1",
+    "css-loader": "^6.11.0",
+    "electron": "34.1.1",
+    "node-loader": "^2.1.0",
+    "sass": "^1.84.0",
+    "sass-loader": "^16.0.4",
+    "style-loader": "^3.3.4",
+    "webpack": "^5.97.1"
+  },
+  "keywords": [],
+  "author": {
+    "name": "anikitenko",
+    "email": "me@alexvwan.me"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anikitenko/fdo-sdk": "^1.0.7",
+    "@blueprintjs/core": "^5.16.4",
+    "@blueprintjs/select": "^5.3.9",
+    "@codemirror/lang-json": "^6.0.1",
+    "@uiw/codemirror-theme-okaidia": "^4.23.8",
+    "@uiw/react-codemirror": "^4.23.8",
+    "ajv": "^8.17.1",
+    "electron-squirrel-startup": "^1.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.1.5"
+  }
+}

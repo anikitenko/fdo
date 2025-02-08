@@ -1,0 +1,42 @@
+@use "@blueprintjs/core/lib/scss/variables" as bp;
+
+html, body {
+    height: 100%; /* Ensure full height of the viewport */
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent scrolling */
+}
+
+#root {
+    height: 100%; /* Root should take full screen */
+}
+
+body {
+    margin: 0;
+    background-image: url("./assets/logo.webp");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    height: 100vh; /* Full height */
+    width: 100vw;  /* Full width */
+    padding: bp.$pt-navbar-height 0 0;
+}
+
+
+.truncate {
+    display: inline-block;
+    max-width: 128px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.footer {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    padding: 10px;
+    text-align: center;
+    background: #30404d; /* BlueprintJS dark theme */
+    color: white;
+}
