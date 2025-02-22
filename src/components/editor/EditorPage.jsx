@@ -77,9 +77,10 @@ const transformToTreeNode = (root, node) => {
         type: node.type,
         icon: node.type === "folder" ? "folder-close" : "code",
         isExpanded: path === "",
+        isSelected: false,
         content: node.content || "", // Store full node info
         hasCaret: node.type === "folder",
-        className: "mouse-pointer",
+        className: "mouse-pointer file-item",
         childNodes: node.children ? node.children.map((child, index) => transformToTreeNode(root, child)) : []
     };
 };
@@ -121,6 +122,19 @@ const FileBrowser = ({name, setSelectedFile, addTab}) => {
         });
     };
 
+    const updateSelectedNode = (nodes, nodeId) => {
+        return nodes.map((n) => {
+            if (n.id === nodeId) {
+                return {...n, isSelected: true}; // Create a new object with updates
+            } else {
+                return {
+                    ...n, isSelected: false, // Ensure all other nodes are false
+                    childNodes: n.childNodes ? updateSelectedNode(n.childNodes, nodeId) : n.childNodes
+                };
+            }
+        });
+    };
+
     // Handle expand/collapse
     const handleNodeExpand = (node) => {
         setTreeData((prevTree) => updateTreeNode(prevTree, node.id, {isExpanded: true}));
@@ -135,6 +149,7 @@ const FileBrowser = ({name, setSelectedFile, addTab}) => {
         if (node.type === "file") {
             setSelectedFile(node);
             addTab(node);
+            setTreeData((prevTree) => updateSelectedNode(prevTree, node.id));
         } else {
             node.isExpanded ? handleNodeCollapse(node) : handleNodeExpand(node);
         }
@@ -145,10 +160,10 @@ const FileBrowser = ({name, setSelectedFile, addTab}) => {
         const nodeClicked = treeRef.current.getNodeContentElement(node.id);
         showContextMenu({
             content: (
-                <Menu small={true}>
-                    <MenuItem text="Save"/>
-                    <MenuItem text="Save as..."/>
-                    <MenuItem text="Delete..." intent="danger"/>
+                <Menu className={"editor-context-menu"} small={true}>
+                    <MenuItem className={"editor-context-menu-item"} text="Save"/>
+                    <MenuItem className={"editor-context-menu-item"} text="Save as..."/>
+                    <MenuItem className={"editor-context-menu-item"} text="Delete..." intent="danger"/>
                 </Menu>
             ),
             targetOffset: {left: e.clientX, top: e.clientY},
@@ -172,28 +187,16 @@ const FileBrowser = ({name, setSelectedFile, addTab}) => {
 }
 
 const FileTabs = ({ openTabs, activeFile, setActiveFile, closeTab, setSelectedFile }) => (
-    <div style={{ display: "flex", borderBottom: "1px solid #ccc", overflowX: "scroll" }}>
+    <div className={"file-tabs"}>
         {openTabs.map((file) => (
-            <div
+            <div onKeyUp={() => ("")}
                 key={file.id}
-                style={{
-                    padding: "5px 10px",
-                    marginRight: "5px",
-                    background: activeFile.id === file.id ? "#ddd" : "#f5f5f5",
-                    borderRadius: "5px 5px 0 0",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                }}
+                className={"file-tab" + (file.id === activeFile.id ? " active" : "")}
                 onClick={() => {setActiveFile(file); setSelectedFile(file)}}
             >
                 {file.label}
                 <span
-                    style={{
-                        marginLeft: "8px",
-                        cursor: "pointer",
-                        fontWeight: "bold",
-                    }}
+                    className={"close-tab-btn"}
                     onClick={(e) => {
                         e.stopPropagation();
                         closeTab(file);
@@ -332,22 +335,15 @@ export const EditorPage = () => {
                                 onChange={handleEditorChange}
                                 theme="vs-dark"
                                 value={selectedFile.content}
+                                className={"editor-container"}
                                 language={selectedFile.language}
                                 onMount={(editor) => {
                                     setCodeEditor(editor)
                                 }}
                                 options={{
-                                    minimap: {
-                                        enabled: false,
-                                    },
-                                    scrollbar: {
-                                        useShadows: false,
-                                        verticalHasArrows: true,
-                                        horizontalHasArrows: true,
-                                        verticalScrollbarSize: 17,
-                                        horizontalScrollbarSize: 17,
-                                        arrowSize: 30,
-                                    },
+                                    minimap: { enabled: false },
+                                    scrollbar: { vertical: "hidden", horizontal: "auto" },
+                                    fontSize: 13,
                                 }}
                         />
                     </div>

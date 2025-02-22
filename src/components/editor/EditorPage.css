@@ -14,20 +14,96 @@ body {
     top: 10%
 }
 
+.file-tabs {
+    display: flex;
+    align-items: center;
+    background: #1e1e1e;
+    padding: 4px 10px;
+    border-bottom: 1px solid #444;
+}
+
+.file-tab {
+    background: #333;
+    padding: 6px 12px;
+    margin-right: 6px;
+    border-radius: 5px 5px 0 0;
+    cursor: pointer;
+    color: #bbb;
+    transition: all 0.3s;
+}
+.file-tab:hover {
+    background: #444;
+}
+
+.file-tab.active {
+    background: #1e1e1e; /* Match editor's background */
+    color: white;
+    font-weight: bold;
+    border-bottom: none;
+    transition: background 0.3s ease-in-out, color 0.3s ease-in-out;
+}
+
+.close-tab-btn {
+    margin-left: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    color: #bbb;
+}
+
+.close-tab-btn:hover {
+    color: white;
+}
+
+.editor-container {
+    background: #1e1e1e; /* Same as active tab */
+    padding: 10px;
+}
+
+.file-item {
+    padding: 0;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #bbb;
+    transition: background 0.2s;
+}
+
+.file-item.selected {
+    background: #007acc; /* Match VS Code active tab */
+    color: white;
+    font-weight: bold;
+}
+
+.file-item:hover {
+    background: #3a3a3a; /* Slight hover effect */
+}
+
 /* Fixed Header (Non-Resizable) */
 .editor-header {
     display: grid;
     grid-template-columns: 1fr auto 1fr; /* Left | Center | Right */
     align-items: center;
     padding: 0;
-    background: #ccc;
-    border-bottom: 1px solid #ddd;
+    background: #2e2e2e;
+    border-bottom: 1px solid #444;
+}
+
+.editor-header-search {
+    background: #3a3a3a;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    color: white;
+    outline: none;
+}
+
+.editor-header-search::placeholder {
+    color: #aaa;
 }
 
 .editor-header-search:hover {
     border: 1px solid black;
     cursor: pointer;
-    background-color: #ccc;
+    background-color: #f7f7f7;
 }
 
 /* Align left and right sections */
@@ -44,6 +120,8 @@ body {
 .editor-header-right {
     text-align: right;
     padding-left: 10px;
+    color: #ccc;
+    font-size: 14px;
 }
 
 .grid-container {
@@ -68,4 +146,42 @@ body {
 
 .code-editor {
     overflow: hidden;
+}
+
+.editor-context-menu {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.2);
+    padding: 6px 0;
+    min-width: 150px;
+    font-size: 14px;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.editor-context-menu.show {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.editor-context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background 0.2s ease-in-out;
+    color: #333;
+}
+
+.editor-context-menu-item:hover {
+    background: #f0f0f0;
+}
+
+/* Special style for dangerous actions like Delete */
+.editor-context-menu-item.danger {
+    color: #d9534f;
+    font-weight: bold;
+}
+
+.editor-context-menu-item.danger:hover {
+    background: rgba(217, 83, 79, 0.1);
 }
