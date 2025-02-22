@@ -1,28 +1,37 @@
-import {Button, Dialog, DialogBody, DialogFooter, FormGroup, InputGroup} from "@blueprintjs/core";
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogFooter,
+    Divider,
+    FormGroup,
+    InputGroup,
+    MenuItem
+} from "@blueprintjs/core";
 import React, {useEffect, useState} from "react";
-
-import CodeMirror from "@uiw/react-codemirror";
-import {json} from '@codemirror/lang-json';
-import {okaidia} from '@uiw/codemirror-theme-okaidia';
 
 import './css/CreatePluginDialog.css'
 import {AppToaster} from "./AppToaster.jsx";
+import {Select} from "@blueprintjs/select";
 
 export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
     const [uploadLoading, setUploadLoading] = useState(false);
     const [createLoading, setCreateLoading] = useState(false);
     const [pluginName, setPluginName] = useState('');
+    const [pluginUrl, setPluginUrl] = useState('');
     const [updateInitial, setUpdateInitial] = useState(true);
     const [pluginContent, setPluginContent] = useState("");
+    const pluginTemplates = [
+        {title: "Blank", value: "blank"},
+        {title: "Horizontally divided", value: "horDivided"},
+        {title: "Vertically divided", value: "verDivided"}
+    ]
+    const [pluginTemplate, setPluginTemplate] = useState({title: "Blank", value: "blank"});
 
     const dialogClose = () => {
         close()
         setUploadLoading(false)
     }
-
-    const onPluginContentChange = React.useCallback((val) => {
-        setPluginContent(val);
-    }, []);
 
     const handleFileUpload = async () => {
         setUploadLoading(true);
@@ -38,29 +47,20 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                 setPluginName(pluginData.metadata.name);
                 setUpdateInitial(false);
             } else {
-                (await AppToaster).show({ message: `Error: ${pluginData.error}`, intent: "danger" });
+                (await AppToaster).show({message: `Error: ${pluginData.error}`, intent: "danger"});
             }
         } else {
-            (await AppToaster).show({ message: "Problem with uploading file", intent: "danger" });
+            (await AppToaster).show({message: "Problem with uploading file", intent: "danger"});
         }
         setUploadLoading(false);
     };
 
-    const handlePluginNameChange = (name) => {
-        setPluginName(name)
-        if (updateInitial) {
-            window.electron.SamplePlugin(name).then ((content) => {
-                setPluginContent(content);
-            })
-        }
-    }
-
     const createPlugin = () => {
         setCreateLoading(true);
-        window.electron.SavePlugin({data: pluginContent, name: pluginName}).then (async (result) => {
+        window.electron.SavePlugin({data: pluginContent, name: pluginName}).then(async (result) => {
             if (result) {
                 if (result.success) {
-                    (await AppToaster).show({message: "New plugin was added and activated!", intent: "success" });
+                    (await AppToaster).show({message: "New plugin was added and activated!", intent: "success"});
                     let plugin = {};
                     plugin.id = result.pluginID;
                     plugin.name = result.metadata.name;
@@ -70,7 +70,7 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                     parentPluginSelect(plugin);
                     close()
                 } else {
-                    (await AppToaster).show({ message: `Error: ${result.error}`, intent: "danger" });
+                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
                 }
             } else {
                 (await AppToaster).show({message: "Problem with saving plugin", intent: "danger"});
@@ -80,9 +80,6 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
     }
 
     useEffect(() => {
-        window.electron.SamplePlugin(name).then ((content) => {
-            setPluginContent(content);
-        })
         setPluginName(name)
     }, [name])
 
@@ -94,38 +91,73 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                     <FormGroup
                         label="Name"
                         labelFor="plugin-name"
+                        fill={true}
                     >
-                        <InputGroup id={"plugin-name"} value={pluginName} onValueChange={handlePluginNameChange}
-                                    placeholder="Name of plugin"/>
+                        <InputGroup id={"plugin-name"} value={pluginName} onValueChange={setPluginName}
+                                    placeholder="Name of plugin" fill={true}/>
                     </FormGroup>
                 )}
                 <FormGroup
-                    label="Content"
-                    labelFor="plugin-content"
-                    labelInfo="(required)"
+                    label="Template"
+                    labelFor="plugin-template"
+                    labelInfo={"(required)"}
+                    fill={true}
                 >
-                    <div id={"plugin-content"}>
-                        <CodeMirror
-                            value={pluginContent}
-                            autoFocus={true}
-                            options={{
-                                theme: "default",
-                                lineNumbers: true,
-                            }}
-                            extensions={[json()]}
-                            onChange={onPluginContentChange}
-                            theme={okaidia}
-                        />
-                    </div>
+                    <Select
+                        id={"plugin-template"}
+                        items={pluginTemplates}
+                        itemRenderer={
+                            (item, {handleClick, handleFocus, modifiers, query}) => (
+                                <MenuItem
+                                    active={modifiers.active}
+                                    disabled={modifiers.disabled}
+                                    key={item.value}
+                                    onClick={handleClick}
+                                    onFocus={handleFocus}
+                                    roleStructure="listoption"
+                                    text={item.title}
+                                />
+                            )
+                        }
+                        popoverProps={
+                            {
+                                minimal: true,
+                                matchTargetWidth: true,
+                            }
+                        }
+                        onItemSelect={setPluginTemplate}
+                        filterable={false}
+                        fill={true}
+                    >
+                        <Button fill={true} text={pluginTemplate.title} rightIcon="double-caret-vertical"/>
+                    </Select>
                 </FormGroup>
+                <div style={{marginBottom: "10px", textAlign: "-webkit-center"}}>
+                    <div className={`new-template-image-${pluginTemplate.value}`}></div>
+                </div>
+                <Button fill={true} text={"Open editor"} intent={"primary"}
+                              rightIcon={"share"}
+                        onClick={() => window.electron.openEditorWindow({name: pluginName, template: pluginTemplate.value})}/>
+                <Divider />
                 <FormGroup
                     label="...or you may upload your plugin:"
                     labelFor="plugin-upload"
                 >
-                    <Button id={"plugin-upload"} loading={uploadLoading} icon="upload" text="Upload" onClick={handleFileUpload}/>
+                    <Button id={"plugin-upload"} loading={uploadLoading} icon="upload" text="Upload"
+                            onClick={handleFileUpload}/>
+                </FormGroup>
+                <Divider />
+                <FormGroup
+                    label="...or you may download from URL:"
+                    labelFor="plugin-from-url"
+                >
+                    <InputGroup id={"plugin-from-url"} value={pluginUrl} onValueChange={setPluginUrl}
+                                placeholder="https://dl.plugins.fdo.alexvwan.me/example-plugin"
+                                fill={true} rightElement={<Button text={"Download"} />}/>
                 </FormGroup>
             </DialogBody>
-            <DialogFooter actions={<Button onClick={createPlugin} loading={createLoading} intent="success">Create</Button>}></DialogFooter>
+            <DialogFooter actions={<Button onClick={createPlugin} loading={createLoading}
+                                           intent="success">Create</Button>}></DialogFooter>
         </Dialog>
     )
 }

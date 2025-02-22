@@ -11,7 +11,6 @@ contextBridge.exposeInMainWorld('electron', {
     },
     OpenFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
     GetPluginData: (filePath) => ipcRenderer.invoke('get-plugin-data', filePath),
-    SamplePlugin: (name) => ipcRenderer.invoke('sample-plugin', name),
     SavePlugin: (content) => ipcRenderer.invoke('save-plugin', content),
     GetAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
     GetActivatedPlugins: () => ipcRenderer.invoke('get-activated-plugins'),
@@ -21,4 +20,9 @@ contextBridge.exposeInMainWorld('electron', {
     loadPlugin: (id) => ipcRenderer.send("load-plugin", id),
     onPluginLoaded: (callback) =>
         ipcRenderer.on("plugin-loaded", (_, plugin) => callback(plugin)),
+    onPluginUnLoaded: (callback) =>
+        ipcRenderer.on("plugin-unloaded", (_, plugin) => callback(plugin)),
+    openEditorWindow: (data) => ipcRenderer.send('open-editor-window', data),
+    GetEditorFilesTree: (rootFolder) => ipcRenderer.invoke('get-editor-files-tree', rootFolder),
+    GetModuleFiles: () => ipcRenderer.invoke('get-module-files')
 })

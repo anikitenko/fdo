@@ -1,16 +1,18 @@
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { HashRouter, Route, Routes } from 'react-router-dom';
 
 import Home from './Home.jsx';
 import {PluginPage} from "./components/plugin/PluginPage.jsx";
+import {EditorPage} from "./components/editor/EditorPage.jsx";
 
 function App() {
     return (
-        <Router>
+        <HashRouter>
             <Routes>
-                <Route path="/plugin/" element={<PluginPage />} />
-                <Route path="*" element={<Home />} />
+                <Route path="/plugin" element={<PluginPage />} />
+                <Route path="/editor" element={<EditorPage />} />
+                <Route path="/" exact element={<Home />} />
             </Routes>
-        </Router>
+        </HashRouter>
     );
 }
 

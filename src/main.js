@@ -1,13 +1,12 @@
-import {app, BrowserWindow, nativeTheme} from 'electron';
+import {app, BrowserWindow, ipcMain, nativeTheme} from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
 import {existsSync, mkdirSync} from "node:fs";
 
-const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
-const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins.json');
-
-console.log("Module system:", typeof module !== "undefined" ? "CommonJS" : "ESM");
+export const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
+export const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
+export const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins.json');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -17,6 +16,7 @@ if (started) {
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
+    icon: 'assets/desktop_icon.png',
     width: 1024,
     height: 800,
     minWidth: 800,
@@ -31,9 +31,29 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  new PluginManager(mainWindow, PLUGINS_REGISTRY_FILE);
+  nativeTheme.themeSource = 'dark';
 
-  nativeTheme.themeSource = 'dark'
+  global.PLUGIN_MANAGER = new PluginManager(mainWindow, USER_CONFIG_FILE, PLUGINS_REGISTRY_FILE)
+
+  ipcMain.on('open-editor-window', (_event, data) => {
+    if (global.editorWindow) return; // Prevent multiple windows
+
+    global.editorWindow = new BrowserWindow({
+      width: 1024,
+      height: 800,
+      minWidth: 800,
+      minHeight: 600,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      },
+    });
+
+    const encodedData = encodeURIComponent(JSON.stringify(data));
+    global.editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`); // Load a specific route
+    global.editorWindow.on('closed', () => (global.editorWindow = null));
+  });
 };
 
 // This method will be called when Electron has finished

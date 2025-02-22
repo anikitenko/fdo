@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react'
-import {Alignment, Button, Card, Intent, Menu, MenuItem, Navbar, Popover, Tooltip} from "@blueprintjs/core";
+import {Alignment, Button, Intent, Menu, MenuItem, Navbar, Popover, Tooltip} from "@blueprintjs/core";
 import './Home.scss'
 import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx";
 import {MultiSelect} from "@blueprintjs/select";
@@ -18,6 +18,7 @@ function Home() {
         plugins: [],
         items: [],
     });
+    const [pluginId, setPluginId] = useState(null);
 
     const INTENTS = [Intent.NONE, Intent.PRIMARY, Intent.SUCCESS, Intent.DANGER, Intent.WARNING];
     const getTagProps = (_value, index) => ({
@@ -128,7 +129,7 @@ function Home() {
     }
 
     const selectPlugins = (pluginsToSelect) => {
-        setState(({ createdItems, plugins, items }) => {
+        setState(({createdItems, plugins, items}) => {
             let nextCreatedItems = createdItems.slice();
             let nextPlugins = plugins.slice();
             let nextItems = items.slice();
@@ -151,30 +152,16 @@ function Home() {
     }
 
     const deselectPlugin = (index) => {
-        const { plugins } = state;
-
+        const {plugins} = state;
         const plugin = plugins[index];
-        const { createdItems: nextCreatedItems, items: nextItems } = maybeDeleteCreatedPluginFromArrays(
-            state.items,
-            state.createdItems,
-            plugin,
-        );
-
         // Delete the item if the user manually created it. (const wasItemCreatedByUser = false)
-
-        window.electron.DeactivatePlugin(plugin.id).then (async (result) => {
+        window.electron.DeactivatePlugin(plugin.id).then(async (result) => {
             if (result) {
-                if (result.success) {
-                    setState( {
-                        createdItems: nextCreatedItems,
-                        plugins: plugins.filter((_plugin, i) => i !== index),
-                        items: nextItems,
-                    });
-                } else {
-                    (await AppToaster).show({ message: `Error: ${result.error}`, intent: "danger" });
+                if (!result.success) {
+                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
                 }
             } else {
-                (await AppToaster).show({ message: `Failed to deactivate plugin`, intent: "danger" });
+                (await AppToaster).show({message: `Failed to deactivate plugin`, intent: "danger"});
             }
         });
     }
@@ -184,15 +171,13 @@ function Home() {
     };
 
     const selectPlugin = (plugin) => {
-        window.electron.ActivatePlugin(plugin.id).then (async (result) => {
+        window.electron.ActivatePlugin(plugin.id).then(async (result) => {
             if (result) {
-                if (result.success) {
-                    selectPlugins([plugin])
-                } else {
-                    (await AppToaster).show({ message: `Error: ${result.error}`, intent: "danger" });
+                if (!result.success) {
+                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
                 }
             } else {
-                (await AppToaster).show({ message: `Failed to activate plugin`, intent: "danger" });
+                (await AppToaster).show({message: `Failed to activate plugin`, intent: "danger"});
             }
         });
     };
@@ -216,7 +201,7 @@ function Home() {
     }
 
     const handlePluginsClear = () => {
-        window.electron.DeactivateAllPlugins().then (async (result) => {
+        window.electron.DeactivateAllPlugins().then(async (result) => {
             if (result) {
                 if (result.success) {
                     setState(prevState => (
@@ -225,10 +210,10 @@ function Home() {
                         }
                     ))
                 } else {
-                    (await AppToaster).show({ message: `Error: ${result.error}`, intent: "danger" });
+                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
                 }
             } else {
-                (await AppToaster).show({ message: `Failed to deactivate all plugin`, intent: "danger" });
+                (await AppToaster).show({message: `Failed to deactivate all plugin`, intent: "danger"});
             }
         });
     };
@@ -248,13 +233,14 @@ function Home() {
         return pluginA.name.toLowerCase() === pluginB.name.toLowerCase();
     }
 
-    const renderCustomPluginsTarget = () => <NavigationPluginsButton countEnabled={state.plugins.length} countDisabled={state.items.length - state.plugins.length} />;
+    const renderCustomPluginsTarget = () => <NavigationPluginsButton countEnabled={state.plugins.length}
+                                                                     countDisabled={state.items.length - state.plugins.length}/>;
 
     const showMorePlugins = (buttons) => {
         return (
             <Menu>
                 {buttons.slice(visibleButtons.length).map((button, index) => (
-                    <MenuItem key={index} text={button.name} icon={button.icon} />
+                    <MenuItem key={index} text={button.name} icon={button.icon}/>
                 ))}
             </Menu>
         )
@@ -271,6 +257,7 @@ function Home() {
     }
 
     const renderCreatePluginsMenuItem = (query, active, handleClick) => (
+        <>
         <MenuItem
             icon="add"
             text={`Create ${printReadableList(query)}`}
@@ -279,16 +266,26 @@ function Home() {
             onClick={handleClick}
             shouldDismissPopover={false}
         />
+            {renderManagePluginsMenuItem()}
+            </>
     );
 
+    const renderManagePluginsMenuItem = () => (
+        <MenuItem
+            icon="cog"
+            text="Manage plugins..."
+            roleStructure="listoption"
+        />
+    )
+
     useEffect(() => {
-        window.electron.GetAllPlugins().then ((allPlugins) => {
-            window.electron.GetActivatedPlugins().then ((activePlugins) => {
+        window.electron.onPluginLoaded((loadedPlugin) => {
+            window.electron.GetAllPlugins().then((allPlugins) => {
                 setState(prevState => (
                     {
                         ...prevState, items: allPlugins.plugins.map(plugin => {
                             const currPlugin = {...plugin, ...plugin.metadata, metadata: undefined};
-                            if (activePlugins.plugins.some(item => item === currPlugin.id)) {
+                            if (loadedPlugin === currPlugin.id) {
                                 selectPlugin(currPlugin);
                             }
                             return currPlugin;
@@ -297,7 +294,20 @@ function Home() {
                 ))
             })
         })
-
+        window.electron.onPluginUnLoaded((unLoadedPlugin) => {
+            const {plugins} = state;
+            const plugin = plugins.map((p) => {return p.id === unLoadedPlugin});
+            const {createdItems: nextCreatedItems, items: nextItems} = maybeDeleteCreatedPluginFromArrays(
+                state.items,
+                state.createdItems,
+                plugin,
+            );
+            setState({
+                createdItems: nextCreatedItems,
+                plugins: plugins.filter((_plugin, i) => i !== index),
+                items: nextItems,
+            });
+        })
     }, []);
 
     return (
@@ -311,7 +321,8 @@ function Home() {
                                 content={`${button.name} (${button.description})`}
                                 placement="bottom"
                             >
-                                <Button minimal text={<span className="truncate">{button.name}</span>}
+                                <Button onClick={() => alert(button.id)} minimal
+                                        text={<span className="truncate">{button.name}</span>}
                                         rightIcon={button.icon} className="host-manager-btn"/>
                             </Tooltip>
                             <Navbar.Divider hidden={index + 1 === visibleButtons.length}/>
@@ -344,8 +355,13 @@ function Home() {
                         onClear={handlePluginsClear}
                         popoverProps={{matchTargetWidth: false, minimal: true}}
                         popoverRef={popoverRef}
-                        menuProps={{ "aria-label": "plugins" }}
-                        noResults={<MenuItem disabled={true} text="No plugins." roleStructure="listoption" />}
+                        menuProps={{"aria-label": "plugins"}}
+                        noResults={
+                            <>
+                            <MenuItem disabled={true} text="No plugins." roleStructure="listoption"/>
+                            {renderManagePluginsMenuItem()}
+                            </>
+                        }
                         placeholder={"Search or type to create a new plugin..."}
                         createNewItemFromQuery={createPlugins}
                         createNewItemRenderer={renderCreatePluginsMenuItem}
@@ -353,7 +369,7 @@ function Home() {
                     <Button minimal text="Settings" rightIcon="cog"/>
                 </Navbar.Group>
             </Navbar>
-            {/*<PluginContainer id={"hgghdm"} />*/}
+            {pluginId && <PluginContainer id={pluginId}/>}
             <CreatePluginDialog show={showCreateDialog}
                                 close={() => setShowCreateDialog(false)}
                                 name={createDialogName}

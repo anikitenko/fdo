@@ -35,7 +35,7 @@ export const PluginContainer = ({id}) => {
     return (
         <div style={{height: "100%", margin: 0, padding: 0, overflow: "hidden"}}>
             <iframe
-                src={`/plugin/?data=${encodedPluginData}`}
+                src={`/#/plugin?data=${encodedPluginData}`}
                 sandbox="allow-scripts"
                 style={{width: "100%", height: height, border: "none", overflow: "hidden", boxSizing: "border-box"}}
             />

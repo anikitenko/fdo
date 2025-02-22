@@ -25,6 +25,7 @@
     "@electron/fuses": "^1.8.0",
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
     "babel-loader": "^9.2.1",
+    "copy-webpack-plugin": "^12.0.2",
     "css-loader": "^6.11.0",
     "electron": "34.1.1",
     "node-loader": "^2.1.0",
@@ -40,16 +41,21 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@anikitenko/fdo-sdk": "^1.0.7",
+    "@anikitenko/fdo-sdk": "^1.0.10",
     "@blueprintjs/core": "^5.16.4",
     "@blueprintjs/select": "^5.3.9",
     "@codemirror/lang-json": "^6.0.1",
+    "@monaco-editor/react": "^4.7.0",
     "@uiw/codemirror-theme-okaidia": "^4.23.8",
     "@uiw/react-codemirror": "^4.23.8",
     "ajv": "^8.17.1",
     "electron-squirrel-startup": "^1.0.1",
+    "lodash": "^4.17.21",
+    "monaco-editor": "^0.52.2",
+    "monaco-editor-webpack-plugin": "^7.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.1.5"
+    "react-router-dom": "^7.1.5",
+    "react-split-grid": "^1.0.4"
   }
 }

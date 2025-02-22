@@ -17,3 +17,30 @@
     border-radius: 4px;
     overflow: hidden;
 }
+
+.new-template-image-blank {
+    border-radius: 10px;
+    width: 250px;
+    height: 250px;
+    background-image: url('./../../assets/create-plugin-templates/blank.png');
+    background-size: cover;
+    background-position: center;
+}
+
+.new-template-image-horDivided {
+    border-radius: 10px;
+    width: 250px;
+    height: 250px;
+    background-image: url('./../../assets/create-plugin-templates/horizontal.png');
+    background-size: cover;
+    background-position: center;
+}
+
+.new-template-image-verDivided {
+    border-radius: 10px;
+    width: 250px;
+    height: 250px;
+    background-image: url('./../../assets/create-plugin-templates/vertical.png');
+    background-size: cover;
+    background-position: center;
+}

@@ -28,8 +28,10 @@ export const PluginPage = () => {
         `;
         iframeDocument.head.appendChild(style);
 
+
+        // Unmounting component
         return () => {
-            iframeDocument.head.removeChild(style); // Clean up on unmount
+            iframeDocument.head.removeChild(style);
         };
     }, []);
     return (

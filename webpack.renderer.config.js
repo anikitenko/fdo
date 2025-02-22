@@ -1,3 +1,6 @@
+const MonacoWebpackPlugin = require("monaco-editor-webpack-plugin");
+const CopyWebpackPlugin = require("copy-webpack-plugin");
+const path = require("path");
 module.exports = {
   module: {
     rules: [
@@ -30,7 +33,24 @@ module.exports = {
           "sass-loader",
         ],
       },
+      {
+        test: /\.ttf$/,
+        type: 'asset/resource'
+      }
     ],
   },
+  plugins: [
+    new MonacoWebpackPlugin({
+      languages: ["css", "dockerfile", "html", "ini", "javascript", "markdown", "mysql", "perl", "pgsql", "typescript", "json"]
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: path.resolve(__dirname, "node_modules/@anikitenko"),
+          to: "node_modules/@anikitenko",
+        },
+      ],
+    }),
+  ],
 };
 

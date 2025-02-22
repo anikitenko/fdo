@@ -1,22 +1,16 @@
-import {app, contextBridge, dialog, ipcMain} from "electron";
+import {dialog, ipcMain} from "electron";
 import ValidatePlugin from "./components/plugin/ValidatePlugin";
-import {readFileSync, unlink, writeFileSync} from "node:fs";
+import {readFileSync, writeFileSync} from "node:fs";
 import PluginORM from "./utils/PluginORM";
 import path from "node:path";
 import UserORM from "./utils/UserORM";
-import {FDO_SDK, EXAMPLE} from "@anikitenko/fdo-sdk";
+import {FDO_SDK} from "@anikitenko/fdo-sdk";
+import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "./main";
+import {buildFilesTreeWithRoot, getFilesTree} from "./utils/buildFilesTree";
 
-const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
-const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
-const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins.json');
-
-const SDKInstance = new FDO_SDK();
+//const SDKInstance = new FDO_SDK();
 // In your React component (or any JS file in the renderer process)
-contextBridge.exposeInMainWorld('sdk', SDKInstance);
-
-ipcMain.handle('sample-plugin', async (event, name) => {
-    return EXAMPLE;
-})
+//contextBridge.exposeInMainWorld('sdk', SDKInstance);
 
 ipcMain.handle('open-file-dialog', async () => {
     const result = await dialog.showOpenDialog({
@@ -24,7 +18,7 @@ ipcMain.handle('open-file-dialog', async () => {
         buttonLabel: 'Upload',
         properties: ['openFile'],
         filters: [
-            { name: 'JS Modules', extensions: ['js'] },
+            { name: 'FDO Modules (ES)', extensions: ['mjs'] },
         ]
     });
 
@@ -51,7 +45,7 @@ ipcMain.handle('save-plugin', async (event, content) => {
     const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
     try {
         const pluginName = FDO_SDK.generatePluginName(content.name)
-        const pluginPath = path.join(PLUGINS_DIR, `${pluginName}.ts`);
+        const pluginPath = path.join(PLUGINS_DIR, `${pluginName}.mjs`);
         if (!pluginORM.isInstalled(pluginName)) {
             writeFileSync(pluginPath, content.data);
             const plugin = ValidatePlugin(pluginPath);
@@ -83,6 +77,7 @@ ipcMain.handle('get-all-plugins', async () => {
 ipcMain.handle('activate-plugin', async (event, id) => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {
+        global.PLUGIN_MANAGER.loadPlugin(id)
         userORM.activatePlugin(id)
         return { success: true };
     }  catch (error) {
@@ -93,6 +88,7 @@ ipcMain.handle('activate-plugin', async (event, id) => {
 ipcMain.handle('deactivate-plugin', async (event, id) => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {
+        global.PLUGIN_MANAGER.unLoadPlugin(id)
         userORM.deactivatePlugin(id)
         return { success: true };
     }  catch (error) {
@@ -113,8 +109,28 @@ ipcMain.handle('get-activated-plugins', async () => {
 ipcMain.handle('deactivate-all-plugins', async () => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {
+        global.PLUGIN_MANAGER.unLoadPlugins()
         userORM.deactivateAllPlugins()
         return { success: true };
+    }  catch (error) {
+        return { success: false, error: error.message };
+    }
+})
+
+ipcMain.handle('get-editor-files-tree', async (event, rootFolder) => {
+    try {
+        const localPath = path.resolve(__dirname, "../renderer/node_modules"); // Change this to your target folder
+        const filesTree = buildFilesTreeWithRoot(localPath, rootFolder);
+        return { success: true, filesTree: filesTree};
+    }  catch (error) {
+        return { success: false, error: error.message };
+    }
+})
+
+ipcMain.handle('get-module-files', async (event, rootFolder) => {
+    try {
+        const filesTree = getFilesTree(__dirname, "../renderer/node_modules")
+        return { success: true, files: filesTree};
     }  catch (error) {
         return { success: false, error: error.message };
     }
