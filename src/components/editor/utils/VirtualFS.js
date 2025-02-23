@@ -159,7 +159,7 @@ const virtualFS =  {
         return {
             id,
             label: name,
-            icon: <img src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)} width="16" height="16" alt="icon"/>,
+            icon: <img className={"file-tree-icon"} src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)} width="16" height="16" alt="icon"/>,
             isExpanded: false,
             type: type,
             isSelected: isSelected,
