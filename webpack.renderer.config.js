@@ -36,6 +36,10 @@ module.exports = {
       {
         test: /\.ttf$/,
         type: 'asset/resource'
+      },
+      {
+        test: /\.svg$/,
+        type: "asset/resource",
       }
     ],
   },
@@ -48,6 +52,15 @@ module.exports = {
         {
           from: path.resolve(__dirname, "node_modules/@anikitenko"),
           to: "node_modules/@anikitenko",
+          noErrorOnMissing: true,
+          globOptions: {
+            dot: true,
+            ignore: ['**/fdo-sdk.bundle.js', '**/fdo-sdk.bundle.js.map']
+          }
+        },
+        {
+          from: path.resolve(__dirname, "src/assets"),
+          to: "assets",
         },
       ],
     }),
