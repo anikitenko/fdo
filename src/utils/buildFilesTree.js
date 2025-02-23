@@ -36,9 +36,6 @@ export function buildFilesTree(dirPath, relativePath = "node_modules") {
         } else if (ext === ".xml") {
             tree.language = "xml";
         }
-        const data = fs.readFileSync(dirPath,
-            { encoding: 'utf8', flag: 'r' });
-        tree.content = data
     }
 
     return tree;
