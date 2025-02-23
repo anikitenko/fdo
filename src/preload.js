@@ -23,6 +23,5 @@ contextBridge.exposeInMainWorld('electron', {
     onPluginUnLoaded: (callback) =>
         ipcRenderer.on("plugin-unloaded", (_, plugin) => callback(plugin)),
     openEditorWindow: (data) => ipcRenderer.send('open-editor-window', data),
-    GetEditorFilesTree: (rootFolder) => ipcRenderer.invoke('get-editor-files-tree', rootFolder),
     GetModuleFiles: () => ipcRenderer.invoke('get-module-files')
 })

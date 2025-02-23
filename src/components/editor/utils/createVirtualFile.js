@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor';
 import {BLANK_TEMPLATE, HORIZONTAL_DIVIDED_TEMPLATE, VERTICAL_DIVIDED_TEMPLATE} from "./virtualTemplates";
+import virtualFS from "./VirtualFS";
 
 export function createVirtualFile(filePath, content, template) {
     const uri = monaco.Uri.parse(`file://${filePath}`);
@@ -13,7 +14,7 @@ export function createVirtualFile(filePath, content, template) {
         model.setValue(fileContent);
     }
 
-    return {model: model, filePath: filePath};
+    virtualFS.createFile(filePath, model)
 }
 
 function getLanguage(filePath) {

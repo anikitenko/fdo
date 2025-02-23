@@ -1,161 +1,48 @@
 import {useLocation} from "react-router-dom";
 import PropTypes from 'prop-types';
 import Split from "react-split-grid";
-import {getIconForFile, getIconForFolder, getIconForOpenFolder} from 'vscode-icons-js';
+import {getIconForFolder, getIconForOpenFolder} from 'vscode-icons-js';
 import * as monaco from 'monaco-editor';
 import {Editor, loader} from '@monaco-editor/react';
 
 import './EditorPage.css'
-//import './Monaco.css'
 import {useEffect, useRef, useState} from "react";
 import {Button, Card, InputGroup, Menu, MenuItem, showContextMenu, Tooltip, Tree} from "@blueprintjs/core";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
 import {setupVirtualWorkspace} from "./utils/setupVirtualWorkspace";
-import {VirtualFS} from "./utils/VirtualFS";
+import virtualFS from "./utils/VirtualFS";
+import {packageDefaultContent} from "./utils/packageDefaultContent";
 
-const itemInTree = (id, type = "file", isExpanded = false) => {
-    const name = id.split("/").pop();
-    const iconExpanded = isExpanded ? "/assets/icons/vscode/" + getIconForOpenFolder(name) : "/assets/icons/vscode/" + getIconForFolder(name)
-    return {
-        id,
-        label: name,
-        type: type,
-        icon: <img src={type === "folder" ? iconExpanded : "/assets/icons/vscode/" + getIconForFile(name)}
-                   width="16" height="16" alt="icon"/>,
-        isExpanded,
-        hasCaret: type === "folder",
-        className: "mouse-pointer",
-        childNodes: type === "folder" ? [] : undefined,
-    }
-}
-
-function buildFileTree(paths, rootId = "", name="") {
-    const root = itemInTree(name, "folder", true); // Root is expanded
-    const nodeMap = { [rootId]: root };
-
-    paths.sort(); // Ensure sorting before processing
-
-    paths.forEach((filePath) => {
-        if (filePath.includes("__default_new_file__.txt")) {
-            return
-        }
-        const parts = filePath.split("/").filter(Boolean);
-        let currentPath = rootId;
-        let currentNode = root;
-
-        parts.forEach((part, index) => {
-            const isLast = index === parts.length - 1;
-            const fullPath = `${currentPath}/${part}`;
-
-            if (!nodeMap[fullPath] && fullPath !== rootId) { // Exclude rootId from child nodes
-                const isFolder = !isLast;
-                const newNode = itemInTree(fullPath, isFolder ? "folder" : "file", false);
-                nodeMap[fullPath] = newNode;
-
-                if (!currentNode.childNodes) {
-                    currentNode.childNodes = [];
-                }
-                currentNode.childNodes.push(newNode);
-            }
-
-            currentNode = nodeMap[fullPath];
-            currentPath = fullPath;
-        });
-    });
-
-    // Sort children: directories first, then files
-    function sortChildren(node) {
-        if (node.childNodes) {
-            node.childNodes.sort((a, b) => {
-                if (a.type === "folder" && b.type === "file") return -1;
-                if (a.type === "file" && b.type === "folder") return 1;
-                return a.label.localeCompare(b.label);
-            });
-            node.childNodes.forEach(sortChildren);
-        }
-    }
-
-    sortChildren(root);
-    return root;
-}
-
-const FileBrowser = ({name, files, setSelectedFile, addTab, switchFilePath}) => {
-    const [treeData, setTreeData] = useState([]);
-
-    const findNodeByIdIterative = (id) => {
-        const stack = [...treeData];
-
-        while (stack.length) {
-            const node = stack.pop();
-            if (node.id === id) return node;
-            if (node.childNodes?.length) stack.push(...node.childNodes);
-        }
-
-        return null;
-    };
+const FileBrowser = () => {
+    const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
+    const treeRef = useRef(null)
 
     useEffect(() => {
-        const blueprintTree = buildFileTree(files, "", name);
-        setTreeData([blueprintTree]);
-    }, [files]);
-
-    useEffect(() => {
-        if (switchFilePath && switchFilePath !== "") {
-            const node = findNodeByIdIterative(switchFilePath);
-            setSelectedFile(node);
-            addTab(node);
-        }
-    }, [switchFilePath]);
-
-    const treeRef = useRef(null);
-
-    // Recursively find and update a node immutably
-    const updateTreeNode = (nodes, nodeId, changes) => {
-        return nodes.map((n) => {
-            if (n.id === nodeId) {
-                return {...n, ...changes}; // Create a new object with updates
-            } else if (n.childNodes) {
-                return {...n, childNodes: updateTreeNode(n.childNodes, nodeId, changes)};
-            }
-            return n;
-        });
-    };
-
-    const updateSelectedNode = (nodes, nodeId) => {
-        return nodes.map((n) => {
-            if (n.id === nodeId) {
-                return {...n, isSelected: true}; // Create a new object with updates
-            } else {
-                return {
-                    ...n, isSelected: false, // Ensure all other nodes are false
-                    childNodes: n.childNodes ? updateSelectedNode(n.childNodes, nodeId) : n.childNodes
-                };
-            }
-        });
-    };
+        const unsubscribe = virtualFS.subscribe("treeUpdate", setTreeData);
+        return () => unsubscribe(); // Cleanup
+    }, []);
 
     // Handle expand/collapse
     const handleNodeExpand = (node) => {
-        setTreeData((prevTree) => updateTreeNode(prevTree, node.id, {
+        virtualFS.updateTreeObjectItem(node.id, {
             isExpanded: true,
             icon: <img src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="16" height="16"
                        alt="icon"/>
-        }));
+        })
     };
 
     const handleNodeCollapse = (node) => {
-        setTreeData((prevTree) => updateTreeNode(prevTree, node.id, {
+        virtualFS.updateTreeObjectItem(node.id, {
             isExpanded: false,
-            icon: <img src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="16" height="16" alt="icon"/>
-        }));
+            icon: <img src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="16" height="16"
+                       alt="icon"/>
+        })
     };
 
     // Handle file selection
     const handleNodeClick = (node) => {
         if (node.type === "file") {
-            setSelectedFile(node);
-            addTab(node);
-            setTreeData((prevTree) => updateSelectedNode(prevTree, node.id));
+            virtualFS.setTreeObjectItemBool(node.id, "isSelected")
         } else {
             node.isExpanded ? handleNodeCollapse(node) : handleNodeExpand(node);
         }
@@ -191,54 +78,48 @@ const FileBrowser = ({name, files, setSelectedFile, addTab, switchFilePath}) => 
         />
     )
 }
-FileBrowser.propTypes = {
-    name: PropTypes.string.isRequired,
-    files: PropTypes.array.isRequired,
-    setSelectedFile: PropTypes.func.isRequired,
-    addTab: PropTypes.func.isRequired,
-    switchFilePath: PropTypes.any
-};
 
-const FileTabs = ({openTabs, activeFile, setActiveFile, closeTab, setSelectedFile}) => (
+const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => (
     <div className={"file-tabs"}>
         {openTabs.map((file) => (
-            <div role={"button"} key={file.id}
-                 className={"file-tab" + (file.id === activeFile.id ? " active" : "")}
+            <Button key={file.id} icon={file.icon} small={file.id !== activeTab.id}
+                 className={"file-tab" + (file.id === activeTab.id ? " active" : "")}
                  onClick={() => {
-                     setActiveFile(file);
-                     setSelectedFile(file)
+                     setActiveTab(file);
+                     if (virtualFS.getTreeObjectItemSelected().id === file.id) {
+                         codeEditor.setModel(virtualFS.getModel(file.id))
+                     } else {
+                         virtualFS.setTreeObjectItemBool(file.id, "isSelected")
+                     }
                  }}
             >
                 <Tooltip content={file.id} placement={"bottom-end"} minimal={true} lazy={true}
                          className={"file-tab-tooltip"}>
                     {file.label}
                 </Tooltip>
-                {file.icon}
-                <span role={"button"}
+                <Button icon={"cross"} minimal={true} small={true}
                       className={"close-tab-btn"}
                       onClick={(e) => {
                           e.stopPropagation();
                           closeTab(file);
                       }}
                 >
-          ✕
-                </span>
-            </div>
+                </Button>
+            </Button>
         ))}
     </div>
 );
 FileTabs.propTypes = {
     openTabs: PropTypes.array.isRequired,
-    activeFile: PropTypes.any,
-    setActiveFile: PropTypes.func.isRequired,
+    activeTab: PropTypes.any,
+    setActiveTab: PropTypes.func.isRequired,
     closeTab: PropTypes.func.isRequired,
-    setSelectedFile: PropTypes.func.isRequired,
+    codeEditor: PropTypes.any
 }
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
     loader.config({monaco});
-    const virtualFS = new VirtualFS();
 
     const location = useLocation();
     // Extract data from the query parameter
@@ -249,84 +130,101 @@ export const EditorPage = () => {
 
 
     const [codeEditor, setCodeEditor] = useState(null)
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [openTabs, setOpenTabs] = useState([]);
-    const [activeFile, setActiveFile] = useState(null);
-    const [defaultFileContent, setDefaultFileContent] = useState("")
-    const [defaultNewFile, setDefaultNewFile] = useState(null);
-    const [treeFilesPaths, setTreeFilesPaths] = useState([])
-    const [switchFilePath, setSwitchFilePath] = useState("")
+    const [selectedFile, setSelectedFile] = useState(virtualFS.getTreeObjectItemSelected())
+    const [openTabs, setOpenTabs] = useState([])
+    const [activeTab, setActiveTab] = useState(null)
+    const [jumpTo, setJumpTo] = useState(null)
     const addTab = (file) => {
         if (!openTabs.some((tab) => tab.id === file.id)) {
-            setOpenTabs((prevTabs) => [...prevTabs, file]);
+            setOpenTabs((prevTabs) => [...prevTabs, file])
         }
-        setActiveFile(file);
+        setActiveTab(file)
     };
     const closeTab = (file) => {
-        setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.id !== file.id));
+        setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.id !== file.id))
 
         // If closing the active file, switch to the first open tab
-        if (activeFile.id === file.id) {
-            const remainingTabs = openTabs.filter((tab) => tab.id !== file.id);
+        if (activeTab.id === file.id) {
+            const remainingTabs = openTabs.filter((tab) => tab.id !== file.id)
             if (remainingTabs.length > 0) {
-                setActiveFile(remainingTabs[remainingTabs.length - 1])
-                setSelectedFile(remainingTabs[remainingTabs.length - 1])
+                //setActiveTab(remainingTabs[remainingTabs.length - 1])
+                virtualFS.setTreeObjectItemBool(remainingTabs[remainingTabs.length - 1].id, "isSelected")
             } else {
-                setActiveFile(null);
-                setSelectedFile(defaultNewFile);
+                //setActiveTab(null)
+                setSelectedFile(virtualFS.createEmptyFile(rootFolder));
             }
         }
     };
 
     monaco.editor.onDidCreateEditor(async () => {
-        const result = await setupVirtualWorkspace(rootFolder, pluginTemplate)
-        for (const idx in result.models) {
-            virtualFS.createFile(result.models[idx].filePath, result.models[idx].model)
-        }
-        virtualFS.createFile(result.defaultFile.filePath, result.defaultFile.model)
-        const defaultFile = itemInTree(result.defaultFile.filePath)
-        virtualFS.createFile(result.defaultNewFile.filePath, result.defaultNewFile.model)
-        setTreeFilesPaths(virtualFS.listFiles())
-        setDefaultNewFile(itemInTree(result.defaultNewFile.filePath))
-        setSelectedFile(defaultFile)
-        setOpenTabs([defaultFile])
-        setActiveFile(defaultFile)
-        setDefaultFileContent(result.sampleFileContent)
+        await setupVirtualWorkspace(rootFolder, pluginTemplate)
     })
 
     useEffect(() => {
         if (!codeEditor) return;
-        codeEditor.addCommand(
-            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, // CTRL/CMD + S
-            () => {
+        codeEditor.addAction({
+            // A unique identifier of the contributed action.
+            id: "editor-go-fullscreen",
+            // A label of the action that will be presented to the user.
+            label: "Open in fullscreen",
+            // An optional array of keybindings for the action.
+            keybindings: [
+                monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, // CTRL/CMD + Shift + F
+            ],
+            // A precondition for this action.
+            precondition: null,
+            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
+            keybindingContext: null,
+            contextMenuGroupId: "navigation",
+            contextMenuOrder: 1.5,
+
+            // Method that will be executed when the action is triggered.
+            // @param editor The editor instance is passed in as a convenience
+            run: function (ed) {
+                ed.focus()
                 let itm = document.getElementById("code-editor");
                 if (itm.requestFullscreen) {
-                    itm.requestFullscreen();
+                    itm.requestFullscreen().then(() => ({}));
                 }
-            }
-        );
+            },
+        });
         const editorService = codeEditor._codeEditorService;
         const openEditorBase = editorService.openCodeEditor.bind(editorService);
         editorService.openCodeEditor = async (input, source) => {
             const result = await openEditorBase(input, source);
             if (result === null) {
-                const filePath = virtualFS.getFileName(monaco.editor.getModel(input.resource))
-                setSwitchFilePath(filePath)
+                setJumpTo({
+                    model: monaco.editor.getModel(input.resource),
+                    options: {
+                        selection: input.options.selection
+                    }
+                })
             }
             return result; // always return the base result
         };
     }, [codeEditor]);
 
     useEffect(() => {
+        if (jumpTo) {
+            if (jumpTo.model) {
+                const filePath = virtualFS.getFileName(jumpTo.model)
+                addTab(virtualFS.getTreeObjectItemById(filePath))
+                codeEditor.setModel(jumpTo.model);
+                codeEditor.setSelection(jumpTo.options.selection);
+            }
+        }
+    }, [jumpTo]);
+
+    useEffect(() => {
         if (selectedFile) {
-            codeEditor.setModel(virtualFS.getModel(selectedFile.id))
+            addTab(selectedFile)
         }
     }, [selectedFile]);
 
-    function handleEditorChange(value, event) {
+    function handleEditorChange(value) {
         const path = selectedFile.id;
-        console.log(path)
-        //setFiles({ ...files, [activeFile]: value });
+        if (path === "Untitled") {return}
+        console.log(value)
     }
 
     const openCodePaletteShow = () => {
@@ -349,7 +247,12 @@ export const EditorPage = () => {
         window.addEventListener("resize", updatePaletteLeft);
         updatePaletteLeft(); // Initial update
 
-        return () => window.removeEventListener("resize", updatePaletteLeft);
+        const unsubscribe = virtualFS.subscribe("fileSelected", setSelectedFile);
+
+        return () => {
+            window.removeEventListener("resize", updatePaletteLeft)
+            unsubscribe()
+        }
     }, []);
 
     return (
@@ -378,24 +281,24 @@ export const EditorPage = () => {
                     <div className="bp5-dark grid-container" {...getGridProps()}>
                         <div className="file-explorer">
                             <Card style={{height: "100%"}}>
-                                <FileBrowser name={rootFolder} setSelectedFile={setSelectedFile} addTab={addTab} files={treeFilesPaths} switchFilePath={switchFilePath}/>
+                                <FileBrowser/>
                             </Card>
                         </div>
                         <div className="gutter" {...getGutterProps('column', 1)}></div>
                         <div id={"code-editor"} className="code-editor">
-                            <FileTabs activeFile={activeFile} setActiveFile={setActiveFile}
-                                      openTabs={openTabs} closeTab={closeTab} setSelectedFile={setSelectedFile}/>
+                            <FileTabs activeTab={activeTab} setActiveTab={setActiveTab}
+                                      openTabs={openTabs} closeTab={closeTab} codeEditor={codeEditor}/>
                             <Editor height="100vh" defaultLanguage="plaintext"
                                     onChange={handleEditorChange}
                                     theme="vs-dark"
-                                    defaultValue={defaultFileContent}
+                                    defaultValue={packageDefaultContent(rootFolder)}
                                     path={selectedFile?.id}
                                     className={"editor-container"}
                                     onMount={(editor) => {
                                         setCodeEditor(editor)
                                     }}
                                     options={{
-                                        minimap: {enabled: false},
+                                        minimap: {enabled: true},
                                         scrollbar: {vertical: "hidden", horizontal: "auto"},
                                         fontSize: 13,
                                     }}

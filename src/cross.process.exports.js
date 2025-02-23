@@ -6,7 +6,7 @@ import path from "node:path";
 import UserORM from "./utils/UserORM";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "./main";
-import {buildFilesTreeWithRoot, getFilesTree} from "./utils/buildFilesTree";
+import {getFilesTree} from "./utils/getFilesTree";
 
 //const SDKInstance = new FDO_SDK();
 // In your React component (or any JS file in the renderer process)
@@ -112,16 +112,6 @@ ipcMain.handle('deactivate-all-plugins', async () => {
         global.PLUGIN_MANAGER.unLoadPlugins()
         userORM.deactivateAllPlugins()
         return { success: true };
-    }  catch (error) {
-        return { success: false, error: error.message };
-    }
-})
-
-ipcMain.handle('get-editor-files-tree', async (event, rootFolder) => {
-    try {
-        const localPath = path.resolve(__dirname, "../renderer/node_modules"); // Change this to your target folder
-        const filesTree = buildFilesTreeWithRoot(localPath, rootFolder);
-        return { success: true, filesTree: filesTree};
     }  catch (error) {
         return { success: false, error: error.message };
     }
