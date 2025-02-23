@@ -1,111 +1,23 @@
 import {useLocation} from "react-router-dom";
 import PropTypes from 'prop-types';
 import Split from "react-split-grid";
-import {getIconForFolder, getIconForOpenFolder} from 'vscode-icons-js';
 import * as monaco from 'monaco-editor';
 import {Editor, loader} from '@monaco-editor/react';
 
 import './EditorPage.css'
-import {useEffect, useRef, useState} from "react";
-import {Button, Card, InputGroup, Menu, MenuItem, showContextMenu, Tooltip, Tree} from "@blueprintjs/core";
+import {useEffect, useState} from "react";
+import {Button, Card, InputGroup} from "@blueprintjs/core";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
 import {setupVirtualWorkspace} from "./utils/setupVirtualWorkspace";
 import virtualFS from "./utils/VirtualFS";
 import {packageDefaultContent} from "./utils/packageDefaultContent";
-
-const FileBrowser = () => {
-    const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
-    const treeRef = useRef(null)
-
-    useEffect(() => {
-        const unsubscribe = virtualFS.subscribe("treeUpdate", setTreeData);
-        return () => unsubscribe(); // Cleanup
-    }, []);
-
-    // Handle expand/collapse
-    const handleNodeExpand = (node) => {
-        virtualFS.updateTreeObjectItem(node.id, {
-            isExpanded: true,
-            icon: <img src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="16" height="16"
-                       alt="icon"/>
-        })
-    };
-
-    const handleNodeCollapse = (node) => {
-        virtualFS.updateTreeObjectItem(node.id, {
-            isExpanded: false,
-            icon: <img src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="16" height="16"
-                       alt="icon"/>
-        })
-    };
-
-    // Handle file selection
-    const handleNodeClick = (node) => {
-        if (node.type === "file") {
-            virtualFS.setTreeObjectItemBool(node.id, "isSelected")
-        } else {
-            node.isExpanded ? handleNodeCollapse(node) : handleNodeExpand(node);
-        }
-    };
-
-
-    const handleContextMenu = (node, path, e) => {
-        const nodeClicked = treeRef.current.getNodeContentElement(node.id);
-        showContextMenu({
-            content: (
-                <Menu className={"editor-context-menu"} small={true}>
-                    <MenuItem className={"editor-context-menu-item"} text="Save"/>
-                    <MenuItem className={"editor-context-menu-item"} text="Save as..."/>
-                    <MenuItem className={"editor-context-menu-item"} text="Delete..." intent="danger"/>
-                </Menu>
-            ),
-            targetOffset: {left: e.clientX, top: e.clientY},
-            onClose: () => {
-                nodeClicked.focus();
-            },
-        })
-    };
-
-    return (
-        <Tree
-            ref={treeRef}
-            compact={true}
-            contents={treeData}
-            onNodeClick={handleNodeClick}
-            onNodeExpand={handleNodeExpand}
-            onNodeCollapse={handleNodeCollapse}
-            onNodeContextMenu={handleContextMenu}
-        />
-    )
-}
+import FileBrowserComponent from "./FileBrowserComponent";
+import FileTabComponent from "./FileTabComponent";
 
 const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => (
     <div className={"file-tabs"}>
         {openTabs.map((file) => (
-            <Button key={file.id} icon={file.icon} small={file.id !== activeTab.id}
-                 className={"file-tab" + (file.id === activeTab.id ? " active" : "")}
-                 onClick={() => {
-                     setActiveTab(file);
-                     if (virtualFS.getTreeObjectItemSelected().id === file.id) {
-                         codeEditor.setModel(virtualFS.getModel(file.id))
-                     } else {
-                         virtualFS.setTreeObjectItemBool(file.id, "isSelected")
-                     }
-                 }}
-            >
-                <Tooltip content={file.id} placement={"bottom-end"} minimal={true} lazy={true}
-                         className={"file-tab-tooltip"}>
-                    {file.label}
-                </Tooltip>
-                <Button icon={"cross"} minimal={true} small={true}
-                      className={"close-tab-btn"}
-                      onClick={(e) => {
-                          e.stopPropagation();
-                          closeTab(file);
-                      }}
-                >
-                </Button>
-            </Button>
+            <FileTabComponent key={file.id} file={file} activeTab={activeTab} setActiveTab={setActiveTab} closeTab={closeTab} codeEditor={codeEditor} />
         ))}
     </div>
 );
@@ -223,7 +135,9 @@ export const EditorPage = () => {
 
     function handleEditorChange(value) {
         const path = selectedFile.id;
-        if (path === "Untitled") {return}
+        if (path === "Untitled") {
+            return
+        }
         console.log(value)
     }
 
@@ -281,7 +195,7 @@ export const EditorPage = () => {
                     <div className="bp5-dark grid-container" {...getGridProps()}>
                         <div className="file-explorer">
                             <Card style={{height: "100%"}}>
-                                <FileBrowser/>
+                                <FileBrowserComponent/>
                             </Card>
                         </div>
                         <div className="gutter" {...getGutterProps('column', 1)}></div>

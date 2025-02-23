@@ -34,9 +34,13 @@ body {
     overflow-x: scroll;
 }
 
+.file-tab-tooltip {
+    background: #bbb;
+    border-radius: 5px 5px 0 0;
+}
+
 .file-tab {
     background: #333;
-    padding: 6px 12px;
     margin-right: 6px;
     border-radius: 5px 5px 0 0;
     cursor: pointer;
@@ -56,7 +60,6 @@ body {
 }
 
 .close-tab-btn {
-    margin-left: 8px;
     font-weight: bold;
     cursor: pointer;
     color: #bbb;
