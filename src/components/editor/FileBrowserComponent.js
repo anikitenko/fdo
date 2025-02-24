@@ -1,11 +1,15 @@
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 import virtualFS from "./utils/VirtualFS";
 import {getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
-import {Menu, MenuItem, showContextMenu, Tree} from "@blueprintjs/core";
+
+import {useContextMenu} from 'react-contexify';
+import 'react-contexify/ReactContexify.css';
+import {Tree} from "@blueprintjs/core";
+import ContextMenu from "./context_menu/CONTEXT_MENU";
 
 const FileBrowserComponent = () => {
     const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
-    const treeRef = useRef(null)
+    const {show} = useContextMenu();
 
     useEffect(() => {
         const unsubscribe = virtualFS.subscribe("treeUpdate", setTreeData);
@@ -16,7 +20,7 @@ const FileBrowserComponent = () => {
     const handleNodeExpand = (node) => {
         virtualFS.updateTreeObjectItem(node.id, {
             isExpanded: true,
-            icon: <img src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="16" height="16"
+            icon: <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
                        alt="icon"/>
         })
     };
@@ -24,7 +28,7 @@ const FileBrowserComponent = () => {
     const handleNodeCollapse = (node) => {
         virtualFS.updateTreeObjectItem(node.id, {
             isExpanded: false,
-            icon: <img src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="16" height="16"
+            icon: <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
                        alt="icon"/>
         })
     };
@@ -38,34 +42,28 @@ const FileBrowserComponent = () => {
         }
     };
 
-
-    const handleContextMenu = (node, path, e) => {
-        const nodeClicked = treeRef.current.getNodeContentElement(node.id);
-        showContextMenu({
-            content: (
-                <Menu className={"editor-context-menu"} small={true}>
-                    <MenuItem className={"editor-context-menu-item"} text="Save"/>
-                    <MenuItem className={"editor-context-menu-item"} text="Save as..."/>
-                    <MenuItem className={"editor-context-menu-item"} text="Delete..." intent="danger"/>
-                </Menu>
-            ),
-            targetOffset: {left: e.clientX, top: e.clientY},
-            onClose: () => {
-                nodeClicked.focus();
-            },
+    const handleContextMenu = (node, path, event) => {
+        let menuId = "CONTEXT_MENU";
+        show({
+            event: event, props: {
+                node: node
+            }, id: menuId
         })
     };
 
     return (
-        <Tree
-            ref={treeRef}
-            compact={true}
-            contents={treeData}
-            onNodeClick={handleNodeClick}
-            onNodeExpand={handleNodeExpand}
-            onNodeCollapse={handleNodeCollapse}
-            onNodeContextMenu={handleContextMenu}
-        />
+        <>
+            <Tree
+                compact={true}
+                contents={treeData}
+                onNodeClick={handleNodeClick}
+                onNodeExpand={handleNodeExpand}
+                onNodeCollapse={handleNodeCollapse}
+                onNodeContextMenu={handleContextMenu}
+                className={"file-tree"}
+            />
+            <ContextMenu />
+        </>
     )
 }
 

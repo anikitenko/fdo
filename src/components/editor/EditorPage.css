@@ -1,3 +1,11 @@
+:root {
+    /* Define your theme colors for easy switching */
+    --menu-bg: #252526;
+    --menu-color: #d4d4d4;
+    --menu-border: #3c3c3c;
+    --menu-hover-bg: #094771;
+}
+
 body {
     padding: 0;
 }
@@ -16,7 +24,7 @@ body {
     min-width: 400px !important;
     max-width: 400px !important;  /* Prevent resizing */
     position: fixed !important;  /* Stays in place */
-    top: 0px !important;
+    top: 0 !important;
     left: var(--palette-left) !important;
     transform: translateX(-20%);
     z-index: 999999 !important;
@@ -25,9 +33,18 @@ body {
     overflow: hidden !important;  /* Prevents resizing issues */
 }
 
+.bp5-tree-node-content .file-tree-icon {
+    margin-right: 5px;
+}
+
 .bp5-tree-node .file-tree-icon {
     filter: brightness(0.9);
     text-shadow: 0px 0px 3px rgba(255, 255, 255, 0.6);
+    margin-right: 5px;
+}
+
+.bp5-tree-node.bp5-intent-warning {
+    background-color: #523a10;
 }
 
 .bp5-tree-node-selected .file-tree-icon {
@@ -177,40 +194,67 @@ body {
     overflow: hidden;
 }
 
-.editor-context-menu {
-    background: #fff;
-    border-radius: 8px;
-    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.2);
-    padding: 6px 0;
-    min-width: 150px;
-    font-size: 14px;
-    opacity: 0;
-    transform: scale(0.95);
-    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+.create-new-file-overlay {
+    position: fixed;
+    top: 200px;
+    left: 45%;
 }
 
-.editor-context-menu.show {
-    opacity: 1;
-    transform: scale(1);
+.bp5-dialog {
+    background: var(--menu-border);
 }
 
-.editor-context-menu-item {
-    padding: 8px 16px;
+.bp5-dialog .bp5-input-group {
+    margin-top: 10px;
+    margin-bottom: 5px;
+}
+
+.bp5-dialog input {
+    border: none;
+    outline: none;
+    border-radius: 0;
+    box-shadow: initial;
+    background: var(--menu-border);
+    color: white;
+    padding-left: 37px !important;
+    font-size: 1.1rem;
+}
+
+.bp5-dialog input:focus {
+    outline: none 0 !important;
+    -moz-outline-radius: 0;
+}
+
+.bp5-dialog .new-file-options-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.6rem;
     cursor: pointer;
-    transition: background 0.2s ease-in-out;
-    color: #333;
 }
 
-.editor-context-menu-item:hover {
-    background: #f0f0f0;
+.bp5-dialog .new-file-option {
+    color: white;
 }
 
-/* Special style for dangerous actions like Delete */
-.editor-context-menu-item.danger {
-    color: #d9534f;
-    font-weight: bold;
+.bp5-dialog .new-file-option.selected {
+    background-color: var(--menu-hover-bg);
 }
 
-.editor-context-menu-item.danger:hover {
-    background: rgba(217, 83, 79, 0.1);
+.contexify_theme-dark {
+    --contexify-menu-bgColor: #c5c2c2;
+    --contexify-separator-color: #aaaaaa;
+    --contexify-item-color: #fff;
+    --contexify-activeItem-color: #fff;
+    --contexify-activeItem-bgColor: var(--menu-hover-bg);
+    --contexify-rightSlot-color: #ffffff;
+    --contexify-activeRightSlot-color: #fff;
+    --contexify-arrow-color: #ffffff;
+    --contexify-activeArrow-color: #fff;
+    font-size: 0.8rem;
+    --contexify-menu-radius: 4px;
+    --contexify-menu-padding: 4px;
+    --contexify-menu-minWidth: 150px;
 }
+

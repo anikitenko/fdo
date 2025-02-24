@@ -6,6 +6,9 @@ const virtualFS =  {
     DEFAULT_FILE: "/index.ts",
     files: {},
     name: "",
+    fileDialog: {
+        show: false, data: {}
+    },
     treeObject: [{
         id: "/",
         label: "/",
@@ -72,7 +75,7 @@ const virtualFS =  {
     setTreeObjectItemRoot(name) {
         this.treeObject[0].id = "/" + name;
         this.treeObject[0].label = name;
-        this.treeObject[0].icon = <img src={"/assets/icons/vscode/" + getIconForOpenFolder(name)} width="16" height="16" alt="icon"/>
+        this.treeObject[0].icon = <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForOpenFolder(name)} width="20" height="20" alt="icon"/>
         this.notify("treeUpdate", this.getTreeObjectSortedAsc())
     },
 
@@ -155,16 +158,24 @@ const virtualFS =  {
         return this.__createTreeObjectItemChild("Untitled", "Untitled", "file")
     },
 
-    __createTreeObjectItemChild(id, name, type, isSelected = false) {
+    __createTreeObjectItemChild(id, name, type) {
+        let isSelected = false;
+        let className = ""
+        if (name === this.DEFAULT_FILE && type === "file") {
+            isSelected = true;
+        }
+        if (type === "folder" && id.includes("node_modules")) {
+            className = "bp5-intent-warning"
+        }
         return {
             id,
             label: name,
-            icon: <img className={"file-tree-icon"} src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)} width="16" height="16" alt="icon"/>,
+            icon: <img className={"file-tree-icon"} src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)} width="20" height="20" alt="icon"/>,
             isExpanded: false,
             type: type,
             isSelected: isSelected,
             hasCaret: type === "folder",
-            className: "mouse-pointer",
+            className: "mouse-pointer "+className,
             childNodes: type === "folder" ? [] : undefined
         }
     },
@@ -182,12 +193,7 @@ const virtualFS =  {
             let existingChild = currentNode.childNodes?.find(child => child.label === itemSplit);
 
             if (!existingChild) {
-                // Create a new child node
-                let isSelected = false;
-                if (name === this.DEFAULT_FILE && type === "file") {
-                    isSelected = true;
-                }
-                existingChild = this.__createTreeObjectItemChild(currentPath, itemSplit, type, isSelected);
+                existingChild = this.__createTreeObjectItemChild(currentPath, itemSplit, type);
 
                 // Ensure `childNodes` exists for folder types
                 if (!currentNode.childNodes) {
@@ -218,9 +224,23 @@ const virtualFS =  {
                 childNodes: this.__sortTreeObjectChildrenAsc(node.childNodes) // Recursively sort children
             }));
     },
-    // Optionally, a method to list all files
-    listFiles() {
-        return Object.keys(this.files);
+
+    openFileDialog(data) {
+        this.fileDialog = {
+            show: true, data: data
+        }
+        this.notify("fileDialog", this.getFileDialog())
+    },
+
+    closeFileDialog() {
+        this.fileDialog = {
+            show: false, data: {}
+        }
+        this.notify("fileDialog", this.getFileDialog())
+    },
+
+    getFileDialog() {
+        return this.fileDialog
     }
 }
 

@@ -13,6 +13,7 @@ import virtualFS from "./utils/VirtualFS";
 import {packageDefaultContent} from "./utils/packageDefaultContent";
 import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabComponent from "./FileTabComponent";
+import FileDialogComponent from "./FileDialogComponent";
 
 const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => (
     <div className={"file-tabs"}>
@@ -98,6 +99,29 @@ export const EditorPage = () => {
                 if (itm.requestFullscreen) {
                     itm.requestFullscreen().then(() => ({}));
                 }
+            },
+        });
+        codeEditor.addAction({
+            // A unique identifier of the contributed action.
+            id: "new-file",
+            // A label of the action that will be presented to the user.
+            label: "New file",
+            // An optional array of keybindings for the action.
+            keybindings: [
+                monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, // CTRL/CMD + N
+            ],
+            // A precondition for this action.
+            precondition: null,
+            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
+            keybindingContext: null,
+            contextMenuGroupId: "navigation",
+            contextMenuOrder: 1.5,
+
+            // Method that will be executed when the action is triggered.
+            // @param editor The editor instance is passed in as a convenience
+            run: function (ed) {
+                ed.focus()
+                virtualFS.openFileDialog({file: "test"})
             },
         });
         const editorService = codeEditor._codeEditorService;
@@ -221,6 +245,7 @@ export const EditorPage = () => {
                     </div>
                 )}
             />
+            <FileDialogComponent />
         </>
     );
 }
