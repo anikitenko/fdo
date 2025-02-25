@@ -2,16 +2,18 @@ import * as monaco from 'monaco-editor';
 import {BLANK_TEMPLATE, HORIZONTAL_DIVIDED_TEMPLATE, VERTICAL_DIVIDED_TEMPLATE} from "./virtualTemplates";
 import virtualFS from "./VirtualFS";
 
-export function createVirtualFile(filePath, content, template) {
+export function createVirtualFile(filePath, content, template = undefined, ignoreModel  = false) {
     const uri = monaco.Uri.parse(`file://${filePath}`);
 
     const fileContent = template ? getTemplateContent(template, content) : content;
 
-    let model = monaco.editor.getModel(uri);
-    if (!model) {
+    let model = {};
+    if (!ignoreModel) {
+        model = monaco.editor.getModel(uri);
+        if (model) {
+            model.dispose();
+        }
         model = monaco.editor.createModel(fileContent, getLanguage(filePath), uri);
-    } else {
-        model.setValue(fileContent);
     }
 
     virtualFS.createFile(filePath, model)

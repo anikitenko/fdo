@@ -8,18 +8,6 @@ export async function setupVirtualWorkspace(name, template) {
     createVirtualFile(virtualFS.DEFAULT_FILE, name, template)
     createVirtualFile("/package.json", packageJsonContent(name))
     createVirtualFile("/package-lock.json", packageLockContent(name))
-
-    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-        target: monaco.languages.typescript.ScriptTarget.ES2016,
-        allowNonTsExtensions: true,
-        moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-        module: monaco.languages.typescript.ModuleKind.ES2015,
-        typeRoots: ["/node_modules"]
-    });
-    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-        noSemanticValidation: false,
-        noSyntaxValidation: false
-    })
     const resultFiles = await window.electron.GetModuleFiles()
     for (const idx in resultFiles.files) {
         const dts = await fetch(`/node_modules/${resultFiles.files[idx]}`).then(res => res.text())

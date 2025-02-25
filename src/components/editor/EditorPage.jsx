@@ -1,6 +1,7 @@
 import {useLocation} from "react-router-dom";
 import PropTypes from 'prop-types';
 import Split from "react-split-grid";
+import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices';
 import * as monaco from 'monaco-editor';
 import {Editor, loader} from '@monaco-editor/react';
 
@@ -40,10 +41,10 @@ export const EditorPage = () => {
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
     const rootFolder = FDO_SDK.generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
-
-
+    const [codeEditorFirstTime, setCodeEditorFirstTime] = useState(true)
     const [codeEditor, setCodeEditor] = useState(null)
     const [selectedFile, setSelectedFile] = useState(virtualFS.getTreeObjectItemSelected())
+    const [removedFile, setRemovedFile] = useState("")
     const [openTabs, setOpenTabs] = useState([])
     const [activeTab, setActiveTab] = useState(null)
     const [jumpTo, setJumpTo] = useState(null)
@@ -53,24 +54,64 @@ export const EditorPage = () => {
         }
         setActiveTab(file)
     };
-    const closeTab = (file) => {
-        setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.id !== file.id))
+    const closeTab = (fileID) => {
+        setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.id !== fileID))
+        virtualFS.updateModelState(fileID, codeEditor.saveViewState())
 
         // If closing the active file, switch to the first open tab
-        if (activeTab.id === file.id) {
-            const remainingTabs = openTabs.filter((tab) => tab.id !== file.id)
+        if (activeTab.id === fileID) {
+            const remainingTabs = openTabs.filter((tab) => tab.id !== fileID)
             if (remainingTabs.length > 0) {
-                //setActiveTab(remainingTabs[remainingTabs.length - 1])
-                virtualFS.setTreeObjectItemBool(remainingTabs[remainingTabs.length - 1].id, "isSelected")
+                if (virtualFS.getTreeObjectItemSelected().id === remainingTabs[remainingTabs.length - 1].id) {
+                    codeEditor.setModel(virtualFS.getModel(remainingTabs[remainingTabs.length - 1].id))
+                } else {
+                    virtualFS.setTreeObjectItemBool(remainingTabs[remainingTabs.length - 1].id, "isSelected")
+                }
             } else {
-                //setActiveTab(null)
+                setActiveTab(null)
                 setSelectedFile(virtualFS.createEmptyFile(rootFolder));
             }
         }
     };
 
     monaco.editor.onDidCreateEditor(async () => {
-        await setupVirtualWorkspace(rootFolder, pluginTemplate)
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            target: monaco.languages.typescript.ScriptTarget.ES2016,
+            allowNonTsExtensions: true,
+            moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+            module: monaco.languages.typescript.ModuleKind.ES2015,
+            typeRoots: ["/", "/node_modules"],
+            noImplicitAny: true,
+            noUnusedLocals: true,
+            noUnusedParameters: true,
+            noImplicitReturns: true,
+            noFallthroughCasesInSwitch: true,
+            esModuleInterop: true,
+            forceConsistentCasingInFileNames: true,
+            emitDecoratorMetadata: true,
+            isolatedModules: true,
+            experimentalDecorators: true,
+            allowSyntheticDefaultImports: true,
+            strictNullChecks: true,
+            suppressImplicitAnyIndexErrors: true,
+            noImplicitThis: true,
+            strict: true,
+        });
+        if (codeEditorFirstTime) {
+            await setupVirtualWorkspace(rootFolder, pluginTemplate)
+            monaco.editor.registerEditorOpener({
+                openCodeEditor(source, resource, selectionOrPosition) {
+                    setJumpTo({
+                        id: resource.toString().replace("file://", "").replace("%40", "@"),
+                        options: {
+                            selection: selectionOrPosition
+                        }
+                    })
+                    return true;
+                }
+            });
+            setCodeEditorFirstTime(false)
+        }
     })
 
     useEffect(() => {
@@ -124,29 +165,16 @@ export const EditorPage = () => {
                 virtualFS.openFileDialog({file: "test"})
             },
         });
-        const editorService = codeEditor._codeEditorService;
-        const openEditorBase = editorService.openCodeEditor.bind(editorService);
-        editorService.openCodeEditor = async (input, source) => {
-            const result = await openEditorBase(input, source);
-            if (result === null) {
-                setJumpTo({
-                    model: monaco.editor.getModel(input.resource),
-                    options: {
-                        selection: input.options.selection
-                    }
-                })
-            }
-            return result; // always return the base result
-        };
     }, [codeEditor]);
 
     useEffect(() => {
         if (jumpTo) {
-            if (jumpTo.model) {
-                const filePath = virtualFS.getFileName(jumpTo.model)
-                addTab(virtualFS.getTreeObjectItemById(filePath))
-                codeEditor.setModel(jumpTo.model);
+            if (jumpTo.id) {
+                if (!virtualFS.modelIdDefined(jumpTo.id)) return
+                addTab(virtualFS.getTreeObjectItemById(jumpTo.id))
+                codeEditor.setModel(virtualFS.getModel(jumpTo.id));
                 codeEditor.setSelection(jumpTo.options.selection);
+                codeEditor.revealLine(jumpTo.options.selection.startLineNumber)
             }
         }
     }, [jumpTo]);
@@ -154,8 +182,15 @@ export const EditorPage = () => {
     useEffect(() => {
         if (selectedFile) {
             addTab(selectedFile)
+            codeEditor.restoreViewState(virtualFS.getModelState(selectedFile.id))
         }
     }, [selectedFile]);
+
+    useEffect(() => {
+        if (removedFile) {
+            closeTab(removedFile)
+        }
+    }, [removedFile]);
 
     function handleEditorChange(value) {
         const path = selectedFile.id;
@@ -185,11 +220,13 @@ export const EditorPage = () => {
         window.addEventListener("resize", updatePaletteLeft);
         updatePaletteLeft(); // Initial update
 
-        const unsubscribe = virtualFS.subscribe("fileSelected", setSelectedFile);
+        const unsubscribe = virtualFS.notifications.subscribe("fileSelected", setSelectedFile);
+        const unsubscribeRemoved = virtualFS.notifications.subscribe("fileRemoved", setRemovedFile);
 
         return () => {
             window.removeEventListener("resize", updatePaletteLeft)
             unsubscribe()
+            unsubscribeRemoved()
         }
     }, []);
 

@@ -10,6 +10,7 @@ const FileTabComponent = ({file, activeTab, setActiveTab, closeTab, codeEditor})
                 <Button key={file.id} icon={file.icon} small={file.id !== activeTab.id}
                         className={"file-tab" + (file.id === activeTab.id ? " active" : "")}
                         onClick={() => {
+                            virtualFS.updateModelState(activeTab.id, codeEditor.saveViewState())
                             setActiveTab(file);
                             if (virtualFS.getTreeObjectItemSelected().id === file.id) {
                                 codeEditor.setModel(virtualFS.getModel(file.id))
@@ -23,7 +24,7 @@ const FileTabComponent = ({file, activeTab, setActiveTab, closeTab, codeEditor})
                     className={"close-tab-btn file-tab" + (file.id === activeTab.id ? " active" : "")}
                     onClick={(e) => {
                         e.stopPropagation();
-                        closeTab(file);
+                        closeTab(file.id);
                     }}
             >
             </Button>

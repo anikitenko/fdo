@@ -19,31 +19,56 @@ const virtualFS =  {
         className: "mouse-pointer",
         childNodes: [],
     }],
-    listeners: undefined, // Store React state setters
-    // Notify subscribers of a specific event
-    notify(event, data) {
-        if (this.listeners.has(event)) {
-            this.listeners.get(event).forEach(callback => callback(data));
-        }
-    },
+    notifications: {
+        queue: [],
+        processing: false,
+        listeners: undefined,
+        subscribe(event, callback) {
+            if (!this.listeners) this.listeners = new Map();
+            if (!this.listeners.has(event)) {
+                this.listeners.set(event, new Set());
+            }
+            this.listeners.get(event).add(callback);
+            return () => this.listeners.get(event)?.delete(callback); // Unsubscribe
+        },
+        addToQueue(eventType, data) {
+            this.queue.push({ eventType, data });
+            if (!this.processing) {
+                Promise.resolve().then(() => this.__startProcessing());
+            }
+        },
+        async __startProcessing() {
+            if (this.processing) return; // Prevent multiple instances
 
-    // Subscribe to a specific event (e.g., "treeUpdate", "fileUpdate")
-    subscribe(event, callback) {
-        if (!this.listeners) this.listeners = new Map();
-        if (!this.listeners.has(event)) {
-            this.listeners.set(event, new Set());
+            this.processing = true;
+            while (this.queue.length > 0) {
+                const { eventType, data } = this.queue.shift();
+                this.__dispatch(eventType, data); // Fire the event
+                //console.log(`Notified: ${eventType} ->`, data);
+                await this.__delay(50); // Ensure sequential execution
+            }
+            this.processing = false;
+        },
+        __dispatch(event, data) {
+            if (this.listeners.has(event)) {
+                this.listeners.get(event).forEach(callback => callback(data));
+            }
+        },
+        __delay(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
         }
-        this.listeners.get(event).add(callback);
-        return () => this.listeners.get(event)?.delete(callback); // Unsubscribe
     },
     getFileContent(fileName) {
-        return this.files[fileName]?.getValue() ?? undefined;
+        return this.files[fileName]?.model?.getValue() ?? undefined;
     },
     getModel(fileName) {
-        return this.files[fileName]
+        return this.files[fileName]?.model
+    },
+    getModelState(fileName) {
+        return this.files[fileName]?.state
     },
     getFileName(model) {
-        return Object.keys(this.files).find(key => this.files[key] === model);
+        return Object.keys(this.files).find(key => this.files[key].model === model);
     },
     getTreeObjectItemById(id) {
         const stack = [...this.treeObject];
@@ -70,20 +95,19 @@ const virtualFS =  {
         this.name = name;
     },
     setFileContent(fileName, content) {
-        return this.files[fileName]?.setValue(content) ?? undefined;
+        return this.files[fileName]?.model?.setValue(content) ?? undefined;
     },
     setTreeObjectItemRoot(name) {
-        this.treeObject[0].id = "/" + name;
         this.treeObject[0].label = name;
         this.treeObject[0].icon = <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForOpenFolder(name)} width="20" height="20" alt="icon"/>
-        this.notify("treeUpdate", this.getTreeObjectSortedAsc())
+        this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
 
     setTreeObjectItemBool(id, prop) {
         if (this.__setTreeObjectItemBool(this.treeObject, id, prop))
-            this.notify("treeUpdate", this.getTreeObjectSortedAsc())
+            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
         if (prop === "isSelected") {
-            this.notify("fileSelected", this.getTreeObjectItemById(id))
+            this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(id))
         }
     },
 
@@ -98,7 +122,7 @@ const virtualFS =  {
 
     updateTreeObjectItem(id, props) {
         if (this.__updateTreeObjectItem(this.treeObject, id, props))
-            this.notify("treeUpdate", this.getTreeObjectSortedAsc())
+            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
 
     __updateTreeObjectItem(nodes, id, props) {
@@ -115,33 +139,68 @@ const virtualFS =  {
         return false;
     },
 
-    removeTreeObjectItemById(id) {
-        if (this.__removeTreeObjectItemById(this.treeObject, id))
-            this.notify("treeUpdate", this.getTreeObjectSortedAsc())
-    },
-
-    __removeTreeObjectItemById(nodes, id) {
-        if (!nodes) return false;
-
-        for (let i = 0; i < nodes.length; i++) {
-            if (nodes[i].id === id) {
-                nodes.splice(i, 1); // Remove node
-                return true;
+    updateModel(filePath, model) {
+        if (this.files[filePath]) {
+            if (this.files[filePath].model) {
+                this.files[filePath].model = model
+            } else {
+                this.files[filePath] = {
+                    model: model,
+                    state: {}
+                }
             }
-            if (nodes[i].childNodes) {
-                if (this.__removeTreeObjectItemById(nodes[i].childNodes, id)) return true; // Recurse into children
+        } else {
+            this.files[filePath] = {
+                model: model,
+                state: {}
             }
         }
-        return false;
+    },
+
+    updateModelState(filePath, state) {
+        if (this.files[filePath]) {
+            this.files[filePath].state = state
+        } else {
+            this.files[filePath] = {
+                model: undefined,
+                state: state
+            }
+        }
+    },
+
+    removeTreeObjectItemById(id) {
+        if (this.__removeTreeObjectItemById(this.treeObject, id, true))
+            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
+    },
+
+    __removeTreeObjectItemById(nodes, id, isDirectDeletion) {
+        if (!nodes || nodes.length === 0) return [];
+
+        return nodes.filter(node => {
+            if (node.id === id) {
+                return false; // Remove this node
+            }
+
+            if (node.childNodes && node.childNodes.length > 0) {
+                node.childNodes = this.__removeTreeObjectItemById(node.childNodes, id, false);
+
+                // Only delete the folder if *it was directly deleted*
+                if (isDirectDeletion && node.type === "folder" && node.childNodes.length === 0) {
+                    return false;
+                }
+            }
+
+            return true; // Keep this node
+        });
     },
 
     // Method to create or update a file
     createFile(fileName, model) {
-        this.files[fileName] = model;
+        this.updateModel(fileName, model)
         if (this.__createTreeObjectItem(fileName))
-            this.notify("treeUpdate", this.getTreeObjectSortedAsc())
+            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
         if (fileName === this.DEFAULT_FILE) {
-            this.notify("fileSelected", this.getTreeObjectItemById(fileName))
+            this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(fileName))
         }
     },
 
@@ -154,14 +213,14 @@ const virtualFS =  {
         } else {
             model.setValue(defaultContent);
         }
-        this.files["Untitled"] = model;
+        this.updateModel("Untitled", model)
         return this.__createTreeObjectItemChild("Untitled", "Untitled", "file")
     },
 
     __createTreeObjectItemChild(id, name, type) {
         let isSelected = false;
         let className = ""
-        if (name === this.DEFAULT_FILE && type === "file") {
+        if (id === this.DEFAULT_FILE) {
             isSelected = true;
         }
         if (type === "folder" && id.includes("node_modules")) {
@@ -209,6 +268,28 @@ const virtualFS =  {
         }
         return true
     },
+    deleteFile(fileName) {
+        const fileIDs = []
+        for (const key of Object.keys(this.files)) {
+            if (key.startsWith(fileName)) {
+                fileIDs.push(key)
+                monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
+                const model = monaco.editor.getModel(monaco.Uri.parse(`file://${key}`));
+                if (model) {
+                    model.dispose(); // Remove it from Monaco
+                }
+                this.files[key].model.dispose();
+                delete this.files[key]
+            }
+        }
+
+        // Send notifications with different delays
+        fileIDs.forEach((id) => {
+            this.notifications.addToQueue("fileRemoved", id);
+        });
+        this.removeTreeObjectItemById(fileName)
+        this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
+    },
     __sortTreeObjectChildrenAsc(nodes) {
         if (!nodes) return [];
         return nodes
@@ -229,18 +310,22 @@ const virtualFS =  {
         this.fileDialog = {
             show: true, data: data
         }
-        this.notify("fileDialog", this.getFileDialog())
+        this.notifications.addToQueue("fileDialog", this.getFileDialog())
     },
 
     closeFileDialog() {
         this.fileDialog = {
             show: false, data: {}
         }
-        this.notify("fileDialog", this.getFileDialog())
+        this.notifications.addToQueue("fileDialog", this.getFileDialog())
     },
 
     getFileDialog() {
         return this.fileDialog
+    },
+
+    modelIdDefined(id) {
+        return this.files[id]?.model
     }
 }
 

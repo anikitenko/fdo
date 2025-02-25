@@ -9,10 +9,11 @@ import ContextMenu from "./context_menu/CONTEXT_MENU";
 
 const FileBrowserComponent = () => {
     const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
+    const [contextElement, setContextElement] = useState(null)
     const {show} = useContextMenu();
 
     useEffect(() => {
-        const unsubscribe = virtualFS.subscribe("treeUpdate", setTreeData);
+        const unsubscribe = virtualFS.notifications.subscribe("treeUpdate", setTreeData);
         return () => unsubscribe(); // Cleanup
     }, []);
 
@@ -44,6 +45,7 @@ const FileBrowserComponent = () => {
 
     const handleContextMenu = (node, path, event) => {
         let menuId = "CONTEXT_MENU";
+        setContextElement(node)
         show({
             event: event, props: {
                 node: node
@@ -62,7 +64,7 @@ const FileBrowserComponent = () => {
                 onNodeContextMenu={handleContextMenu}
                 className={"file-tree"}
             />
-            <ContextMenu />
+            <ContextMenu contextElement={contextElement} />
         </>
     )
 }

@@ -2,6 +2,10 @@ import {useEffect, useState} from "react";
 import {Dialog, DialogBody, Divider, InputGroup} from "@blueprintjs/core";
 import {getIconForFile} from "vscode-icons-js";
 import virtualFS from "./utils/VirtualFS";
+import {createVirtualFile} from "./utils/createVirtualFile";
+import {packageDefaultContent} from "./utils/packageDefaultContent";
+import {packageNewFileContent} from "./utils/packageNewFileContent";
+import {getFullPathOfFileFolder} from "./utils/getFullPathOfFileFolder";
 
 const FileDialogComponent = () => {
     const [fileDialogShow, setFileDialogShow] = useState(virtualFS.getFileDialog())
@@ -12,7 +16,6 @@ const FileDialogComponent = () => {
         src={"/assets/icons/vscode/" + getIconForFile(newOverlayValue)} width="30" height="30" alt="icon"/>)
     const fileTypes = (filter) => {
         const types = [
-            {name: "Other", ext: ""},
             {name: "Typescript file", ext: ".ts"},
             {name: "Typescript TSX file", ext: ".tsx"},
             {name: "Javascript file", ext: ".js"},
@@ -62,7 +65,7 @@ const FileDialogComponent = () => {
     }, [newOverlayValue]);
 
     useEffect(() => {
-        const unsubscribe = virtualFS.subscribe("fileDialog", setFileDialogShow);
+        const unsubscribe = virtualFS.notifications.subscribe("fileDialog", setFileDialogShow);
         return () => unsubscribe(); // Cleanup
     }, []);
     return (
@@ -79,19 +82,30 @@ const FileDialogComponent = () => {
                     value={newOverlayValue}
                     placeholder="Name"
                     autoFocus={true}
+                    onKeyPress={(e) => {
+                        if (e.key === "Enter") {
+                            let newFile = newOverlayValueWithExt
+                            if (newFile.split("/")[0] !== "") {
+                                const prefix = getFullPathOfFileFolder(fileDialogShow.data.node.id, fileDialogShow.data.node.type)
+                                newFile = prefix+newOverlayValueWithExt
+                            }
+                            createVirtualFile(newFile, packageNewFileContent(newFile))
+                            virtualFS.setTreeObjectItemBool(newFile, "isSelected")
+                            virtualFS.closeFileDialog()
+                        }
+                    }}
                 />
+                {fileTypes(fileDialogShow.data?.filter).length > 0 && (<>
                 <Divider style={{color: "white", backgroundColor: "#5b5b5b"}}/>
                 <div style={{marginTop: "5px"}}>
                     <ul className={"new-file-options-list"}>
-                        <li className={"new-file-option"}
-                            onClick={(e) => (selectFileType(e, ".txt"))}>Plain file (.txt)
-                        </li>
                         {fileTypes(fileDialogShow.data?.filter).map((type) => (
                             <li key={type.ext} className={"new-file-option"}
                                 onClick={(e) => selectFileType(e, type.ext)}>{type.name} ({type.ext})</li>
                         ))}
                     </ul>
                 </div>
+            </>)}
             </DialogBody>
         </Dialog>
     )
