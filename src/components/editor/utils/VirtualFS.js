@@ -279,14 +279,19 @@ const virtualFS =  {
                 if (model) {
                     model.dispose(); // Remove it from Monaco
                 }
+                if (key.endsWith(".ts") || key.endsWith(".tsx")) {
+                    monaco.editor.setModelMarkers(model, "typescript", []);
+                }
                 this.files[key].model.dispose();
                 delete this.files[key]
             }
         }
 
-        // Send notifications with different delays
         fileIDs.forEach((id) => {
             this.notifications.addToQueue("fileRemoved", id);
+        });
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
         });
         this.removeTreeObjectItemById(fileName)
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());

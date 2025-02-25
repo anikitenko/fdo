@@ -40,6 +40,7 @@ export const EditorPage = () => {
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
     const rootFolder = FDO_SDK.generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
+    const [codeEditorCreated, setCodeEditorCreated] = useState(false)
     const [codeEditor, setCodeEditor] = useState(null)
     const [selectedFile, setSelectedFile] = useState(virtualFS.getTreeObjectItemSelected())
     const [removedFile, setRemovedFile] = useState("")
@@ -78,18 +79,21 @@ export const EditorPage = () => {
     };
 
     monaco.editor.onDidCreateEditor(async () => {
-        await setupVirtualWorkspace(rootFolder, pluginTemplate)
-        monaco.editor.registerEditorOpener({
-            openCodeEditor(source, resource, selectionOrPosition) {
-                setJumpTo({
-                    id: resource.toString().replace("file://", "").replace("%40", "@"),
-                    options: {
-                        selection: selectionOrPosition
-                    }
-                })
-                return true;
-            }
-        });
+        if (!codeEditorCreated) {
+            await setupVirtualWorkspace(rootFolder, pluginTemplate)
+            monaco.editor.registerEditorOpener({
+                openCodeEditor(source, resource, selectionOrPosition) {
+                    setJumpTo({
+                        id: resource.toString().replace("file://", "").replace("%40", "@"),
+                        options: {
+                            selection: selectionOrPosition
+                        }
+                    })
+                    return true;
+                }
+            });
+            setCodeEditorCreated(true)
+        }
     })
 
     useEffect(() => {
