@@ -1,7 +1,6 @@
 import {useLocation} from "react-router-dom";
 import PropTypes from 'prop-types';
 import Split from "react-split-grid";
-import { StandaloneServices } from 'monaco-editor/esm/vs/editor/standalone/browser/standaloneServices';
 import * as monaco from 'monaco-editor';
 import {Editor, loader} from '@monaco-editor/react';
 
@@ -56,12 +55,17 @@ export const EditorPage = () => {
     };
     const closeTab = (fileID) => {
         setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.id !== fileID))
-        virtualFS.updateModelState(fileID, codeEditor.saveViewState())
+        if (virtualFS.getModel(fileID))
+            virtualFS.updateModelState(fileID, codeEditor.saveViewState())
 
         // If closing the active file, switch to the first open tab
         if (activeTab.id === fileID) {
             const remainingTabs = openTabs.filter((tab) => tab.id !== fileID)
             if (remainingTabs.length > 0) {
+                if (!virtualFS.getModel(fileID)) {
+                    virtualFS.setTreeObjectItemBool(remainingTabs[remainingTabs.length - 1].id, "isSelected")
+                    return
+                }
                 if (virtualFS.getTreeObjectItemSelected().id === remainingTabs[remainingTabs.length - 1].id) {
                     codeEditor.setModel(virtualFS.getModel(remainingTabs[remainingTabs.length - 1].id))
                 } else {
