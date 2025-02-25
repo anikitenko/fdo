@@ -1,10 +1,9 @@
 import {useLocation} from "react-router-dom";
-import PropTypes from 'prop-types';
 import Split from "react-split-grid";
 import * as monaco from 'monaco-editor';
 import {Editor, loader} from '@monaco-editor/react';
 
-import './EditorPage.css'
+import styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
 import {Button, Card, InputGroup} from "@blueprintjs/core";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
@@ -12,23 +11,8 @@ import {setupVirtualWorkspace} from "./utils/setupVirtualWorkspace";
 import virtualFS from "./utils/VirtualFS";
 import {packageDefaultContent} from "./utils/packageDefaultContent";
 import FileBrowserComponent from "./FileBrowserComponent";
-import FileTabComponent from "./FileTabComponent";
+import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
-
-const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => (
-    <div className={"file-tabs"}>
-        {openTabs.map((file) => (
-            <FileTabComponent key={file.id} file={file} activeTab={activeTab} setActiveTab={setActiveTab} closeTab={closeTab} codeEditor={codeEditor} />
-        ))}
-    </div>
-);
-FileTabs.propTypes = {
-    openTabs: PropTypes.array.isRequired,
-    activeTab: PropTypes.any,
-    setActiveTab: PropTypes.func.isRequired,
-    closeTab: PropTypes.func.isRequired,
-    codeEditor: PropTypes.any
-}
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -193,7 +177,7 @@ export const EditorPage = () => {
     }
 
     const updatePaletteLeft = () => {
-        const inputElement = document.getElementsByClassName("editor-header-search");
+        const inputElement = document.getElementsByClassName(styles["editor-header-search"]);
         if (inputElement) {
             const rect = inputElement[0].getBoundingClientRect();
             document.documentElement.style.setProperty("--palette-left", `50+${rect.left}px`);
@@ -215,21 +199,21 @@ export const EditorPage = () => {
     }, []);
 
     return (
-        <>
-            <div className="editor-header">
-                <div className="editor-header-left">
+        <div id={"editor-page-component"}>
+            <div className={styles["editor-header"]}>
+                <div className={styles["editor-header-left"]}>
                     <Button icon="arrow-left" minimal={true} disabled={true} aria-label="arrow-left"/>
                     <Button icon="arrow-right" minimal={true} disabled={true} aria-label="arrow-right"/>
                 </div>
-                <div className="editor-header-center">
+                <div className={styles["editor-header-center"]}>
                     <InputGroup
                         leftIcon={"search"}
                         placeholder={selectedFile?.label}
                         round={true} fill={true} small={true}
-                        inputClassName={"editor-header-search"} onClick={() => openCodePaletteShow()}
+                        inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
                 </div>
-                <div className="editor-header-right">Right Content</div>
+                <div className={styles["editor-header-right"]}>Right Content</div>
             </div>
             <Split
                 minSize={250}
@@ -237,14 +221,14 @@ export const EditorPage = () => {
                              getGridProps,
                              getGutterProps,
                          }) => (
-                    <div className="bp5-dark grid-container" {...getGridProps()}>
-                        <div className="file-explorer">
+                    <div className={`bp5-dark ${styles["grid-container"]}`} {...getGridProps()}>
+                        <div className={styles["file-explorer"]}>
                             <Card style={{height: "100%"}}>
                                 <FileBrowserComponent/>
                             </Card>
                         </div>
-                        <div className="gutter" {...getGutterProps('column', 1)}></div>
-                        <div id={"code-editor"} className="code-editor">
+                        <div className={styles["gutter"]} {...getGutterProps('column', 1)}></div>
+                        <div id={"code-editor"} className={styles["code-editor"]}>
                             <FileTabs activeTab={activeTab} setActiveTab={setActiveTab}
                                       openTabs={openTabs} closeTab={closeTab} codeEditor={codeEditor}/>
                             <Editor height="100vh" defaultLanguage="plaintext"
@@ -252,7 +236,7 @@ export const EditorPage = () => {
                                     theme="vs-dark"
                                     defaultValue={packageDefaultContent(rootFolder)}
                                     path={selectedFile?.id}
-                                    className={"editor-container"}
+                                    className={styles["editor-container"]}
                                     onMount={(editor) => {
                                         setCodeEditor(editor)
                                     }}
@@ -260,6 +244,7 @@ export const EditorPage = () => {
                                         minimap: {enabled: true},
                                         scrollbar: {vertical: "hidden", horizontal: "auto"},
                                         fontSize: 13,
+                                        extraEditorClassName: styles["monaco-main-editor"]
                                     }}
                             />
                         </div>
@@ -267,6 +252,6 @@ export const EditorPage = () => {
                 )}
             />
             <FileDialogComponent />
-        </>
+        </div>
     );
 }

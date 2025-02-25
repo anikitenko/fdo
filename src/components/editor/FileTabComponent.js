@@ -1,14 +1,30 @@
 import {Button, ButtonGroup, Tooltip} from "@blueprintjs/core";
 import PropTypes from 'prop-types';
 import virtualFS from "./utils/VirtualFS";
+import styles from './EditorPage.module.css'
+
+const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => (
+    <div className={styles["file-tabs"]}>
+        {openTabs.map((file) => (
+            <FileTabComponent key={file.id} file={file} activeTab={activeTab} setActiveTab={setActiveTab} closeTab={closeTab} codeEditor={codeEditor} />
+        ))}
+    </div>
+);
+FileTabs.propTypes = {
+    openTabs: PropTypes.array.isRequired,
+    activeTab: PropTypes.any,
+    setActiveTab: PropTypes.func.isRequired,
+    closeTab: PropTypes.func.isRequired,
+    codeEditor: PropTypes.any
+}
 
 const FileTabComponent = ({file, activeTab, setActiveTab, closeTab, codeEditor}) => {
     return (
         <ButtonGroup>
             <Tooltip content={file.id} placement={"bottom"}
-                     className={"file-tab-tooltip"} compact={true} hoverOpenDelay={500}>
+                     className={styles["file-tab-tooltip"]} compact={true} hoverOpenDelay={500}>
                 <Button key={file.id} icon={file.icon} small={file.id !== activeTab.id}
-                        className={"file-tab" + (file.id === activeTab.id ? " active" : "")}
+                        className={`${styles["file-tab"]} ${file.id === activeTab.id ? styles["active"] : ""}`}
                         onClick={() => {
                             virtualFS.updateModelState(activeTab.id, codeEditor.saveViewState())
                             setActiveTab(file);
@@ -21,7 +37,7 @@ const FileTabComponent = ({file, activeTab, setActiveTab, closeTab, codeEditor})
                 />
             </Tooltip>
             <Button icon={"cross"} small={true}
-                    className={"close-tab-btn file-tab" + (file.id === activeTab.id ? " active" : "")}
+                    className={`${styles["close-tab-btn"]} ${styles["file-tab"]} ${file.id === activeTab.id ? styles["active"] : ""}`}
                     onClick={(e) => {
                         e.stopPropagation();
                         closeTab(file.id);
@@ -40,4 +56,4 @@ FileTabComponent.propTypes = {
     codeEditor: PropTypes.any
 }
 
-export default FileTabComponent;
+export default FileTabs

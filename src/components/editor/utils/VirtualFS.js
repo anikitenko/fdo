@@ -1,6 +1,7 @@
 import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
 import * as monaco from "monaco-editor";
 import {packageDefaultContent} from "./packageDefaultContent";
+import styles from '../EditorPage.module.css'
 
 const virtualFS =  {
     DEFAULT_FILE: "/index.ts",
@@ -16,7 +17,7 @@ const virtualFS =  {
         isExpanded: true,
         icon: undefined,
         hasCaret: true,
-        className: "mouse-pointer",
+        className: styles["mouse-pointer"],
         childNodes: [],
     }],
     notifications: {
@@ -235,7 +236,7 @@ const virtualFS =  {
             type: type,
             isSelected: isSelected,
             hasCaret: type === "folder",
-            className: "mouse-pointer "+className,
+            className: `${styles["mouse-pointer"]} ${className}`,
             childNodes: type === "folder" ? [] : undefined
         }
     },

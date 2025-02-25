@@ -10,7 +10,7 @@ import {
 } from "@blueprintjs/core";
 import React, {useEffect, useState} from "react";
 
-import './css/CreatePluginDialog.css'
+import styles from './css/CreatePluginDialog.module.css'
 import {AppToaster} from "./AppToaster.jsx";
 import {Select} from "@blueprintjs/select";
 
@@ -133,7 +133,7 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                     </Select>
                 </FormGroup>
                 <div style={{marginBottom: "10px", textAlign: "-webkit-center"}}>
-                    <div className={`new-template-image-${pluginTemplate.value}`}></div>
+                    <div className={`${styles[`new-template-image-${pluginTemplate.value}`]}`}></div>
                 </div>
                 <Button fill={true} text={"Open editor"} intent={"primary"}
                               rightIcon={"share"}

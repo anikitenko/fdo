@@ -3,9 +3,9 @@ import {Dialog, DialogBody, Divider, InputGroup} from "@blueprintjs/core";
 import {getIconForFile} from "vscode-icons-js";
 import virtualFS from "./utils/VirtualFS";
 import {createVirtualFile} from "./utils/createVirtualFile";
-import {packageDefaultContent} from "./utils/packageDefaultContent";
 import {packageNewFileContent} from "./utils/packageNewFileContent";
 import {getFullPathOfFileFolder} from "./utils/getFullPathOfFileFolder";
+import styles from './EditorPage.module.css'
 
 const FileDialogComponent = () => {
     const [fileDialogShow, setFileDialogShow] = useState(virtualFS.getFileDialog())
@@ -70,7 +70,7 @@ const FileDialogComponent = () => {
     }, []);
     return (
         <Dialog isOpen={fileDialogShow.show}
-                onClose={() => virtualFS.closeFileDialog()} style={{width: "45%"}}
+                onClose={() => virtualFS.closeFileDialog()} style={{width: "45%"}} className={styles["file-dialog-component"]}
         >
             <DialogBody>
                 <div style={{textAlign: "center"}}>

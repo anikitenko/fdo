@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react'
 import {Alignment, Button, Intent, Menu, MenuItem, Navbar, Popover, Tooltip} from "@blueprintjs/core";
-import './Home.scss'
+import styles from './Home.module.scss'
 import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx";
 import {MultiSelect} from "@blueprintjs/select";
 import {CreatePluginDialog} from "./components/CreatePluginDialog.jsx";
@@ -322,7 +322,7 @@ function Home() {
                                 placement="bottom"
                             >
                                 <Button onClick={() => alert(button.id)} minimal
-                                        text={<span className="truncate">{button.name}</span>}
+                                        text={<span className={styles["truncate"]}>{button.name}</span>}
                                         rightIcon={button.icon} className="host-manager-btn"/>
                             </Tooltip>
                             <Navbar.Divider hidden={index + 1 === visibleButtons.length}/>

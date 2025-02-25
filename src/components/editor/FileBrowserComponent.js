@@ -1,6 +1,7 @@
 import {useEffect, useState} from "react";
 import virtualFS from "./utils/VirtualFS";
 import {getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
+import styles from './EditorPage.module.css'
 
 import {useContextMenu} from 'react-contexify';
 import 'react-contexify/ReactContexify.css';
@@ -62,7 +63,7 @@ const FileBrowserComponent = () => {
                 onNodeExpand={handleNodeExpand}
                 onNodeCollapse={handleNodeCollapse}
                 onNodeContextMenu={handleContextMenu}
-                className={"file-tree"}
+                className={styles["file-tree"]}
             />
             <ContextMenu contextElement={contextElement} />
         </>

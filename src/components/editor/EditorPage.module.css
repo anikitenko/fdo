@@ -14,11 +14,7 @@ body {
     cursor: pointer;
 }
 
-.bp5-tree-node-caret-none {
-    display: none;
-}
-
-.monaco-editor .quick-input-widget {
+.monaco-main-editor :global(.quick-input-widget) {
     width: 400px !important;  /* Fixed width */
     height: auto !important;  /* Let content determine height */
     min-width: 400px !important;
@@ -33,25 +29,29 @@ body {
     overflow: hidden !important;  /* Prevents resizing issues */
 }
 
-.bp5-tree-node-content .file-tree-icon {
+.file-tree :global(.bp5-tree-node-caret-none) {
+    display: none;
+}
+
+.file-tree :global(.bp5-tree-node-content) :global(.file-tree-icon) {
     margin-right: 5px;
 }
 
-.bp5-tree-node .file-tree-icon {
+.file-tree :global(.bp5-tree-node) :global(.file-tree-icon) {
     filter: brightness(0.9);
     text-shadow: 0px 0px 3px rgba(255, 255, 255, 0.6);
     margin-right: 5px;
 }
 
-.bp5-tree-node.bp5-intent-warning {
+.file-tree :global(.bp5-tree-node):global(.bp5-intent-warning) {
     background-color: #523a10;
 }
 
-.bp5-tree-node-selected .file-tree-icon {
+.file-tree :global(.bp5-tree-node-selected) :global(.file-tree-icon) {
     filter: brightness(1) invert(1);
 }
 
-.bp5-tree-node.bp5-tree-node-selected > .bp5-tree-node-content {
+.file-tree :global(.bp5-tree-node):global(.bp5-tree-node-selected) > :global(.bp5-tree-node-content) {
     background-color: #2c4f98 !important; /* VS Code's tab blue */
     color: white;
 }
@@ -103,24 +103,6 @@ body {
 .editor-container {
     background: #1e1e1e; /* Same as active tab */
     padding: 10px;
-}
-
-.file-item {
-    padding: 0;
-    border-radius: 4px;
-    cursor: pointer;
-    color: #bbb;
-    transition: background 0.2s;
-}
-
-.file-item.selected {
-    background: #007acc; /* Match VS Code active tab */
-    color: white;
-    font-weight: bold;
-}
-
-.file-item:hover {
-    background: #3a3a3a; /* Slight hover effect */
 }
 
 /* Fixed Header (Non-Resizable) */
@@ -194,22 +176,16 @@ body {
     overflow: hidden;
 }
 
-.create-new-file-overlay {
-    position: fixed;
-    top: 200px;
-    left: 45%;
-}
-
-.bp5-dialog {
+.file-dialog-component {
     background: var(--menu-border);
 }
 
-.bp5-dialog .bp5-input-group {
+.file-dialog-component :global(.bp5-input-group) {
     margin-top: 10px;
     margin-bottom: 5px;
 }
 
-.bp5-dialog input {
+.file-dialog-component :global(input) {
     border: none;
     outline: none;
     border-radius: 0;
@@ -220,12 +196,16 @@ body {
     font-size: 1.1rem;
 }
 
-.bp5-dialog input:focus {
+.file-dialog-component :global(input):focus {
     outline: none 0 !important;
     -moz-outline-radius: 0;
 }
 
-.bp5-dialog .new-file-options-list {
+.file-dialog-component :global(input)::placeholder {
+    color: #aaa;
+}
+
+.file-dialog-component :global(.new-file-options-list) {
     list-style: none;
     padding-left: 0;
     margin: 0;
@@ -234,15 +214,15 @@ body {
     cursor: pointer;
 }
 
-.bp5-dialog .new-file-option {
+.file-dialog-component :global(.new-file-option) {
     color: white;
 }
 
-.bp5-dialog .new-file-option.selected {
+.file-dialog-component :global(.new-file-option.selected) {
     background-color: var(--menu-hover-bg);
 }
 
-.contexify_theme-dark {
+:global(.contexify_theme-dark) {
     --contexify-menu-bgColor: #c5c2c2;
     --contexify-separator-color: #aaaaaa;
     --contexify-item-color: #fff;
