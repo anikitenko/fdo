@@ -98,6 +98,7 @@ const virtualFS =  {
         return this.files[fileName]?.model?.setValue(content) ?? undefined;
     },
     setTreeObjectItemRoot(name) {
+        this.treeObject[0].id = "/";
         this.treeObject[0].label = name;
         this.treeObject[0].icon = <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForOpenFolder(name)} width="20" height="20" alt="icon"/>
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())

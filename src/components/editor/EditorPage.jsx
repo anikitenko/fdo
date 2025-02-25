@@ -40,7 +40,6 @@ export const EditorPage = () => {
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
     const rootFolder = FDO_SDK.generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
-    const [codeEditorFirstTime, setCodeEditorFirstTime] = useState(true)
     const [codeEditor, setCodeEditor] = useState(null)
     const [selectedFile, setSelectedFile] = useState(virtualFS.getTreeObjectItemSelected())
     const [removedFile, setRemovedFile] = useState("")
@@ -79,43 +78,18 @@ export const EditorPage = () => {
     };
 
     monaco.editor.onDidCreateEditor(async () => {
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            target: monaco.languages.typescript.ScriptTarget.ES2016,
-            allowNonTsExtensions: true,
-            moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-            module: monaco.languages.typescript.ModuleKind.ES2015,
-            typeRoots: ["/", "/node_modules"],
-            noImplicitAny: true,
-            noUnusedLocals: true,
-            noUnusedParameters: true,
-            noImplicitReturns: true,
-            noFallthroughCasesInSwitch: true,
-            esModuleInterop: true,
-            forceConsistentCasingInFileNames: true,
-            emitDecoratorMetadata: true,
-            isolatedModules: true,
-            experimentalDecorators: true,
-            allowSyntheticDefaultImports: true,
-            strictNullChecks: true,
-            suppressImplicitAnyIndexErrors: true,
-            noImplicitThis: true,
-            strict: true,
+        await setupVirtualWorkspace(rootFolder, pluginTemplate)
+        monaco.editor.registerEditorOpener({
+            openCodeEditor(source, resource, selectionOrPosition) {
+                setJumpTo({
+                    id: resource.toString().replace("file://", "").replace("%40", "@"),
+                    options: {
+                        selection: selectionOrPosition
+                    }
+                })
+                return true;
+            }
         });
-        if (codeEditorFirstTime) {
-            await setupVirtualWorkspace(rootFolder, pluginTemplate)
-            monaco.editor.registerEditorOpener({
-                openCodeEditor(source, resource, selectionOrPosition) {
-                    setJumpTo({
-                        id: resource.toString().replace("file://", "").replace("%40", "@"),
-                        options: {
-                            selection: selectionOrPosition
-                        }
-                    })
-                    return true;
-                }
-            });
-            setCodeEditorFirstTime(false)
-        }
     })
 
     useEffect(() => {
@@ -174,11 +148,13 @@ export const EditorPage = () => {
     useEffect(() => {
         if (jumpTo) {
             if (jumpTo.id) {
-                if (!virtualFS.modelIdDefined(jumpTo.id)) return
-                addTab(virtualFS.getTreeObjectItemById(jumpTo.id))
-                codeEditor.setModel(virtualFS.getModel(jumpTo.id));
-                codeEditor.setSelection(jumpTo.options.selection);
-                codeEditor.revealLine(jumpTo.options.selection.startLineNumber)
+                if (!virtualFS.getModel(jumpTo.id)) return
+                setTimeout(() => {
+                    addTab(virtualFS.getTreeObjectItemById(jumpTo.id))
+                    codeEditor.setModel(virtualFS.getModel(jumpTo.id));
+                    codeEditor.setSelection(jumpTo.options.selection);
+                    codeEditor.revealLine(jumpTo.options.selection.startLineNumber)
+                }, 200)
             }
         }
     }, [jumpTo]);

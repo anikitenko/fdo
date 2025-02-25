@@ -10,10 +10,11 @@ export function createVirtualFile(filePath, content, template = undefined, ignor
     let model = {};
     if (!ignoreModel) {
         model = monaco.editor.getModel(uri);
-        if (model) {
-            model.dispose();
+        if (!model) {
+            model = monaco.editor.createModel(fileContent, getLanguage(filePath), uri);
+        } else {
+            model.setValue(fileContent);
         }
-        model = monaco.editor.createModel(fileContent, getLanguage(filePath), uri);
     }
 
     virtualFS.createFile(filePath, model)

@@ -4,6 +4,28 @@ import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 
 export async function setupVirtualWorkspace(name, template) {
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+        target: monaco.languages.typescript.ScriptTarget.ES2016,
+        allowNonTsExtensions: true,
+        moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+        module: monaco.languages.typescript.ModuleKind.ES2015,
+        typeRoots: ["/node_modules"],
+        noImplicitAny: true,
+        noUnusedLocals: true,
+        noUnusedParameters: true,
+        noImplicitReturns: true,
+        noFallthroughCasesInSwitch: true,
+        esModuleInterop: true,
+        forceConsistentCasingInFileNames: true,
+        emitDecoratorMetadata: true,
+        isolatedModules: true,
+        experimentalDecorators: true,
+        allowSyntheticDefaultImports: true,
+        strictNullChecks: true,
+        suppressImplicitAnyIndexErrors: true,
+        noImplicitThis: true,
+        strict: true,
+    });
     virtualFS.setTreeObjectItemRoot(name)
     createVirtualFile(virtualFS.DEFAULT_FILE, name, template)
     createVirtualFile("/package.json", packageJsonContent(name))
