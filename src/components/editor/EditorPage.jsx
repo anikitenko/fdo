@@ -197,6 +197,7 @@ export const EditorPage = () => {
             unsubscribeRemoved()
         }
     }, []);
+    const [isSplitEnabled, setIsSplitEnabled] = useState(false);
 
     return (
         <div id={"editor-page-component"}>
@@ -223,11 +224,35 @@ export const EditorPage = () => {
                          }) => (
                     <div className={`bp5-dark ${styles["grid-container"]}`} {...getGridProps()}>
                         <div className={styles["file-explorer"]}>
-                            <Card style={{height: "100%"}}>
-                                <FileBrowserComponent/>
-                            </Card>
+                            <button onClick={() => setIsSplitEnabled(!isSplitEnabled)}>
+                                {isSplitEnabled ? "Close Split" : "Open Split"}
+                            </button>
+                            <Split
+                                minSize={100}
+                                direction="column"
+                                render={({
+                                             getGridProps: getInnerGridProps,
+                                             getGutterProps: getInnerGutterProps,
+                                         }) => (
+                                    <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
+                                        <div className={styles["file-list"]}>
+                                            <Card style={{height: "100%"}}>
+                                                <FileBrowserComponent/>
+                                            </Card>
+                                        </div>
+                                        {isSplitEnabled && (<>
+                                        <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
+                                        <div className={styles["details-pane"]}>
+                                            <Card style={{height: "100%"}}>
+                                                fdsgdsfgfdgdfsgdfgdfgdfsg
+                                            </Card>
+                                        </div>
+                                        </>)}
+                                    </div>
+                                )}
+                            />
                         </div>
-                        <div className={styles["gutter"]} {...getGutterProps('column', 1)}></div>
+                        <div className={styles["gutter-col"]} {...getGutterProps('column', 1)}></div>
                         <div id={"code-editor"} className={styles["code-editor"]}>
                             <FileTabs activeTab={activeTab} setActiveTab={setActiveTab}
                                       openTabs={openTabs} closeTab={closeTab} codeEditor={codeEditor}/>
@@ -251,7 +276,7 @@ export const EditorPage = () => {
                     </div>
                 )}
             />
-            <FileDialogComponent />
+            <FileDialogComponent/>
         </div>
     );
 }

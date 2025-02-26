@@ -5,33 +5,34 @@ import {PropTypes} from 'prop-types';
 import {Alert, Icon} from "@blueprintjs/core";
 import {useState} from "react";
 import {IconNames} from "@blueprintjs/icons";
+import styles from '../EditorPage.module.css'
 
 const ContextMenu = ({contextElement}) => {
     const [isOpenDelete, setIsOpenDelete] = useState(false)
     const [isLoadingDelete, setIsLoadingDelete] = useState(false)
     const handleNewContextClick = ({id, event, props}) => {
-        let filter = []
         switch (id) {
             case "new-file":
-                filter = [".nonexistingextension"]
+                virtualFS.openFileDialog({node: props.node, filter: [".nonexistingextension"]})
                 break;
             case "new-ts-file":
-                filter = [".ts", ".tsx"]
+                virtualFS.openFileDialog({node: props.node, filter: [".ts", ".tsx"]})
                 break;
             case "new-js-file":
-                filter = [".js", ".jsx", ".mjs"]
+                virtualFS.openFileDialog({node: props.node, filter: [".js", ".jsx", ".mjs"]})
                 break;
             case "new-md-file":
-                filter = [".md"]
+                virtualFS.openFileDialog({node: props.node, filter: [".md"]})
                 break;
             case "new-txt-file":
-                filter = [".txt"]
+                virtualFS.openFileDialog({node: props.node, filter: [".txt"]})
+                break
+            case "new-folder":
+                virtualFS.openFileDialog({node: props.node, filter: [".nonexistingextension"], type: "folder"})
                 break
             default:
                 break
         }
-
-        virtualFS.openFileDialog({file: "test", node: props.node, filter: filter})
     }
 
     const handleDeleteContextClick = ({id, event, props}) => {
@@ -51,12 +52,12 @@ const ContextMenu = ({contextElement}) => {
 
     return (
         <>
-            <Menu id={"CONTEXT_MENU"} theme={"dark"} animation={false} className={"editor-context-menu"}>
+            <Menu id={"CONTEXT_MENU"} theme={"dark"} className={styles["contexify_theme-dark"]} animation={false}>
                 <Item disabled={true}>
                     {contextElement?.label}
                 </Item>
                 <Separator/>
-                <Submenu className={"editor-context-menu-item"} label={<span style={{paddingLeft: "20px"}}>New</span>}>
+                <Submenu label={<span style={{paddingLeft: "20px"}}>New</span>}>
                     <Item id={"new-file"} onClick={handleNewContextClick}>
                         <img src={"/assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>File</span>
@@ -78,7 +79,7 @@ const ContextMenu = ({contextElement}) => {
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Text file</span>
                     </Item>
                     <Separator/>
-                    <Item id={"new-folder"}>
+                    <Item id={"new-folder"} onClick={handleNewContextClick}>
                         <img src={"/assets/icons/vscode/" + getIconForFolder("unnamed")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Folder</span>
                     </Item>
@@ -116,6 +117,7 @@ const ContextMenu = ({contextElement}) => {
                 loading={isLoadingDelete}
                 onCancel={handleCloseDelete}
                 onConfirm={handleConfirmDelete}
+                className={styles["alert-delete"]}
             >
                 <p style={{color: "white"}}>
                     Are you sure you want to delete <b>{contextElement?.label}</b>?

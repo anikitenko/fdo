@@ -1,17 +1,6 @@
 @use "@blueprintjs/core/lib/scss/variables" as bp;
 
-html, body {
-    height: 100%; /* Ensure full height of the viewport */
-    margin: 0;
-    padding: 0;
-    overflow: hidden; /* Prevent scrolling */
-}
-
-#root {
-    height: 100%; /* Root should take full screen */
-}
-
-body {
+.main-container {
     margin: 0;
     background-image: url("./assets/logo.webp");
     background-size: cover;

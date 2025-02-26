@@ -3,13 +3,16 @@ import PropTypes from 'prop-types';
 import virtualFS from "./utils/VirtualFS";
 import styles from './EditorPage.module.css'
 
-const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => (
+const FileTabs = ({openTabs, activeTab, setActiveTab, closeTab, codeEditor}) => {
+    return (
     <div className={styles["file-tabs"]}>
         {openTabs.map((file) => (
-            <FileTabComponent key={file.id} file={file} activeTab={activeTab} setActiveTab={setActiveTab} closeTab={closeTab} codeEditor={codeEditor} />
+            <FileTabComponent key={file.id} file={file} activeTab={activeTab} setActiveTab={setActiveTab}
+                              closeTab={closeTab} codeEditor={codeEditor}/>
         ))}
     </div>
-);
+    )
+}
 FileTabs.propTypes = {
     openTabs: PropTypes.array.isRequired,
     activeTab: PropTypes.any,
@@ -24,7 +27,10 @@ const FileTabComponent = ({file, activeTab, setActiveTab, closeTab, codeEditor})
             <Tooltip content={file.id} placement={"bottom"}
                      className={styles["file-tab-tooltip"]} compact={true} hoverOpenDelay={500}>
                 <Button key={file.id} icon={file.icon} small={file.id !== activeTab.id}
-                        className={`${styles["file-tab"]} ${file.id === activeTab.id ? styles["active"] : ""}`}
+                        className={`
+                        ${styles["file-tab"]} 
+                        ${file.id === activeTab.id ? styles["active"] : ""} 
+                        `}
                         onClick={() => {
                             virtualFS.updateModelState(activeTab.id, codeEditor.saveViewState())
                             setActiveTab(file);
@@ -37,7 +43,11 @@ const FileTabComponent = ({file, activeTab, setActiveTab, closeTab, codeEditor})
                 />
             </Tooltip>
             <Button icon={"cross"} small={true}
-                    className={`${styles["close-tab-btn"]} ${styles["file-tab"]} ${file.id === activeTab.id ? styles["active"] : ""}`}
+                    className={`
+                    ${styles["close-tab-btn"]} 
+                    ${styles["file-tab"]} 
+                    ${file.id === activeTab.id ? styles["active"] : ""} 
+                    `}
                     onClick={(e) => {
                         e.stopPropagation();
                         closeTab(file.id);
@@ -53,7 +63,7 @@ FileTabComponent.propTypes = {
     activeTab: PropTypes.any,
     setActiveTab: PropTypes.func.isRequired,
     closeTab: PropTypes.func.isRequired,
-    codeEditor: PropTypes.any
+    codeEditor: PropTypes.any,
 }
 
 export default FileTabs

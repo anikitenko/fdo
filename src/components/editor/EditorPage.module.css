@@ -6,10 +6,6 @@
     --menu-hover-bg: #094771;
 }
 
-body {
-    padding: 0;
-}
-
 .mouse-pointer {
     cursor: pointer;
 }
@@ -90,6 +86,10 @@ body {
     transition: background 0.3s ease-in-out, color 0.3s ease-in-out;
 }
 
+.file-tab-marker {
+    background-color: #5d0013 !important;
+}
+
 .close-tab-btn {
     font-weight: bold;
     cursor: pointer;
@@ -160,15 +160,29 @@ body {
     overflow: hidden;
 }
 
-.file-explorer {
-    background: #f7f7f7;
-    padding: 0;
-    overflow-y: auto;
+.inner-files-deploy-grid {
+    display: grid;
+    grid-template-rows: 1fr 5px 0.4fr;
+    height: 100%;
+    min-height: 0;
 }
 
-.gutter {
+.file-explorer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.gutter-col {
     background: #ccc;
     cursor: col-resize;
+    user-select: none;
+}
+
+.gutter-row {
+    background: #ccc;
+    cursor: row-resize;
     user-select: none;
 }
 
@@ -205,7 +219,7 @@ body {
     color: #aaa;
 }
 
-.file-dialog-component :global(.new-file-options-list) {
+.file-dialog-component .new-file-options-list {
     list-style: none;
     padding-left: 0;
     margin: 0;
@@ -214,15 +228,19 @@ body {
     cursor: pointer;
 }
 
-.file-dialog-component :global(.new-file-option) {
+.file-dialog-component .new-file-option {
     color: white;
 }
 
-.file-dialog-component :global(.new-file-option.selected) {
+.file-dialog-component .new-file-option.selected {
     background-color: var(--menu-hover-bg);
 }
 
-:global(.contexify_theme-dark) {
+.alert-delete {
+    background: var(--menu-border);
+}
+
+.contexify_theme-dark {
     --contexify-menu-bgColor: #c5c2c2;
     --contexify-separator-color: #aaaaaa;
     --contexify-item-color: #fff;

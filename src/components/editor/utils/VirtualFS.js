@@ -206,6 +206,11 @@ const virtualFS =  {
         }
     },
 
+    createFolder(name) {
+        if (this.__createTreeObjectItem(name, true))
+            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
+    },
+
     createEmptyFile(packageName) {
         const uri = monaco.Uri.parse(`file://Untitled`);
         let model = monaco.editor.getModel(uri);
@@ -240,15 +245,18 @@ const virtualFS =  {
             childNodes: type === "folder" ? [] : undefined
         }
     },
-    __createTreeObjectItem(name) {
+    __createTreeObjectItem(name, isFolder = false) {
         const itemsSplit = name.split("/").filter(Boolean);
         let currentNode = this.treeObject[0];
         let currentPath = "";
+
         for (let i = 0; i < itemsSplit.length; i++) {
             const itemSplit = itemsSplit[i]; // Extract folder or file name
             currentPath += "/" + itemSplit; // Build the full path step by step
             const isLastItem = i === itemsSplit.length - 1;
-            const type = isLastItem ? "file" : "folder";
+
+            // Determine type, considering forceFolder
+            const type = (isLastItem && isFolder) ? "folder" : (isLastItem ? "file" : "folder");
 
             // Check if child exists in current node
             let existingChild = currentNode.childNodes?.find(child => child.label === itemSplit);
@@ -268,7 +276,7 @@ const virtualFS =  {
                 currentNode = existingChild;
             }
         }
-        return true
+        return true;
     },
     deleteFile(fileName) {
         const fileIDs = []

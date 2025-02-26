@@ -1,6 +1,6 @@
 import {useEffect, useState} from "react";
 import {Dialog, DialogBody, Divider, InputGroup} from "@blueprintjs/core";
-import {getIconForFile} from "vscode-icons-js";
+import {getIconForFile, getIconForFolder} from "vscode-icons-js";
 import virtualFS from "./utils/VirtualFS";
 import {createVirtualFile} from "./utils/createVirtualFile";
 import {packageNewFileContent} from "./utils/packageNewFileContent";
@@ -12,8 +12,7 @@ const FileDialogComponent = () => {
     const [newOverlayValue, setNewOverlayValue] = useState("")
     const [fileType, setFileType] = useState("")
     const [newOverlayValueWithExt, setNewOverlayValueWithExt] = useState("")
-    const [newOverlayIcon, setNewOverlayIcon] = useState(<img
-        src={"/assets/icons/vscode/" + getIconForFile(newOverlayValue)} width="30" height="30" alt="icon"/>)
+    const [newOverlayIcon, setNewOverlayIcon] = useState(null)
     const fileTypes = (filter) => {
         const types = [
             {name: "Typescript file", ext: ".ts"},
@@ -33,17 +32,17 @@ const FileDialogComponent = () => {
     }
 
     const selectFileType = (e, ext) => {
-        const fileOptions = document.getElementsByClassName("new-file-option")
+        const fileOptions = document.getElementsByClassName(styles["new-file-option"])
         let existClass = false;
         for (const element of fileOptions) {
             // Remove the class 'active' if it exists
-            if (e.currentTarget.classList.contains('selected')) {
+            if (e.currentTarget.classList.contains(styles['selected'])) {
                 existClass = true;
             }
-            element.classList.remove('selected')
+            element.classList.remove(styles['selected'])
         }
         if (!existClass) {
-            e.currentTarget.classList.add("selected")
+            e.currentTarget.classList.add(styles["selected"])
             setFileType(ext)
         } else {
             setFileType("")
@@ -56,25 +55,41 @@ const FileDialogComponent = () => {
 
     useEffect(() => {
         if (newOverlayValue) {
-            setNewOverlayIcon(
-                <img src={"/assets/icons/vscode/" + getIconForFile(newOverlayValue + fileType)} width="30" height="30"
-                     alt="icon"/>
-            )
+            if (fileDialogShow.data.type) {
+                setNewOverlayIcon(
+                    <img src={"/assets/icons/vscode/" + getIconForFolder(newOverlayValue)} width="30" height="30"
+                         alt="icon"/>
+                )
+            } else {
+                setNewOverlayIcon(
+                    <img src={"/assets/icons/vscode/" + getIconForFile(newOverlayValue + fileType)} width="30" height="30"
+                         alt="icon"/>
+                )
+            }
         }
         setNewOverlayValueWithExt(newOverlayValue + fileType)
     }, [newOverlayValue]);
 
     useEffect(() => {
+        setNewOverlayValue(" ")
+        setTimeout(() => {
+            setNewOverlayValue("")
+        }, 100)
         const unsubscribe = virtualFS.notifications.subscribe("fileDialog", setFileDialogShow);
-        return () => unsubscribe(); // Cleanup
+        return () => {
+            unsubscribe()
+        } // Cleanup
     }, []);
     return (
         <Dialog isOpen={fileDialogShow.show}
-                onClose={() => virtualFS.closeFileDialog()} style={{width: "45%"}} className={styles["file-dialog-component"]}
+                onClose={() => virtualFS.closeFileDialog()}
+                style={{width: "45%"}} className={styles["file-dialog-component"]}
         >
             <DialogBody>
                 <div style={{textAlign: "center"}}>
-                    <span className={"bp5-heading"} style={{color: "white"}}>New File</span>
+                    <span className={"bp5-heading"} style={{color: "white"}}>
+                        {fileDialogShow.data.type ? "New folder" : "New file"}
+                    </span>
                 </div>
                 <InputGroup
                     leftElement={newOverlayIcon}
@@ -89,8 +104,12 @@ const FileDialogComponent = () => {
                                 const prefix = getFullPathOfFileFolder(fileDialogShow.data.node.id, fileDialogShow.data.node.type)
                                 newFile = prefix+newOverlayValueWithExt
                             }
-                            createVirtualFile(newFile, packageNewFileContent(newFile))
-                            virtualFS.setTreeObjectItemBool(newFile, "isSelected")
+                            if (fileDialogShow.data.type) {
+                                virtualFS.createFolder(newFile)
+                            } else {
+                                createVirtualFile(newFile, packageNewFileContent(newFile))
+                                virtualFS.setTreeObjectItemBool(newFile, "isSelected")
+                            }
                             virtualFS.closeFileDialog()
                         }
                     }}
@@ -98,9 +117,9 @@ const FileDialogComponent = () => {
                 {fileTypes(fileDialogShow.data?.filter).length > 0 && (<>
                 <Divider style={{color: "white", backgroundColor: "#5b5b5b"}}/>
                 <div style={{marginTop: "5px"}}>
-                    <ul className={"new-file-options-list"}>
+                    <ul className={styles["new-file-options-list"]}>
                         {fileTypes(fileDialogShow.data?.filter).map((type) => (
-                            <li key={type.ext} className={"new-file-option"}
+                            <li key={type.ext} className={styles["new-file-option"]}
                                 onClick={(e) => selectFileType(e, type.ext)}>{type.name} ({type.ext})</li>
                         ))}
                     </ul>

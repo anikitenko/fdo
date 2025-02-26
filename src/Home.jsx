@@ -311,7 +311,7 @@ function Home() {
     }, []);
 
     return (
-        <>
+        <div className={styles["main-container"]}>
             {/* Top Navigation Bar */}
             <Navbar fixedToTop={true} className={"bp5-dark"}>
                 <Navbar.Group>
@@ -375,7 +375,7 @@ function Home() {
                                 name={createDialogName}
                                 parentPluginSelect={handlePluginSelect}
             />
-        </>
+        </div>
     );
 }
 
