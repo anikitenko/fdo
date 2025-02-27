@@ -13,7 +13,9 @@ const CodeDeployActions = () => {
     const [versions, setVersions] = useState(virtualFS.fs.list())
     const [isOpenSwitch, setIsOpenSwitch] = useState(false)
     const [isLoadingSwitch, setIsLoadingSwitch] = useState(false)
-    const versionText = (name, date, prev) => {
+    const [versionsDate, setVersionsDate] = useState(Date.now())
+    const [prettyVersionDate, setPrettyVersionDate] = useState("")
+    const versionText = (name, date, prev, pretty = false) => {
         if (!name) return
         if (!date) return
         return (
@@ -28,10 +30,22 @@ const CodeDeployActions = () => {
                 )}
                 <Divider/>
                 <span
-                    className={"bp5-text-muted"}>{"(" + formatDistanceToNow(new Date(date), {addSuffix: true}) + ")"}</span>
+                    className={"bp5-text-muted"}>
+                    {"(" + (pretty ? date : formatDistanceToNow(new Date(date), { addSuffix: true })) + ")"}
+                </span>
             </div>
         )
     }
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setPrettyVersionDate(formatDistanceToNow(new Date(versionsDate), {addSuffix: true}))
+        }, 20000); // Update every second
+
+        return () => {
+            clearInterval(interval); // Clean up the interval when the component unmounts
+        };
+    }, [versionsDate]);
 
     const saveAll = () => {
         const newVersion = virtualFS.fs.create(version.version, virtualFS.tabs.get().filter((t) => t.id !== "Untitled"))
@@ -57,6 +71,8 @@ const CodeDeployActions = () => {
             virtualFS.tabs.addMultiple(data.tabs)
         }
         setVersion(ver)
+        setVersionsDate(ver.date)
+        setPrettyVersionDate(formatDistanceToNow(new Date(ver.date), {addSuffix: true}))
     }
 
     useEffect(() => {
@@ -64,6 +80,8 @@ const CodeDeployActions = () => {
             for (const ver of versions) {
                 if (ver.current) {
                     setVersion(ver)
+                    setVersionsDate(ver.date)
+                    setPrettyVersionDate(formatDistanceToNow(new Date(ver.date), {addSuffix: true}))
                     break
                 }
             }
@@ -113,7 +131,6 @@ const CodeDeployActions = () => {
                                 setTimeout(() => {
                                     const selectedItem = document.getElementsByClassName("selected-item");
                                     if (selectedItem && selectedItem.length > 0) {
-                                        console.log(selectedItem[0])
                                         selectedItem[0].scrollIntoView({ block: "nearest", behavior: "smooth" });
                                     }
                                 }, 0);
@@ -124,7 +141,7 @@ const CodeDeployActions = () => {
                     filterable={false}
                     fill={true}
                 >
-                    <Button fill={true} text={versionText(version?.version, version?.date, version?.prev)}
+                    <Button fill={true} text={versionText(version?.version, prettyVersionDate, version?.prev, true)}
                             rightIcon="double-caret-vertical"/>
                 </Select>
             </FormGroup>
@@ -132,7 +149,7 @@ const CodeDeployActions = () => {
                 label="Actions"
                 fill={true}
             >
-                <Button fill={true} text="1. Save All" intent="primary" rightIcon="saved" onClick={() => saveAll()}/>
+                <Button fill={true} text="1. Save All" rightIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
                 <Button fill={true} text="2. Compile" intent="primary" rightIcon="build"/>
                 <Divider/>

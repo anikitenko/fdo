@@ -5,6 +5,8 @@ import styles from '../EditorPage.module.css'
 import _ from "lodash";
 import getLanguage from "./getLanguage";
 
+import LZString from "lz-string";
+
 const virtualFS = {
     DEFAULT_FILE: "/index.ts",
     fileDialog: {
