@@ -30,10 +30,9 @@ export const EditorPage = () => {
     const [codeEditor, setCodeEditor] = useState(null)
     const [jumpTo, setJumpTo] = useState(null)
     const closeTab = (fileID) => {
-        virtualFS.tabs.removeById(fileID)
-
         if (virtualFS.getModel(fileID))
             virtualFS.updateModelState(fileID, codeEditor.saveViewState())
+        virtualFS.tabs.removeById(fileID)
     }
 
     monaco.editor.onDidCreateEditor(async () => {
@@ -102,7 +101,57 @@ export const EditorPage = () => {
             // @param editor The editor instance is passed in as a convenience
             run: function (ed) {
                 ed.focus()
-                virtualFS.openFileDialog({file: "test"})
+                virtualFS.openFileDialog({})
+            },
+        });
+        codeEditor.addAction({
+            // A unique identifier of the contributed action.
+            id: "switch-tab-left",
+            // A label of the action that will be presented to the user.
+            label: "Switch tab left",
+            // An optional array of keybindings for the action.
+            keybindings: [
+                monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyCode.LeftArrow,
+            ],
+            // A precondition for this action.
+            precondition: null,
+            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
+            keybindingContext: null,
+            contextMenuGroupId: "navigation",
+            contextMenuOrder: 1.5,
+
+            // Method that will be executed when the action is triggered.
+            // @param editor The editor instance is passed in as a convenience
+            run: function (ed) {
+                ed.focus()
+                setTimeout(() => {
+                    virtualFS.tabs.setActiveTabLeft()
+                }, 50)
+            },
+        });
+        codeEditor.addAction({
+            // A unique identifier of the contributed action.
+            id: "switch-tab-right",
+            // A label of the action that will be presented to the user.
+            label: "Switch tab right",
+            // An optional array of keybindings for the action.
+            keybindings: [
+                monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyCode.RightArrow,
+            ],
+            // A precondition for this action.
+            precondition: null,
+            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
+            keybindingContext: null,
+            contextMenuGroupId: "navigation",
+            contextMenuOrder: 1.5,
+
+            // Method that will be executed when the action is triggered.
+            // @param editor The editor instance is passed in as a convenience
+            run: function (ed) {
+                ed.focus()
+                setTimeout(() => {
+                    virtualFS.tabs.setActiveTabRight()
+                }, 50)
             },
         });
     }, [codeEditor]);
@@ -111,9 +160,8 @@ export const EditorPage = () => {
         if (jumpTo) {
             if (jumpTo.id) {
                 if (!virtualFS.getModel(jumpTo.id)) return
+                virtualFS.setTreeObjectItemBool(jumpTo.id, "isSelected")
                 setTimeout(() => {
-                    virtualFS.tabs.add(virtualFS.getTreeObjectItemById(jumpTo.id))
-                    codeEditor.setModel(virtualFS.getModel(jumpTo.id));
                     codeEditor.setSelection(jumpTo.options.selection);
                     codeEditor.revealLine(jumpTo.options.selection.startLineNumber)
                 }, 200)
@@ -182,8 +230,14 @@ export const EditorPage = () => {
         <div id={"editor-page-component"}>
             <div className={styles["editor-header"]}>
                 <div className={styles["editor-header-left"]}>
-                    <Button icon="arrow-left" minimal={true} disabled={true} aria-label="arrow-left"/>
-                    <Button icon="arrow-right" minimal={true} disabled={true} aria-label="arrow-right"/>
+                    <Button icon="arrow-left" minimal={true}
+                            disabled={virtualFS.tabs.get().length <= 1}
+                            onClick={() => virtualFS.tabs.setActiveTabLeft()}
+                            aria-label="arrow-left"/>
+                    <Button icon="arrow-right" minimal={true}
+                            disabled={virtualFS.tabs.get().length <= 1}
+                            onClick={() => virtualFS.tabs.setActiveTabRight()}
+                            aria-label="arrow-right"/>
                 </div>
                 <div className={styles["editor-header-center"]}>
                     <InputGroup

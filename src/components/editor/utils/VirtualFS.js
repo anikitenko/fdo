@@ -162,9 +162,25 @@ const virtualFS = {
         list: [],
         setActiveTab(tab) {
             for (const i of this.list) {
-                i.active = i.id === tab.id;
+                i.active = i.id === tab.id
             }
-            this.parent.notifications.addToQueue("tabSwitched", tab.id);
+            this.parent.notifications.addToQueue("tabSwitched", tab.id)
+        },
+        setActiveTabLeft() {
+            const currentIndex = this.list.findIndex(tab => tab.active)
+            if (currentIndex === -1) return
+            const nextIndex = (currentIndex - 1 + this.list.length) % this.list.length
+            this.setActiveTab(this.list[nextIndex])
+
+            this.parent.notifications.addToQueue("tabSwitched", this.list[nextIndex].id)
+        },
+        setActiveTabRight() {
+            const currentIndex = this.list.findIndex(tab => tab.active)
+            if (currentIndex === -1) return
+            const nextIndex = (currentIndex + 1) % this.list.length
+            this.setActiveTab(this.list[nextIndex])
+
+            this.parent.notifications.addToQueue("tabSwitched", this.list[nextIndex].id)
         },
         isActive(tab) {
             return this.list.some((t) => t.active === tab.active)
@@ -505,6 +521,47 @@ const virtualFS = {
 
     listModels() {
         return Object.keys(this.files).map(key => this.files[key].model)
+    },
+
+    rename(node, newFile) {
+        if (this.getTreeObjectItemById(newFile)) return
+        const object = _.cloneDeep(this.getTreeObjectItemById(node.id))
+        if (!object) return;
+
+        if (object.type === "file") {
+            const uri = monaco.Uri.parse(`file://${newFile}`);
+            const fileContent = this.files[node.id].model.getValue()
+            this.deleteFile(node.id)
+            const model = monaco.editor.createModel(fileContent, getLanguage(newFile), uri);
+            this.createFile(newFile, model)
+            this.setTreeObjectItemBool(newFile, "isSelected")
+        } else {
+            const fileContent = []
+            for (const key of Object.keys(this.files)) {
+                if (key.startsWith(node.id)) {
+                    console.log(key.replace(node.id, newFile))
+                    fileContent.push({
+                        uri: monaco.Uri.parse(`file://${key.replace(node.id, newFile)}`),
+                        content: this.files[key].model.getValue(),
+                        path: key.replace(node.id, newFile),
+                        oldPath: node.id
+                    })
+                }
+            }
+            if (fileContent.length === 0) {
+                this.deleteFile(node.id)
+                this.createFolder(newFile)
+            } else {
+                for (const file of fileContent) {
+                    this.deleteFile(file.oldPath)
+                    const model = monaco.editor.createModel(file.content, getLanguage(file.path), file.uri);
+                    this.createFile(file.path, model)
+                }
+            }
+        }
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
+        });
     },
 
     init() {

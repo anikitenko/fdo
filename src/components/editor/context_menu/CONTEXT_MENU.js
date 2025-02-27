@@ -30,6 +30,9 @@ const ContextMenu = ({contextElement}) => {
             case "new-folder":
                 virtualFS.openFileDialog({node: props.node, filter: [".nonexistingextension"], type: "folder"})
                 break
+            case "rename-file-folder":
+                virtualFS.openFileDialog({node: props.node, filter: [".nonexistingextension"], action: "rename"})
+                break
             default:
                 virtualFS.openFileDialog({node: props.node, filter: [".*"]})
         }
@@ -89,21 +92,7 @@ const ContextMenu = ({contextElement}) => {
                 </Submenu>
                 <Separator/>
                 <Item onClick={handleDeleteContextClick}>
-                    <span style={{paddingLeft: "20px"}}>Rename</span>
-                </Item>
-                <Separator/>
-                <Item onClick={handleDeleteContextClick}>
-                    <Icon icon={IconNames.CUT}/> <span style={{paddingLeft: "5px"}}>Cut</span>
-                </Item>
-                <Item onClick={handleDeleteContextClick}>
-                    <Icon icon={IconNames.DUPLICATE}/> <span style={{paddingLeft: "5px"}}>Copy</span>
-                </Item>
-                <Item onClick={handleDeleteContextClick}>
-                    <Icon icon={IconNames.PASTE_VARIABLE}/> <span style={{paddingLeft: "5px"}}>Paste</span>
-                </Item>
-                <Separator/>
-                <Item onClick={handleDeleteContextClick}>
-                    <Icon icon={IconNames.TRASH}/> <span style={{paddingLeft: "5px"}}>Delete</span>
+                    <Icon intent={"danger"} icon={IconNames.TRASH}/> <span style={{paddingLeft: "5px"}}>Delete</span>
                 </Item>
             </Menu>
             <Alert

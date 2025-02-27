@@ -1,5 +1,5 @@
 import {useEffect, useState} from "react";
-import {Dialog, DialogBody, Divider, InputGroup} from "@blueprintjs/core";
+import {Callout, Dialog, DialogBody, Divider, InputGroup} from "@blueprintjs/core";
 import {getIconForFile, getIconForFolder} from "vscode-icons-js";
 import virtualFS from "./utils/VirtualFS";
 import {createVirtualFile} from "./utils/createVirtualFile";
@@ -53,32 +53,44 @@ const FileDialogComponent = () => {
         }, 100)
     }
 
+    const getDialogTitle = () => {
+        if (fileDialogShow.data.action === "rename") return "Rename file"
+        return fileDialogShow.data.type ? "New folder" : "New file"
+    }
+
     useEffect(() => {
         if (newOverlayValue) {
+            let icon = getIconForFile(newOverlayValue + fileType)
             if (fileDialogShow.data.type) {
-                setNewOverlayIcon(
-                    <img src={"/assets/icons/vscode/" + getIconForFolder(newOverlayValue)} width="30" height="30"
-                         alt="icon"/>
-                )
-            } else {
-                setNewOverlayIcon(
-                    <img src={"/assets/icons/vscode/" + getIconForFile(newOverlayValue + fileType)} width="30" height="30"
-                         alt="icon"/>
-                )
+                icon = getIconForFolder(newOverlayValue)
+            } else if (fileDialogShow.data.action === "rename") {
+                if (fileDialogShow.data.node.type === "file") {
+                    icon = getIconForFile(newOverlayValue + fileType)
+                } else {
+                    icon = getIconForFolder(newOverlayValue)
+                }
             }
+            setNewOverlayIcon(
+                <img src={"/assets/icons/vscode/" + icon} width="30" height="30"
+                     alt="icon"/>
+            )
         }
         setNewOverlayValueWithExt(newOverlayValue + fileType)
     }, [newOverlayValue]);
 
     useEffect(() => {
+
         setNewOverlayValue(" ")
+
         setTimeout(() => {
             setNewOverlayValue("")
         }, 100)
+
         const unsubscribe = virtualFS.notifications.subscribe("fileDialog", setFileDialogShow);
+
         return () => {
             unsubscribe()
-        } // Cleanup
+        }
     }, []);
     return (
         <Dialog isOpen={fileDialogShow.show}
@@ -88,25 +100,47 @@ const FileDialogComponent = () => {
             <DialogBody>
                 <div style={{textAlign: "center"}}>
                     <span className={"bp5-heading"} style={{color: "white"}}>
-                        {fileDialogShow.data.type ? "New folder" : "New file"}
+                        {getDialogTitle()}
                     </span>
                 </div>
+                {fileDialogShow.data.action === "rename" && (
+                    <Callout intent={"warning"} style={{color: "white", marginTop: "5px"}}>
+                        <b>Warning:</b> Renaming behaves like the 'mv' command on Linux. Renaming to an existing file will overwrite it. Renaming to a directory will silently fail. Moving to another directory will relocate the file.
+                    </Callout>
+                )}
                 <InputGroup
                     leftElement={newOverlayIcon}
                     onChange={(e) => setNewOverlayValue(e.target.value)}
                     value={newOverlayValue}
-                    placeholder="Name"
+                    placeholder={fileDialogShow.data.action === "rename" ? "Location/New name" : "Name"}
                     autoFocus={true}
                     onKeyPress={(e) => {
                         if (e.key === "Enter") {
                             let newFile = newOverlayValueWithExt
-                            if (newFile.split("/")[0] !== "") {
-                                const prefix = getFullPathOfFileFolder(fileDialogShow.data.node.id, fileDialogShow.data.node.type)
-                                newFile = prefix+newOverlayValueWithExt
-                            }
-                            if (fileDialogShow.data.type) {
-                                virtualFS.createFolder(newFile)
+                            if (fileDialogShow.data.action) {
+                                if (fileDialogShow.data.action === "rename") {
+                                    if (newFile.split("/")[0] !== "") {
+                                        const prefix = getFullPathOfFileFolder(fileDialogShow.data.node.id, fileDialogShow.data.node.type, true)
+                                        newFile = prefix+newOverlayValueWithExt
+                                    }
+                                    virtualFS.rename(fileDialogShow.data.node, newFile)
+                                }
+                            } else if (fileDialogShow.data.node) {
+                                if (newFile.split("/")[0] !== "") {
+                                    const prefix = getFullPathOfFileFolder(fileDialogShow.data.node.id, fileDialogShow.data.node.type)
+                                    newFile = prefix+newOverlayValueWithExt
+                                }
+                                if (fileDialogShow.data.type) {
+                                    virtualFS.createFolder(newFile)
+                                } else {
+                                    createVirtualFile(newFile, packageNewFileContent(newFile))
+                                    virtualFS.setTreeObjectItemBool(newFile, "isSelected")
+                                }
                             } else {
+                                if (newFile.split("/")[0] !== "") {
+                                    const prefix = getFullPathOfFileFolder("/", "file")
+                                    newFile = prefix+newOverlayValueWithExt
+                                }
                                 createVirtualFile(newFile, packageNewFileContent(newFile))
                                 virtualFS.setTreeObjectItemBool(newFile, "isSelected")
                             }
