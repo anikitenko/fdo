@@ -234,6 +234,8 @@
     font-size: 0.8rem;
     line-height: 1.6rem;
     cursor: pointer;
+    overflow-y: auto;
+    max-height: 100px;
 }
 
 .file-dialog-component .new-file-option {

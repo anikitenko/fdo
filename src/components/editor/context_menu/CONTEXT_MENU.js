@@ -31,7 +31,7 @@ const ContextMenu = ({contextElement}) => {
                 virtualFS.openFileDialog({node: props.node, filter: [".nonexistingextension"], type: "folder"})
                 break
             default:
-                break
+                virtualFS.openFileDialog({node: props.node, filter: [".*"]})
         }
     }
 
@@ -57,6 +57,9 @@ const ContextMenu = ({contextElement}) => {
                     {contextElement?.label}
                 </Item>
                 <Separator/>
+                <Item onClick={handleNewContextClick}>
+                    <span style={{paddingLeft: "20px"}}>New file</span>
+                </Item>
                 <Submenu label={<span style={{paddingLeft: "20px"}}>New</span>}>
                     <Item id={"new-file"} onClick={handleNewContextClick}>
                         <img src={"/assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
@@ -85,9 +88,6 @@ const ContextMenu = ({contextElement}) => {
                     </Item>
                 </Submenu>
                 <Separator/>
-                <Item onClick={handleDeleteContextClick}>
-                    <span style={{paddingLeft: "20px"}}>Save</span>
-                </Item>
                 <Item onClick={handleDeleteContextClick}>
                     <span style={{paddingLeft: "20px"}}>Rename</span>
                 </Item>

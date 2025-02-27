@@ -26,7 +26,7 @@ const FileDialogComponent = () => {
             return types
         }
         return types.filter((type) => (
-                filter.includes(type.ext)
+            filter.includes(".*") || filter.includes(type.ext)
             )
         )
     }
