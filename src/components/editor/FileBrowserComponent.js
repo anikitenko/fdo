@@ -22,7 +22,7 @@ const FileBrowserComponent = () => {
     const handleNodeExpand = (node) => {
         virtualFS.updateTreeObjectItem(node.id, {
             isExpanded: true,
-            icon: <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
+            icon: <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
                        alt="icon"/>
         })
     };
@@ -30,7 +30,7 @@ const FileBrowserComponent = () => {
     const handleNodeCollapse = (node) => {
         virtualFS.updateTreeObjectItem(node.id, {
             isExpanded: false,
-            icon: <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
+            icon: <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
                        alt="icon"/>
         })
     };
@@ -57,7 +57,6 @@ const FileBrowserComponent = () => {
     return (
         <>
             <Tree
-                compact={true}
                 contents={treeData}
                 onNodeClick={handleNodeClick}
                 onNodeExpand={handleNodeExpand}

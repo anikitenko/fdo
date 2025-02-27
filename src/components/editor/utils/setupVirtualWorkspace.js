@@ -43,5 +43,6 @@ export async function setupVirtualWorkspace(name, template) {
             monaco.languages.typescript.typescriptDefaults.addExtraLib(dts, `/node_modules/${resultFiles.files[idx]}`);
             createVirtualFile(`/node_modules/${resultFiles.files[idx]}`, dts)
         }
+        virtualFS.fs.create()
     }
 }

@@ -2,14 +2,15 @@ import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-ico
 import * as monaco from "monaco-editor";
 import {packageDefaultContent} from "./packageDefaultContent";
 import styles from '../EditorPage.module.css'
+import _ from "lodash";
+import getLanguage from "./getLanguage";
 
-const virtualFS =  {
+const virtualFS = {
     DEFAULT_FILE: "/index.ts",
-    files: {},
-    name: "",
     fileDialog: {
         show: false, data: {}
     },
+    files: {},
     treeObject: [{
         id: "/",
         label: "/",
@@ -33,7 +34,7 @@ const virtualFS =  {
             return () => this.listeners.get(event)?.delete(callback); // Unsubscribe
         },
         addToQueue(eventType, data) {
-            this.queue.push({ eventType, data });
+            this.queue.push({eventType, data});
             if (!this.processing) {
                 Promise.resolve().then(() => this.__startProcessing());
             }
@@ -43,7 +44,7 @@ const virtualFS =  {
 
             this.processing = true;
             while (this.queue.length > 0) {
-                const { eventType, data } = this.queue.shift();
+                const {eventType, data} = this.queue.shift();
                 this.__dispatch(eventType, data); // Fire the event
                 //console.log(`Notified: ${eventType} ->`, data);
                 await this.__delay(50); // Ensure sequential execution
@@ -57,6 +58,163 @@ const virtualFS =  {
         },
         __delay(ms) {
             return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+    },
+    fs: {
+        versions: {},
+        version_latest: 0,
+        version_current: 0,
+        parent: Object,
+        create(prevVersion = "", tabs = []) {
+            const latest = (Math.random() + 1).toString(36).substring(2)
+            const content = []
+            this.parent.listModels().forEach((model) => {
+                content.push({
+                    id: model.uri.toString().replace("file://", "").replace("%40", "@"),
+                    content: model.getValue()
+                })
+            })
+            const date = new Date().toISOString()
+            this.versions[latest] = {
+                treeObject: _.cloneDeep(this.parent.treeObject),
+                tabs: tabs,
+                content: content,
+                version: latest,
+                prev: prevVersion,
+                date: date
+            };
+            this.version_latest = latest
+            this.version_current = latest
+            this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
+            return {version: latest, date: date, prev: prevVersion}
+        },
+        set(version) {
+            for (const key of Object.keys(this.parent.files)) {
+                monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
+                const model = monaco.editor.getModel(monaco.Uri.parse(`file://${key}`))
+                if (model) {
+                    model.dispose()
+                }
+                this.parent.files[key].model.dispose()
+                if (key.endsWith(".ts") || key.endsWith(".tsx")) {
+                    monaco.editor.setModelMarkers(model, "typescript", [])
+                }
+                delete this.parent.files[key]
+                this.parent.notifications.addToQueue("fileRemoved", key)
+            }
+            monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+                ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
+            });
+            for (const file of this.versions[version].content) {
+                const uri = monaco.Uri.parse(`file://${file.id}`)
+                const fileContent = file.content
+                monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, file.id)
+                let model = {}
+                model = monaco.editor.getModel(uri)
+                if (!model) {
+                    model = monaco.editor.createModel(fileContent, getLanguage(file.id), uri)
+                } else {
+                    model.setValue(fileContent)
+                }
+                this.parent.files[file.id] = {
+                    model: model,
+                    state: undefined
+                }
+            }
+            monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+                ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
+            });
+            this.parent.treeObject = _.cloneDeep(this.versions[version].treeObject)
+            this.version_current = version
+            this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc())
+            this.parent.notifications.addToQueue("fileSelected", this.parent.getTreeObjectItemSelected())
+            return {
+                tabs: this.versions[version].tabs,
+            }
+        },
+        __list() {
+            const versions = []
+            for (const i of Object.keys(this.versions)) {
+                versions.push({
+                    version: this.versions[i].version,
+                    date: this.versions[i].date,
+                    prev:  this.versions[i].prev,
+                    current: this.versions[i].version === this.version_current
+                })
+            }
+            return versions
+        },
+        list() {
+            return this.__list()
+        },
+        __version() {
+            return {
+                version: this.version_current,
+                date: this.versions[this.version_current]?.date
+            }
+        },
+        version() {
+            return this.__version()
+        }
+    },
+    tabs: {
+        parent: Object,
+        list: [],
+        setActiveTab(tab) {
+            for (const i of this.list) {
+                i.active = i.id === tab.id;
+            }
+            this.parent.notifications.addToQueue("tabSwitched", tab.id);
+        },
+        isActive(tab) {
+            return this.list.some((t) => t.active === tab.active)
+        },
+        isActiveById(id) {
+            return this.list.some((t) => t.id === id && t.active)
+        },
+        add(tab, active = true) {
+            if (!this.list.some((t) => t.id === tab.id)) {
+                this.list.push(tab)
+            }
+            if (active) this.setActiveTab(tab)
+            this.parent.notifications.addToQueue("fileTabs", this.get())
+        },
+        addMultiple(tabs) {
+            for (const tab of tabs) {
+                this.add(tab, false)
+            }
+            this.setActiveTab(tabs[0])
+            this.parent.notifications.addToQueue("fileTabs", this.get())
+        },
+        remove(tab) {
+            this.removeById(tab.id)
+        },
+        removeById(id) {
+            const index = this.list.findIndex((t) => t.id === id)
+            if (index > -1) {
+                this.list.splice(index, 1)
+            }
+            this.parent.notifications.addToQueue("fileTabs", this.get())
+            if (this.isActiveById(id)) {
+                this.parent.notifications.addToQueue("tabClosed", id);
+            }
+            this.switchToLast()
+        },
+        get() {
+            return [...this.list]
+        },
+        getLast() {
+            return this.list[this.list.length - 1]
+        },
+        switchToLast() {
+            const tabs = this.get();
+            let lastTab;
+            if (tabs.length > 0) {
+                lastTab = tabs[tabs.length - 1]
+                this.setActiveTab(lastTab)
+            } else {
+                this.parent.notifications.addToQueue("tabSwitched", lastTab?.id)
+            }
         }
     },
     getFileContent(fileName) {
@@ -92,16 +250,15 @@ const virtualFS =  {
     getTreeObjectSortedAsc() {
         return this.__sortTreeObjectChildrenAsc(this.treeObject)
     },
-    setName(name) {
-        this.name = name;
-    },
     setFileContent(fileName, content) {
         return this.files[fileName]?.model?.setValue(content) ?? undefined;
     },
     setTreeObjectItemRoot(name) {
         this.treeObject[0].id = "/";
         this.treeObject[0].label = name;
-        this.treeObject[0].icon = <img className={"file-tree-icon"} src={"/assets/icons/vscode/" + getIconForOpenFolder(name)} width="20" height="20" alt="icon"/>
+        this.treeObject[0].icon =
+            <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForOpenFolder(name)}
+                 width="20" height="20" alt="icon"/>
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
 
@@ -236,7 +393,9 @@ const virtualFS =  {
         return {
             id,
             label: name,
-            icon: <img className={"file-tree-icon"} src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)} width="20" height="20" alt="icon"/>,
+            icon: <img className={styles["file-tree-icon"]}
+                       src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)}
+                       width="20" height="20" alt="icon"/>,
             isExpanded: false,
             type: type,
             isSelected: isSelected,
@@ -256,7 +415,8 @@ const virtualFS =  {
             const isLastItem = i === itemsSplit.length - 1;
 
             // Determine type, considering forceFolder
-            const type = (isLastItem && isFolder) ? "folder" : (isLastItem ? "file" : "folder");
+            const lastType = isLastItem ? "file" : "folder"
+            const type = (isLastItem && isFolder) ? "folder" : lastType;
 
             // Check if child exists in current node
             let existingChild = currentNode.childNodes?.find(child => child.label === itemSplit);
@@ -341,7 +501,17 @@ const virtualFS =  {
 
     modelIdDefined(id) {
         return this.files[id]?.model
+    },
+
+    listModels() {
+        return Object.keys(this.files).map(key => this.files[key].model)
+    },
+
+    init() {
+        this.fs.parent = this
+        this.tabs.parent = this
+        return this
     }
-}
+}.init()
 
 export default virtualFS;

@@ -4,6 +4,7 @@
     --menu-color: #d4d4d4;
     --menu-border: #3c3c3c;
     --menu-hover-bg: #094771;
+    --palette-left: "100px"
 }
 
 .mouse-pointer {
@@ -21,7 +22,7 @@
     transform: translateX(-20%);
     z-index: 999999 !important;
     background: rgba(30, 30, 30, 0.95) !important;
-    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3) !important;
     overflow: hidden !important;  /* Prevents resizing issues */
 }
 
@@ -29,21 +30,22 @@
     display: none;
 }
 
-.file-tree :global(.bp5-tree-node-content) :global(.file-tree-icon) {
+.file-tree :global(.bp5-tree-node-content) .file-tree-icon {
     margin-right: 5px;
 }
 
-.file-tree :global(.bp5-tree-node) :global(.file-tree-icon) {
+.file-tree :global(.bp5-tree-node) .file-tree-icon {
     filter: brightness(0.9);
-    text-shadow: 0px 0px 3px rgba(255, 255, 255, 0.6);
+    text-shadow: 0 0 3px rgba(255, 255, 255, 0.6);
     margin-right: 5px;
 }
 
 .file-tree :global(.bp5-tree-node):global(.bp5-intent-warning) {
-    background-color: #523a10;
+    background-color: #734d0a;
+    color: #ffa900;
 }
 
-.file-tree :global(.bp5-tree-node-selected) :global(.file-tree-icon) {
+.file-tree :global(.bp5-tree-node-selected) .file-tree-icon {
     filter: brightness(1) invert(1);
 }
 
@@ -162,7 +164,7 @@
 
 .inner-files-deploy-grid {
     display: grid;
-    grid-template-rows: 1fr 5px 0.4fr;
+    grid-template-rows: 400px 5px auto;
     height: 100%;
     min-height: 0;
 }
@@ -171,7 +173,13 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    overflow: hidden;
+    overflow: scroll;
+    background: #333;
+}
+
+.code-deploy-actions {
+    background: #333;
+    padding: 20px;
 }
 
 .gutter-col {
@@ -238,6 +246,11 @@
 
 .alert-delete {
     background: var(--menu-border);
+}
+
+.versions-scrollable-dropdown {
+    max-height: 300px; /* Adjust as needed */
+    overflow-y: auto;
 }
 
 .contexify_theme-dark {

@@ -13,6 +13,7 @@ import {packageDefaultContent} from "./utils/packageDefaultContent";
 import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
+import CodeDeployActions from "./CodeDeployActions";
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -24,43 +25,16 @@ export const EditorPage = () => {
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
     const rootFolder = FDO_SDK.generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
+    const [editorModelPath, setEditorModelPath] = useState(virtualFS.getTreeObjectItemSelected()?.id)
     const [codeEditorCreated, setCodeEditorCreated] = useState(false)
     const [codeEditor, setCodeEditor] = useState(null)
-    const [selectedFile, setSelectedFile] = useState(virtualFS.getTreeObjectItemSelected())
-    const [removedFile, setRemovedFile] = useState("")
-    const [openTabs, setOpenTabs] = useState([])
-    const [activeTab, setActiveTab] = useState(null)
     const [jumpTo, setJumpTo] = useState(null)
-    const addTab = (file) => {
-        if (!openTabs.some((tab) => tab.id === file.id)) {
-            setOpenTabs((prevTabs) => [...prevTabs, file])
-        }
-        setActiveTab(file)
-    };
     const closeTab = (fileID) => {
-        setOpenTabs((prevTabs) => prevTabs.filter((tab) => tab.id !== fileID))
+        virtualFS.tabs.removeById(fileID)
+
         if (virtualFS.getModel(fileID))
             virtualFS.updateModelState(fileID, codeEditor.saveViewState())
-
-        // If closing the active file, switch to the first open tab
-        if (activeTab.id === fileID) {
-            const remainingTabs = openTabs.filter((tab) => tab.id !== fileID)
-            if (remainingTabs.length > 0) {
-                if (!virtualFS.getModel(fileID)) {
-                    virtualFS.setTreeObjectItemBool(remainingTabs[remainingTabs.length - 1].id, "isSelected")
-                    return
-                }
-                if (virtualFS.getTreeObjectItemSelected().id === remainingTabs[remainingTabs.length - 1].id) {
-                    codeEditor.setModel(virtualFS.getModel(remainingTabs[remainingTabs.length - 1].id))
-                } else {
-                    virtualFS.setTreeObjectItemBool(remainingTabs[remainingTabs.length - 1].id, "isSelected")
-                }
-            } else {
-                setActiveTab(null)
-                setSelectedFile(virtualFS.createEmptyFile(rootFolder));
-            }
-        }
-    };
+    }
 
     monaco.editor.onDidCreateEditor(async () => {
         if (!codeEditorCreated) {
@@ -138,7 +112,7 @@ export const EditorPage = () => {
             if (jumpTo.id) {
                 if (!virtualFS.getModel(jumpTo.id)) return
                 setTimeout(() => {
-                    addTab(virtualFS.getTreeObjectItemById(jumpTo.id))
+                    virtualFS.tabs.add(virtualFS.getTreeObjectItemById(jumpTo.id))
                     codeEditor.setModel(virtualFS.getModel(jumpTo.id));
                     codeEditor.setSelection(jumpTo.options.selection);
                     codeEditor.revealLine(jumpTo.options.selection.startLineNumber)
@@ -147,25 +121,11 @@ export const EditorPage = () => {
         }
     }, [jumpTo]);
 
-    useEffect(() => {
-        if (selectedFile) {
-            addTab(selectedFile)
-            codeEditor.restoreViewState(virtualFS.getModelState(selectedFile.id))
-        }
-    }, [selectedFile]);
-
-    useEffect(() => {
-        if (removedFile) {
-            closeTab(removedFile)
-        }
-    }, [removedFile]);
-
     function handleEditorChange(value) {
-        const path = selectedFile.id;
+        /*const path = selectedFile.id;
         if (path === "Untitled") {
             return
-        }
-        console.log(value)
+        }*/
     }
 
     const openCodePaletteShow = () => {
@@ -188,16 +148,35 @@ export const EditorPage = () => {
         window.addEventListener("resize", updatePaletteLeft);
         updatePaletteLeft(); // Initial update
 
-        const unsubscribe = virtualFS.notifications.subscribe("fileSelected", setSelectedFile);
-        const unsubscribeRemoved = virtualFS.notifications.subscribe("fileRemoved", setRemovedFile);
+        const unsubscribe = virtualFS.notifications.subscribe("fileSelected", (file) => {
+            if (file) {
+                virtualFS.tabs.add(file);
+                setEditorModelPath(file.id)
+                codeEditor?.setModel(virtualFS.getModel(file.id))
+                codeEditor?.restoreViewState(virtualFS.getModelState(file.id))
+            }
+        });
+        const unsubscribeFileRemoved = virtualFS.notifications.subscribe("fileRemoved", (fileID) => {
+            virtualFS.tabs.removeById(fileID)
+            virtualFS.tabs.switchToLast()
+        });
+        const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", (tabID) => {
+            const model = virtualFS.getModel(tabID)
+            setEditorModelPath(tabID)
+            if (model) {
+                codeEditor?.setModel(model)
+            } else {
+                virtualFS.setTreeObjectItemBool(tabID, "isSelected")
+            }
+        });
 
         return () => {
             window.removeEventListener("resize", updatePaletteLeft)
             unsubscribe()
-            unsubscribeRemoved()
+            unsubscribeFileRemoved()
+            unsubscribeTabSwitched()
         }
     }, []);
-    const [isSplitEnabled, setIsSplitEnabled] = useState(false);
 
     return (
         <div id={"editor-page-component"}>
@@ -209,7 +188,7 @@ export const EditorPage = () => {
                 <div className={styles["editor-header-center"]}>
                     <InputGroup
                         leftIcon={"search"}
-                        placeholder={selectedFile?.label}
+                        placeholder={virtualFS.getTreeObjectItemSelected()?.label}
                         round={true} fill={true} small={true}
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
@@ -224,9 +203,6 @@ export const EditorPage = () => {
                          }) => (
                     <div className={`bp5-dark ${styles["grid-container"]}`} {...getGridProps()}>
                         <div className={styles["file-explorer"]}>
-                            <button onClick={() => setIsSplitEnabled(!isSplitEnabled)}>
-                                {isSplitEnabled ? "Close Split" : "Open Split"}
-                            </button>
                             <Split
                                 minSize={100}
                                 direction="column"
@@ -235,32 +211,27 @@ export const EditorPage = () => {
                                              getGutterProps: getInnerGutterProps,
                                          }) => (
                                     <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
-                                        <div className={styles["file-list"]}>
-                                            <Card style={{height: "100%"}}>
-                                                <FileBrowserComponent/>
-                                            </Card>
+                                        <div className={styles["file-explorer"]}>
+                                            <FileBrowserComponent/>
                                         </div>
-                                        {isSplitEnabled && (<>
                                         <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                                         <div className={styles["details-pane"]}>
-                                            <Card style={{height: "100%"}}>
-                                                fdsgdsfgfdgdfsgdfgdfgdfsg
-                                            </Card>
+                                            <div className={styles["code-deploy-actions"]}>
+                                                <CodeDeployActions/>
+                                            </div>
                                         </div>
-                                        </>)}
                                     </div>
                                 )}
                             />
                         </div>
                         <div className={styles["gutter-col"]} {...getGutterProps('column', 1)}></div>
                         <div id={"code-editor"} className={styles["code-editor"]}>
-                            <FileTabs activeTab={activeTab} setActiveTab={setActiveTab}
-                                      openTabs={openTabs} closeTab={closeTab} codeEditor={codeEditor}/>
+                            <FileTabs closeTab={closeTab}/>
                             <Editor height="100vh" defaultLanguage="plaintext"
                                     onChange={handleEditorChange}
                                     theme="vs-dark"
                                     defaultValue={packageDefaultContent(rootFolder)}
-                                    path={selectedFile?.id}
+                                    path={editorModelPath}
                                     className={styles["editor-container"]}
                                     onMount={(editor) => {
                                         setCodeEditor(editor)
