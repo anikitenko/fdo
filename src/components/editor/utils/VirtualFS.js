@@ -246,6 +246,7 @@ const virtualFS = {
                 }
             }
             this.parent.notifications.addToQueue("fileTabs", this.get())
+            this.parent.notifications.addToQueue("listMarkers", this.listMarkers())
         },
         removeMarkers(id) {
             for (const i of this.list) {
@@ -254,6 +255,13 @@ const virtualFS = {
                 }
             }
             this.parent.notifications.addToQueue("fileTabs", this.get())
+            this.parent.notifications.addToQueue("listMarkers", this.listMarkers())
+        },
+        listMarkers() {
+            return this.list.filter((t) => t.markers).map((t) => ({id: t.id, markers: t.markers}))
+        },
+        totalMarkersCount() {
+            return this.list.reduce((sum, t) => sum + (t.markers?.length || 0), 0);
         },
         remove(tab) {
             this.removeById(tab.id)

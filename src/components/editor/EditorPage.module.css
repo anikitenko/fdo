@@ -149,18 +149,27 @@
 
 .inner-files-deploy-grid {
     display: grid;
-    grid-template-rows: 400px 5px auto;
+    grid-template-rows: 470px 5px auto;
     height: 100%;
     min-height: 0;
 }
 
 .inner-editor-terminal-grid {
     display: grid;
-    grid-template-rows: 0.7fr 5px 0.3fr;
+    grid-template-rows: 570px 5px auto;
+    height: 100%;
     min-height: 0;
 }
 
 .file-explorer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: scroll;
+    background: #333;
+}
+
+.code-editor-build-output-terminal {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -173,9 +182,23 @@
     padding: 20px;
 }
 
+.code-editor {
+    flex-grow: 1;  /* Code editor takes available space */
+    overflow: hidden;
+}
+
+.build-output-terminal {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
 .terminal-output-console {
     background: #333;
     padding: 20px;
+    height: 100%; /* Ensure it takes full height in the split section */
+    overflow: hidden;
 }
 
 .gutter-col {
@@ -190,8 +213,32 @@
     user-select: none;
 }
 
-.code-editor {
+.gutter-row-editor-terminal {
+    background: #ccc;
+    cursor: row-resize;
+    user-select: none;
+}
+
+.build-output-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Full height within split panel */
     overflow: hidden;
+}
+
+.build-output-tabs-container {
+    position: sticky;
+    top: 0;
+    background-color: #333;
+    z-index: 10;
+    padding: 8px;
+}
+
+.build-output-panel {
+    flex-grow: 1; /* Expands dynamically */
+    overflow-y: auto; /* Scrolls only when needed */
+    min-height: 0; /* Prevents layout issues */
+    padding: 8px;
 }
 
 .file-dialog-component {

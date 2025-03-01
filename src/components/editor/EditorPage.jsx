@@ -16,6 +16,7 @@ import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
 import codeEditorActions from "./utils/codeEditorActions";
 import monacoEditorStyle from "./monacoEditorStyle";
+import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -200,7 +201,7 @@ export const EditorPage = () => {
                             />
                         </div>
                         <div className={styles["gutter-col"]} {...getGutterProps('column', 1)}></div>
-                        <div>
+                        <div className={styles["code-editor-build-output-terminal"]}>
                             <Split
                                 minSize={200}
                                 direction="column"
@@ -241,15 +242,14 @@ export const EditorPage = () => {
                                                         extraEditorClassName: styles["monaco-main-editor"],
                                                         mouseWheelZoom: true,
                                                         smoothScrolling: true,
-                                                        automaticLayout: true,
                                                         dragAndDrop: false
                                                     }}
                                             />
                                         </div>
-                                        <div className={styles["gutter-row"]} {...getInnerCodeGutterProps('row', 1)}></div>
-                                        <div>
-                                            <div className={styles["terminal-output-console"]}>
-                                                dffdbmfdbmdfobmdfbodfmbofdmbfd
+                                        <div className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
+                                        <div className={styles["terminal-output-console"]}>
+                                            <div className={styles["build-output-terminal"]}>
+                                                <BuildOutputTerminalComponent />
                                             </div>
                                         </div>
                                     </div>
