@@ -5,7 +5,7 @@ import {Editor, loader} from '@monaco-editor/react';
 
 import styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
-import {Button, Card, InputGroup} from "@blueprintjs/core";
+import {Button, InputGroup} from "@blueprintjs/core";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
 import {setupVirtualWorkspace} from "./utils/setupVirtualWorkspace";
 import virtualFS from "./utils/VirtualFS";
@@ -266,7 +266,7 @@ export const EditorPage = () => {
                                             <FileBrowserComponent/>
                                         </div>
                                         <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
-                                        <div className={styles["details-pane"]}>
+                                        <div>
                                             <div className={styles["code-deploy-actions"]}>
                                                 <CodeDeployActions/>
                                             </div>
@@ -276,23 +276,42 @@ export const EditorPage = () => {
                             />
                         </div>
                         <div className={styles["gutter-col"]} {...getGutterProps('column', 1)}></div>
-                        <div id={"code-editor"} className={styles["code-editor"]}>
-                            <FileTabs closeTab={closeTab}/>
-                            <Editor height="100vh" defaultLanguage="plaintext"
-                                    onChange={handleEditorChange}
-                                    theme="vs-dark"
-                                    defaultValue={packageDefaultContent(rootFolder)}
-                                    path={editorModelPath}
-                                    className={styles["editor-container"]}
-                                    onMount={(editor) => {
-                                        setCodeEditor(editor)
-                                    }}
-                                    options={{
-                                        minimap: {enabled: true},
-                                        scrollbar: {vertical: "hidden", horizontal: "auto"},
-                                        fontSize: 13,
-                                        extraEditorClassName: styles["monaco-main-editor"]
-                                    }}
+                        <div>
+                            <Split
+                                minSize={200}
+                                direction="column"
+                                render={({
+                                             getGridProps: getInnerGridProps,
+                                             getGutterProps: getInnerGutterProps,
+                                         }) => (
+                                    <div {...getInnerGridProps()} id={"code-editor"} className={styles["inner-editor-terminal-grid"]}>
+                                        <div className={styles["code-editor"]}>
+                                            <FileTabs closeTab={closeTab}/>
+                                            <Editor height="100vh" defaultLanguage="plaintext"
+                                                    onChange={handleEditorChange}
+                                                    theme="vs-dark"
+                                                    defaultValue={packageDefaultContent(rootFolder)}
+                                                    path={editorModelPath}
+                                                    className={styles["editor-container"]}
+                                                    onMount={(editor) => {
+                                                        setCodeEditor(editor)
+                                                    }}
+                                                    options={{
+                                                        minimap: {enabled: true},
+                                                        scrollbar: {vertical: "hidden", horizontal: "auto"},
+                                                        fontSize: 13,
+                                                        extraEditorClassName: styles["monaco-main-editor"]
+                                                    }}
+                                            />
+                                        </div>
+                                        <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
+                                        <div>
+                                            <div className={styles["terminal-output-console"]}>
+                                                dffdbmfdbmdfobmdfbodfmbofdmbfd
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             />
                         </div>
                     </div>

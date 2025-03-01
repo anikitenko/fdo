@@ -169,6 +169,12 @@
     min-height: 0;
 }
 
+.inner-editor-terminal-grid {
+    display: grid;
+    grid-template-rows: 0.7fr 5px 0.3fr;
+    min-height: 0;
+}
+
 .file-explorer {
     display: flex;
     flex-direction: column;
@@ -178,6 +184,11 @@
 }
 
 .code-deploy-actions {
+    background: #333;
+    padding: 20px;
+}
+
+.terminal-output-console {
     background: #333;
     padding: 20px;
 }
