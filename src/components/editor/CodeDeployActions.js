@@ -149,7 +149,7 @@ const CodeDeployActions = () => {
                 label="Actions"
                 fill={true}
             >
-                <Button fill={true} text="1. Save All" rightIcon="saved" onClick={() => saveAll()}/>
+                <Button fill={true} text="1. Create snapshot" rightIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
                 <Button fill={true} text="2. Compile" intent="primary" rightIcon="build"/>
                 <Divider/>

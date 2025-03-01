@@ -209,13 +209,10 @@ export const EditorPage = () => {
             virtualFS.tabs.switchToLast()
         });
         const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", (tabID) => {
-            const model = virtualFS.getModel(tabID)
-            setEditorModelPath(tabID)
-            if (model) {
-                codeEditor?.setModel(model)
-            } else {
-                virtualFS.setTreeObjectItemBool(tabID, "isSelected")
-            }
+            setTimeout(() => {
+                setEditorModelPath(tabID)
+                virtualFS.setTreeObjectItemSelectedSilent(tabID)
+            }, 100)
         });
 
         return () => {
@@ -265,7 +262,7 @@ export const EditorPage = () => {
                                              getGutterProps: getInnerGutterProps,
                                          }) => (
                                     <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
-                                        <div className={styles["file-explorer"]}>
+                                        <div>
                                             <FileBrowserComponent/>
                                         </div>
                                         <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>

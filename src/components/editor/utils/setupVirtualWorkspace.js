@@ -9,7 +9,7 @@ export async function setupVirtualWorkspace(name, template) {
         allowNonTsExtensions: true,
         moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
         module: monaco.languages.typescript.ModuleKind.ES2015,
-        typeRoots: ["/node_modules"],
+        typeRoots: ["/node_modules/"],
         noImplicitAny: true,
         noUnusedLocals: true,
         noUnusedParameters: true,
@@ -31,18 +31,34 @@ export async function setupVirtualWorkspace(name, template) {
         skipLibCheck: true,
         skipDefaultLibCheck: true,
         baseUrl: "/",
-    });
-    virtualFS.setTreeObjectItemRoot(name)
-    if (!virtualFS.getModel(virtualFS.DEFAULT_FILE)) {
+    })
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+        noSemanticValidation: false,
+        noSyntaxValidation: false,
+    })
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+        noSemanticValidation: false,
+        noSyntaxValidation: false,
+    })
+    const resultFiles = await window.electron.GetModuleFiles()
+    for (const idx in resultFiles.files) {
+        const dts = await fetch(`/node_modules/${resultFiles.files[idx]}`).then(res => res.text())
+        monaco.languages.typescript.typescriptDefaults.addExtraLib(dts, `/node_modules/${resultFiles.files[idx]}`);
+        createVirtualFile(`/node_modules/${resultFiles.files[idx]}`, dts)
+    }
+
+    if (!virtualFS.isInitWorkspace()) {
+        const sandboxName = "sandbox_"+name
+        virtualFS.setInitWorkspace(sandboxName)
+        const sandbox = localStorage.getItem(sandboxName)
+        if (sandbox) {
+            virtualFS.restoreSandbox(sandbox)
+            return
+        }
+        virtualFS.setTreeObjectItemRoot(name)
         createVirtualFile(virtualFS.DEFAULT_FILE, name, template)
         createVirtualFile("/package.json", packageJsonContent(name))
         createVirtualFile("/package-lock.json", packageLockContent(name))
-        const resultFiles = await window.electron.GetModuleFiles()
-        for (const idx in resultFiles.files) {
-            const dts = await fetch(`/node_modules/${resultFiles.files[idx]}`).then(res => res.text())
-            monaco.languages.typescript.typescriptDefaults.addExtraLib(dts, `/node_modules/${resultFiles.files[idx]}`);
-            createVirtualFile(`/node_modules/${resultFiles.files[idx]}`, dts)
-        }
         virtualFS.fs.create()
     }
 }

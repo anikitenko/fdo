@@ -13,6 +13,8 @@ const virtualFS = {
         show: false, data: {}
     },
     files: {},
+    initWorkspace: false,
+    sandboxName: "",
     treeObject: [{
         id: "/",
         label: "/",
@@ -73,7 +75,8 @@ const virtualFS = {
             this.parent.listModels().forEach((model) => {
                 content.push({
                     id: model.uri.toString().replace("file://", "").replace("%40", "@"),
-                    content: model.getValue()
+                    content: model.getValue(),
+                    state: null
                 })
             })
             const date = new Date().toISOString()
@@ -87,6 +90,28 @@ const virtualFS = {
             };
             this.version_latest = latest
             this.version_current = latest
+
+            const sandboxFs = localStorage.getItem(this.parent.sandboxName)
+            if (sandboxFs) {
+                const unpacked = JSON.parse(LZString.decompress(sandboxFs))
+                unpacked.versions[latest] = _.cloneDeep(this.versions[latest])
+                this.parent.removeTreeObjectItemsIcon(unpacked.versions[latest].treeObject)
+                unpacked.version_latest = latest
+                unpacked.version_current = latest
+                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(unpacked)))
+            } else {
+                const fs = {
+                    versions: {},
+                    version_latest: 0,
+                    version_current: 0,
+                }
+                fs.versions[latest] = _.cloneDeep(this.versions[latest])
+                this.parent.removeTreeObjectItemsIcon(fs.versions[latest].treeObject)
+                fs.version_latest = latest
+                fs.version_current = latest
+                const backupData = structuredClone(fs)
+                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(backupData)))
+            }
             this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
             return {version: latest, date: date, prev: prevVersion}
         },
@@ -110,7 +135,7 @@ const virtualFS = {
             for (const file of this.versions[version].content) {
                 const uri = monaco.Uri.parse(`file://${file.id}`)
                 const fileContent = file.content
-                monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, file.id)
+                monaco.languages.typescript.typescriptDefaults.addExtraLib(fileContent, file.id)
                 let model = {}
                 model = monaco.editor.getModel(uri)
                 if (!model) {
@@ -120,7 +145,7 @@ const virtualFS = {
                 }
                 this.parent.files[file.id] = {
                     model: model,
-                    state: undefined
+                    state: file.state
                 }
             }
             monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -128,8 +153,15 @@ const virtualFS = {
             });
             this.parent.treeObject = _.cloneDeep(this.versions[version].treeObject)
             this.version_current = version
+            const sandboxFs = localStorage.getItem(this.parent.sandboxName)
+            if (sandboxFs) {
+                const unpacked = JSON.parse(LZString.decompress(sandboxFs))
+                unpacked.version_current = version
+                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(unpacked)))
+            }
             this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc())
             this.parent.notifications.addToQueue("fileSelected", this.parent.getTreeObjectItemSelected())
+            this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
             return {
                 tabs: this.versions[version].tabs,
             }
@@ -235,6 +267,21 @@ const virtualFS = {
             }
         }
     },
+    isInitWorkspace() {
+        return this.initWorkspace
+    },
+    setInitWorkspace(sandbox) {
+        this.sandboxName = sandbox
+        this.initWorkspace = true
+    },
+    restoreSandbox() {
+        const sandboxData = JSON.parse(LZString.decompress(localStorage.getItem(this.sandboxName)));
+        _.merge(this.fs, sandboxData)
+        for (const key of Object.keys(this.fs.versions)) {
+            this.restoreTreeObjectItemsIcon(this.fs.versions[key].treeObject)
+        }
+        this.fs.set(this.fs.version_current)
+    },
     getFileContent(fileName) {
         return this.files[fileName]?.model?.getValue() ?? undefined;
     },
@@ -286,6 +333,11 @@ const virtualFS = {
         if (prop === "isSelected") {
             this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(id))
         }
+    },
+
+    setTreeObjectItemSelectedSilent(id) {
+        if (this.__setTreeObjectItemBool(this.treeObject, id, "isSelected"))
+            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
 
     __setTreeObjectItemBool(nodes, id, prop) {
@@ -482,6 +534,38 @@ const virtualFS = {
         });
         this.removeTreeObjectItemById(fileName)
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
+    },
+    removeTreeObjectItemsIcon(tree) {
+        const stack = [...tree];
+        while (stack.length) {
+            const node = stack.pop();
+            if (node.icon) {
+                delete node.icon
+            }
+            if (node.childNodes?.length) stack.push(...node.childNodes);
+        }
+        return null;
+    },
+    restoreTreeObjectItemsIcon(tree) {
+        const stack = [...tree];
+        while (stack.length) {
+            const node = stack.pop();
+            if (node.label) {
+                if (node.type === "folder") {
+                    node.icon = <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
+                                     alt="icon"/>
+                    if (node.isExpanded) {
+                        node.icon = <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
+                                         alt="icon"/>
+                    }
+                } else {
+                    node.icon = <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForFile(node.label)} width="20" height="20"
+                                     alt="icon"/>
+                }
+            }
+            if (node.childNodes?.length) stack.push(...node.childNodes);
+        }
+        return null;
     },
     __sortTreeObjectChildrenAsc(nodes) {
         if (!nodes) return [];

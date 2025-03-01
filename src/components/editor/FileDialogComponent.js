@@ -20,6 +20,8 @@ const FileDialogComponent = () => {
             {name: "Javascript file", ext: ".js"},
             {name: "Javascript JSX file", ext: ".jsx"},
             {name: "Javascript module", ext: ".mjs"},
+            {name: "HTML file", ext: ".html"},
+            {name: "Stylesheet", ext: ".css"},
             {name: "Markdown file", ext: ".md"},
         ]
         if (!filter) {
@@ -58,6 +60,13 @@ const FileDialogComponent = () => {
         return fileDialogShow.data.type ? "New folder" : "New file"
     }
 
+    const closeDialog = () => {
+        setNewOverlayValue("")
+        setFileType("")
+        setNewOverlayValueWithExt("")
+        virtualFS.closeFileDialog()
+    }
+
     useEffect(() => {
         if (newOverlayValue) {
             let icon = getIconForFile(newOverlayValue + fileType)
@@ -81,6 +90,7 @@ const FileDialogComponent = () => {
     useEffect(() => {
 
         setNewOverlayValue(" ")
+        setFileType("")
 
         setTimeout(() => {
             setNewOverlayValue("")
@@ -94,7 +104,7 @@ const FileDialogComponent = () => {
     }, []);
     return (
         <Dialog isOpen={fileDialogShow.show}
-                onClose={() => virtualFS.closeFileDialog()}
+                onClose={() => closeDialog()}
                 style={{width: "45%"}} className={styles["file-dialog-component"]}
         >
             <DialogBody>
@@ -144,7 +154,7 @@ const FileDialogComponent = () => {
                                 createVirtualFile(newFile, packageNewFileContent(newFile))
                                 virtualFS.setTreeObjectItemBool(newFile, "isSelected")
                             }
-                            virtualFS.closeFileDialog()
+                            closeDialog()
                         }
                     }}
                 />
