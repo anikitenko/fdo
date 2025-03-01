@@ -11,21 +11,6 @@
     cursor: pointer;
 }
 
-.monaco-main-editor :global(.quick-input-widget) {
-    width: 400px !important;  /* Fixed width */
-    height: auto !important;  /* Let content determine height */
-    min-width: 400px !important;
-    max-width: 400px !important;  /* Prevent resizing */
-    position: fixed !important;  /* Stays in place */
-    top: 0 !important;
-    left: var(--palette-left) !important;
-    transform: translateX(-20%);
-    z-index: 999999 !important;
-    background: rgba(30, 30, 30, 0.95) !important;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3) !important;
-    overflow: hidden !important;  /* Prevents resizing issues */
-}
-
 .file-tree :global(.bp5-tree-node-caret-none) {
     display: none;
 }
@@ -69,7 +54,6 @@
 }
 
 .file-tab-marker {
-    /*text-decoration: underline 1px wavy #bb6363;*/
     text-decoration: underline 1px wavy #ff0033;
 }
 

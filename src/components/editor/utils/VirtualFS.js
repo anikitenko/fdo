@@ -15,6 +15,7 @@ const virtualFS = {
     files: {},
     initWorkspace: false,
     sandboxName: "",
+    quickInputWidgetTop: false,
     treeObject: [{
         id: "/",
         label: "/",
@@ -299,6 +300,12 @@ const virtualFS = {
             this.restoreTreeObjectItemsIcon(this.fs.versions[key].treeObject)
         }
         this.fs.set(this.fs.version_current)
+    },
+    getQuickInputWidgetTop() {
+        return this.quickInputWidgetTop
+    },
+    setQuickInputWidgetTop(loc) {
+        this.quickInputWidgetTop = loc
     },
     getFileContent(fileName) {
         return this.files[fileName]?.model?.getValue() ?? undefined;

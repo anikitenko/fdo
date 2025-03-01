@@ -15,6 +15,7 @@ import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
 import codeEditorActions from "./utils/codeEditorActions";
+import monacoEditorStyle from "./monacoEditorStyle";
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -77,25 +78,18 @@ export const EditorPage = () => {
     }
 
     const openCodePaletteShow = () => {
+        virtualFS.setQuickInputWidgetTop(true)
         codeEditor.focus();
-        codeEditor.trigger("", "editor.action.quickCommand", "");
+        codeEditor.trigger("", "editor.action.quickCommand", "")
         const input = document.querySelector(".quick-input-box .input");
         input.value = "";
-        input.dispatchEvent(new Event("input", {bubbles: true}));
+        input.dispatchEvent(new Event("input", {bubbles: true}))
+        setTimeout(() => {
+            virtualFS.setQuickInputWidgetTop(false)
+        }, 1000)
     }
 
-    const updatePaletteLeft = () => {
-        const inputElement = document.getElementsByClassName(styles["editor-header-search"])
-        if (inputElement) {
-            const rect = inputElement[0].getBoundingClientRect()
-            document.documentElement.style.setProperty("--palette-left", `50+${rect.left}px`)
-        }
-    };
-
     useEffect(() => {
-        window.addEventListener("resize", updatePaletteLeft);
-        updatePaletteLeft(); // Initial update
-
         const unsubscribe = virtualFS.notifications.subscribe("fileSelected", (file) => {
             if (file) {
                 virtualFS.tabs.add(file);
@@ -103,16 +97,21 @@ export const EditorPage = () => {
                 codeEditor?.setModel(virtualFS.getModel(file.id))
                 codeEditor?.restoreViewState(virtualFS.getModelState(file.id))
             }
+            codeEditor?.focus()
         });
         const unsubscribeFileRemoved = virtualFS.notifications.subscribe("fileRemoved", (fileID) => {
             virtualFS.tabs.removeById(fileID)
             virtualFS.tabs.switchToLast()
+            codeEditor?.focus()
         });
         const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", (tabID) => {
-            setTimeout(() => {
-                setEditorModelPath(tabID)
-                virtualFS.setTreeObjectItemSelectedSilent(tabID)
-            }, 100)
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    setEditorModelPath(tabID)
+                    virtualFS.setTreeObjectItemSelectedSilent(tabID)
+                    codeEditor?.focus()
+                }, 100)
+            })
         });
 
         /*const handleBeforeUnload = (event) => {
@@ -141,7 +140,6 @@ export const EditorPage = () => {
         }*/
 
         return () => {
-            window.removeEventListener("resize", updatePaletteLeft)
             //window.removeEventListener('beforeunload', handleBeforeUnload);
             unsubscribe()
             unsubscribeFileRemoved()
@@ -228,12 +226,18 @@ export const EditorPage = () => {
                                                     className={styles["editor-container"]}
                                                     onMount={(editor) => {
                                                         setCodeEditor(editor)
+                                                        monacoEditorStyle()
                                                     }}
+
                                                     options={{
                                                         minimap: {enabled: true},
                                                         scrollbar: {vertical: "hidden", horizontal: "auto"},
                                                         fontSize: 13,
-                                                        extraEditorClassName: styles["monaco-main-editor"]
+                                                        extraEditorClassName: styles["monaco-main-editor"],
+                                                        mouseWheelZoom: true,
+                                                        smoothScrolling: true,
+                                                        automaticLayout: true,
+                                                        dragAndDrop: false
                                                     }}
                                             />
                                         </div>
