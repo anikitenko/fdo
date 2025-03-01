@@ -14,6 +14,7 @@ import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
+import codeEditorActions from "./utils/codeEditorActions";
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -53,108 +54,7 @@ export const EditorPage = () => {
         }
     })
 
-    useEffect(() => {
-        if (!codeEditor) return;
-        codeEditor.addAction({
-            // A unique identifier of the contributed action.
-            id: "editor-go-fullscreen",
-            // A label of the action that will be presented to the user.
-            label: "Open in fullscreen",
-            // An optional array of keybindings for the action.
-            keybindings: [
-                monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, // CTRL/CMD + Shift + F
-            ],
-            // A precondition for this action.
-            precondition: null,
-            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
-            keybindingContext: null,
-            contextMenuGroupId: "navigation",
-            contextMenuOrder: 1.5,
-
-            // Method that will be executed when the action is triggered.
-            // @param editor The editor instance is passed in as a convenience
-            run: function (ed) {
-                ed.focus()
-                let itm = document.getElementById("code-editor");
-                if (itm.requestFullscreen) {
-                    itm.requestFullscreen().then(() => ({}));
-                }
-            },
-        });
-        codeEditor.addAction({
-            // A unique identifier of the contributed action.
-            id: "new-file",
-            // A label of the action that will be presented to the user.
-            label: "New file",
-            // An optional array of keybindings for the action.
-            keybindings: [
-                monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, // CTRL/CMD + N
-            ],
-            // A precondition for this action.
-            precondition: null,
-            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
-            keybindingContext: null,
-            contextMenuGroupId: "navigation",
-            contextMenuOrder: 1.5,
-
-            // Method that will be executed when the action is triggered.
-            // @param editor The editor instance is passed in as a convenience
-            run: function (ed) {
-                ed.focus()
-                virtualFS.openFileDialog({})
-            },
-        });
-        codeEditor.addAction({
-            // A unique identifier of the contributed action.
-            id: "switch-tab-left",
-            // A label of the action that will be presented to the user.
-            label: "Switch tab left",
-            // An optional array of keybindings for the action.
-            keybindings: [
-                monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyCode.LeftArrow,
-            ],
-            // A precondition for this action.
-            precondition: null,
-            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
-            keybindingContext: null,
-            contextMenuGroupId: "navigation",
-            contextMenuOrder: 1.5,
-
-            // Method that will be executed when the action is triggered.
-            // @param editor The editor instance is passed in as a convenience
-            run: function (ed) {
-                ed.focus()
-                setTimeout(() => {
-                    virtualFS.tabs.setActiveTabLeft()
-                }, 50)
-            },
-        });
-        codeEditor.addAction({
-            // A unique identifier of the contributed action.
-            id: "switch-tab-right",
-            // A label of the action that will be presented to the user.
-            label: "Switch tab right",
-            // An optional array of keybindings for the action.
-            keybindings: [
-                monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyCode.RightArrow,
-            ],
-            // A precondition for this action.
-            precondition: null,
-            // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
-            keybindingContext: null,
-            contextMenuGroupId: "navigation",
-            contextMenuOrder: 1.5,
-
-            // Method that will be executed when the action is triggered.
-            // @param editor The editor instance is passed in as a convenience
-            run: function (ed) {
-                ed.focus()
-                setTimeout(() => {
-                    virtualFS.tabs.setActiveTabRight()
-                }, 50)
-            },
-        });
-    }, [codeEditor]);
+    useEffect(() => codeEditorActions(codeEditor), [codeEditor]);
 
     useEffect(() => {
         if (jumpTo) {
@@ -185,10 +85,10 @@ export const EditorPage = () => {
     }
 
     const updatePaletteLeft = () => {
-        const inputElement = document.getElementsByClassName(styles["editor-header-search"]);
+        const inputElement = document.getElementsByClassName(styles["editor-header-search"])
         if (inputElement) {
-            const rect = inputElement[0].getBoundingClientRect();
-            document.documentElement.style.setProperty("--palette-left", `50+${rect.left}px`);
+            const rect = inputElement[0].getBoundingClientRect()
+            document.documentElement.style.setProperty("--palette-left", `50+${rect.left}px`)
         }
     };
 
@@ -215,8 +115,34 @@ export const EditorPage = () => {
             }, 100)
         });
 
+        /*const handleBeforeUnload = (event) => {
+            event.preventDefault()
+            event.returnValue = ''
+        };
+
+        const handleElectronClose = () => {
+            const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
+            if (userConfirmed) {
+                window.electron.confirmEditorCloseApproved();
+            }
+        }
+        const handleElectronReload = () => {
+            const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
+            if (userConfirmed) {
+                window.electron.confirmEditorReloadApproved();
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload)
+
+        if (window.electron) {
+            window.electron.onConfirmEditorClose(handleElectronClose)
+            window.electron.onConfirmEditorReload(handleElectronReload);
+        }*/
+
         return () => {
             window.removeEventListener("resize", updatePaletteLeft)
+            //window.removeEventListener('beforeunload', handleBeforeUnload);
             unsubscribe()
             unsubscribeFileRemoved()
             unsubscribeTabSwitched()
@@ -281,15 +207,22 @@ export const EditorPage = () => {
                                 minSize={200}
                                 direction="column"
                                 render={({
-                                             getGridProps: getInnerGridProps,
-                                             getGutterProps: getInnerGutterProps,
+                                             getGridProps: getInnerCodeGridProps,
+                                             getGutterProps: getInnerCodeGutterProps,
                                          }) => (
-                                    <div {...getInnerGridProps()} id={"code-editor"} className={styles["inner-editor-terminal-grid"]}>
+                                    <div {...getInnerCodeGridProps()} id={"code-editor"} className={styles["inner-editor-terminal-grid"]}>
                                         <div className={styles["code-editor"]}>
                                             <FileTabs closeTab={closeTab}/>
                                             <Editor height="100vh" defaultLanguage="plaintext"
                                                     onChange={handleEditorChange}
                                                     theme="vs-dark"
+                                                    onValidate={(e) => {
+                                                        if (e.length > 0) {
+                                                            virtualFS.tabs.addMarkers(editorModelPath, e)
+                                                        } else {
+                                                            virtualFS.tabs.removeMarkers(editorModelPath)
+                                                        }
+                                                    }}
                                                     defaultValue={packageDefaultContent(rootFolder)}
                                                     path={editorModelPath}
                                                     className={styles["editor-container"]}
@@ -304,7 +237,7 @@ export const EditorPage = () => {
                                                     }}
                                             />
                                         </div>
-                                        <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
+                                        <div className={styles["gutter-row"]} {...getInnerCodeGutterProps('row', 1)}></div>
                                         <div>
                                             <div className={styles["terminal-output-console"]}>
                                                 dffdbmfdbmdfobmdfbodfmbofdmbfd

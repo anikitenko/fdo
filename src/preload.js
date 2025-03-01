@@ -1,7 +1,7 @@
 // See the Electron documentation for details on how to use preload scripts:
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
 
-import { contextBridge, ipcRenderer } from 'electron'
+import {contextBridge, dialog, ipcRenderer} from 'electron'
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -23,5 +23,9 @@ contextBridge.exposeInMainWorld('electron', {
     onPluginUnLoaded: (callback) =>
         ipcRenderer.on("plugin-unloaded", (_, plugin) => callback(plugin)),
     openEditorWindow: (data) => ipcRenderer.send('open-editor-window', data),
-    GetModuleFiles: () => ipcRenderer.invoke('get-module-files')
+    GetModuleFiles: () => ipcRenderer.invoke('get-module-files'),
+    onConfirmEditorClose: (callback) => ipcRenderer.on('confirm-close', callback),
+    onConfirmEditorReload: (callback) => ipcRenderer.on('confirm-reload', callback),
+    confirmEditorCloseApproved: () => ipcRenderer.send('approve-editor-window-close'),
+    confirmEditorReloadApproved: () => ipcRenderer.send('approve-editor-window-reload')
 })

@@ -12,6 +12,18 @@ import {getFilesTree} from "./utils/getFilesTree";
 // In your React component (or any JS file in the renderer process)
 //contextBridge.exposeInMainWorld('sdk', SDKInstance);
 
+ipcMain.on('approve-editor-window-close', () => {
+    if (global.editorWindow) {
+        global.editorWindow.destroy(); // Close the window
+    }
+});
+
+ipcMain.on('approve-editor-window-reload', () => {
+    if (global.editorWindow) {
+        global.editorWindow.reload();
+    }
+})
+
 ipcMain.handle('open-file-dialog', async () => {
     const result = await dialog.showOpenDialog({
         title: 'Select a file',

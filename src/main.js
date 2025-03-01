@@ -1,4 +1,4 @@
-import {app, BrowserWindow, ipcMain, nativeTheme} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, nativeTheme} from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
@@ -52,7 +52,18 @@ const createWindow = () => {
 
     const encodedData = encodeURIComponent(JSON.stringify(data));
     global.editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`); // Load a specific route
-    global.editorWindow.on('closed', () => (global.editorWindow = null));
+
+    /*global.editorWindow.on('close', (event) => {
+      event.preventDefault();
+      global.editorWindow.webContents.send('confirm-close'); // Send event to React
+    });
+    global.editorWindow.webContents.on('before-input-event', (event, input) => {
+      if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
+        event.preventDefault();
+        global.editorWindow.webContents.send('confirm-reload');
+      }
+    });
+    global.editorWindow.on('closed', () => (global.editorWindow = null));*/
   });
 };
 

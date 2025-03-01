@@ -68,6 +68,11 @@
     border-radius: 5px 5px 0 0;
 }
 
+.file-tab-marker {
+    /*text-decoration: underline 1px wavy #bb6363;*/
+    text-decoration: underline 1px wavy #ff0033;
+}
+
 .file-tab {
     background: #333;
     margin-right: 6px;
@@ -86,10 +91,6 @@
     font-weight: bold;
     border-bottom: none;
     transition: background 0.3s ease-in-out, color 0.3s ease-in-out;
-}
-
-.file-tab-marker {
-    background-color: #5d0013 !important;
 }
 
 .close-tab-btn {

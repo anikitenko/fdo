@@ -201,6 +201,7 @@ const virtualFS = {
             this.parent.notifications.addToQueue("tabSwitched", tab.id)
         },
         setActiveTabLeft() {
+            if (this.get().length <= 1) return
             const currentIndex = this.list.findIndex(tab => tab.active)
             if (currentIndex === -1) return
             const nextIndex = (currentIndex - 1 + this.list.length) % this.list.length
@@ -209,6 +210,7 @@ const virtualFS = {
             this.parent.notifications.addToQueue("tabSwitched", this.list[nextIndex].id)
         },
         setActiveTabRight() {
+            if (this.get().length <= 1) return
             const currentIndex = this.list.findIndex(tab => tab.active)
             if (currentIndex === -1) return
             const nextIndex = (currentIndex + 1) % this.list.length
@@ -234,6 +236,22 @@ const virtualFS = {
                 this.add(tab, false)
             }
             this.setActiveTab(tabs[0])
+            this.parent.notifications.addToQueue("fileTabs", this.get())
+        },
+        addMarkers(id, markers) {
+            for (const i of this.list) {
+                if (i.id === id) {
+                    i.markers = markers
+                }
+            }
+            this.parent.notifications.addToQueue("fileTabs", this.get())
+        },
+        removeMarkers(id) {
+            for (const i of this.list) {
+                if (i.id === id) {
+                    delete i.markers
+                }
+            }
             this.parent.notifications.addToQueue("fileTabs", this.get())
         },
         remove(tab) {
