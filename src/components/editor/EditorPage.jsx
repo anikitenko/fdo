@@ -168,7 +168,7 @@ export const EditorPage = () => {
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
                 </div>
-                <div className={styles["editor-header-right"]}>Right Content</div>
+                <div className={styles["editor-header-right"]}></div>
             </div>
             <Split
                 minSize={250}
@@ -179,7 +179,7 @@ export const EditorPage = () => {
                     <div className={`bp5-dark ${styles["grid-container"]}`} {...getGridProps()}>
                         <div className={styles["file-explorer"]}>
                             <Split
-                                minSize={100}
+                                minSize={200}
                                 direction="column"
                                 render={({
                                              getGridProps: getInnerGridProps,
@@ -230,7 +230,12 @@ export const EditorPage = () => {
                                                     }}
 
                                                     options={{
-                                                        minimap: {enabled: true},
+                                                        minimap: {
+                                                            enabled: true,
+                                                            autohide: true,
+                                                            size: "fill",
+                                                            scale: 2
+                                                        },
                                                         scrollbar: {vertical: "hidden", horizontal: "auto"},
                                                         fontSize: 13,
                                                         extraEditorClassName: styles["monaco-main-editor"],
