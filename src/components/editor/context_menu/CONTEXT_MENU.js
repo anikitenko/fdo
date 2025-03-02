@@ -71,38 +71,38 @@ const ContextMenu = ({contextElement}) => {
                 </Item>
                 <Submenu label={<span style={{paddingLeft: "20px"}} className={styles["context_menu_item"]}>New</span>}>
                     <Item id={"new-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>File</span>
                     </Item>
                     <Separator/>
                     <Item id={"new-ts-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".ts")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".ts")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Typescript file</span>
                     </Item>
                     <Item id={"new-js-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".js")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".js")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Javascript file</span>
                     </Item>
                     <Separator/>
                     <Item id={"new-html-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".html")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".html")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>HTML file</span>
                     </Item>
                     <Item id={"new-css-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".css")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".css")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Stylesheet</span>
                     </Item>
                     <Item id={"new-md-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".md")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".md")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Markdown file</span>
                     </Item>
                     <Item id={"new-txt-file"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Text file</span>
                     </Item>
                     <Separator/>
                     <Item id={"new-folder"} onClick={handleNewContextClick}>
-                        <img src={"/assets/icons/vscode/" + getIconForFolder("unnamed")} width="20" height="20"
+                        <img src={"static://assets/icons/vscode/" + getIconForFolder("unnamed")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>Folder</span>
                     </Item>
                 </Submenu>

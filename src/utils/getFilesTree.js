@@ -13,7 +13,10 @@ export function getFilesTree(basePath, targetPath) {
             if (fs.statSync(fullPath).isDirectory()) {
                 readDirRecursively(fullPath, relativePath);
             } else {
-                filesList.push(`${relativePath}`);
+                filesList.push({
+                    path: relativePath,
+                    content: fs.readFileSync(fullPath, 'utf8')
+                });
             }
         }
     }

@@ -80,7 +80,7 @@ const FileDialogComponent = () => {
                 }
             }
             setNewOverlayIcon(
-                <img src={"/assets/icons/vscode/" + icon} width="30" height="30"
+                <img src={"static://assets/icons/vscode/" + icon} width="30" height="30"
                      alt="icon"/>
             )
         }

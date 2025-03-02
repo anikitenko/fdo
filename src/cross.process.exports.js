@@ -1,4 +1,4 @@
-import {dialog, ipcMain} from "electron";
+import {app, dialog, ipcMain} from "electron";
 import ValidatePlugin from "./components/plugin/ValidatePlugin";
 import {readFileSync, writeFileSync} from "node:fs";
 import PluginORM from "./utils/PluginORM";
@@ -131,7 +131,7 @@ ipcMain.handle('deactivate-all-plugins', async () => {
 
 ipcMain.handle('get-module-files', async (event, rootFolder) => {
     try {
-        const filesTree = getFilesTree(__dirname, "../renderer/node_modules")
+        const filesTree = getFilesTree(path.join(app.getAppPath(), '.webpack/renderer', 'assets'), 'node_modules')
         return { success: true, files: filesTree};
     }  catch (error) {
         return { success: false, error: error.message };

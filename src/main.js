@@ -1,5 +1,6 @@
-import {app, BrowserWindow, dialog, ipcMain, nativeTheme} from 'electron';
+import {app, BrowserWindow, session, net, ipcMain, nativeTheme} from 'electron';
 import path from 'node:path';
+import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
 import {existsSync, mkdirSync} from "node:fs";
@@ -65,6 +66,13 @@ const createWindow = () => {
     });
     global.editorWindow.on('closed', () => (global.editorWindow = null));*/
   });
+
+  session.defaultSession.protocol.handle("static", (req) => {
+    const reqURL = new URL(req.url)
+    return net.fetch(nodeUrl.pathToFileURL(path.join(app.getAppPath(), '.webpack/renderer', 'assets', reqURL.pathname)).toString())
+  })
+
+
 };
 
 // This method will be called when Electron has finished

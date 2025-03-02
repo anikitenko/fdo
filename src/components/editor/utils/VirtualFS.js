@@ -355,7 +355,7 @@ const virtualFS = {
         this.treeObject[0].id = "/";
         this.treeObject[0].label = name;
         this.treeObject[0].icon =
-            <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForOpenFolder(name)}
+            <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForOpenFolder(name)}
                  width="20" height="20" alt="icon"/>
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
@@ -497,7 +497,7 @@ const virtualFS = {
             id,
             label: name,
             icon: <img className={styles["file-tree-icon"]}
-                       src={type === "folder" ? "/assets/icons/vscode/" + getIconForFolder(name) : "/assets/icons/vscode/" + getIconForFile(name)}
+                       src={type === "folder" ? "static://assets/icons/vscode/" + getIconForFolder(name) : "static://assets/icons/vscode/" + getIconForFile(name)}
                        width="20" height="20" alt="icon"/>,
             isExpanded: false,
             type: type,
@@ -585,14 +585,14 @@ const virtualFS = {
             const node = stack.pop();
             if (node.label) {
                 if (node.type === "folder") {
-                    node.icon = <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
+                    node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
                                      alt="icon"/>
                     if (node.isExpanded) {
-                        node.icon = <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
+                        node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
                                          alt="icon"/>
                     }
                 } else {
-                    node.icon = <img className={styles["file-tree-icon"]} src={"/assets/icons/vscode/" + getIconForFile(node.label)} width="20" height="20"
+                    node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForFile(node.label)} width="20" height="20"
                                      alt="icon"/>
                 }
             }

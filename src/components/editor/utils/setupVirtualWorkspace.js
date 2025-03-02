@@ -41,10 +41,9 @@ export async function setupVirtualWorkspace(name, template) {
         noSyntaxValidation: false,
     })
     const resultFiles = await window.electron.GetModuleFiles()
-    for (const idx in resultFiles.files) {
-        const dts = await fetch(`/node_modules/${resultFiles.files[idx]}`).then(res => res.text())
-        monaco.languages.typescript.typescriptDefaults.addExtraLib(dts, `/node_modules/${resultFiles.files[idx]}`);
-        createVirtualFile(`/node_modules/${resultFiles.files[idx]}`, dts)
+    for (const file of resultFiles.files) {
+        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
+        createVirtualFile(`/node_modules/${file.path}`, file.content)
     }
 
     if (!virtualFS.isInitWorkspace()) {

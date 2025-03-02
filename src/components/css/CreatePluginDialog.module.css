@@ -2,7 +2,7 @@
     border-radius: 10px;
     width: 250px;
     height: 250px;
-    background-image: url('./../../assets/create-plugin-templates/blank.png');
+    background-image: url('../../assets/create-plugin-templates/blank.png');
     background-size: cover;
     background-position: center;
 }
@@ -11,7 +11,7 @@
     border-radius: 10px;
     width: 250px;
     height: 250px;
-    background-image: url('./../../assets/create-plugin-templates/horizontal.png');
+    background-image: url('../../assets/create-plugin-templates/horizontal.png');
     background-size: cover;
     background-position: center;
 }
@@ -20,7 +20,7 @@
     border-radius: 10px;
     width: 250px;
     height: 250px;
-    background-image: url('./../../assets/create-plugin-templates/vertical.png');
+    background-image: url('../../assets/create-plugin-templates/vertical.png');
     background-size: cover;
     background-position: center;
 }
