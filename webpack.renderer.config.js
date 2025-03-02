@@ -71,11 +71,11 @@ module.exports = {
                 {
                     from: path.resolve(__dirname, "node_modules/@anikitenko"),
                     to: "assets/node_modules/@anikitenko",
-                    noErrorOnMissing: true,
+                    /*noErrorOnMissing: true,
                     globOptions: {
                         dot: true,
-                        ignore: ['**/fdo-sdk.bundle.js', '**/fdo-sdk.bundle.js.map']
-                    }
+                        ignore: ['**!/fdo-sdk.bundle.js', '**!/fdo-sdk.bundle.js.map']
+                    }*/
                 },
             ],
         }),

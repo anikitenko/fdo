@@ -3,19 +3,35 @@ import {useEffect, useState} from 'react';
 import virtualFS from "./utils/VirtualFS";
 import {PropTypes} from 'prop-types';
 import styles from "./EditorPage.module.css";
+import {AppToaster} from "../AppToaster.jsx";
 
 const BuildOutputTerminalComponent = () => {
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers())
     const [selectedTabId, setSelectedTabId] = useState("problems")
+    const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status())
     const totalMarkers = markers.reduce((acc, marker) => {
         return acc + marker.markers.length
     }, 0)
+    let buildOutputToaster = null;
+
+    useEffect( () => {
+        if (buildOutputStatus) {
+            console.log(buildOutputStatus)
+            if (buildOutputStatus.inProgress) {
+
+            } else {
+                buildOutputToaster = null
+            }
+        }
+    }, [buildOutputStatus]);
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("listMarkers", setMarkers)
+        const unsubscribeBuildOutput = virtualFS.notifications.subscribe("buildOutputUpdate", setBuildOutputStatus)
 
         return () => {
             unsubscribe()
+            unsubscribeBuildOutput()
         }
     }, []);
     return (
@@ -52,13 +68,14 @@ const BuildOutputTerminalComponent = () => {
 }
 
 const ProblemsPanel = ({markers}) => {
-    console.log(markers)
     return (
         <div className={styles["build-output-panel"]}>
             {markers?.length === 0 && <div className={styles["build-output"]}>
-                <div className={styles["build-output-text"]}>
-                    <Text>No problems found</Text>
-                </div>
+                <Callout style={{margin: "10px", borderRadius: "5px"}} intent="success">
+                    <div>
+                        <span className={Classes.HEADING}>No problems found</span>
+                    </div>
+                </Callout>
             </div>}
             {markers?.map((marker) => {
                 return (
@@ -96,9 +113,11 @@ const OutputPanel = () => {
     return (
         <div className={styles["build-output-panel"]}>
             <div className={styles["build-output"]}>
-                <div className={styles["build-output-text"]}>
-                    <span>Output</span>
-                </div>
+                <Callout style={{margin: "10px", borderRadius: "5px"}} intent="primary">
+                    <div>
+                        <span className={Classes.CODE}>Build output will be here.....</span>
+                    </div>
+                </Callout>
             </div>
         </div>
     )

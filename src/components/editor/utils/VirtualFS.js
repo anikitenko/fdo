@@ -65,6 +65,42 @@ const virtualFS = {
             return new Promise((resolve) => setTimeout(resolve, ms));
         }
     },
+    build: {
+        parent: Object,
+        inProgress: false,
+        progress: 0,
+        message: {
+            error: false,
+            message: ""
+        },
+        setInProgress() {
+            this.inProgress = true
+            this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
+        },
+        stopProgress() {
+            if (this.inProgress) {
+                this.inProgress = false
+                this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
+            }
+        },
+        addProgress(num) {
+            this.progress = num
+        },
+        addMessage(message, error = false) {
+            this.message = {error: error, message: message}
+            if (error) {
+                this.inProgress = false
+            }
+            this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
+        },
+        status() {
+            return {
+                inProgress: this.inProgress,
+                progress: this.progress,
+                message: this.message
+            }
+        }
+    },
     fs: {
         versions: {},
         version_latest: 0,
@@ -326,6 +362,11 @@ const virtualFS = {
     },
     getFileName(model) {
         return Object.keys(this.files).find(key => this.files[key].model === model);
+    },
+    getLatestContent() {
+        return Object.fromEntries(
+            Object.keys(this.files).map(key => [key, this.files[key].model.getValue()])
+        )
     },
     getTreeObjectItemById(id) {
         const stack = [...this.treeObject];
@@ -684,6 +725,7 @@ const virtualFS = {
     },
 
     init() {
+        this.build.parent = this
         this.fs.parent = this
         this.tabs.parent = this
         return this

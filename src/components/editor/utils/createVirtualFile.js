@@ -3,7 +3,7 @@ import {BLANK_TEMPLATE, HORIZONTAL_DIVIDED_TEMPLATE, VERTICAL_DIVIDED_TEMPLATE} 
 import virtualFS from "./VirtualFS";
 import getLanguage from "./getLanguage";
 
-export function createVirtualFile(filePath, content, template = undefined, ignoreModel  = false) {
+export function createVirtualFile(filePath, content, template = undefined, ignoreModel  = false, plaintext = false) {
     const uri = monaco.Uri.parse(`file://${filePath}`);
 
     const fileContent = template ? getTemplateContent(template, content) : content;
@@ -12,7 +12,9 @@ export function createVirtualFile(filePath, content, template = undefined, ignor
     if (!ignoreModel) {
         model = monaco.editor.getModel(uri);
         if (!model) {
-            model = monaco.editor.createModel(fileContent, getLanguage(filePath), uri);
+            let language = getLanguage(filePath)
+            if (plaintext) language = "plaintext"
+            model = monaco.editor.createModel(fileContent, language, uri)
         } else {
             model.setValue(fileContent);
         }

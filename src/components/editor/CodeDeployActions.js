@@ -7,6 +7,8 @@ import virtualFS from "./utils/VirtualFS";
 import {IconNames} from "@blueprintjs/icons";
 import styles from "./EditorPage.module.css";
 
+import build from "./utils/build";
+
 const CodeDeployActions = () => {
     const [version, setVersion] = useState(virtualFS.fs.version())
     const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
@@ -89,7 +91,7 @@ const CodeDeployActions = () => {
     }, [versions]);
 
     useEffect(() => {
-        const unsubscribe = virtualFS.notifications.subscribe("treeVersionsUpdate", setVersions);
+        const unsubscribe = virtualFS.notifications.subscribe("treeVersionsUpdate", setVersions)
 
         return () => {
             unsubscribe()
@@ -151,7 +153,7 @@ const CodeDeployActions = () => {
             >
                 <Button fill={true} text="1. Create snapshot" rightIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
-                <Button fill={true} text="2. Compile" intent="primary" rightIcon="build"/>
+                <Button fill={true} text="2. Compile" intent="primary" rightIcon="build" onClick={async () => await build()}/>
                 <Divider/>
                 <Button fill={true} text="3. Deploy" intent="success" rightIcon="share"/>
             </FormGroup>

@@ -3,6 +3,18 @@ import {packageJsonContent, packageLockContent} from "./packageJsonContent";
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 
+export const workspaceTsCompilerOptions = {
+    allowSyntheticDefaultImports: true,
+    esModuleInterop: true,
+    strictNullChecks: true,
+    emitDecoratorMetadata: true,
+    experimentalDecorators: true,
+    forceConsistentCasingInFileNames: true,
+    jsxFactory: "React.createElement",
+    allowJs: true,
+    baseUrl: "/",
+}
+
 export async function setupVirtualWorkspace(name, template) {
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
         target: monaco.languages.typescript.ScriptTarget.ES2016,
@@ -15,22 +27,14 @@ export async function setupVirtualWorkspace(name, template) {
         noUnusedParameters: true,
         noImplicitReturns: true,
         noFallthroughCasesInSwitch: true,
-        esModuleInterop: true,
-        forceConsistentCasingInFileNames: true,
-        emitDecoratorMetadata: true,
         isolatedModules: true,
-        experimentalDecorators: true,
-        allowSyntheticDefaultImports: true,
-        strictNullChecks: true,
         suppressImplicitAnyIndexErrors: true,
         noImplicitThis: true,
         strict: true,
         jsx: monaco.languages.typescript.JsxEmit.React,
-        jsxFactory: "React.createElement",
-        allowJs: true,
         skipLibCheck: true,
         skipDefaultLibCheck: true,
-        baseUrl: "/",
+        ...workspaceTsCompilerOptions
     })
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
         noSemanticValidation: false,
@@ -42,8 +46,11 @@ export async function setupVirtualWorkspace(name, template) {
     })
     const resultFiles = await window.electron.GetModuleFiles()
     for (const file of resultFiles.files) {
+        let plaintext = false
+        if (file.path.endsWith('fdo-sdk.bundle.js') || file.path.endsWith('fdo-sdk.bundle.js.map'))
+            plaintext = true
+        createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
         monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
-        createVirtualFile(`/node_modules/${file.path}`, file.content)
     }
 
     if (!virtualFS.isInitWorkspace()) {

@@ -17,7 +17,7 @@ const codeEditorActions = (codeEditor) => {
         // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
         keybindingContext: null,
         contextMenuGroupId: "navigation",
-        contextMenuOrder: 1.5,
+        contextMenuOrder: 1,
 
         // Method that will be executed when the action is triggered.
         // @param editor The editor instance is passed in as a convenience
@@ -43,8 +43,8 @@ const codeEditorActions = (codeEditor) => {
         precondition: null,
         // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
         keybindingContext: null,
-        contextMenuGroupId: "navigation",
-        contextMenuOrder: 1.5,
+        contextMenuGroupId: "1_modification",
+        contextMenuOrder: 1,
 
         // Method that will be executed when the action is triggered.
         // @param editor The editor instance is passed in as a convenience
@@ -66,7 +66,7 @@ const codeEditorActions = (codeEditor) => {
         precondition: null,
         // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
         keybindingContext: null,
-        contextMenuGroupId: "navigation",
+        contextMenuGroupId: null,
         contextMenuOrder: 1.5,
 
         // Method that will be executed when the action is triggered.
@@ -91,7 +91,7 @@ const codeEditorActions = (codeEditor) => {
         precondition: null,
         // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
         keybindingContext: null,
-        contextMenuGroupId: "navigation",
+        contextMenuGroupId: null,
         contextMenuOrder: 1.5,
 
         // Method that will be executed when the action is triggered.
