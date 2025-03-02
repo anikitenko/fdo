@@ -8,9 +8,12 @@ const build = async () => {
     virtualFS.build.addProgress(10)
     virtualFS.build.addMessage("Initializing compiler...")
     try {
-        await esbuild.initialize({
-            wasmURL: `/assets/esbuild-wasm/esbuild.wasm`,
-        });
+        if (!virtualFS.build.getInit()) {
+            virtualFS.build.setInit()
+            await esbuild.initialize({
+                wasmURL: `/assets/esbuild-wasm/esbuild.wasm`,
+            });
+        }
 
         virtualFS.build.addProgress(20)
         virtualFS.build.addMessage("Compiler initialized...")
@@ -80,7 +83,7 @@ const build = async () => {
         virtualFS.build.addProgress(90)
         virtualFS.build.addMessage("Build complete, writing output...")
 
-        createVirtualFile("/dist/index.js", result.outputFiles[0].text, undefined, false, true)
+        createVirtualFile("/dist/index.mjs", result.outputFiles[0].text, undefined, false, true)
 
         virtualFS.build.addProgress(100)
         virtualFS.build.addMessage("Compilation successful!")

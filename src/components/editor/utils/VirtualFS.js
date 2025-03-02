@@ -66,12 +66,19 @@ const virtualFS = {
         }
     },
     build: {
+        init: false,
         parent: Object,
         inProgress: false,
         progress: 0,
         message: {
             error: false,
             message: ""
+        },
+        getInit() {
+            return this.init
+        },
+        setInit() {
+            this.init = true
         },
         setInProgress() {
             this.inProgress = true
