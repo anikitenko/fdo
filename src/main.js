@@ -5,6 +5,9 @@ import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
 import {existsSync, mkdirSync} from "node:fs";
 
+import  WebSocket from "ws";
+import { spawn } from "child_process";
+
 export const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
 export const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
 export const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins.json');
@@ -13,6 +16,14 @@ export const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins
 if (started) {
   app.quit();
 }
+
+const getDefaultShell = () => {
+  if (process.platform === "win32") {
+    return "powershell.exe"; // Use PowerShell on Windows
+  } else {
+    return process.env.SHELL || "/bin/bash"; // Use default shell on Linux/macOS
+  }
+};
 
 const createWindow = () => {
   // Create the browser window.
@@ -52,7 +63,36 @@ const createWindow = () => {
     });
 
     const encodedData = encodeURIComponent(JSON.stringify(data));
-    global.editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`); // Load a specific route
+    global.editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`);
+
+    const wss = new WebSocket.Server({ noServer: true });
+
+    // Attach WebSocket to Electron’s internal HTTP request handling
+    global.editorWindow.webContents.session.on("upgrade", (request, socket, head) => {
+      console.log("Intercepting WebSocket connection attempt...");
+      if (request.url === "/terminal") {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit("connection", ws, request);
+        });
+      }
+    });
+
+    wss.on("connection", (ws) => {
+      console.log("WebSocket connected");
+
+      const shell = spawn(getDefaultShell(), [], { shell: true });
+
+      shell.stdout.on("data", (data) => ws.send(data.toString()));
+      shell.stderr.on("data", (data) => ws.send(data.toString()));
+      shell.on("close", () => ws.close());
+
+      ws.on("message", (msg) => shell.stdin.write(msg + "\n"));
+
+      ws.on("close", () => {
+        console.log("WebSocket disconnected");
+        shell.kill();
+      });
+    });
 
     /*global.editorWindow.on('close', (event) => {
       event.preventDefault();
@@ -71,7 +111,6 @@ const createWindow = () => {
     const reqURL = new URL(req.url)
     return net.fetch(nodeUrl.pathToFileURL(path.join(app.getAppPath(), '.webpack/renderer', 'assets', reqURL.pathname)).toString())
   })
-
 
 };
 

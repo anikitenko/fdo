@@ -1,6 +1,6 @@
 import {app, dialog, ipcMain} from "electron";
 import ValidatePlugin from "./components/plugin/ValidatePlugin";
-import {readFileSync, writeFileSync} from "node:fs";
+import {existsSync, readFileSync, writeFileSync, copyFileSync} from "node:fs";
 import PluginORM from "./utils/PluginORM";
 import path from "node:path";
 import UserORM from "./utils/UserORM";
@@ -137,3 +137,28 @@ ipcMain.handle('get-module-files', async (event, rootFolder) => {
         return { success: false, error: error.message };
     }
 })
+
+ipcMain.handle('get-esbuild-wasm-path', async () => {
+    try {
+        const isDev = !app.isPackaged
+        if (!isDev) {
+            // Path inside asar
+            const wasmPath = path.join(process.resourcesPath, 'esbuild.wasm')
+            // Path in temp directory
+            const tempDir = app.getPath('temp');
+            const extractedWasmPath = path.join(tempDir, 'esbuild.wasm');
+
+            // Extract if not already extracted
+            if (!existsSync(extractedWasmPath)) {
+                copyFileSync(wasmPath, extractedWasmPath);
+            }
+
+            return `file://${extractedWasmPath}`;
+        } else {
+            return "/assets/esbuild-wasm/esbuild.wasm"
+        }
+    } catch (error) {
+        console.error('Error extracting esbuild.wasm:', error);
+        return null;
+    }
+});

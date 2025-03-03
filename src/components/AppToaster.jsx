@@ -14,13 +14,3 @@ export const AppToaster = await OverlayToaster.createAsync(
         domRenderer: (toaster, containerElement) =>
             createRoot(containerElement).render(toaster),
     });
-
-export const AppToasterCompile = await OverlayToaster.createAsync(
-    {
-        position: Position.BOTTOM_LEFT
-    }, {
-        // Use createRoot() instead of ReactDOM.render(). This can be deleted after
-        // a future Blueprint version uses createRoot() for Toasters by default.
-        domRenderer: (toaster, containerElement) =>
-            createRoot(containerElement).render(toaster),
-    });

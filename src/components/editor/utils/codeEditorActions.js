@@ -1,5 +1,6 @@
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
+import build from "./build";
 
 const codeEditorActions = (codeEditor) => {
     if (!codeEditor) return;
@@ -51,6 +52,29 @@ const codeEditorActions = (codeEditor) => {
         run: function (ed) {
             ed.focus()
             virtualFS.openFileDialog({})
+        },
+    });
+    codeEditor.addAction({
+        // A unique identifier of the contributed action.
+        id: "compile-plugin",
+        // A label of the action that will be presented to the user.
+        label: "Compile plugin",
+        // An optional array of keybindings for the action.
+        keybindings: [
+            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyB,
+        ],
+        // A precondition for this action.
+        precondition: null,
+        // A rule to evaluate on top of the precondition in order to dispatch the keybindings.
+        keybindingContext: null,
+        contextMenuGroupId: "1_modification",
+        contextMenuOrder: 2,
+
+        // Method that will be executed when the action is triggered.
+        // @param editor The editor instance is passed in as a convenience
+        run: async function (ed) {
+            ed.focus()
+            await build()
         },
     });
     codeEditor.addAction({

@@ -32,6 +32,7 @@ export const EditorPage = () => {
     const [codeEditorCreated, setCodeEditorCreated] = useState(false)
     const [codeEditor, setCodeEditor] = useState(null)
     const [jumpTo, setJumpTo] = useState(null)
+    const [buildOutputSelectedTabId, setBuildOutputSelectedTabId] = useState("problems")
     const closeTab = (fileID) => {
         if (virtualFS.getModel(fileID))
             virtualFS.updateModelState(fileID, codeEditor.saveViewState())
@@ -193,7 +194,7 @@ export const EditorPage = () => {
                                         <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                                         <div>
                                             <div className={styles["code-deploy-actions"]}>
-                                                <CodeDeployActions/>
+                                                <CodeDeployActions selectedTabId={buildOutputSelectedTabId} setSelectedTabId={setBuildOutputSelectedTabId}/>
                                             </div>
                                         </div>
                                     </div>
@@ -249,7 +250,7 @@ export const EditorPage = () => {
                                         <div className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
                                         <div className={styles["terminal-output-console"]}>
                                             <div className={styles["build-output-terminal"]}>
-                                                <BuildOutputTerminalComponent />
+                                                <BuildOutputTerminalComponent selectedTabId={buildOutputSelectedTabId} setSelectedTabId={setBuildOutputSelectedTabId} />
                                             </div>
                                         </div>
                                     </div>

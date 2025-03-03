@@ -8,8 +8,9 @@ import {IconNames} from "@blueprintjs/icons";
 import styles from "./EditorPage.module.css";
 
 import build from "./utils/build";
+import {PropTypes} from "prop-types";
 
-const CodeDeployActions = () => {
+const CodeDeployActions = ({selectedTabId, setSelectedTabId}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
     const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
     const [versions, setVersions] = useState(virtualFS.fs.list())
@@ -17,6 +18,7 @@ const CodeDeployActions = () => {
     const [isLoadingSwitch, setIsLoadingSwitch] = useState(false)
     const [versionsDate, setVersionsDate] = useState(Date.now())
     const [prettyVersionDate, setPrettyVersionDate] = useState("")
+    const [buildInProgress, setBuildInProgress] = useState(false)
     const versionText = (name, date, prev, pretty = false) => {
         if (!name) return
         if (!date) return
@@ -77,6 +79,13 @@ const CodeDeployActions = () => {
         setPrettyVersionDate(formatDistanceToNow(new Date(ver.date), {addSuffix: true}))
     }
 
+    const triggerBuild = async () => {
+        setBuildInProgress(true)
+        setSelectedTabId("output")
+        await build()
+        setBuildInProgress(false)
+    }
+
     useEffect(() => {
         if (versions) {
             for (const ver of versions) {
@@ -100,7 +109,7 @@ const CodeDeployActions = () => {
     return (
         <>
             <FormGroup
-                label="Version"
+                label={"Snapshots"}
                 fill={true}
             >
                 <Select
@@ -153,7 +162,8 @@ const CodeDeployActions = () => {
             >
                 <Button fill={true} text="1. Create snapshot" rightIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
-                <Button fill={true} text="2. Compile" intent="primary" rightIcon="build" onClick={async () => await build()}/>
+                <Button fill={true} text="2. Compile" intent="primary" rightIcon="build" loading={buildInProgress}
+                        onClick={async () => await triggerBuild()}/>
                 <Divider/>
                 <Button fill={true} text="3. Deploy" intent="success" rightIcon="share"/>
             </FormGroup>
@@ -176,6 +186,10 @@ const CodeDeployActions = () => {
             </Alert>
         </>
     )
+}
+CodeDeployActions.propTypes = {
+    selectedTabId: PropTypes.string.isRequired,
+    setSelectedTabId: PropTypes.func.isRequired
 }
 
 export default CodeDeployActions;

@@ -10,8 +10,16 @@ const build = async () => {
     try {
         if (!virtualFS.build.getInit()) {
             virtualFS.build.setInit()
+
+            const wasmURL = await window.electron.getEsbuildWasmPath();
+            if (!wasmURL) {
+                console.error("Failed to get esbuild.wasm path.");
+                virtualFS.build.addMessage("Failed to get esbuild.wasm path.",  true)
+                setTimeout(() => virtualFS.build.stopProgress(), 500)
+            }
+
             await esbuild.initialize({
-                wasmURL: `/assets/esbuild-wasm/esbuild.wasm`,
+                wasmURL
             });
         }
 
@@ -23,7 +31,7 @@ const build = async () => {
         let loadedFiles = 0
 
         virtualFS.build.addProgress(30)
-        virtualFS.build.addMessage("Building project...")
+        virtualFS.build.addMessage("Building plugin...")
 
         const result = await esbuild.build({
             entryPoints: ["/index.ts"],
@@ -63,7 +71,7 @@ const build = async () => {
                             if (args.path in latestContent) {
                                 return { path: args.path, namespace: "virtual" };
                             }
-                            return null;
+                            return { errors: [{ text: `File not found: ${args.path}` }] };
                         });
 
                         build.onLoad({ filter: /.*/, namespace: "virtual" }, async (args) => {

@@ -4,7 +4,10 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
-    icon: 'assets/desktop_icon'
+    icon: 'assets/desktop_icon',
+    extraResource: [
+        "./node_modules/esbuild-wasm/esbuild.wasm"
+    ]
   },
   rebuildConfig: {},
   makers: [
@@ -38,7 +41,7 @@ module.exports = {
       name: '@electron-forge/plugin-webpack',
       config: {
         mainConfig: './webpack.main.config.js',
-        devContentSecurityPolicy: "default-src 'self' 'unsafe-eval' 'unsafe-inline' static: blob: http: https: ws:",
+        devContentSecurityPolicy: "default-src 'self' 'unsafe-eval' 'unsafe-inline' static: blob: http: https: ws: data:",
         renderer: {
           config: './webpack.renderer.config.js',
           entryPoints: [

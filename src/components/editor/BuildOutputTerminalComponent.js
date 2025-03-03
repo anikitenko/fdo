@@ -1,26 +1,43 @@
-import {Callout, Classes, Divider, InputGroup, Tab, Tabs, TabsExpander, Text} from "@blueprintjs/core";
-import {useEffect, useState} from 'react';
+import {Callout, Classes, Divider, Intent, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
+import {useEffect, useRef, useState} from 'react';
 import virtualFS from "./utils/VirtualFS";
 import {PropTypes} from 'prop-types';
 import styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
 
-const BuildOutputTerminalComponent = () => {
+const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers())
-    const [selectedTabId, setSelectedTabId] = useState("problems")
     const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status())
+    const [buildOutput, setBuildOutput] = useState([])
+    const [buildOutputIntent, setBuildOutputIntent] = useState("primary")
     const totalMarkers = markers.reduce((acc, marker) => {
         return acc + marker.markers.length
     }, 0)
-    let buildOutputToaster = null;
 
     useEffect( () => {
         if (buildOutputStatus) {
-            console.log(buildOutputStatus)
+            const isErrorIntent = buildOutputStatus.message.error ? Intent.DANGER : Intent.PRIMARY;
+            if (buildOutputStatus.message.message) {
+                setBuildOutput((prevState) => [...prevState, buildOutputStatus.message])
+                if (buildOutputStatus.message.error) {
+                    setBuildOutputIntent("danger")
+                } else {
+                    setBuildOutputIntent("primary")
+                }
+            }
             if (buildOutputStatus.inProgress) {
-
+                (AppToaster).show({
+                    icon: "build",
+                    message: (
+                        <ProgressBar
+                            intent={buildOutputStatus.progress < 100 ? isErrorIntent : Intent.SUCCESS}
+                            value={buildOutputStatus.progress / 100}
+                        />
+                    ),
+                    timeout: 60000
+                }, 'build-output')
             } else {
-                buildOutputToaster = null
+                (AppToaster).dismiss('build-output')
             }
         }
     }, [buildOutputStatus]);
@@ -52,19 +69,17 @@ const BuildOutputTerminalComponent = () => {
                         }
                     }/>
                     <Tab id="output" title="Output"/>
-                    <Tab id="codeReference" title="Code reference"/>
-                    <Tab id="terminal" title="Terminal"/>
-                    <TabsExpander/>
-                    <InputGroup placeholder="Search..." type="search" round={false}/>
                 </Tabs>
                 <Divider/>
             </div>
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
-            {selectedTabId === "output" && (<OutputPanel/>)}
-            {selectedTabId === "codeReference" && (<CodeReferencePanel/>)}
-            {selectedTabId === "terminal" && (<TerminalPanel/>)}
+            {selectedTabId === "output" && (<OutputPanel buildOutputIntent={buildOutputIntent} buildOutput={buildOutput}/>)}
         </div>
     )
+}
+BuildOutputTerminalComponent.propTypes = {
+    selectedTabId: PropTypes.string.isRequired,
+    setSelectedTabId: PropTypes.func.isRequired
 }
 
 const ProblemsPanel = ({markers}) => {
@@ -106,45 +121,38 @@ const ProblemsPanel = ({markers}) => {
     )
 }
 ProblemsPanel.propTypes = {
-    markers: PropTypes.any
+    markers: PropTypes.array
 }
 
-const OutputPanel = () => {
+const OutputPanel = ({buildOutputIntent, buildOutput}) => {
+    const outputRef = useRef(null);
+    useEffect(() => {
+        if (outputRef.current) {
+            outputRef.current.scrollTo({top: outputRef.current.scrollHeight, behavior: "smooth"});
+        }
+    }, [buildOutput]);
     return (
-        <div className={styles["build-output-panel"]}>
+        <div ref={outputRef} className={styles["build-output-panel"]}>
             <div className={styles["build-output"]}>
-                <Callout style={{margin: "10px", borderRadius: "5px"}} intent="primary">
-                    <div>
-                        <span className={Classes.CODE}>Build output will be here.....</span>
-                    </div>
+                <Callout style={{margin: "10px", borderRadius: "5px"}} intent={buildOutputIntent}>
+                    {buildOutput.length === 0 && <div>
+                        <span>Build output will be here...</span>
+                    </div>}
+                    {buildOutput.length > 0 && buildOutput.map((m, i) => {
+                        return (
+                            <div key={i+1}>
+                                <span style={{color: m.error ? "red" : "white"}}>{m.message}</span>
+                            </div>
+                        )
+                    })}
                 </Callout>
             </div>
         </div>
     )
 }
-
-const CodeReferencePanel = () => {
-    return (
-        <div className={styles["build-output-panel"]}>
-            <div className={styles["build-output"]}>
-                <div className={styles["build-output-text"]}>
-                    <span>Code reference</span>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-const TerminalPanel = () => {
-    return (
-        <div className={styles["build-output-panel"]}>
-            <div className={styles["build-output"]}>
-                <div className={styles["build-output-text"]}>
-                    <span>Terminal</span>
-                </div>
-            </div>
-        </div>
-    )
+OutputPanel.propTypes = {
+    buildOutputIntent: PropTypes.string.isRequired,
+    buildOutput: PropTypes.array
 }
 
 export default BuildOutputTerminalComponent;

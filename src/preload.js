@@ -27,5 +27,6 @@ contextBridge.exposeInMainWorld('electron', {
     onConfirmEditorClose: (callback) => ipcRenderer.on('confirm-close', callback),
     onConfirmEditorReload: (callback) => ipcRenderer.on('confirm-reload', callback),
     confirmEditorCloseApproved: () => ipcRenderer.send('approve-editor-window-close'),
-    confirmEditorReloadApproved: () => ipcRenderer.send('approve-editor-window-reload')
+    confirmEditorReloadApproved: () => ipcRenderer.send('approve-editor-window-reload'),
+    getEsbuildWasmPath: () => ipcRenderer.invoke('get-esbuild-wasm-path')
 })
