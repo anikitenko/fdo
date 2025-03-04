@@ -7,10 +7,8 @@ import UserORM from "./utils/UserORM";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "./main";
 import {getFilesTree} from "./utils/getFilesTree";
-
-//const SDKInstance = new FDO_SDK();
-// In your React component (or any JS file in the renderer process)
-//contextBridge.exposeInMainWorld('sdk', SDKInstance);
+import PluginManager from "./utils/PluginManager";
+import ensureAndWrite from "./utils/ensureAndWrite";
 
 ipcMain.on('approve-editor-window-close', () => {
     if (global.editorWindow) {
@@ -89,7 +87,7 @@ ipcMain.handle('get-all-plugins', async () => {
 ipcMain.handle('activate-plugin', async (event, id) => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {
-        global.PLUGIN_MANAGER.loadPlugin(id)
+        PluginManager.loadPlugin(id)
         userORM.activatePlugin(id)
         return { success: true };
     }  catch (error) {
@@ -100,7 +98,7 @@ ipcMain.handle('activate-plugin', async (event, id) => {
 ipcMain.handle('deactivate-plugin', async (event, id) => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {
-        global.PLUGIN_MANAGER.unLoadPlugin(id)
+        PluginManager.unLoadPlugin(id)
         userORM.deactivatePlugin(id)
         return { success: true };
     }  catch (error) {
@@ -121,7 +119,7 @@ ipcMain.handle('get-activated-plugins', async () => {
 ipcMain.handle('deactivate-all-plugins', async () => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {
-        global.PLUGIN_MANAGER.unLoadPlugins()
+        PluginManager.unLoadPlugins()
         userORM.deactivateAllPlugins()
         return { success: true };
     }  catch (error) {
@@ -129,7 +127,7 @@ ipcMain.handle('deactivate-all-plugins', async () => {
     }
 })
 
-ipcMain.handle('get-module-files', async (event, rootFolder) => {
+ipcMain.handle('get-module-files', async () => {
     try {
         const filesTree = getFilesTree(path.join(app.getAppPath(), '.webpack/renderer', 'assets'), 'node_modules')
         return { success: true, files: filesTree};
@@ -162,3 +160,20 @@ ipcMain.handle('get-esbuild-wasm-path', async () => {
         return null;
     }
 });
+
+ipcMain.handle('deploy-to-main-from-editor', async (event, data) => {
+    const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+    const pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
+    const pathToPlugin = path.join(pathToDir, data.entrypoint)
+    const metadata = data.metadata
+    metadata.icon = metadata.icon.toLowerCase()
+
+    await ensureAndWrite(pathToPlugin, data.content)
+    pluginORM.addPlugin(data.name, metadata, pathToPlugin, true)
+
+    const mainWindow = PluginManager.mainWindow
+    if (mainWindow) {
+        mainWindow.focus()
+    }
+    mainWindow.webContents.send("deploy-from-editor", data.name);
+})

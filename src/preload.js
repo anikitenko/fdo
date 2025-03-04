@@ -1,7 +1,12 @@
 // See the Electron documentation for details on how to use preload scripts:
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
 
-import {contextBridge, dialog, ipcRenderer} from 'electron'
+import {contextBridge, ipcRenderer} from 'electron'
+import {FDO_SDK} from "@anikitenko/fdo-sdk";
+
+const SDKInstance = new FDO_SDK();
+// In your React component (or any JS file in the renderer process)
+contextBridge.exposeInMainWorld('sdk', SDKInstance);
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -19,14 +24,23 @@ contextBridge.exposeInMainWorld('electron', {
     DeactivateAllPlugins: () => ipcRenderer.invoke('deactivate-all-plugins'),
     loadPlugin: (id) => ipcRenderer.send("load-plugin", id),
     onPluginLoaded: (callback) =>
-        ipcRenderer.on("plugin-loaded", (_, plugin) => callback(plugin)),
+        ipcRenderer.on("plugin-loaded", (_, plugin) => {callback(plugin)}),
+    offPluginLoaded: (callback) =>
+        ipcRenderer.removeListener('plugin-loaded', callback),
     onPluginUnLoaded: (callback) =>
         ipcRenderer.on("plugin-unloaded", (_, plugin) => callback(plugin)),
+    offPluginUnLoaded: (callback) =>
+        ipcRenderer.removeListener('plugin-unloaded', callback),
     openEditorWindow: (data) => ipcRenderer.send('open-editor-window', data),
     GetModuleFiles: () => ipcRenderer.invoke('get-module-files'),
     onConfirmEditorClose: (callback) => ipcRenderer.on('confirm-close', callback),
     onConfirmEditorReload: (callback) => ipcRenderer.on('confirm-reload', callback),
     confirmEditorCloseApproved: () => ipcRenderer.send('approve-editor-window-close'),
     confirmEditorReloadApproved: () => ipcRenderer.send('approve-editor-window-reload'),
-    getEsbuildWasmPath: () => ipcRenderer.invoke('get-esbuild-wasm-path')
+    getEsbuildWasmPath: () => ipcRenderer.invoke('get-esbuild-wasm-path'),
+    deployToMainFromEditor: (data) => ipcRenderer.invoke('deploy-to-main-from-editor', data),
+    onDeployFromEditor: (callback) =>
+        ipcRenderer.on("deploy-from-editor", (_, id) => {callback(id)}),
+    offDeployFromEditor: (callback) =>
+        ipcRenderer.removeListener('deploy-from-editor', callback),
 })

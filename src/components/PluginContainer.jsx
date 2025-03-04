@@ -23,10 +23,16 @@ export const PluginContainer = ({id}) => {
     }, []);
 
     useEffect(() => {
-        window.electron.loadPlugin(id);
-        window.electron.onPluginLoaded((loadedPlugin) => {
-            setPlugin(loadedPlugin);
-        });
+        if (id) {
+            console.log("Loading plugin:", id);
+            /*window.electron.loadPlugin(id);
+            window.electron.onPluginLoaded((loadedPlugin) => {
+                setPlugin(loadedPlugin);
+            });*/
+        }
+        return () => {
+            window.electron.offPluginLoaded();
+        };
     }, [id]);
 
     // Convert plugin object to a JSON string and encode it for the URL

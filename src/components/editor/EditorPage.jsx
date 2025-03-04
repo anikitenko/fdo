@@ -150,7 +150,7 @@ export const EditorPage = () => {
     }, []);
 
     return (
-        <div id={"editor-page-component"}>
+        <div className={styles["editor-page-component"]}>
             <div className={styles["editor-header"]}>
                 <div className={styles["editor-header-left"]}>
                     <Button icon="arrow-left" minimal={true}
@@ -194,7 +194,7 @@ export const EditorPage = () => {
                                         <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                                         <div>
                                             <div className={styles["code-deploy-actions"]}>
-                                                <CodeDeployActions selectedTabId={buildOutputSelectedTabId} setSelectedTabId={setBuildOutputSelectedTabId}/>
+                                                <CodeDeployActions setSelectedTabId={setBuildOutputSelectedTabId}/>
                                             </div>
                                         </div>
                                     </div>
@@ -228,7 +228,6 @@ export const EditorPage = () => {
                                                     className={styles["editor-container"]}
                                                     onMount={(editor) => {
                                                         setCodeEditor(editor)
-                                                        monacoEditorStyle()
                                                     }}
 
                                                     options={{

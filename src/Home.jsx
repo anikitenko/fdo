@@ -1,5 +1,5 @@
-import React, {useEffect, useState} from 'react'
-import {Alignment, Button, Intent, Menu, MenuItem, Navbar, Popover, Tooltip} from "@blueprintjs/core";
+import React, {useEffect, useRef, useState} from 'react'
+import {Alignment, Button, Divider, Intent, Menu, MenuItem, Navbar, Popover, Tooltip} from "@blueprintjs/core";
 import styles from './Home.module.scss'
 import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx";
 import {MultiSelect} from "@blueprintjs/select";
@@ -154,14 +154,27 @@ function Home() {
     const deselectPlugin = (index) => {
         const {plugins} = state;
         const plugin = plugins[index];
+        const { createdItems: nextCreatedItems, items: nextItems } = maybeDeleteCreatedPluginFromArrays(
+            state.items,
+            state.createdItems,
+            plugin,
+        );
+
         // Delete the item if the user manually created it. (const wasItemCreatedByUser = false)
-        window.electron.DeactivatePlugin(plugin.id).then(async (result) => {
+
+        window.electron.DeactivatePlugin(plugin.id).then (async (result) => {
             if (result) {
-                if (!result.success) {
-                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
+                if (result.success) {
+                    setState( {
+                        createdItems: nextCreatedItems,
+                        plugins: plugins.filter((_plugin, i) => i !== index),
+                        items: nextItems,
+                    });
+                } else {
+                    (await AppToaster).show({ message: `Error: ${result.error}`, intent: "danger" });
                 }
             } else {
-                (await AppToaster).show({message: `Failed to deactivate plugin`, intent: "danger"});
+                (await AppToaster).show({ message: `Failed to deactivate plugin`, intent: "danger" });
             }
         });
     }
@@ -171,13 +184,15 @@ function Home() {
     };
 
     const selectPlugin = (plugin) => {
-        window.electron.ActivatePlugin(plugin.id).then(async (result) => {
+        window.electron.ActivatePlugin(plugin.id).then (async (result) => {
             if (result) {
-                if (!result.success) {
-                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
+                if (result.success) {
+                    selectPlugins([plugin])
+                } else {
+                    (await AppToaster).show({ message: `Error: ${result.error}`, intent: "danger" });
                 }
             } else {
-                (await AppToaster).show({message: `Failed to activate plugin`, intent: "danger"});
+                (await AppToaster).show({ message: `Failed to activate plugin`, intent: "danger" });
             }
         });
     };
@@ -258,6 +273,7 @@ function Home() {
 
     const renderCreatePluginsMenuItem = (query, active, handleClick) => (
         <>
+            <Divider/>
         <MenuItem
             icon="add"
             text={`Create ${printReadableList(query)}`}
@@ -273,19 +289,32 @@ function Home() {
     const renderManagePluginsMenuItem = () => (
         <MenuItem
             icon="cog"
-            text="Manage plugins..."
+            text="Manage plugins"
             roleStructure="listoption"
         />
     )
 
+    const customPluginListRenderer = ({ items, itemsParentRef, renderItem }) => {
+        return (
+            <Menu ulRef={itemsParentRef}>
+                {items.map(renderItem)}
+                <Divider/>
+                {renderManagePluginsMenuItem()}
+            </Menu>
+        );
+    };
+
+    const pluginsInitialLoad = useRef(false);
     useEffect(() => {
-        window.electron.onPluginLoaded((loadedPlugin) => {
-            window.electron.GetAllPlugins().then((allPlugins) => {
+        if (pluginsInitialLoad.current) return;
+        pluginsInitialLoad.current = true;
+        window.electron.GetAllPlugins().then ((allPlugins) => {
+            window.electron.GetActivatedPlugins().then ((activePlugins) => {
                 setState(prevState => (
                     {
                         ...prevState, items: allPlugins.plugins.map(plugin => {
                             const currPlugin = {...plugin, ...plugin.metadata, metadata: undefined};
-                            if (loadedPlugin === currPlugin.id) {
+                            if (activePlugins.plugins.some(item => item === currPlugin.id)) {
                                 selectPlugin(currPlugin);
                             }
                             return currPlugin;
@@ -294,21 +323,24 @@ function Home() {
                 ))
             })
         })
-        window.electron.onPluginUnLoaded((unLoadedPlugin) => {
-            const {plugins} = state;
-            const plugin = plugins.map((p) => {return p.id === unLoadedPlugin});
-            const {createdItems: nextCreatedItems, items: nextItems} = maybeDeleteCreatedPluginFromArrays(
-                state.items,
-                state.createdItems,
-                plugin,
-            );
-            setState({
-                createdItems: nextCreatedItems,
-                plugins: plugins.filter((_plugin, i) => i !== index),
-                items: nextItems,
-            });
-        })
+
     }, []);
+
+    const isProcessingPluginFromEditor = useRef(false);
+    useEffect(() => {
+        if (isProcessingPluginFromEditor.current) return;
+        const onPluginLoaded = (loadedPlugin) => {
+            if (loadedPlugin) {
+            }
+
+            isProcessingPluginFromEditor.current = false;
+        }
+
+        window.electron.onDeployFromEditor(onPluginLoaded)
+        return () => {
+            window.electron.offDeployFromEditor(onPluginLoaded);
+        };
+    }, [])
 
     return (
         <div className={styles["main-container"]}>
@@ -362,7 +394,7 @@ function Home() {
                             {renderManagePluginsMenuItem()}
                             </>
                         }
-                        placeholder={"Search or type to create a new plugin..."}
+                        placeholder={"Create new..."}
                         createNewItemFromQuery={createPlugins}
                         createNewItemRenderer={renderCreatePluginsMenuItem}
                     />

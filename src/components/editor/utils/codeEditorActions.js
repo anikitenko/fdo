@@ -1,9 +1,11 @@
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 import build from "./build";
+import monacoEditorStyle from "../monacoEditorStyle";
 
 const codeEditorActions = (codeEditor) => {
     if (!codeEditor) return;
+    monacoEditorStyle()
     codeEditor.addAction({
         // A unique identifier of the contributed action.
         id: "editor-go-fullscreen",

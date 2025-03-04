@@ -137,7 +137,11 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                 </div>
                 <Button fill={true} text={"Open editor"} intent={"primary"}
                               rightIcon={"share"}
-                        onClick={() => window.electron.openEditorWindow({name: pluginName, template: pluginTemplate.value})}/>
+                        onClick={() => {
+                            window.electron.openEditorWindow({name: pluginName, template: pluginTemplate.value})
+                            dialogClose()
+                        }
+                }/>
                 <Divider />
                 <FormGroup
                     label="...or you may upload your plugin:"

@@ -70,6 +70,11 @@ const virtualFS = {
         parent: Object,
         inProgress: false,
         progress: 0,
+        plugin: {
+            entrypoint: "",
+            metadata: null,
+            content: null,
+        },
         message: {
             error: false,
             message: ""
@@ -99,6 +104,24 @@ const virtualFS = {
                 this.inProgress = false
             }
             this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
+        },
+        getEntrypoint() {
+            return this.plugin.entrypoint
+        },
+        setEntrypoint(entry) {
+            this.plugin.entrypoint = entry
+        },
+        getMetadata() {
+            return this.plugin.metadata
+        },
+        setMetadata(metadata) {
+            this.plugin.metadata = metadata
+        },
+        getContent() {
+            return JSON.parse(LZString.decompress(this.plugin.content))
+        },
+        setContent(data) {
+            this.plugin.content = LZString.compress(JSON.stringify(data))
         },
         status() {
             return {

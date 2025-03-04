@@ -7,6 +7,12 @@ module.exports = {
     icon: 'assets/desktop_icon',
     extraResource: [
         "./node_modules/esbuild-wasm/esbuild.wasm"
+    ],
+    protocols: [
+      {
+        name: 'FDO Opener',
+        schemes: ['fdo-fiddle']
+      }
     ]
   },
   rebuildConfig: {},
@@ -24,7 +30,8 @@ module.exports = {
       config: {
         options: {
           icon: 'assets/desktop_icon.png'
-        }
+        },
+        mimeType: ['x-scheme-handler/fdo-fiddle']
       },
     },
     {

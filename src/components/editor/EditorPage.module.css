@@ -7,6 +7,12 @@
     --palette-left: "100px"
 }
 
+.editor-page-component {
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+}
+
 .mouse-pointer {
     cursor: pointer;
 }
@@ -142,14 +148,13 @@
 .grid-container {
     display: grid;
     grid-template-columns: 250px 5px auto; /* File Explorer | Gutter | Editor */
-    width: 100vw;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
 }
 
 .inner-files-deploy-grid {
     display: grid;
-    grid-template-rows: 470px 5px auto;
+    grid-template-rows: 450px 5px auto;
     height: 100%;
     min-height: 0;
 }

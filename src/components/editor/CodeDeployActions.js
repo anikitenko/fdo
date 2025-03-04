@@ -10,7 +10,7 @@ import styles from "./EditorPage.module.css";
 import build from "./utils/build";
 import {PropTypes} from "prop-types";
 
-const CodeDeployActions = ({selectedTabId, setSelectedTabId}) => {
+const CodeDeployActions = ({setSelectedTabId}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
     const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
     const [versions, setVersions] = useState(virtualFS.fs.list())
@@ -19,6 +19,7 @@ const CodeDeployActions = ({selectedTabId, setSelectedTabId}) => {
     const [versionsDate, setVersionsDate] = useState(Date.now())
     const [prettyVersionDate, setPrettyVersionDate] = useState("")
     const [buildInProgress, setBuildInProgress] = useState(false)
+    const [deployInProgress, setDeployInProgress] = useState(false)
     const versionText = (name, date, prev, pretty = false) => {
         if (!name) return
         if (!date) return
@@ -84,6 +85,22 @@ const CodeDeployActions = ({selectedTabId, setSelectedTabId}) => {
         setSelectedTabId("output")
         await build()
         setBuildInProgress(false)
+    }
+
+    const triggerDeploy = async () => {
+        setDeployInProgress(true)
+        const name = virtualFS.treeObject[0].label
+        if (!virtualFS.build.getMetadata()) {
+            await triggerBuild()
+        }
+        await window.electron.deployToMainFromEditor({
+            name: name,
+            sandbox:  virtualFS.sandboxName,
+            entrypoint: virtualFS.build.getEntrypoint(),
+            metadata: virtualFS.build.getMetadata(),
+            content: virtualFS.build.getContent()
+        })
+        setDeployInProgress(false)
     }
 
     useEffect(() => {
@@ -165,7 +182,10 @@ const CodeDeployActions = ({selectedTabId, setSelectedTabId}) => {
                 <Button fill={true} text="2. Compile" intent="primary" rightIcon="build" loading={buildInProgress}
                         onClick={async () => await triggerBuild()}/>
                 <Divider/>
-                <Button fill={true} text="3. Deploy" intent="success" rightIcon="share"/>
+                <Button fill={true} text="3. Deploy" intent="success" rightIcon="share" loading={deployInProgress}
+                        onClick={async () => await triggerDeploy()}/>
+                <Divider/>
+                <Button fill={true} text="4. Save & Close" rightIcon="cross"/>
             </FormGroup>
             <Alert
                 cancelButtonText="Cancel"
@@ -188,7 +208,6 @@ const CodeDeployActions = ({selectedTabId, setSelectedTabId}) => {
     )
 }
 CodeDeployActions.propTypes = {
-    selectedTabId: PropTypes.string.isRequired,
     setSelectedTabId: PropTypes.func.isRequired
 }
 

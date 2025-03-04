@@ -30,6 +30,9 @@ const build = async () => {
         const totalFiles = Object.keys(latestContent).length
         let loadedFiles = 0
 
+        let pluginEntrypoint;
+        let pluginMetadata = null
+
         virtualFS.build.addProgress(30)
         virtualFS.build.addMessage("Building plugin...")
 
@@ -61,7 +64,7 @@ const build = async () => {
                             const packageJsonPath = `${moduleBase}/package.json`
                             if (latestContent[packageJsonPath]) {
                                 const packageJson = JSON.parse(latestContent[packageJsonPath])
-                                let entryFile = packageJson.module || packageJson.main || "index.ts"
+                                const entryFile = packageJson.module || packageJson.main || "index.ts"
                                 return { path: `${moduleBase}/${entryFile}`, namespace: "virtual" };
                             }
                             return { errors: [{ text: `Module not found: ${args.path}` }] };
@@ -91,7 +94,32 @@ const build = async () => {
         virtualFS.build.addProgress(90)
         virtualFS.build.addMessage("Build complete, writing output...")
 
-        createVirtualFile("/dist/index.mjs", result.outputFiles[0].text, undefined, false, true)
+        const metadataMatch = result.outputFiles[0].text.match(/_metadata\s*=\s*({[\s\S]*?});/);
+        if (metadataMatch) {
+            try {
+                const rawExtracted = metadataMatch[1].replace(/(\w+):/g, '"$1":');
+                const rawExtractedMatch = rawExtracted.match(/{\s*"name":\s*".*?",\s*"version":\s*".*?",\s*"author":\s*".*?",\s*"description":\s*".*?",\s*"icon":\s*".*?"\s*}/s);
+                if (rawExtractedMatch) {
+                    pluginMetadata = JSON.parse(rawExtractedMatch[0])
+                } else {
+                    console.error("Failed to parse metadata: no match found");
+                    virtualFS.build.addMessage("Failed to parse metadata: no match found", true)
+                    setTimeout(() => virtualFS.build.stopProgress(), 500)
+                }
+            } catch (err) {
+                console.error("Failed to parse metadata:", err);
+                virtualFS.build.addMessage("Failed to parse metadata: " + err.toString(),  true)
+                setTimeout(() => virtualFS.build.stopProgress(), 500)
+            }
+        }
+
+        const srcJson = JSON.parse(latestContent["/package.json"])
+        pluginEntrypoint = srcJson.module || srcJson.main || "dist/index.mjs"
+        createVirtualFile(pluginEntrypoint, result.outputFiles[0].text, undefined, false, true)
+
+        virtualFS.build.setEntrypoint(pluginEntrypoint)
+        virtualFS.build.setMetadata(pluginMetadata)
+        virtualFS.build.setContent(result.outputFiles[0].text)
 
         virtualFS.build.addProgress(100)
         virtualFS.build.addMessage("Compilation successful!")

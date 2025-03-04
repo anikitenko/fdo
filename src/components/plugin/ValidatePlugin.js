@@ -19,8 +19,12 @@ export default async function ValidatePlugin(filePath) {
         const pluginModule = await import(/* webpackIgnore: true */ filePath);
         const PluginClass = pluginModule.default;
         const pluginInstance = new PluginClass();
-        throw new Error(`In testing.,.`);
-        return isValidPlugin(pluginInstance) ? pluginInstance : null
+        console.log(pluginInstance.metadata)
+        //throw new Error(`In testing.,.`);
+        if (!isValidPlugin(pluginInstance)) {
+            throw new Error(`Invalid plugin structure: ${filePath}`);
+        }
+        //return isValidPlugin(pluginInstance) ? pluginInstance : null
     } catch (err) {
         throw new Error(`Failed to load plugin: ${err.message}`);
     }

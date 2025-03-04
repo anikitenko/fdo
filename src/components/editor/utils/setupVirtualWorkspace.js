@@ -64,7 +64,6 @@ export async function setupVirtualWorkspace(name, template) {
         virtualFS.setTreeObjectItemRoot(name)
         createVirtualFile(virtualFS.DEFAULT_FILE, name, template)
         createVirtualFile("/package.json", packageJsonContent(name))
-        createVirtualFile("/package-lock.json", packageLockContent(name))
         virtualFS.fs.create()
     }
 }
