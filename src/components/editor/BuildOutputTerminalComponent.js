@@ -2,7 +2,7 @@ import {Callout, Classes, Divider, Intent, ProgressBar, Tab, Tabs} from "@bluepr
 import {useEffect, useRef, useState} from 'react';
 import virtualFS from "./utils/VirtualFS";
 import {PropTypes} from 'prop-types';
-import styles from "./EditorPage.module.css";
+import * as styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
 
 const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
@@ -85,7 +85,7 @@ BuildOutputTerminalComponent.propTypes = {
 const ProblemsPanel = ({markers}) => {
     return (
         <div className={styles["build-output-panel"]}>
-            {markers?.length === 0 && <div className={styles["build-output"]}>
+            {markers?.length === 0 && <div>
                 <Callout style={{margin: "10px", borderRadius: "5px"}} intent="success">
                     <div>
                         <span className={Classes.HEADING}>No problems found</span>
@@ -133,7 +133,7 @@ const OutputPanel = ({buildOutputIntent, buildOutput}) => {
     }, [buildOutput]);
     return (
         <div ref={outputRef} className={styles["build-output-panel"]}>
-            <div className={styles["build-output"]}>
+            <div>
                 <Callout style={{margin: "10px", borderRadius: "5px"}} intent={buildOutputIntent}>
                     {buildOutput.length === 0 && <div>
                         <span>Build output will be here...</span>

@@ -1,7 +1,7 @@
 import {useEffect, useState} from "react";
 import virtualFS from "./utils/VirtualFS";
 import {getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
-import styles from './EditorPage.module.css'
+import * as styles from './EditorPage.module.css'
 
 import {useContextMenu} from 'react-contexify';
 import 'react-contexify/ReactContexify.css';

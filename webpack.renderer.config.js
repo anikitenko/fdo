@@ -5,8 +5,24 @@ module.exports = {
     module: {
         rules: [
             {
-                test: /\.css$/,
-                use: [{loader: 'style-loader'}, {loader: 'css-loader'}],
+                test: /\.module\.css$/,  // Ensure only .module.css files use CSS modules
+                use: [
+                    "style-loader",
+                    {
+                        loader: "css-loader",
+                        options: {
+                            modules: {
+                                localIdentName: "[name]__[local]__[hash:base64:5]", // Generate unique class names
+                            },
+                            importLoaders: 1,
+                        },
+                    },
+                ],
+            },
+            {
+                test: /\.css$/,  // Keep this for global styles
+                exclude: /\.module\.css$/, // Exclude modules from normal CSS
+                use: ["style-loader", "css-loader"],
             },
             {
                 test: /\.jsx?$/,

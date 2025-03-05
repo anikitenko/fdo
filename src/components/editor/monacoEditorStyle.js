@@ -164,6 +164,10 @@ function monacoEditorStyle() {
                 }
             }
         }
+        const targetElement = document.querySelector(".quick-input-widget.show-file-icons")
+        if (targetElement && window.getComputedStyle(targetElement).display === "none") {
+            virtualFS.setQuickInputWidgetTop(false)
+        }
     })
 
     const execute = () => {

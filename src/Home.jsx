@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react'
 import {Alignment, Button, Divider, Intent, Menu, MenuItem, Navbar, Popover, Tooltip} from "@blueprintjs/core";
-import styles from './Home.module.scss'
+import * as styles from './Home.module.scss'
 import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx";
 import {MultiSelect} from "@blueprintjs/select";
 import {CreatePluginDialog} from "./components/CreatePluginDialog.jsx";
@@ -33,33 +33,28 @@ function Home() {
         return getSelectedPluginIndex(plugin) !== -1;
     }
 
+    const containerRef = useRef(null);
+    const buttonWidth = 128; // Estimated default width
+
+    const updateVisibleButtons = () => {
+        if (!containerRef.current) return;
+
+        const containerWidth = containerRef.current.offsetWidth; // Get actual navbar width
+        const numVisible = Math.max(
+            1,
+            Math.floor(containerWidth / buttonWidth) // Use full width instead of baseWidth
+        );
+
+        const visible = state.plugins.slice(0, numVisible);
+        setVisibleButtons(visible);
+
+        setShowMore(visible.length < state.plugins.length);
+    }
     useEffect(() => {
-
-        const updateVisibleButtons = () => {
-            const width = window.innerWidth;
-            const baseWidth = 600; // Minimum width to show 1 button
-            const step = 158; // Each 128px adds 1 more button
-
-            // Calculate how many buttons can fit
-            let numVisible = Math.min(1 + Math.floor((width - baseWidth) / step), state.plugins.length);
-
-            setVisibleButtons(state.plugins.slice(0, numVisible));
-
-            if (visibleButtons.length === state.plugins.length) {
-                setShowMore(false);
-            } else {
-                setShowMore(true);
-            }
-        };
-
         updateVisibleButtons();
         window.addEventListener("resize", updateVisibleButtons);
-
-        // Cleanup the event listener on component unmount
-        return () => {
-            window.removeEventListener("resize", updateVisibleButtons);
-        };
-    }, [state.plugins, visibleButtons.length]);
+        return () => window.removeEventListener("resize", updateVisibleButtons);
+    }, [state.plugins]);
 
     const getPluginItemProps = (plugin, {handleClick, handleFocus, modifiers, query, ref}) => {
         return {
@@ -299,6 +294,21 @@ function Home() {
             <Menu ulRef={itemsParentRef}>
                 {items.map(renderItem)}
                 <Divider/>
+                <MenuItem
+                    icon="add"
+                    text={`Create`}
+                    roleStructure="listoption"
+                    onClick={() => {
+                        const enterEvent = new KeyboardEvent("keydown", {
+                            key: "Enter",
+                            code: "Enter",
+                            keyCode: 13,
+                            bubbles: true
+                        });
+                        renderItem.dispatchEvent(enterEvent); // Dispatch event globally
+                    }}
+                    shouldDismissPopover={false}
+                />
                 {renderManagePluginsMenuItem()}
             </Menu>
         );
@@ -331,6 +341,23 @@ function Home() {
         if (isProcessingPluginFromEditor.current) return;
         const onPluginLoaded = (loadedPlugin) => {
             if (loadedPlugin) {
+                window.electron.GetPlugin(loadedPlugin).then ((loadedPlugin) => {
+                    const newPlugin = {...loadedPlugin.plugin, ...loadedPlugin.plugin.metadata, metadata: undefined};
+                    setState(prevState => {
+                        // Check if plugin already exists
+                        const pluginExists = prevState.items.some(item => item.id === newPlugin.id);
+
+                        if (pluginExists) {
+                            return prevState;
+                        }
+
+                        selectPlugin(newPlugin);
+                        return {
+                            ...prevState,
+                            items: [...prevState.items, newPlugin]
+                        };
+                    });
+                })
             }
 
             isProcessingPluginFromEditor.current = false;
@@ -373,6 +400,7 @@ function Home() {
                         customTarget={renderCustomPluginsTarget}
                         itemsEqual={arePluginsEqual}
                         itemPredicate={filterPlugin}
+                        itemListRenderer={customPluginListRenderer}
                         itemRenderer={pluginRenderer}
                         items={state.items}
                         onItemSelect={handlePluginSelect}
@@ -385,7 +413,6 @@ function Home() {
                         }}
                         resetOnSelect={true}
                         onClear={handlePluginsClear}
-                        popoverProps={{matchTargetWidth: false, minimal: true}}
                         popoverRef={popoverRef}
                         menuProps={{"aria-label": "plugins"}}
                         noResults={
@@ -398,7 +425,7 @@ function Home() {
                         createNewItemFromQuery={createPlugins}
                         createNewItemRenderer={renderCreatePluginsMenuItem}
                     />
-                    <Button minimal text="Settings" rightIcon="cog"/>
+                    <Button variant={"minimal"} text="Settings" endIcon="cog"/>
                 </Navbar.Group>
             </Navbar>
             {pluginId && <PluginContainer id={pluginId}/>}

@@ -1,7 +1,7 @@
 import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
 import * as monaco from "monaco-editor";
 import {packageDefaultContent} from "./packageDefaultContent";
-import styles from '../EditorPage.module.css'
+import * as styles from '../EditorPage.module.css'
 import _ from "lodash";
 import getLanguage from "./getLanguage";
 

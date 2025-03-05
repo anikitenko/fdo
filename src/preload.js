@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electron', {
     GetPluginData: (filePath) => ipcRenderer.invoke('get-plugin-data', filePath),
     SavePlugin: (content) => ipcRenderer.invoke('save-plugin', content),
     GetAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
+    GetPlugin: (data) => ipcRenderer.invoke('get-plugin', data),
     GetActivatedPlugins: () => ipcRenderer.invoke('get-activated-plugins'),
     ActivatePlugin: (id) => ipcRenderer.invoke('activate-plugin', id),
     DeactivatePlugin: (id) => ipcRenderer.invoke('deactivate-plugin', id),

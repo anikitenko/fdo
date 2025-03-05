@@ -10,7 +10,7 @@ import {
 } from "@blueprintjs/core";
 import React, {useEffect, useState} from "react";
 
-import styles from './css/CreatePluginDialog.module.css'
+import * as styles from './css/CreatePluginDialog.module.css'
 import {AppToaster} from "./AppToaster.jsx";
 import {Select} from "@blueprintjs/select";
 

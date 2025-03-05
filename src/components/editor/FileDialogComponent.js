@@ -5,7 +5,7 @@ import virtualFS from "./utils/VirtualFS";
 import {createVirtualFile} from "./utils/createVirtualFile";
 import {packageNewFileContent} from "./utils/packageNewFileContent";
 import {getFullPathOfFileFolder} from "./utils/getFullPathOfFileFolder";
-import styles from './EditorPage.module.css'
+import * as styles from './EditorPage.module.css'
 
 const FileDialogComponent = () => {
     const [fileDialogShow, setFileDialogShow] = useState(virtualFS.getFileDialog())

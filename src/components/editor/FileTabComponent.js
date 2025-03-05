@@ -1,7 +1,7 @@
 import {Button, ButtonGroup, Tooltip} from "@blueprintjs/core";
 import PropTypes from 'prop-types';
 import virtualFS from "./utils/VirtualFS";
-import styles from './EditorPage.module.css'
+import * as styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
 
 const FileTabs = ({closeTab}) => {

@@ -5,7 +5,7 @@ import {PropTypes} from 'prop-types';
 import {Alert, Icon} from "@blueprintjs/core";
 import {useState} from "react";
 import {IconNames} from "@blueprintjs/icons";
-import styles from '../EditorPage.module.css'
+import * as styles from '../EditorPage.module.css'
 
 const ContextMenu = ({contextElement}) => {
     const [isOpenDelete, setIsOpenDelete] = useState(false)
@@ -69,7 +69,7 @@ const ContextMenu = ({contextElement}) => {
                 <Item onClick={handleNewContextClick}>
                     <span style={{paddingLeft: "20px"}}>New file</span>
                 </Item>
-                <Submenu label={<span style={{paddingLeft: "20px"}} className={styles["context_menu_item"]}>New</span>}>
+                <Submenu label={<span style={{paddingLeft: "20px"}}>New</span>}>
                     <Item id={"new-file"} onClick={handleNewContextClick}>
                         <img src={"static://assets/icons/vscode/" + getIconForFile(".txt")} width="20" height="20"
                              alt="icon"/> <span style={{paddingLeft: "5px"}}>File</span>

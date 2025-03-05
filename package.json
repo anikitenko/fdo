@@ -12,27 +12,27 @@
     "lint": "echo \"No linting configured\""
   },
   "devDependencies": {
-    "@babel/core": "^7.26.7",
+    "@babel/core": "^7.26.9",
     "@babel/preset-react": "^7.26.3",
-    "@electron-forge/cli": "^7.6.1",
-    "@electron-forge/maker-deb": "^7.6.1",
-    "@electron-forge/maker-rpm": "^7.6.1",
-    "@electron-forge/maker-squirrel": "^7.6.1",
-    "@electron-forge/maker-zip": "^7.6.1",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.6.1",
-    "@electron-forge/plugin-fuses": "^7.6.1",
-    "@electron-forge/plugin-webpack": "^7.6.1",
+    "@electron-forge/cli": "^7.7.0",
+    "@electron-forge/maker-deb": "^7.7.0",
+    "@electron-forge/maker-rpm": "^7.7.0",
+    "@electron-forge/maker-squirrel": "^7.7.0",
+    "@electron-forge/maker-zip": "^7.7.0",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.7.0",
+    "@electron-forge/plugin-fuses": "^7.7.0",
+    "@electron-forge/plugin-webpack": "^7.7.0",
     "@electron/fuses": "^1.8.0",
-    "@vercel/webpack-asset-relocator-loader": "^1.7.3",
-    "babel-loader": "^9.2.1",
-    "copy-webpack-plugin": "^12.0.2",
-    "css-loader": "^6.11.0",
-    "electron": "34.1.1",
+    "@vercel/webpack-asset-relocator-loader": "^1.7.4",
+    "babel-loader": "^10.0.0",
+    "copy-webpack-plugin": "^13.0.0",
+    "css-loader": "^7.1.2",
+    "electron": "35.0.0",
     "node-loader": "^2.1.0",
-    "sass": "^1.84.0",
-    "sass-loader": "^16.0.4",
-    "style-loader": "^3.3.4",
-    "webpack": "^5.97.1"
+    "sass": "^1.85.1",
+    "sass-loader": "^16.0.5",
+    "style-loader": "^4.0.0",
+    "webpack": "^5.98.0"
   },
   "keywords": [],
   "author": {
@@ -42,9 +42,9 @@
   "license": "MIT",
   "dependencies": {
     "@anikitenko/fdo-sdk": "^1.0.10",
-    "@blueprintjs/core": "^5.16.4",
-    "@blueprintjs/icons": "^5.18.1",
-    "@blueprintjs/select": "^5.3.9",
+    "@blueprintjs/core": "^5.17.5",
+    "@blueprintjs/icons": "^5.19.1",
+    "@blueprintjs/select": "^5.3.17",
     "@codemirror/lang-json": "^6.0.1",
     "@monaco-editor/react": "^4.7.0",
     "@uiw/codemirror-theme-okaidia": "^4.23.8",
@@ -69,7 +69,6 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.5",
     "react-split-grid": "^1.0.4",
-    "vscode-icons-js": "^11.6.1",
-    "xterm": "^4.19.0"
+    "vscode-icons-js": "^11.6.1"
   }
 }

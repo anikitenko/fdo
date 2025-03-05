@@ -84,6 +84,16 @@ ipcMain.handle('get-all-plugins', async () => {
     }
 });
 
+ipcMain.handle('get-plugin', async (event, id) => {
+    const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+    try {
+        const plugin = pluginORM.getPlugin(id);
+        return { success: true, plugin: plugin };
+    }  catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
 ipcMain.handle('activate-plugin', async (event, id) => {
     const userORM = new UserORM(USER_CONFIG_FILE);
     try {

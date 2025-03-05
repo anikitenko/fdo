@@ -3,7 +3,7 @@ import Split from "react-split-grid";
 import * as monaco from 'monaco-editor';
 import {Editor, loader} from '@monaco-editor/react';
 
-import styles from './EditorPage.module.css'
+import * as styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
 import {Button, InputGroup} from "@blueprintjs/core";
 import {FDO_SDK} from "@anikitenko/fdo-sdk";
@@ -86,9 +86,6 @@ export const EditorPage = () => {
         const input = document.querySelector(".quick-input-box .input");
         input.value = "";
         input.dispatchEvent(new Event("input", {bubbles: true}))
-        setTimeout(() => {
-            virtualFS.setQuickInputWidgetTop(false)
-        }, 1000)
     }
 
     useEffect(() => {
@@ -153,11 +150,11 @@ export const EditorPage = () => {
         <div className={styles["editor-page-component"]}>
             <div className={styles["editor-header"]}>
                 <div className={styles["editor-header-left"]}>
-                    <Button icon="arrow-left" minimal={true}
+                    <Button icon="arrow-left" variant={"minimal"}
                             disabled={virtualFS.tabs.get().length <= 1}
                             onClick={() => virtualFS.tabs.setActiveTabLeft()}
                             aria-label="arrow-left"/>
-                    <Button icon="arrow-right" minimal={true}
+                    <Button icon="arrow-right" variant={"minimal"}
                             disabled={virtualFS.tabs.get().length <= 1}
                             onClick={() => virtualFS.tabs.setActiveTabRight()}
                             aria-label="arrow-right"/>
@@ -166,7 +163,7 @@ export const EditorPage = () => {
                     <InputGroup
                         leftIcon={"search"}
                         placeholder={virtualFS.getTreeObjectItemSelected()?.label}
-                        round={true} fill={true} small={true}
+                        round={true} fill={true} size={"small"}
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
                 </div>
@@ -228,6 +225,7 @@ export const EditorPage = () => {
                                                     className={styles["editor-container"]}
                                                     onMount={(editor) => {
                                                         setCodeEditor(editor)
+                                                        monacoEditorStyle()
                                                     }}
 
                                                     options={{
@@ -239,10 +237,11 @@ export const EditorPage = () => {
                                                         },
                                                         scrollbar: {vertical: "hidden", horizontal: "auto"},
                                                         fontSize: 13,
-                                                        extraEditorClassName: styles["monaco-main-editor"],
                                                         mouseWheelZoom: true,
                                                         smoothScrolling: true,
-                                                        dragAndDrop: false
+                                                        dragAndDrop: false,
+                                                        automaticLayout: true,
+                                                        fixedOverflowWidgets: false
                                                     }}
                                             />
                                         </div>

@@ -5,7 +5,7 @@ import React, {useEffect, useState} from "react";
 import {formatDistanceToNow} from 'date-fns';
 import virtualFS from "./utils/VirtualFS";
 import {IconNames} from "@blueprintjs/icons";
-import styles from "./EditorPage.module.css";
+import * as styles from "./EditorPage.module.css";
 
 import build from "./utils/build";
 import {PropTypes} from "prop-types";
