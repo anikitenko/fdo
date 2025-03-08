@@ -10,7 +10,18 @@ export const PluginPage = () => {
 
     return (
         <>
-            <p>Plugin Content: {pluginData?.id || "No data received"}</p>
+            <p>Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+                Plugin Content: {pluginData?.id || "No data received"}
+            </p>
             <Button intent="primary">BlueprintJS Button</Button>
         </>
     );

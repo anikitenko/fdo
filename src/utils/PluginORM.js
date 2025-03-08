@@ -7,12 +7,12 @@ export default class PluginORM extends JSONORM {
     }
 
     // Add a plugin
-    addPlugin(pluginName, metadata, path, overwrite = false) {
+    addPlugin(pluginName, metadata, home, entry, overwrite = false) {
         if (overwrite) {
             this.removePlugin(pluginName);
         }
         if (!this.data.plugins.includes(pluginName)) {
-            this.data.plugins.push({id: pluginName, metadata: metadata, path: path});
+            this.data.plugins.push({id: pluginName, metadata: metadata, home, entry});
             this._save();
         }
     }

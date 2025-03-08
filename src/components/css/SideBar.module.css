@@ -1,0 +1,52 @@
+.sidebar {
+    width: 200px;
+    background: #252a31;
+    color: white;
+    height: calc(100% - 50px);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s ease;
+    overflow: visible;
+    position: fixed;
+    top: 50px;
+    z-index: 1;
+}
+
+.sidebar.collapsed {
+    width: 50px;
+    text-align: center;
+}
+
+.sidebar.left {
+    left: 0;
+}
+
+.sidebar.right {
+    right: 0;
+}
+
+.toggle-button {
+    margin: 10px;
+    align-self: center;
+}
+
+.menu {
+    display: flex;
+    flex-direction: column;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px;
+    cursor: pointer;
+}
+
+.menu-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.menu-text {
+    transition: opacity 0.3s ease;
+}

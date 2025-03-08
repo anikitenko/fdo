@@ -40,6 +40,8 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
     const data_class_footer = `
 }
 export default MyPlugin;
+
+new MyPlugin();
 `
     return data_class_header + data_metadata + data_constructor + data_get_metadata + data_init + data_render + data_class_footer;
 }

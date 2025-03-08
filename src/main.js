@@ -80,8 +80,8 @@ const createWindow = () => {
         icon: 'assets/desktop_icon.png',
         width: 1024,
         height: 800,
-        minWidth: 800,
-        minHeight: 600,
+        minWidth: 1024,
+        minHeight: 800,
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
@@ -104,8 +104,8 @@ const createEditorWindow = (data) => {
     editorWindow = new BrowserWindow({
         width: 1024,
         height: 800,
-        minWidth: 800,
-        minHeight: 600,
+        minWidth: 1024,
+        minHeight: 800,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -179,6 +179,18 @@ ipcMain.on('open-editor-window', (_event, data) => {
     });
     editorWindow.on('closed', () => (global.editorWindow = null));*/
 });
+
+ipcMain.on('approve-editor-window-close', () => {
+    if (editorWindow) {
+        editorWindow.destroy(); // Close the window
+    }
+});
+
+ipcMain.on('approve-editor-window-reload', () => {
+    if (editorWindow) {
+        editorWindow.reload();
+    }
+})
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

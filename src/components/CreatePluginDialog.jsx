@@ -13,6 +13,7 @@ import React, {useEffect, useState} from "react";
 import * as styles from './css/CreatePluginDialog.module.css'
 import {AppToaster} from "./AppToaster.jsx";
 import {Select} from "@blueprintjs/select";
+import PropTypes from "prop-types";
 
 export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
     const [uploadLoading, setUploadLoading] = useState(false);
@@ -87,14 +88,14 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
         <Dialog isOpen={show} onClose={dialogClose} title={"Create Plugin"} canEscapeKeyClose={false}
                 canOutsideClickClose={false}>
             <DialogBody useOverflowScrollContainer={false}>
-                {updateInitial === true && (
+                {updateInitial && (
                     <FormGroup
                         label="Name"
                         labelFor="plugin-name"
                         fill={true}
                     >
-                        <InputGroup id={"plugin-name"} value={pluginName} onValueChange={setPluginName}
-                                    placeholder="Name of plugin" fill={true}/>
+                        <InputGroup id={"plugin-name"} onValueChange={setPluginName}
+                                    placeholder="Name of plugin" fill={true} autoFocus={true}/>
                     </FormGroup>
                 )}
                 <FormGroup
@@ -129,15 +130,21 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                         filterable={false}
                         fill={true}
                     >
-                        <Button fill={true} text={pluginTemplate.title} rightIcon="double-caret-vertical"/>
+                        <Button fill={true} text={pluginTemplate.title} endIcon="double-caret-vertical"/>
                     </Select>
                 </FormGroup>
                 <div style={{marginBottom: "10px", textAlign: "-webkit-center"}}>
                     <div className={`${styles[`new-template-image-${pluginTemplate.value}`]}`}></div>
                 </div>
                 <Button fill={true} text={"Open editor"} intent={"primary"}
-                              rightIcon={"share"}
+                              endIcon={"share"}
                         onClick={() => {
+                            if (!pluginName) {
+                                (async () => {
+                                    AppToaster.show({message: "Please enter plugin name", intent: "warning"});
+                                })()
+                                return
+                            }
                             window.electron.openEditorWindow({name: pluginName, template: pluginTemplate.value})
                             dialogClose()
                         }
@@ -148,7 +155,15 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                     labelFor="plugin-upload"
                 >
                     <Button id={"plugin-upload"} loading={uploadLoading} icon="upload" text="Upload"
-                            onClick={handleFileUpload}/>
+                            onClick={async () => {
+                                if (!pluginName) {
+                                    await (async () => {
+                                        AppToaster.show({message: "Please enter plugin name", intent: "warning"});
+                                    })()
+                                    return
+                                }
+                                await handleFileUpload()
+                            }}/>
                 </FormGroup>
                 <Divider />
                 <FormGroup
@@ -164,4 +179,10 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                                            intent="success">Create</Button>}></DialogFooter>
         </Dialog>
     )
+}
+CreatePluginDialog.propTypes = {
+    show: PropTypes.bool,
+    close: PropTypes.func,
+    name: PropTypes.string,
+    parentPluginSelect: PropTypes.func
 }

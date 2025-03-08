@@ -6,7 +6,6 @@ import {Editor, loader} from '@monaco-editor/react';
 import * as styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
 import {Button, InputGroup} from "@blueprintjs/core";
-import {FDO_SDK} from "@anikitenko/fdo-sdk";
 import {setupVirtualWorkspace} from "./utils/setupVirtualWorkspace";
 import virtualFS from "./utils/VirtualFS";
 import {packageDefaultContent} from "./utils/packageDefaultContent";
@@ -17,6 +16,7 @@ import CodeDeployActions from "./CodeDeployActions";
 import codeEditorActions from "./utils/codeEditorActions";
 import monacoEditorStyle from "./monacoEditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
+import generatePluginName from "./utils/generatePluginName";
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -26,7 +26,7 @@ export const EditorPage = () => {
     // Extract data from the query parameter
     const searchParams = new URLSearchParams(location.search);
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
-    const rootFolder = FDO_SDK.generatePluginName(pluginData.name)
+    const rootFolder = generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
     const [editorModelPath, setEditorModelPath] = useState(virtualFS.getTreeObjectItemSelected()?.id)
     const [codeEditorCreated, setCodeEditorCreated] = useState(false)

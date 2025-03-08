@@ -91,7 +91,14 @@ const CodeDeployActions = ({setSelectedTabId}) => {
         setDeployInProgress(true)
         const name = virtualFS.treeObject[0].label
         if (!virtualFS.build.getMetadata()) {
-            await triggerBuild()
+            try {
+                await triggerBuild()
+            } catch (e) {
+                setDeployInProgress(false)
+                return
+            } finally {
+                setDeployInProgress(false)
+            }
         }
         await window.electron.deployToMainFromEditor({
             name: name,

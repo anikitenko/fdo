@@ -2,11 +2,6 @@
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
 
 import {contextBridge, ipcRenderer} from 'electron'
-import {FDO_SDK} from "@anikitenko/fdo-sdk";
-
-const SDKInstance = new FDO_SDK();
-// In your React component (or any JS file in the renderer process)
-contextBridge.exposeInMainWorld('sdk', SDKInstance);
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -22,6 +17,7 @@ contextBridge.exposeInMainWorld('electron', {
     GetActivatedPlugins: () => ipcRenderer.invoke('get-activated-plugins'),
     ActivatePlugin: (id) => ipcRenderer.invoke('activate-plugin', id),
     DeactivatePlugin: (id) => ipcRenderer.invoke('deactivate-plugin', id),
+    DeactiveUserPlugin: (id) => ipcRenderer.invoke('deactivate-user-plugin', id),
     DeactivateAllPlugins: () => ipcRenderer.invoke('deactivate-all-plugins'),
     loadPlugin: (id) => ipcRenderer.send("load-plugin", id),
     onPluginLoaded: (callback) =>
@@ -44,4 +40,5 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.on("deploy-from-editor", (_, id) => {callback(id)}),
     offDeployFromEditor: (callback) =>
         ipcRenderer.removeListener('deploy-from-editor', callback),
+    Build: (data) => ipcRenderer.invoke('build', data),
 })

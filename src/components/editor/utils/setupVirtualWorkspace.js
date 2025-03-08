@@ -1,19 +1,8 @@
 import {createVirtualFile} from "./createVirtualFile";
-import {packageJsonContent, packageLockContent} from "./packageJsonContent";
+import {packageJsonContent} from "./packageJsonContent";
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
-
-export const workspaceTsCompilerOptions = {
-    allowSyntheticDefaultImports: true,
-    esModuleInterop: true,
-    strictNullChecks: true,
-    emitDecoratorMetadata: true,
-    experimentalDecorators: true,
-    forceConsistentCasingInFileNames: true,
-    jsxFactory: "React.createElement",
-    allowJs: true,
-    baseUrl: "/",
-}
+import {workspaceTsCompilerOptions} from "../../../utils/workspaceTsCompilerOptions";
 
 export async function setupVirtualWorkspace(name, template) {
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -32,7 +21,6 @@ export async function setupVirtualWorkspace(name, template) {
         noImplicitThis: true,
         strict: true,
         jsx: monaco.languages.typescript.JsxEmit.React,
-        skipLibCheck: true,
         skipDefaultLibCheck: true,
         ...workspaceTsCompilerOptions
     })

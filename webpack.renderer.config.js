@@ -70,21 +70,6 @@ module.exports = {
                     to: "assets",
                 },
                 {
-                    from: path.resolve(__dirname, "node_modules/esbuild-wasm"),
-                    to: "assets/esbuild-wasm",
-                    noErrorOnMissing: true,
-                    globOptions: {
-                        dot: true,
-                        ignore: [
-                            '**/bin/esbuild',
-                            '**/*.md',
-                            '**/*.js',
-                            '**/*.ts',
-                            '**/*.json',
-                        ]
-                    }
-                },
-                {
                     from: path.resolve(__dirname, "node_modules/@anikitenko"),
                     to: "assets/node_modules/@anikitenko",
                     /*noErrorOnMissing: true,

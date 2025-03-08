@@ -9,6 +9,7 @@
     height: 100vh; /* Full height */
     width: 100vw;  /* Full width */
     padding: bp.$pt-navbar-height 0 0;
+    display: flex
 }
 
 
@@ -18,6 +19,63 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+}
+
+:global(.bp5-popover) :global(.bp5-popover-content) {
+    border-radius: 10px !important; /* Override BlueprintJS styles */
+}
+
+.plugins-popover {
+    border-radius: 10px;
+}
+
+.nav-fill {
+    flex-grow: 1;
+}
+
+.nav-center {
+    position: absolute;
+    left: calc(50% - 3px);
+    transform: translateX(-50%);
+}
+
+.header-search {
+    background: #2e2e2e !important;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    outline: none;
+    width: 160px !important;
+    cursor: pointer;
+}
+
+@media (max-width: 850px) {
+    .nav-center {
+        position: static;
+        transform: none;
+        margin: 0 auto;
+    }
+}
+
+@keyframes wiggle {
+    0% { transform: rotate(0deg); }
+    15% { transform: rotate(-5deg); }
+    30% { transform: rotate(5deg); }
+    45% { transform: rotate(-5deg); }
+    60% { transform: rotate(5deg); }
+    75% { transform: rotate(-2deg); }
+    100% { transform: rotate(0deg); }
+}
+
+.wiggle {
+    animation: wiggle 1.5s ease-in-out;
+}
+
+.link-button:hover {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    text-decoration: underline !important;
 }
 
 .footer {

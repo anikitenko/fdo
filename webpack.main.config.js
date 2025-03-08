@@ -1,3 +1,6 @@
+const CopyWebpackPlugin = require("copy-webpack-plugin");
+const path = require("path");
+const {app} = require("electron");
 module.exports = {
     /**
      * This is the main entry point for your application, it's the first file
@@ -25,4 +28,21 @@ module.exports = {
             },
         ],
     },
+    externals: {
+        esbuild: "commonjs esbuild",
+    },
+    plugins: [
+        new CopyWebpackPlugin({
+            patterns: [
+                {
+                    from: path.resolve(__dirname, "node_modules/esbuild"),
+                    to: "node_modules/esbuild",
+                },
+                {
+                    from: path.resolve(__dirname, "node_modules/@esbuild"),
+                    to: "node_modules/@esbuild",
+                },
+            ],
+        })
+    ],
 };

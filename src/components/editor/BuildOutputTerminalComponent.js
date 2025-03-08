@@ -4,6 +4,7 @@ import virtualFS from "./utils/VirtualFS";
 import {PropTypes} from 'prop-types';
 import * as styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
+import {v4 as uuidv4} from 'uuid';
 
 const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers())
@@ -94,10 +95,10 @@ const ProblemsPanel = ({markers}) => {
             </div>}
             {markers?.map((marker) => {
                 return (
-                    <div key={marker.id}>
+                    <div key={`${uuidv4()}`}>
                         {marker.markers.map((m) => {
                             return (
-                                <Callout key={marker.id + m.startLineNumber + m.startColumn}
+                                <Callout key={`${m.id}-${uuidv4()}`}
                                          style={{margin: "10px", borderRadius: "5px"}} intent="danger">
                                     <div>
                                         <span className={Classes.HEADING}>{marker.id}</span>
