@@ -26,15 +26,13 @@ const PluginManager = {
         }
     },
     loadPlugin(id) {
-        if (this.loadingPlugins?.[id]) {
+        if (this.loadingPlugins[id]) {
             console.warn(`Plugin ${id} is already loading.`);
             return; // Prevent double execution
         }
 
         this.loadingPlugins = this.loadingPlugins || {};
         this.loadingPlugins[id] = true;
-
-        this.unLoadPlugin(id)
 
         const pluginORM = new PluginORM(this.pluginConfigFile);
         const plugin = pluginORM.getPlugin(id);
@@ -50,13 +48,17 @@ const PluginManager = {
         })
 
         child.on('spawn', () => {
-            this.loadedPlugins[id] = child;
-            plugin.postMessage({message: 'PLUGIN_READY'})
-
+            delete this.loadingPlugins[id];
+            this.loadedPlugins[id] = {
+                instance: child,
+                ready: false
+            };
+            child.postMessage({message: 'PLUGIN_READY'})
             // Handle messages from the plugin
-            plugin.once('message', (message) => {
+            child.once('message', (message) => {
                 if (message.type === 'PLUGIN_READY') {
-                    console.log(`Plugin ${id} is ready`)
+                    this.setPluginReady(id)
+                    this.sendReadyToRenderer(id)
                 }
             });
         })
@@ -73,8 +75,17 @@ const PluginManager = {
             this.sendUnloadToRenderer(id);
         })
     },
+    setPluginReady(id) {
+        this.loadedPlugins[id].ready = true;
+    },
     getLoadedPlugin(id) {
         return this.loadedPlugins[id];
+    },
+    getLoadedPluginInstance(id) {
+        return this.loadedPlugins[id].instance;
+    },
+    getLoadedPluginReady(id) {
+        return this.loadedPlugins[id].ready;
     },
     unLoadPlugins() {
         for(const id in this.loadedPlugins) {
@@ -83,7 +94,7 @@ const PluginManager = {
     },
     unLoadPlugin(id) {
         if (this.loadedPlugins[id]) {
-            this.loadedPlugins[id].kill();
+            this.loadedPlugins[id].instance.kill();
             delete this.loadedPlugins[id];
             this.sendUnloadToRenderer(id);
         }
@@ -93,6 +104,9 @@ const PluginManager = {
     },
     sendUnloadToRenderer(id) {
         this.mainWindow.webContents.send("plugin-unloaded", id);
+    },
+    sendReadyToRenderer(id) {
+        this.mainWindow.webContents.send("plugin-ready", id);
     }
 }
 

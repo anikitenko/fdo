@@ -261,3 +261,29 @@ ipcMain.handle('deploy-to-main-from-editor', async (event, data) => {
     }
     mainWindow.webContents.send("deploy-from-editor", data.name);
 })
+
+ipcMain.handle('plugin-init', async (event, id) => {
+    const plugin = PluginManager.getLoadedPlugin(id)
+    if (plugin.ready) {
+        plugin.instance.postMessage({message: 'PLUGIN_INIT'})
+        plugin.instance.once('message', (message) => {
+            if (message.type === 'PLUGIN_INIT') {
+                const mainWindow = PluginManager.mainWindow
+                mainWindow.webContents.send("on-plugin-init", message.response)
+            }
+        });
+    }
+})
+
+ipcMain.handle('plugin-render', async (event, id) => {
+    const plugin = PluginManager.getLoadedPlugin(id)
+    if (plugin.ready) {
+        plugin.instance.postMessage({message: 'PLUGIN_RENDER'})
+        plugin.instance.once('message', (message) => {
+            if (message.type === 'PLUGIN_RENDER') {
+                const mainWindow = PluginManager.mainWindow
+                mainWindow.webContents.send("on-plugin-render", message.response)
+            }
+        });
+    }
+})

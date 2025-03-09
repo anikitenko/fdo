@@ -158,8 +158,15 @@ export const CommandBar = ({show, actions, setShow}) => {
     const {query} = useKBar();
 
     useEffect(() => {
-        if (actions) query.registerActions(actions);
+        // Store cleanup function from previous action registration
+        const unregister = query.registerActions(actions);
+
+        // Cleanup: Unregister previous actions when searchActions changes
+        return () => {
+            unregister();
+        };
     }, [actions]);
+
     useEffect(() => {
         if (show) {
             setShow(false)

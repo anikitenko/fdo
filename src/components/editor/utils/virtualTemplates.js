@@ -22,8 +22,8 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
     }
     `
     const data_init = `
-    public init(sdk: FDO_SDK): void {
-        sdk.log("MyPlugin initialized!");
+    public init(): void {
+        this.log("MyPlugin initialized!");
     }
     `
     const data_render = "" +

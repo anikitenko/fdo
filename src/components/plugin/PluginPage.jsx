@@ -1,28 +1,23 @@
-import {Button} from "@blueprintjs/core";
-import {useLocation} from "react-router-dom";
+import {useEffect, useState} from "react";
 
 export const PluginPage = () => {
-    const location = useLocation();
+    const [pluginContent, setPluginContent] = useState("");
 
-    // Extract plugin data from the query parameter
-    const searchParams = new URLSearchParams(location.search);
-    const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
+    useEffect(() => {
+        window.parent.postMessage({ type: "PLUGIN_HELLO" }, "*");
 
-    return (
-        <>
-            <p>Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-                Plugin Content: {pluginData?.id || "No data received"}
-            </p>
-            <Button intent="primary">BlueprintJS Button</Button>
-        </>
-    );
+        const handleMessage = (event) => {
+            if (event.data?.type === "PLUGIN_RENDER") {
+                setPluginContent(event.data.content);
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+
+        return () => {
+            window.removeEventListener("message", handleMessage);
+        };
+    }, []);
+
+    return (pluginContent);
 }

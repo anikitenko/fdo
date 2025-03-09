@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('electron', {
     GetActivatedPlugins: () => ipcRenderer.invoke('get-activated-plugins'),
     ActivatePlugin: (id) => ipcRenderer.invoke('activate-plugin', id),
     DeactivatePlugin: (id) => ipcRenderer.invoke('deactivate-plugin', id),
-    DeactiveUserPlugin: (id) => ipcRenderer.invoke('deactivate-user-plugin', id),
+    DeactivateUserPlugin: (id) => ipcRenderer.invoke('deactivate-user-plugin', id),
     DeactivateAllPlugins: () => ipcRenderer.invoke('deactivate-all-plugins'),
     loadPlugin: (id) => ipcRenderer.send("load-plugin", id),
     onPluginLoaded: (callback) =>
@@ -41,4 +41,18 @@ contextBridge.exposeInMainWorld('electron', {
     offDeployFromEditor: (callback) =>
         ipcRenderer.removeListener('deploy-from-editor', callback),
     Build: (data) => ipcRenderer.invoke('build', data),
+    onPluginReady: (callback) =>
+        ipcRenderer.on("plugin-ready", (_, id) => {callback(id)}),
+    offPluginReady: (callback) =>
+        ipcRenderer.removeListener("plugin-ready", callback),
+    pluginInit: (id) => ipcRenderer.invoke('plugin-init', id),
+    pluginRender: (id) => ipcRenderer.invoke('plugin-render', id),
+    onPluginInit: (callback) =>
+        ipcRenderer.on("on-plugin-init", (_, id) => {callback(id)}),
+    offPluginInit: (callback) =>
+        ipcRenderer.removeListener("on-plugin-init", callback),
+    onPluginRender: (callback) =>
+        ipcRenderer.on("on-plugin-render", (_, id) => {callback(id)}),
+    offPluginRender: (callback) =>
+        ipcRenderer.removeListener("on-plugin-render", callback)
 })

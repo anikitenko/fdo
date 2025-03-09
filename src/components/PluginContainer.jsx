@@ -1,9 +1,12 @@
-import {useEffect, useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import PropTypes from "prop-types";
 
 export const PluginContainer = ({plugin}) => {
     const [height, setHeight] = useState("100vh");
     const [width, setWidth] = useState("100vh");
+    const iframeRef = useRef(null);
+    const [iframeReady, setIframeReady] = useState(false);
+    const [content, setContent] = useState("")
 
     useEffect(() => {
         const updateHeight = () => {
@@ -24,20 +27,50 @@ export const PluginContainer = ({plugin}) => {
         };
     }, []);
 
-    // Convert plugin object to a JSON string and encode it for the URL
-    const encodedPluginData = encodeURIComponent(JSON.stringify({}));
+    useEffect(() => {
+        const handleHandshake = (event) => {
+            if (event.data?.type === "PLUGIN_HELLO") {
+                setIframeReady(true)
+            }
+        };
+
+        window.addEventListener("message", handleHandshake);
+
+        return () => {
+            window.removeEventListener("message", handleHandshake);
+        };
+    }, []);
 
     useEffect(() => {
         if (!plugin) return;
-        /*window.sdk.GetReady(plugin).then((ready) => {
-            console.log("Plugin ready:", ready);
-        })*/
+
+        // Call Electron to render the plugin
+        window.electron.pluginRender(plugin).then(() => {})
+
+        // Listen for Electron event and forward it to iframe
+        const handlePluginRender = (data) => {
+            setContent(data)
+        };
+
+        window.electron.onPluginRender(handlePluginRender);
+
+        return () => {
+            window.electron.offPluginRender(handlePluginRender);
+        };
     }, [plugin]);
+
+    useEffect(() => {
+        if (iframeReady && iframeRef.current?.contentWindow) {
+            iframeRef.current?.contentWindow?.postMessage({type: "PLUGIN_RENDER", content}, "*");
+        }
+    }, [iframeReady]);
+
     return (
         <div id={"plugin-container"} style={{height: "100%", margin: 0, padding: 0, overflow: "hidden"}}>
             <iframe
+                ref={iframeRef}
                 title="Plugin Container ID"
-                src={`#/plugin?data=${encodedPluginData}`}
+                src={`#/plugin`}
                 sandbox="allow-scripts"
                 style={{width: width, height: height, border: "none", overflow: "hidden", boxSizing: "border-box"}}
             />
