@@ -3,8 +3,11 @@ import {packageJsonContent} from "./packageJsonContent";
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 import {workspaceTsCompilerOptions} from "../../../utils/workspaceTsCompilerOptions";
+import darkTheme from "../monaco/EditorDarkTheme"
 
 export async function setupVirtualWorkspace(name, template) {
+    monaco.editor.defineTheme('editor-dark', darkTheme);
+
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
         target: monaco.languages.typescript.ScriptTarget.ES2016,
         allowNonTsExtensions: true,
@@ -20,7 +23,7 @@ export async function setupVirtualWorkspace(name, template) {
         suppressImplicitAnyIndexErrors: true,
         noImplicitThis: true,
         strict: true,
-        jsx: monaco.languages.typescript.JsxEmit.React,
+        jsx: monaco.languages.typescript.JsxEmit.ReactNative,
         skipDefaultLibCheck: true,
         ...workspaceTsCompilerOptions
     })
@@ -33,13 +36,20 @@ export async function setupVirtualWorkspace(name, template) {
         noSyntaxValidation: true,
         noSuggestionDiagnostics: true
     })
+    monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+    monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
     const resultFiles = await window.electron.GetModuleFiles()
     for (const file of resultFiles.files) {
         let plaintext = false
-        if (file.path.endsWith('fdo-sdk.bundle.js') || file.path.endsWith('fdo-sdk.bundle.js.map')) {
+        if (file.path.startsWith("@babel/")) {
+            continue
+        }
+
+        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
+
+        if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
             plaintext = true
         }
-        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
         createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
     }
 
@@ -52,7 +62,8 @@ export async function setupVirtualWorkspace(name, template) {
             return
         }
         virtualFS.setTreeObjectItemRoot(name)
-        createVirtualFile(virtualFS.DEFAULT_FILE, name, template)
+        createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
+        createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
         createVirtualFile("/package.json", packageJsonContent(name))
         virtualFS.fs.create()
     }

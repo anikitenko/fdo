@@ -82,6 +82,14 @@ module.exports = {
                     from: path.resolve(__dirname, "node_modules/@babel/standalone"),
                     to: "assets/node_modules/@babel/standalone",
                 },
+                {
+                    from: path.resolve(__dirname, "node_modules/@types/react"),
+                    to: "assets/node_modules/@types/react",
+                },
+                {
+                    from: path.resolve(__dirname, "node_modules/@types/react-dom"),
+                    to: "assets/node_modules/@types/react-dom",
+                },
             ],
         }),
     ],

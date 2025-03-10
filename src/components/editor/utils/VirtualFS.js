@@ -8,7 +8,8 @@ import getLanguage from "./getLanguage";
 import LZString from "lz-string";
 
 const virtualFS = {
-    DEFAULT_FILE: "/index.ts",
+    DEFAULT_FILE_MAIN: "/index.ts",
+    DEFAULT_FILE_RENDER: "/render.tsx",
     fileDialog: {
         show: false, data: {}
     },
@@ -140,8 +141,12 @@ const virtualFS = {
             const latest = (Math.random() + 1).toString(36).substring(2)
             const content = []
             this.parent.listModels().forEach((model) => {
+                const modelUri = model.uri.toString().replace("file://", "").replace("%40", "@")
+                if (modelUri.includes("node_modules/")) {
+                    return
+                }
                 content.push({
-                    id: model.uri.toString().replace("file://", "").replace("%40", "@"),
+                    id: modelUri,
                     content: model.getValue(),
                     state: null
                 })
@@ -532,7 +537,7 @@ const virtualFS = {
         this.updateModel(fileName, model)
         if (this.__createTreeObjectItem(fileName))
             this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
-        if (fileName === this.DEFAULT_FILE) {
+        if (fileName === this.DEFAULT_FILE_MAIN) {
             this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(fileName))
         }
     },
@@ -558,7 +563,7 @@ const virtualFS = {
     __createTreeObjectItemChild(id, name, type) {
         let isSelected = false;
         let className = ""
-        if (id === this.DEFAULT_FILE) {
+        if (id === this.DEFAULT_FILE_MAIN) {
             isSelected = true;
         }
         if (type === "folder" && id.includes("node_modules")) {

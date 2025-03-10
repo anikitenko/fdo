@@ -200,10 +200,8 @@ ipcMain.handle('build', async (event, data) => {
             write: false,
             tsconfigRaw: {
                 compilerOptions: {
-                    target: "es2020",
-                    module: "ES2015",
+                    target: "ESNext",
                     moduleResolution: "node",
-                    jsxFragmentFactory: "React.Fragment",
                     ...workspaceTsCompilerOptions
                 },
             },
@@ -212,33 +210,126 @@ ipcMain.handle('build', async (event, data) => {
                     name: "virtual-fs",
                     setup(build) {
                         const NATIVE_MODULES = new Set(require("module").builtinModules);
+
                         build.onResolve({ filter: /^[^.\/]/ }, (args) => {
-                            // If it's a native module, let Node.js handle it
-                            if (NATIVE_MODULES.has(args.path) || args.path.startsWith("electron")) {
+                            // Handle native modules
+                            if (
+                                NATIVE_MODULES.has(args.path)
+                            ) {
                                 return { external: true };
                             }
-
-                            // If path does not start with "." or "/", assume it's a node module
-                            const moduleBase = `/node_modules/${args.path}`
-                            const packageJsonPath = `${moduleBase}/package.json`
-                            if (latestContent[packageJsonPath]) {
-                                const packageJson = JSON.parse(latestContent[packageJsonPath])
-                                const entryFile = packageJson.module || packageJson.main || "index.ts"
-                                return { path: `${moduleBase}/${entryFile}`, namespace: "virtual" };
+                            if (
+                                args.path.startsWith("electron") ||
+                                args.path.startsWith("crypto")
+                            ) {
+                                return { external: true }; // Let Node.js resolve them
                             }
-                            return { errors: [{ text: `Module not found: ${args.path}` }] };
+
+                            // Check if it's a node module
+                            let moduleBase = `/node_modules/${args.path}`;
+                            let packageJsonPath = `${moduleBase}/package.json`;
+
+                            if (latestContent[packageJsonPath]) {
+                                const packageJson = JSON.parse(latestContent[packageJsonPath]);
+                                let entryFile = packageJson.module || packageJson.main || "index.js";
+
+                                // Ensure the resolved file exists
+                                if (!latestContent[`${moduleBase}/${entryFile}`]) {
+                                    entryFile = "index.js"; // Fallback
+                                }
+
+                                return { path: `${moduleBase}/${entryFile}`, namespace: "virtual" };
+                            } else {
+                                const mainNodeModules = path.join(__dirname, "node_modules");
+                                moduleBase = path.join(mainNodeModules, args.path);
+                                packageJsonPath = `${moduleBase}/package.json`;
+                                if (fs.existsSync(packageJsonPath)) {
+                                    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+                                    let entryFile = packageJson.module || packageJson.main || "index.js";
+                                    if (!fs.existsSync(`${moduleBase}/${entryFile}`)) {
+                                        entryFile = "index.js"; // Fallback
+                                    }
+                                    return { path: `${moduleBase}/${entryFile}`};
+                                } else {
+                                    return { errors: [{ text: `Could not resolve module on filesystem (no package.json) at ${args.path}` }] };
+                                }
+                            }
                         });
 
-                        build.onResolve({ filter: /.*/ }, args => {
-                            if (args.path in latestContent) {
-                                return { path: args.path, namespace: "virtual" };
+                        const resolveFile = (basePath, importerPath) => {
+                            // Normalize relative paths based on the importer
+                            if (basePath.startsWith("./") || basePath.startsWith("../")) {
+                                if (importerPath) {
+                                    const importerDir = path.dirname(importerPath);
+                                    basePath = path.join(importerDir, basePath);
+                                }
                             }
+
+                            // Possible file resolutions
+                            const possibleFiles = [
+                                basePath,
+                                `${basePath}.js`,
+                                `${basePath}.jsx`,
+                                `${basePath}.mjs`,
+                                `${basePath}.cjs`,
+                                `${basePath}.ts`,
+                                `${basePath}.tsx`,
+                                `${basePath}.mts`,
+                                `${basePath}.cts`,
+                                `${basePath}/index.js`,
+                                `${basePath}/index.jsx`,
+                                `${basePath}/index.mjs`,
+                                `${basePath}/index.cjs`,
+                                `${basePath}/index.ts`,
+                                `${basePath}/index.tsx`,
+                                `${basePath}/index.mts`,
+                                `${basePath}/index.cts`,
+                            ];
+                            return possibleFiles.find(p => latestContent[p]) || null;
+                        };
+
+                        build.onResolve({ filter: /^(\.\/|\.\.|\/)/ }, (args) => {
+                            const resolvedPath = resolveFile(args.path, args.importer);
+                            if (resolvedPath) {
+                                return { path: resolvedPath, namespace: "virtual" };
+                            }
+
+                            // If not found in current location, try as local file
+                            const absoluteResolvedPath = resolveFile(`/${args.path}`, args.importer);
+                            if (absoluteResolvedPath) {
+                                return { path: absoluteResolvedPath, namespace: "virtual" };
+                            }
+
                             return { errors: [{ text: `File not found: ${args.path}` }] };
                         });
-                        build.onLoad({ filter: /.*/, namespace: "virtual" }, async (args) => {
+                        build.onLoad({ filter: /\.(js|cjs|mjs|jsx)$/ }, async (args) => {
                             return {
                                 contents: latestContent[args.path],
-                                loader: "ts", // Adjust based on file type
+                                loader: "js",
+                            };
+                        });
+                        build.onLoad({ filter: /\.(ts|mts|cts|tsx)$/ }, async (args) => {
+                            return {
+                                contents: latestContent[args.path],
+                                loader: "ts",
+                            };
+                        });
+                        build.onLoad({ filter: /\.json$/ }, async (args) => {
+                            return {
+                                contents: latestContent[args.path],
+                                loader: "json",
+                            };
+                        });
+                        build.onLoad({ filter: /\.css$/ }, async (args) => {
+                            return {
+                                contents: latestContent[args.path],
+                                loader: "css",
+                            };
+                        });
+                        build.onLoad({ filter: /\.*$/ }, async (args) => {
+                            return {
+                                contents: latestContent[args.path],
+                                loader: "text",
                             };
                         });
                     },

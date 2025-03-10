@@ -1,5 +1,6 @@
-export const BLANK_TEMPLATE = (name) => {
+export const BLANK_TEMPLATE_MAIN = (name) => {
     const data_class_header = `import {FDO_SDK, FDOInterface, PluginMetadata} from '@anikitenko/fdo-sdk';
+import {Render} from "./render"
 
 class MyPlugin extends FDO_SDK implements FDOInterface {
 `
@@ -26,17 +27,15 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
         this.log("MyPlugin initialized!");
     }
     `
-    const data_render = "" +
-        "   public render(): string {\n" +
-        "        return (`\n" +
-        "           <div>\n" +
-        "                <h1>MyPlugin</h1>\n" +
-        "                <p>Version: ${this._metadata.version}</p>\n" +
-        "                <p>Author: ${this._metadata.author}</p>\n" +
-        "                <p>Description: ${this._metadata.description}</p>\n" + "" +
-        "            </div>\n" +
-        "        `)\n" +
-        "    }"
+    const data_render = `
+    public render(): string {
+        return (Render({
+            version: this._metadata.version,
+            author: this._metadata.author,
+            description: this._metadata.description
+        }))
+    }
+    `
     const data_class_footer = `
 }
 export default MyPlugin;
@@ -44,6 +43,27 @@ export default MyPlugin;
 new MyPlugin();
 `
     return data_class_header + data_metadata + data_constructor + data_get_metadata + data_init + data_render + data_class_footer;
+}
+
+export const BLANK_TEMPLATE_RENDER = (name) => {
+    const dataType = "type RenderProps = {\n" +
+        "    version: string;\n" +
+        "    author: string;\n" +
+        "    description: string\n" +
+        "}" +
+        "\n\n"
+
+    const dataRender = "export const Render = ({ version, author, description }: RenderProps) => {\n" +
+        "    return (`\n" +
+        "        <div>\n" +
+        "            <h1>MyPlugin</h1>\n" +
+        "            <p>Version: ${version}</p>\n" +
+        "            <p>Author: ${author}</p>\n" +
+        "            <p>Description: ${description}</p>\n" +
+        "        </div>\n" +
+        "    `)\n" +
+        "}"
+    return dataType + dataRender
 }
 
 export const HORIZONTAL_DIVIDED_TEMPLATE = (name) => {

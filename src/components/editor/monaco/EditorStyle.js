@@ -1,4 +1,4 @@
-import virtualFS from "./utils/VirtualFS";
+import virtualFS from "../utils/VirtualFS";
 
 const stylesTopFixed = `
 .quick-input-widget {
@@ -51,7 +51,7 @@ const stylesRest = `
   `
 
 let styleElement;
-function monacoEditorStyle() {
+function EditorStyle() {
     styleElement = document.createElement("style");
     styleElement.textContent = stylesTop+stylesRest;
     document.head.appendChild(styleElement);
@@ -176,4 +176,4 @@ function monacoEditorStyle() {
     execute()
 }
 
-export default monacoEditorStyle;
+export default EditorStyle;

@@ -14,7 +14,7 @@ import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
 import codeEditorActions from "./utils/codeEditorActions";
-import monacoEditorStyle from "./monacoEditorStyle";
+import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
 import generatePluginName from "./utils/generatePluginName";
 
@@ -212,7 +212,7 @@ export const EditorPage = () => {
                                             <FileTabs closeTab={closeTab}/>
                                             <Editor height="100vh" defaultLanguage="plaintext"
                                                     onChange={handleEditorChange}
-                                                    theme="vs-dark"
+                                                    theme="editor-dark"
                                                     onValidate={(e) => {
                                                         if (e.length > 0) {
                                                             virtualFS.tabs.addMarkers(editorModelPath, e)
@@ -225,7 +225,7 @@ export const EditorPage = () => {
                                                     className={styles["editor-container"]}
                                                     onMount={(editor) => {
                                                         setCodeEditor(editor)
-                                                        monacoEditorStyle()
+                                                        EditorStyle()
                                                     }}
 
                                                     options={{
