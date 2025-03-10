@@ -78,6 +78,10 @@ module.exports = {
                         ignore: ['**!/fdo-sdk.bundle.js', '**!/fdo-sdk.bundle.js.map']
                     }*/
                 },
+                {
+                    from: path.resolve(__dirname, "node_modules/@babel/standalone"),
+                    to: "assets/node_modules/@babel/standalone",
+                },
             ],
         }),
     ],

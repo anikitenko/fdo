@@ -140,6 +140,15 @@ ipcMain.handle('get-module-files', async () => {
     }
 })
 
+ipcMain.handle('get-babel-path', async () => {
+    try {
+        const babel = path.join(app.getAppPath(), '.webpack/renderer', 'assets', 'node_modules', '@babel', 'standalone')
+        return {success: true, babel};
+    } catch (error) {
+        return {success: false, error: error.message};
+    }
+})
+
 ipcMain.handle('build', async (event, data) => {
     try {
         let esbuildBinary;

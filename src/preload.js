@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.removeListener('plugin-unloaded', callback),
     openEditorWindow: (data) => ipcRenderer.send('open-editor-window', data),
     GetModuleFiles: () => ipcRenderer.invoke('get-module-files'),
+    GetBabelPath: () => ipcRenderer.invoke('get-babel-path'),
     onConfirmEditorClose: (callback) => ipcRenderer.on('confirm-close', callback),
     onConfirmEditorReload: (callback) => ipcRenderer.on('confirm-reload', callback),
     confirmEditorCloseApproved: () => ipcRenderer.send('approve-editor-window-close'),
