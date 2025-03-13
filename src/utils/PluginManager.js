@@ -36,14 +36,13 @@ const PluginManager = {
 
         const pluginORM = new PluginORM(this.pluginConfigFile);
         const plugin = pluginORM.getPlugin(id);
-        const pluginPath = path.join(plugin.home, plugin.entry);
-        const child = utilityProcess.fork(pluginPath, [], {
+        const child = utilityProcess.fork(plugin.entry, [], {
             serviceName: `plugin-${id}`,
-            execArgv: ['--require', 'source-map-support/register'],
             cwd: plugin.home,
             env: {
                 PLUGIN_HOME: plugin.home,
-                LOG_LEVEL: "info"
+                LOG_LEVEL: "info",
+                ...process.env,
             },
         })
 

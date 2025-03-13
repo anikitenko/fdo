@@ -1,4 +1,4 @@
-import {app, dialog, ipcMain} from "electron";
+import {app, dialog, ipcMain, shell} from "electron";
 import ValidatePlugin from "./components/plugin/ValidatePlugin";
 import {readFileSync, writeFileSync} from "node:fs";
 import PluginORM from "./utils/PluginORM";
@@ -11,6 +11,13 @@ import ensureAndWrite from "./utils/ensureAndWrite";
 import generatePluginName from "./components/editor/utils/generatePluginName";
 import {workspaceTsCompilerOptions} from "./utils/workspaceTsCompilerOptions";
 import * as fs from "node:fs";
+
+// Listen for external link requests
+ipcMain.on("open-external-link", (event, url) => {
+    if (typeof url === "string" && url.startsWith("http")) {
+        shell.openExternal(url).then(() => {});
+    }
+});
 
 ipcMain.handle('open-file-dialog', async () => {
     const result = await dialog.showOpenDialog({
@@ -190,7 +197,7 @@ ipcMain.handle('build', async (event, data) => {
         const result = await esbuild.build({
             entryPoints: ["/index.ts"],
             bundle: true,
-            format: "esm",
+            format: "cjs",
             minify: false,
             treeShaking: false,
             platform: "node",
@@ -201,6 +208,7 @@ ipcMain.handle('build', async (event, data) => {
             tsconfigRaw: {
                 compilerOptions: {
                     target: "ESNext",
+                    module: "ESNext",
                     moduleResolution: "node",
                     ...workspaceTsCompilerOptions
                 },
@@ -220,7 +228,8 @@ ipcMain.handle('build', async (event, data) => {
                             }
                             if (
                                 args.path.startsWith("electron") ||
-                                args.path.startsWith("crypto")
+                                args.path.startsWith("crypto") ||
+                                args.path.startsWith("react")
                             ) {
                                 return { external: true }; // Let Node.js resolve them
                             }

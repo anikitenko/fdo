@@ -46,6 +46,7 @@ new MyPlugin();
 }
 
 export const BLANK_TEMPLATE_RENDER = (name) => {
+    const dataImports = "import {DOM, DOMText, DOMNested} from '@anikitenko/fdo-sdk';\n"
     const dataType = "type RenderProps = {\n" +
         "    version: string;\n" +
         "    author: string;\n" +
@@ -53,17 +54,23 @@ export const BLANK_TEMPLATE_RENDER = (name) => {
         "}" +
         "\n\n"
 
-    const dataRender = "export const Render = ({ version, author, description }: RenderProps) => {\n" +
-        "    return (`\n" +
-        "        <div>\n" +
-        "            <h1>MyPlugin</h1>\n" +
-        "            <p>Version: ${version}</p>\n" +
-        "            <p>Author: ${author}</p>\n" +
-        "            <p>Description: ${description}</p>\n" +
-        "        </div>\n" +
-        "    `)\n" +
+    const dataRender = "export const Render = ({ version, author, description }: RenderProps): string => {\n" +
+        "    const text = new DOMText();\n" +
+        "    const myPlugin = text.createHText(1, `My Plugin`);\n" +
+        "    const pVersion = text.createPText(`Version: ${version}`);\n" +
+        "    const pAuthor = text.createPText(`Author: ${author}`);\n" +
+        "    const pDescription = text.createPText(`Description: ${description}`);\n" +
+        "    const nested = new DOMNested().createNestedBlockDiv([\n" +
+        "        myPlugin,\n" +
+        "        pVersion,\n" +
+        "        pAuthor,\n" +
+        "        pDescription\n" +
+        "    ]);\n" +
+        "    return (\n" +
+        "        new DOM().renderHTML(nested)\n" +
+        "    )\n" +
         "}"
-    return dataType + dataRender
+    return dataImports+ dataType + dataRender
 }
 
 export const HORIZONTAL_DIVIDED_TEMPLATE = (name) => {

@@ -29,16 +29,19 @@ export const PluginContainer = ({plugin}) => {
     }, []);
 
     useEffect(() => {
-        const handleHandshake = (event) => {
+        const handlePluginMessages = (event) => {
             if (event.data?.type === "PLUGIN_HELLO") {
                 setIframeReady(true)
             }
+            if (event.data?.type === "open-external-link") {
+                window.electron.OpenExternal(event.data.url)
+            }
         };
 
-        window.addEventListener("message", handleHandshake);
+        window.addEventListener("message", handlePluginMessages);
 
         return () => {
-            window.removeEventListener("message", handleHandshake);
+            window.removeEventListener("message", handlePluginMessages);
         };
     }, []);
 
@@ -62,14 +65,13 @@ export const PluginContainer = ({plugin}) => {
 
     useEffect(() => {
         if (iframeReady && iframeLoaded) {
-            const safeCode = sanitizeCode(content);
+            const safeCode = sanitizeCode(preprocessCode(JSON.parse(content)));
             loadBabel().then((babel) => {
                 if (!babel || typeof babel.transform !== "function") {
-                    console.error("❌ Babel module does not contain a transform() function:", babel);
                     return;
                 }
-                const transformedCode = babel.transform(safeCode, {
-                    presets: ["react"]
+                const transformedCode = babel.transform("<>"+safeCode+"</>", {
+                    presets: ["react"],
                 }).code;
                 iframeRef.current.contentWindow?.postMessage({type: "PLUGIN_RENDER", content: transformedCode}, "*");
             })
@@ -117,6 +119,14 @@ function sanitizeCode(code) {
     return code;
 }
 
+const preprocessCode = (code) => {
+    return code
+        .replace(/&gt;/g, ">")  // Convert `&gt;` back to `>`
+        .replace(/&lt;/g, "<")  // Convert `&lt;` back to `<`
+        .replace(/&quot;/g, '"') // Convert `&quot;` back to `"`
+        .replace(/&apos;/g, "'") // Convert `&apos;` back to `'`
+};
+
 async function loadBabel() {
     return new Promise((resolve, reject) => {
         window.electron.GetBabelPath().then(async (path) => {
@@ -127,7 +137,6 @@ async function loadBabel() {
                     script.src = babelFile;
                     script.onload = () => {
                         if (window.Babel) {
-                            console.log("✅ Babel loaded successfully from window.Babel");
                             resolve(window.Babel);
                         } else {
                             reject(new Error("❌ Babel script loaded but window.Babel is undefined"));

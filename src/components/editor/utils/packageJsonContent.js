@@ -5,7 +5,7 @@ export const packageJsonContent = (name) => JSON.stringify({
     dependencies: {
         "@anikitenko/fdo-sdk": "^1.0.10",
     },
-    main: "dist/index.mjs",
+    main: "dist/index.cjs",
 }, null, 2);
 
 export const packageLockContent = (name) => JSON.stringify({

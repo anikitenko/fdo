@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electron', {
         chrome: () => process.versions.chrome,
         electron: () => process.versions.electron
     },
+    OpenExternal: (url) => ipcRenderer.send("open-external-link", url),
     OpenFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
     GetPluginData: (filePath) => ipcRenderer.invoke('get-plugin-data', filePath),
     SavePlugin: (content) => ipcRenderer.invoke('save-plugin', content),

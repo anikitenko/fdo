@@ -12,7 +12,7 @@ export const PluginPage = () => {
             meta.content = "" +
                 "default-src 'self'; " +
                 "script-src 'self' blob:; " +
-                "style-src 'self'; " +
+                "style-src 'unsafe-inline'; " +
                 "object-src 'none';";
 
             // Remove existing CSP to prevent duplicates
@@ -69,6 +69,26 @@ export const PluginPage = () => {
 function createESModule(pluginCode) {
     const wrappedCode = `
         export default function PluginComponent(React) {
+            const { useEffect } = React;
+
+            useEffect(() => {
+                document.addEventListener("click", (event) => {
+                    const target = event.target.closest("a");
+                    if (target && target.href.startsWith("http")) {
+                        event.preventDefault();
+                        
+                        // Send a message to the parent window (Electron renderer)
+                        window.parent.postMessage(
+                            { type: "open-external-link", url: target.href },
+                            "*"
+                        );
+                    }
+                });
+    
+                return () => {
+                    document.removeEventListener("click", () => {});
+                };
+            }, []);
             return ${pluginCode}
         }
     `;
