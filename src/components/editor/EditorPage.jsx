@@ -72,13 +72,6 @@ export const EditorPage = () => {
         }
     }, [jumpTo]);
 
-    function handleEditorChange(value) {
-        /*const path = selectedFile.id;
-        if (path === "Untitled") {
-            return
-        }*/
-    }
-
     const openCodePaletteShow = () => {
         virtualFS.setQuickInputWidgetTop(true)
         codeEditor.focus();
@@ -104,13 +97,11 @@ export const EditorPage = () => {
             codeEditor?.focus()
         });
         const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", (tabID) => {
-            requestAnimationFrame(() => {
-                setTimeout(() => {
-                    setEditorModelPath(tabID)
-                    virtualFS.setTreeObjectItemSelectedSilent(tabID)
-                    codeEditor?.focus()
-                }, 100)
-            })
+            setTimeout(() => {
+                setEditorModelPath(tabID)
+                virtualFS.setTreeObjectItemSelectedSilent(tabID)
+                codeEditor?.focus()
+            }, 100)
         });
 
         /*const handleBeforeUnload = (event) => {
@@ -211,7 +202,6 @@ export const EditorPage = () => {
                                         <div className={styles["code-editor"]}>
                                             <FileTabs closeTab={closeTab}/>
                                             <Editor height="100vh" defaultLanguage="plaintext"
-                                                    onChange={handleEditorChange}
                                                     theme="editor-dark"
                                                     onValidate={(e) => {
                                                         if (e.length > 0) {

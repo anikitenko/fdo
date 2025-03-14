@@ -3,18 +3,22 @@ import PropTypes from 'prop-types';
 import virtualFS from "./utils/VirtualFS";
 import * as styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
+import classnames from "classnames";
 
 const FileTabs = ({closeTab}) => {
     const [tabs, setTabs] = useState([])
+    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("fileTabs", setTabs);
+        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
 
         return () => {
-            unsubscribe()
+            unsubscribe();
+            unsubscribeLoading();
         }
     }, [])
     return (
-        <div className={styles["file-tabs"]}>
+        <div className={classnames(styles["file-tabs"], treeLoading ? "bp5-skeleton" : "")}>
             {tabs.map((tab) => (
                 <ButtonGroup key={tab.id}>
                     <Tooltip content={

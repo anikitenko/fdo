@@ -141,7 +141,20 @@ const virtualFS = {
         version_latest: 0,
         version_current: 0,
         parent: Object,
+        loading: false,
+        getLoading() {
+            return this.loading
+        },
+        setLoading() {
+            this.loading = true
+            this.parent.notifications.addToQueue("treeLoading", true)
+        },
+        stopLoading() {
+            this.loading = false
+            this.parent.notifications.addToQueue("treeLoading", false)
+        },
         create(prevVersion = "", tabs = []) {
+            this.setLoading()
             const latest = (Math.random() + 1).toString(36).substring(2)
             const content = []
             this.parent.listModels().forEach((model) => {
@@ -186,9 +199,12 @@ const virtualFS = {
                 localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(backupData)))
             }
             this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
+
+            this.stopLoading()
             return {version: latest, date: date, prev: prevVersion}
         },
         set(version) {
+            this.setLoading()
             for (const key of Object.keys(this.parent.files)) {
                 monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.parse(`file://${key}`))
@@ -239,12 +255,15 @@ const virtualFS = {
             this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc())
             this.parent.notifications.addToQueue("fileSelected", this.parent.getTreeObjectItemSelected())
             this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
+
+            this.stopLoading()
             return {
                 tabs: this.versions[version].tabs,
             }
         },
         setupNodeModules() {
             window.electron.GetModuleFiles().then((resultFiles) => {
+                this.parent.notifications.addToQueue("treeLoading", true)
                 for (const file of resultFiles.files) {
                     let plaintext = false
                     if (file.path.startsWith("@babel/")) {
@@ -258,6 +277,7 @@ const virtualFS = {
                     }
                     createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
                 }
+                this.parent.notifications.addToQueue("treeLoading", false)
             })
         },
         __list() {

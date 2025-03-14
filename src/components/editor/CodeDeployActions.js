@@ -10,6 +10,8 @@ import * as styles from "./EditorPage.module.css";
 import build from "./utils/build";
 import {PropTypes} from "prop-types";
 
+import classnames from "classnames";
+
 const CodeDeployActions = ({setSelectedTabId}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
     const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
@@ -20,6 +22,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     const [prettyVersionDate, setPrettyVersionDate] = useState("")
     const [buildInProgress, setBuildInProgress] = useState(false)
     const [deployInProgress, setDeployInProgress] = useState(false)
+    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
     const versionText = (name, date, prev, pretty = false) => {
         if (!name) return
         if (!date) return
@@ -133,9 +136,11 @@ const CodeDeployActions = ({setSelectedTabId}) => {
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("treeVersionsUpdate", setVersions)
+        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
 
         return () => {
             unsubscribe()
+            unsubscribeLoading()
         }
     }, []);
     return (
@@ -143,6 +148,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
             <FormGroup
                 label={"Snapshots"}
                 fill={true}
+                className={classnames(treeLoading ? "bp5-skeleton" : "")}
             >
                 <Select
                     id={"plugin-template"}
@@ -191,16 +197,17 @@ const CodeDeployActions = ({setSelectedTabId}) => {
             <FormGroup
                 label="Actions"
                 fill={true}
+                className={classnames(treeLoading ? "bp5-skeleton" : "")}
             >
-                <Button fill={true} text="1. Create snapshot" rightIcon="saved" onClick={() => saveAll()}/>
+                <Button fill={true} text="1. Create snapshot" endIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
-                <Button fill={true} text="2. Compile" intent="primary" rightIcon="build" loading={buildInProgress}
+                <Button fill={true} text="2. Compile" intent="primary" endIcon="build" loading={buildInProgress}
                         onClick={async () => await triggerBuild()}/>
                 <Divider/>
-                <Button fill={true} text="3. Deploy" intent="success" rightIcon="share" loading={deployInProgress}
+                <Button fill={true} text="3. Deploy" intent="success" endIcon="share" loading={deployInProgress}
                         onClick={async () => await triggerDeploy()}/>
                 <Divider/>
-                <Button fill={true} text="4. Save & Close" rightIcon="cross"/>
+                <Button fill={true} text="4. Save & Close" endIcon="cross"/>
             </FormGroup>
             <Alert
                 cancelButtonText="Cancel"

@@ -7,15 +7,21 @@ import {useContextMenu} from 'react-contexify';
 import 'react-contexify/ReactContexify.css';
 import {Tree} from "@blueprintjs/core";
 import ContextMenu from "./context_menu/CONTEXT_MENU";
+import classnames from "classnames";
 
 const FileBrowserComponent = () => {
     const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
+    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
     const [contextElement, setContextElement] = useState(null)
     const {show} = useContextMenu();
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("treeUpdate", setTreeData);
-        return () => unsubscribe(); // Cleanup
+        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
+        return () => {
+            unsubscribe();
+            unsubscribeLoading();
+        }
     }, []);
 
     // Handle expand/collapse
@@ -62,7 +68,7 @@ const FileBrowserComponent = () => {
                 onNodeExpand={handleNodeExpand}
                 onNodeCollapse={handleNodeCollapse}
                 onNodeContextMenu={handleContextMenu}
-                className={styles["file-tree"]}
+                className={classnames(styles["file-tree"], treeLoading ? "bp5-skeleton" : "")}
             />
             <ContextMenu contextElement={contextElement} />
         </>
