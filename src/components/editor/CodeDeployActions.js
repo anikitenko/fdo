@@ -45,7 +45,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     useEffect(() => {
         const interval = setInterval(() => {
             setPrettyVersionDate(formatDistanceToNow(new Date(versionsDate), {addSuffix: true}))
-        }, 20000); // Update every second
+        }, 20000);
 
         return () => {
             clearInterval(interval); // Clean up the interval when the component unmounts
@@ -53,7 +53,15 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     }, [versionsDate]);
 
     const saveAll = () => {
-        const newVersion = virtualFS.fs.create(version.version, virtualFS.tabs.get().filter((t) => t.id !== "Untitled"))
+        const newVersion = virtualFS.fs.create(
+            version.version,
+            virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => {
+                return {
+                    id: t.id,
+                    active: t.active
+                }
+            })
+        )
         handleSwitchFsVersion(newVersion)
     }
 

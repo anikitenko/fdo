@@ -30,42 +30,26 @@ export async function setupVirtualWorkspace(name, template) {
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
         noSemanticValidation: false,
         noSyntaxValidation: false,
+        noSuggestionDiagnostics: false
     })
+    monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
         noSemanticValidation: true,
         noSyntaxValidation: true,
         noSuggestionDiagnostics: true
     })
-    monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
-    monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
-    const resultFiles = await window.electron.GetModuleFiles()
+    monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
     if (!virtualFS.isInitWorkspace()) {
-        for (const file of resultFiles.files) {
-            let plaintext = false
-            if (file.path.startsWith("@babel/")) {
-                continue
-            }
-
-            monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
-
-            if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
-                plaintext = true
-            }
-            createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
-        }
-
-
         const sandboxName = "sandbox_" + name
-        virtualFS.setInitWorkspace(sandboxName)
+        virtualFS.setInitWorkspace(name, sandboxName)
         const sandbox = localStorage.getItem(sandboxName)
         if (sandbox) {
             virtualFS.restoreSandbox(sandbox)
-            return
+        } else {
+            createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
+            createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
+            createVirtualFile("/package.json", packageJsonContent(name))
+            virtualFS.fs.create()
         }
-        virtualFS.setTreeObjectItemRoot(name)
-        createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
-        createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
-        createVirtualFile("/package.json", packageJsonContent(name))
-        virtualFS.fs.create()
     }
 }

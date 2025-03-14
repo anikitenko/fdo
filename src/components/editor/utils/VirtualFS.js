@@ -6,6 +6,18 @@ import _ from "lodash";
 import getLanguage from "./getLanguage";
 
 import LZString from "lz-string";
+import {createVirtualFile} from "./createVirtualFile";
+
+const defaultTreeObject = {
+    id: "/",
+    label: "/",
+    type: "folder",
+    isExpanded: true,
+    icon: undefined,
+    hasCaret: true,
+    className: styles["mouse-pointer"],
+    childNodes: [],
+}
 
 const virtualFS = {
     DEFAULT_FILE_MAIN: "/index.ts",
@@ -15,18 +27,10 @@ const virtualFS = {
     },
     files: {},
     initWorkspace: false,
+    pluginName: "",
     sandboxName: "",
     quickInputWidgetTop: false,
-    treeObject: [{
-        id: "/",
-        label: "/",
-        type: "folder",
-        isExpanded: true,
-        icon: undefined,
-        hasCaret: true,
-        className: styles["mouse-pointer"],
-        childNodes: [],
-    }],
+    treeObject: [defaultTreeObject],
     notifications: {
         queue: [],
         processing: false,
@@ -142,7 +146,7 @@ const virtualFS = {
             const content = []
             this.parent.listModels().forEach((model) => {
                 const modelUri = model.uri.toString().replace("file://", "").replace("%40", "@")
-                if (modelUri.includes("node_modules/")) {
+                if (modelUri.includes("/node_modules/")) {
                     return
                 }
                 content.push({
@@ -153,7 +157,6 @@ const virtualFS = {
             })
             const date = new Date().toISOString()
             this.versions[latest] = {
-                treeObject: _.cloneDeep(this.parent.treeObject),
                 tabs: tabs,
                 content: content,
                 version: latest,
@@ -167,7 +170,6 @@ const virtualFS = {
             if (sandboxFs) {
                 const unpacked = JSON.parse(LZString.decompress(sandboxFs))
                 unpacked.versions[latest] = _.cloneDeep(this.versions[latest])
-                this.parent.removeTreeObjectItemsIcon(unpacked.versions[latest].treeObject)
                 unpacked.version_latest = latest
                 unpacked.version_current = latest
                 localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(unpacked)))
@@ -178,7 +180,6 @@ const virtualFS = {
                     version_current: 0,
                 }
                 fs.versions[latest] = _.cloneDeep(this.versions[latest])
-                this.parent.removeTreeObjectItemsIcon(fs.versions[latest].treeObject)
                 fs.version_latest = latest
                 fs.version_current = latest
                 const backupData = structuredClone(fs)
@@ -201,9 +202,10 @@ const virtualFS = {
                 delete this.parent.files[key]
                 this.parent.notifications.addToQueue("fileRemoved", key)
             }
-            monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-                ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
-            });
+
+            this.parent.treeObject = [defaultTreeObject]
+            this.parent.setTreeObjectItemRoot(this.parent.pluginName)
+
             for (const file of this.versions[version].content) {
                 const uri = monaco.Uri.parse(`file://${file.id}`)
                 const fileContent = file.content
@@ -219,11 +221,14 @@ const virtualFS = {
                     model: model,
                     state: file.state
                 }
+                this.parent.createFile(file.id, model)
             }
+
+            this.setupNodeModules()
             monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
                 ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
             });
-            this.parent.treeObject = _.cloneDeep(this.versions[version].treeObject)
+
             this.version_current = version
             const sandboxFs = localStorage.getItem(this.parent.sandboxName)
             if (sandboxFs) {
@@ -237,6 +242,23 @@ const virtualFS = {
             return {
                 tabs: this.versions[version].tabs,
             }
+        },
+        setupNodeModules() {
+            window.electron.GetModuleFiles().then((resultFiles) => {
+                for (const file of resultFiles.files) {
+                    let plaintext = false
+                    if (file.path.startsWith("@babel/")) {
+                        continue
+                    }
+
+                    monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
+
+                    if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
+                        plaintext = true
+                    }
+                    createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
+                }
+            })
         },
         __list() {
             const versions = []
@@ -296,18 +318,20 @@ const virtualFS = {
         isActiveById(id) {
             return this.list.some((t) => t.id === id && t.active)
         },
-        add(tab, active = true) {
+        add(tab, active = true, fromMultiple = false) {
             if (!this.list.some((t) => t.id === tab.id)) {
                 this.list.push(tab)
             }
             if (active) this.setActiveTab(tab)
-            this.parent.notifications.addToQueue("fileTabs", this.get())
+            if (!fromMultiple) {
+                this.parent.notifications.addToQueue("fileTabs", this.get())
+            }
         },
         addMultiple(tabs) {
             for (const tab of tabs) {
-                this.add(tab, false)
+                const item = this.parent.getTreeObjectItemById(tab.id)
+                this.add(item, tab?.active, true)
             }
-            this.setActiveTab(tabs[0])
             this.parent.notifications.addToQueue("fileTabs", this.get())
         },
         addMarkers(id, markers) {
@@ -368,17 +392,17 @@ const virtualFS = {
     isInitWorkspace() {
         return this.initWorkspace
     },
-    setInitWorkspace(sandbox) {
+    setInitWorkspace(name, sandbox) {
+        this.pluginName = name
         this.sandboxName = sandbox
         this.initWorkspace = true
+        this.setTreeObjectItemRoot(name)
     },
     restoreSandbox() {
         const sandboxData = JSON.parse(LZString.decompress(localStorage.getItem(this.sandboxName)));
         _.merge(this.fs, sandboxData)
-        for (const key of Object.keys(this.fs.versions)) {
-            this.restoreTreeObjectItemsIcon(this.fs.versions[key].treeObject)
-        }
         this.fs.set(this.fs.version_current)
+        this.restoreTreeObjectItemsIcon(this.treeObject)
     },
     getQuickInputWidgetTop() {
         return this.quickInputWidgetTop

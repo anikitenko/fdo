@@ -372,7 +372,8 @@ export const Home = () => {
                                                style={{fontSize: "0.6rem", background: "black"}}>Cmd+K</Tag>}
                             onClick={() => setShowCommandSearch(true)}
                             value=""
-                            onKeyPress={() => setShowCommandSearch(true)}
+                            onKeyDown={() => setShowCommandSearch(true)}
+                            onKeyUp={() => setShowCommandSearch(true)}
                         />
                         <Navbar.Divider/>
                         <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}

@@ -76,8 +76,6 @@ function createESModule(pluginCode) {
                     const target = event.target.closest("a");
                     if (target && target.href.startsWith("http")) {
                         event.preventDefault();
-                        
-                        // Send a message to the parent window (Electron renderer)
                         window.parent.postMessage(
                             { type: "open-external-link", url: target.href },
                             "*"
