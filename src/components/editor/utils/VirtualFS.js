@@ -417,6 +417,7 @@ const virtualFS = {
         this.sandboxName = sandbox
         this.initWorkspace = true
         this.setTreeObjectItemRoot(name)
+        this.fs.setupNodeModules()
     },
     restoreSandbox() {
         const sandboxData = JSON.parse(LZString.decompress(localStorage.getItem(this.sandboxName)));

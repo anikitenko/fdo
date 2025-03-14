@@ -291,7 +291,9 @@ export const Home = () => {
 
                         if (pluginExists) {
                             deselectPlugin(newPlugin)
-                            selectPlugin(newPlugin)
+                            setTimeout(() => {
+                                selectPlugin(newPlugin)
+                            }, 1000)
                             return prevState;
                         }
 
@@ -344,7 +346,10 @@ export const Home = () => {
         };
     }, [])
 
-    const pluginIsReady = plugin && isPluginReady(plugin);
+    const handlePluginChange = (newPlugin) => {
+        setPlugin(null);
+        setTimeout(() => setPlugin(newPlugin), 0);
+    };
 
     return (
         <KBarProvider
@@ -355,7 +360,7 @@ export const Home = () => {
             <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
             <div className={classNames("bp5-dark", styles["main-container"])}>
                 {state.activePlugins.length > 0 && (
-                    <SideBar position={"left"} menuItems={state.activePlugins} click={setPlugin}/>
+                    <SideBar position={"left"} menuItems={state.activePlugins} click={handlePluginChange}/>
                 )}
                 <Navbar fixedToTop={true}>
                     <Navbar.Group className={styles["nav-center"]}>
@@ -373,7 +378,6 @@ export const Home = () => {
                             onClick={() => setShowCommandSearch(true)}
                             value=""
                             onKeyDown={() => setShowCommandSearch(true)}
-                            onKeyUp={() => setShowCommandSearch(true)}
                         />
                         <Navbar.Divider/>
                         <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
@@ -387,7 +391,7 @@ export const Home = () => {
                     marginLeft: (state.plugins.length > 0 ? "50px" : ""),
                     marginRight: (showRightSideBar ? "50px" : "")
                 }}>
-                    {pluginIsReady && <PluginContainer plugin={plugin}/>}
+                    {(plugin && isPluginReady(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
                 </div>
             </div>
         </KBarProvider>

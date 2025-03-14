@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('electron', {
     offPluginInit: (callback) =>
         ipcRenderer.removeListener("on-plugin-init", callback),
     onPluginRender: (callback) =>
-        ipcRenderer.on("on-plugin-render", (_, id) => {callback(id)}),
+        ipcRenderer.once("on-plugin-render", (_, id) => {callback(id)}),
     offPluginRender: (callback) =>
         ipcRenderer.removeListener("on-plugin-render", callback)
 })

@@ -7,7 +7,7 @@ export const PluginContainer = ({plugin}) => {
     const iframeRef = useRef(null);
     const [iframeReady, setIframeReady] = useState(false);
     const [iframeLoaded, setIframeLoaded] = useState(false);
-    const [content, setContent] = useState("")
+    const [content, setContent] = useState("");
 
     useEffect(() => {
         const updateHeight = () => {
@@ -47,7 +47,6 @@ export const PluginContainer = ({plugin}) => {
 
     useEffect(() => {
         if (!plugin) return;
-
         // Call Electron to render the plugin
         window.electron.pluginRender(plugin).then(() => {})
 
@@ -56,6 +55,10 @@ export const PluginContainer = ({plugin}) => {
             setContent(data)
         };
 
+        // Remove existing listeners to prevent duplication
+        window.electron.offPluginRender(handlePluginRender);
+
+        // Add the event listener
         window.electron.onPluginRender(handlePluginRender);
 
         return () => {

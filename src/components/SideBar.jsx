@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from "react";
-import {Icon, Menu, MenuItem, Popover, Tooltip} from "@blueprintjs/core";
+import {Button, Icon, Menu, MenuItem, Popover, Tooltip} from "@blueprintjs/core";
 import classNames from "classnames";
 import * as styles from "./css/SideBar.module.css"
 import PropTypes from "prop-types";
@@ -32,7 +32,9 @@ export const SideBar = ({position, menuItems, click}) => {
                 {menuItems.slice(0, visibleItems - (hiddenItems.length > 0 ? 1 : 0)).map((item, index) => (
                     <Tooltip key={index+1} content={item.name}>
                         <div className={styles["menu-item"]}>
-                            <Icon icon={item.icon} size={20} onClick={() => click(item.id)} />
+                            <Button variant={"minimal"} size={"large"} aria-label={item.icon} onClick={() => click(item.id)}>
+                                <Icon icon={item.icon} size={20}/>
+                            </Button>
                         </div>
                     </Tooltip>
                 ))}
