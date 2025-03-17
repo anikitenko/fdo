@@ -12,11 +12,69 @@ import generatePluginName from "./components/editor/utils/generatePluginName";
 import {workspaceTsCompilerOptions} from "./utils/workspaceTsCompilerOptions";
 import * as fs from "node:fs";
 
+const AppMetrics = [];
+const MAX_METRICS = 86400; // Keep last 24 hours of data
+
+// Store metrics every second
+setInterval(() => {
+    const metrics = app.getAppMetrics();
+    AppMetrics.push({ date: Date.now(), metrics });
+
+    if (AppMetrics.length > MAX_METRICS) {
+        AppMetrics.shift();
+    }
+}, 1000);
+
 // Listen for external link requests
 ipcMain.on("open-external-link", (event, url) => {
     if (typeof url === "string" && url.startsWith("http")) {
         shell.openExternal(url).then(() => {});
     }
+});
+
+ipcMain.handle("get-plugin-metric", (event, id, fromTime, toTime) => {
+    let plugin = PluginManager.getLoadedPluginInstance(id);
+    // If plugin is not found, try to retrieve it from `AppMetrics`
+    if (!plugin) {
+        const matchingEntry = AppMetrics.find(({ metrics }) =>
+            metrics.some((m) => m.name === `plugin-${id}`)
+        );
+
+        if (matchingEntry) {
+            const matchedMetric = matchingEntry.metrics.find((m) => m.name === `plugin-${id}`);
+            if (matchedMetric) {
+                plugin = { pid: matchedMetric.pid };
+            }
+        }
+    }
+
+    if (!plugin) return []; // Still not found, return empty
+
+    const startTime = fromTime || 0; // Default to 0 to get all metrics if not provided
+    const endTime = toTime || Date.now(); // Default to now
+
+    let filteredData = AppMetrics
+        .filter(({ date, metrics }) =>
+            date >= startTime && date <= endTime && metrics.some(m => m.pid === plugin.pid)
+        )
+        .map(({ date, metrics }) => ({
+            date,
+            metric: metrics.find(m => m.pid === plugin.pid)
+        }));
+
+    // Adjust data density based on time range
+    const durationMs = endTime - startTime;
+
+    let interval = 1000; // Default: return all data points
+    if (durationMs > 15 * 60 * 1000) interval = 2000; // > 15 mins → every 2 sec
+    if (durationMs > 30 * 60 * 1000) interval = 5000; // > 30 mins → every 5 sec
+    if (durationMs > 60 * 60 * 1000) interval = 30000; // > 1 hour → every 30 sec
+    if (durationMs > 2 * 60 * 60 * 1000) interval = 60000; // > 2 hours → every 1 min
+    if (durationMs > 6 * 60 * 60 * 1000) interval = 300000; // > 6 hours → every 5 min
+
+    filteredData = filteredData.filter((_, index) => index % Math.floor(interval / 1000) === 0);
+
+    return filteredData;
 });
 
 ipcMain.handle('open-file-dialog', async () => {
@@ -64,6 +122,18 @@ ipcMain.handle('save-plugin', async (event, content) => {
         } else {
             return {success: false, error: "Plugin already installed!"};
         }
+    } catch (error) {
+        return {success: false, error: error.message};
+    }
+});
+
+ipcMain.handle('remove-plugin', async (event, id) => {
+    const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+    try {
+        const plugin = pluginORM.getPlugin(id)
+        fs.rmSync(plugin.home, { recursive: true, force: true })
+        pluginORM.removePlugin(plugin.id)
+        return {success: true};
     } catch (error) {
         return {success: false, error: error.message};
     }

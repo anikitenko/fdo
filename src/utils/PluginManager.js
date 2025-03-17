@@ -81,10 +81,10 @@ const PluginManager = {
         return this.loadedPlugins[id];
     },
     getLoadedPluginInstance(id) {
-        return this.loadedPlugins[id].instance;
+        return this.loadedPlugins[id]?.instance;
     },
     getLoadedPluginReady(id) {
-        return this.loadedPlugins[id].ready;
+        return this.loadedPlugins[id]?.ready;
     },
     unLoadPlugins() {
         for(const id in this.loadedPlugins) {
@@ -93,7 +93,7 @@ const PluginManager = {
     },
     unLoadPlugin(id) {
         if (this.loadedPlugins[id]) {
-            this.loadedPlugins[id].instance.kill();
+            this.loadedPlugins[id]?.instance.kill();
             delete this.loadedPlugins[id];
             this.sendUnloadToRenderer(id);
         }

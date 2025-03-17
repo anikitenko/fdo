@@ -10,9 +10,11 @@ contextBridge.exposeInMainWorld('electron', {
         electron: () => process.versions.electron
     },
     OpenExternal: (url) => ipcRenderer.send("open-external-link", url),
+    GetPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke('get-plugin-metric', id, fromTime, toTime),
     OpenFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
     GetPluginData: (filePath) => ipcRenderer.invoke('get-plugin-data', filePath),
     SavePlugin: (content) => ipcRenderer.invoke('save-plugin', content),
+    RemovePlugin: (id) => ipcRenderer.invoke('remove-plugin', id),
     GetAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
     GetPlugin: (data) => ipcRenderer.invoke('get-plugin', data),
     GetActivatedPlugins: () => ipcRenderer.invoke('get-activated-plugins'),

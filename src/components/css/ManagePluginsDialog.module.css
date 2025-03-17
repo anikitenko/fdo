@@ -1,0 +1,11 @@
+.panel{
+    border-left: solid 1px #d4d5d7;
+}
+
+.manage-plugins :global(.bp5-tab-list) {
+    background-color: white;
+}
+
+.alert-clean {
+    background: #3c3c3c;
+}

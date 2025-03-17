@@ -3,12 +3,14 @@ import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
 import {CreatePluginDialog} from "./CreatePluginDialog.jsx";
 import {useState} from "react";
+import {ManagePluginsDialog} from "./ManagePluginsDialog.jsx";
 
 export const NavigationPluginsButton = ({
                                             active,
-                                            all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins
+                                            all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin
                                         }) => {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
+    const [showManageDialog, setShowManageDialog] = useState(false);
 
     return (
         <div>
@@ -17,7 +19,9 @@ export const NavigationPluginsButton = ({
                                       selectPlugin={selectPlugin}
                                       deselectPlugin={deselectPlugin}
                                       deselectAllPlugins={deselectAllPlugins}
-                                      setShowCreateDialog={setShowCreateDialog}/>}
+                                      setShowCreateDialog={setShowCreateDialog}
+                                      setShowManageDialog={setShowManageDialog}
+                />}
                 popoverClassName={style["plugins-popover"]}
                 interactionKind={"click"}
                 modifiers={{
@@ -34,6 +38,9 @@ export const NavigationPluginsButton = ({
             <CreatePluginDialog show={showCreateDialog}
                                 close={() => setShowCreateDialog(false)}
             />
+            <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
+                                 selectPlugin={selectPlugin}
+                                 deselectPlugin={deselectPlugin} removePlugin={removePlugin}/>
         </div>
     );
 };
@@ -43,10 +50,19 @@ NavigationPluginsButton.propTypes = {
     buttonMenuRef: PropTypes.any,
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,
-    deselectAllPlugins: PropTypes.func
+    deselectAllPlugins: PropTypes.func,
+    removePlugin: PropTypes.func
 }
 
-const PluginsCard = ({all, active, selectPlugin, deselectPlugin, deselectAllPlugins, setShowCreateDialog}) => {
+const PluginsCard = ({
+                         all,
+                         active,
+                         selectPlugin,
+                         deselectPlugin,
+                         deselectAllPlugins,
+                         setShowCreateDialog,
+                         setShowManageDialog
+                     }) => {
     return (
         <>
             <Card style={{background: "#2e2e2e", borderRadius: "10px 10px 0 0"}}>
@@ -132,7 +148,7 @@ const PluginsCard = ({all, active, selectPlugin, deselectPlugin, deselectAllPlug
                 <Button text="Create plugin" intent={"success"} style={{borderRadius: "5px"}} variant={"outlined"}
                         size={"large"} onClick={() => setShowCreateDialog(true)}/>
                 <Button text="Manage plugins" intent={"primary"} style={{borderRadius: "5px", marginLeft: "10px"}}
-                        variant={"outlined"} size={"large"}/>
+                        variant={"outlined"} size={"large"} onClick={() => setShowManageDialog(true)}/>
             </div>
         </>
     );
@@ -143,5 +159,6 @@ PluginsCard.propTypes = {
     setShowCreateDialog: PropTypes.func,
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,
-    deselectAllPlugins: PropTypes.func
+    deselectAllPlugins: PropTypes.func,
+    setShowManageDialog: PropTypes.func
 }

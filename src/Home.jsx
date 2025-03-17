@@ -351,6 +351,13 @@ export const Home = () => {
         setTimeout(() => setPlugin(newPlugin), 0);
     };
 
+    const removePlugin = (pluginId) => {
+        setState(prevState => ({
+            ...prevState,
+            plugins: prevState.plugins.filter(plugin => plugin.id !== pluginId)
+        }));
+    };
+
     return (
         <KBarProvider
             options={{
@@ -367,7 +374,7 @@ export const Home = () => {
                         <NavigationPluginsButton active={state.activePlugins} all={state.plugins}
                                                  buttonMenuRef={buttonMenuRef}
                                                  selectPlugin={selectPlugin} deselectPlugin={deselectPlugin}
-                                                 deselectAllPlugins={deselectAllPlugins}
+                                                 deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin}
                         />
                     </Navbar.Group>
                     <Navbar.Group align={Alignment.END}>
