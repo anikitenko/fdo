@@ -26,10 +26,7 @@ const PluginManager = {
         }
     },
     loadPlugin(id) {
-        if (this.loadingPlugins[id]) {
-            console.warn(`Plugin ${id} is already loading.`);
-            return; // Prevent double execution
-        }
+        if (this.loadingPlugins[id]) return;
 
         this.loadingPlugins = this.loadingPlugins || {};
         this.loadingPlugins[id] = true;

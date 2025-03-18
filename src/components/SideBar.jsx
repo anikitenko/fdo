@@ -30,20 +30,47 @@ export const SideBar = ({position, menuItems, click}) => {
             {/* Sidebar Items */}
             <div className={styles["menu"]}>
                 {menuItems.slice(0, visibleItems - (hiddenItems.length > 0 ? 1 : 0)).map((item, index) => (
-                    <Tooltip key={index+1} content={item.name}>
-                        <div className={styles["menu-item"]}>
-                            <Button variant={"minimal"} size={"large"} aria-label={item.icon} onClick={() => click(item.id)}>
-                                <Icon icon={item.icon} size={20}/>
-                            </Button>
-                        </div>
-                    </Tooltip>
+                    <div key={index + 1}>
+                    {(item.submenu_list && item.submenu_list.length > 0) && (
+                        <Popover
+                            content={
+                                <Menu>
+                                    {item.submenu_list.map((subItem, subIndex) => (
+                                        <MenuItem key={subIndex + 1} text={subItem.name}
+                                                  onClick={() => click(item.id)}/>
+                                    ))}
+                                </Menu>
+                            }
+                            position={"left"}
+                        >
+                            <Tooltip content={item.name}>
+                                <div className={styles["menu-item"]}>
+                                    <Button variant={"minimal"} size={"large"} aria-label={item.icon}>
+                                        <Icon icon={item.icon} size={20}/>
+                                    </Button>
+                                </div>
+                            </Tooltip>
+                        </Popover>
+                    )}
+                    {!item.submenu_list && (
+                        <Tooltip content={item.name}>
+                            <div className={styles["menu-item"]}>
+                                <Button variant={"minimal"} size={"large"} aria-label={item.icon}
+                                        onClick={() => click(item.id)}>
+                                    <Icon icon={item.icon} size={20}/>
+                                </Button>
+                            </div>
+                        </Tooltip>
+                    )}
+                    </div>
                 ))}
                 {hiddenItems.length > 0 && (
                     <Popover
                         content={
                             <Menu>
                                 {hiddenItems.map((item, index) => (
-                                    <MenuItem key={index+1} icon={item.icon} text={item.name} onClick={() => click(item.id)} />
+                                    <MenuItem key={index + 1} icon={item.icon} text={item.name}
+                                              onClick={() => click(item.id)}/>
                                 ))}
                             </Menu>
                         }
@@ -51,7 +78,9 @@ export const SideBar = ({position, menuItems, click}) => {
                     >
                         <Tooltip content={"More plugins"}>
                             <div className={styles["menu-item"]}>
-                                <Icon icon={"more"} size={20} />
+                                <Button variant={"minimal"} size={"large"} aria-label={"more"}>
+                                    <Icon icon={"more"} size={20}/>
+                                </Button>
                             </div>
                         </Tooltip>
                     </Popover>

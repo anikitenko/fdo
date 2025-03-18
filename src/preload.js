@@ -58,5 +58,10 @@ contextBridge.exposeInMainWorld('electron', {
     onPluginRender: (callback) =>
         ipcRenderer.once("on-plugin-render", (_, id) => {callback(id)}),
     offPluginRender: (callback) =>
-        ipcRenderer.removeListener("on-plugin-render", callback)
+        ipcRenderer.removeListener("on-plugin-render", callback),
+    pluginUiMessage: (id, content) => ipcRenderer.invoke('plugin-ui-message', id, content),
+    onPluginUiMessage: (callback) =>
+        ipcRenderer.once("on-plugin-ui-message", (_, id) => {callback(id)}),
+    offPluginUiMessage: (callback) =>
+        ipcRenderer.removeListener("on-plugin-ui-message", callback),
 })

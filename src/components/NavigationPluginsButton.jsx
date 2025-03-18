@@ -7,7 +7,7 @@ import {ManagePluginsDialog} from "./ManagePluginsDialog.jsx";
 
 export const NavigationPluginsButton = ({
                                             active,
-                                            all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin
+                                            all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin, setSearchActions
                                         }) => {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [showManageDialog, setShowManageDialog] = useState(false);
@@ -40,7 +40,7 @@ export const NavigationPluginsButton = ({
             />
             <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
                                  selectPlugin={selectPlugin}
-                                 deselectPlugin={deselectPlugin} removePlugin={removePlugin}/>
+                                 deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}/>
         </div>
     );
 };
@@ -51,7 +51,8 @@ NavigationPluginsButton.propTypes = {
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,
     deselectAllPlugins: PropTypes.func,
-    removePlugin: PropTypes.func
+    removePlugin: PropTypes.func,
+    setSearchActions: PropTypes.func
 }
 
 const PluginsCard = ({

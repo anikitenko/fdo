@@ -448,7 +448,7 @@ ipcMain.handle('plugin-init', async (event, id) => {
         plugin.instance.once('message', (message) => {
             if (message.type === 'PLUGIN_INIT') {
                 const mainWindow = PluginManager.mainWindow
-                mainWindow.webContents.send("on-plugin-init", message.response)
+                mainWindow.webContents.send("on-plugin-init", {id, ...message.response})
             }
         });
     }
@@ -462,6 +462,19 @@ ipcMain.handle('plugin-render', async (event, id) => {
             if (message.type === 'PLUGIN_RENDER') {
                 const mainWindow = PluginManager.mainWindow
                 mainWindow.webContents.send("on-plugin-render", message.response)
+            }
+        });
+    }
+})
+
+ipcMain.handle('plugin-ui-message', async (event, id, content) => {
+    const plugin = PluginManager.getLoadedPlugin(id)
+    if (plugin.ready) {
+        plugin.instance.postMessage({message: 'UI_MESSAGE', content})
+        plugin.instance.once('message', (message) => {
+            if (message.type === 'UI_MESSAGE') {
+                const mainWindow = PluginManager.mainWindow
+                mainWindow.webContents.send("on-plugin-ui-message", message.response)
             }
         });
     }

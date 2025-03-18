@@ -23,7 +23,16 @@ import {debounce} from "lodash";
 import classNames from "classnames";
 import {AppToaster} from "./AppToaster.jsx";
 
-export const ManagePluginsDialog = ({show, setShow, plugins, activePlugins, deselectPlugin, selectPlugin, removePlugin}) => {
+export const ManagePluginsDialog = ({
+                                        show,
+                                        setShow,
+                                        plugins,
+                                        activePlugins,
+                                        deselectPlugin,
+                                        selectPlugin,
+                                        removePlugin,
+                                        setSearchActions
+                                    }) => {
     const [selectedTabId, setSelectedTabId] = useState(null);
     const [sortedPlugins, setSortedPlugins] = useState([]);
 
@@ -49,6 +58,33 @@ export const ManagePluginsDialog = ({show, setShow, plugins, activePlugins, dese
         }
     }, [plugins, activePlugins]);
 
+    useEffect(() => {
+        setSearchActions((prev) => {
+            const newActions = sortedPlugins?.reduce((acc, plugin) => {
+                if (activePlugins.length === 0 || activePlugins.every((p) => p.id !== plugin.id)) return acc;
+                if (prev.some(action => action.id === `navigate-active-manage-${plugin.id}`)) return acc;
+                return [
+                    ...acc,
+                    {
+                        id: `navigate-active-manage-${plugin.id}`,
+                        name: "Manage",
+                        subtitle: "Manage plugin",
+                        icon: <Icon icon={"cog"} size={16}/>,
+                        perform: () => {
+                            setShow(true);
+                            setTimeout(() => {
+                                setSelectedTabId(plugin.id);
+                            }, 300);
+                        },
+                        section: plugin.name,
+                    }
+                ];
+            }, []);
+
+            return [...prev, ...newActions];
+        });
+    }, [sortedPlugins, activePlugins]);
+
     return (
         <Dialog
             autoFocus={true}
@@ -73,36 +109,37 @@ export const ManagePluginsDialog = ({show, setShow, plugins, activePlugins, dese
                 id={"manage-plugins-tabs"}
                 renderActiveTabPanelOnly={true}
             >
-                {sortedPlugins && sortedPlugins.map((plugin, idx) => {
-                        return (
-                            <Tab id={plugin.id} key={plugin.id}
-                                 title={
-                                     <div style={{verticalAlign: "center", width: "180px"}}
-                                          className={"bp5-text-overflow-ellipsis"}>
-                                         <Icon icon={plugin.icon} intent={"primary"}/>
-                                         <span style={{
-                                             marginLeft: "5px",
-                                             fontSize: "0.8rem",
-                                             lineHeight: "10px",
-                                             textOverflow: "ellipsis"
-                                         }}
-                                               className={classNames("bp5-text-muted")}>{plugin.name}</span>
-                                     </div>
-                                 }
-                                 style={{
-                                     borderBottom: (activePlugins?.some((p) => p.id === plugin.id)) ? "solid 1px #d4d5d7" : "",
-                                     borderTop: idx === 0 ? "solid 1px #d4d5d7" : "",
-                                 }}
-                                 panelClassName={styles["panel"]}
-                                 panel={
-                                     <SelectPluginPanel plugin={plugin} activePlugins={activePlugins}
-                                                        selectPlugin={selectPlugin}
-                                                        deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSelectedTabId={setSelectedTabId}
-                                                        selectedTabId={selectedTabId} setSortedPlugins={setSortedPlugins}
-                                     />
-                                 }/>
-                        )
-                    })}
+                {sortedPlugins?.map((plugin, idx) => {
+                    return (
+                        <Tab id={plugin.id} key={plugin.id}
+                             title={
+                                 <div style={{verticalAlign: "center", width: "180px"}}
+                                      className={"bp5-text-overflow-ellipsis"}>
+                                     <Icon icon={plugin.icon} intent={"primary"}/>
+                                     <span style={{
+                                         marginLeft: "5px",
+                                         fontSize: "0.8rem",
+                                         lineHeight: "10px",
+                                         textOverflow: "ellipsis"
+                                     }}
+                                           className={classNames("bp5-text-muted")}>{plugin.name}</span>
+                                 </div>
+                             }
+                             style={{
+                                 borderBottom: (activePlugins?.some((p) => p.id === plugin.id)) ? "solid 1px #d4d5d7" : "",
+                                 borderTop: idx === 0 ? "solid 1px #d4d5d7" : "",
+                             }}
+                             panelClassName={styles["panel"]}
+                             panel={
+                                 <SelectPluginPanel plugin={plugin} activePlugins={activePlugins}
+                                                    selectPlugin={selectPlugin}
+                                                    deselectPlugin={deselectPlugin} removePlugin={removePlugin}
+                                                    setSelectedTabId={setSelectedTabId}
+                                                    selectedTabId={selectedTabId} setSortedPlugins={setSortedPlugins}
+                                 />
+                             }/>
+                    )
+                })}
             </Tabs>
         </Dialog>
     )
@@ -114,10 +151,20 @@ ManagePluginsDialog.propTypes = {
     activePlugins: PropTypes.array,
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,
-    removePlugin: PropTypes.func
+    removePlugin: PropTypes.func,
+    setSearchActions: PropTypes.func
 }
 
-const SelectPluginPanel = ({plugin, activePlugins, deselectPlugin, selectPlugin, removePlugin, setSelectedTabId, selectedTabId, setSortedPlugins}) => {
+const SelectPluginPanel = ({
+                               plugin,
+                               activePlugins,
+                               deselectPlugin,
+                               selectPlugin,
+                               removePlugin,
+                               setSelectedTabId,
+                               selectedTabId,
+                               setSortedPlugins
+                           }) => {
     const [metrics, setMetrics] = useState([]);
     const [availableMetrics, setAvailableMetrics] = useState([]);
     const [selectedLines, setSelectedLines] = useState({});
@@ -370,7 +417,7 @@ const SelectPluginPanel = ({plugin, activePlugins, deselectPlugin, selectPlugin,
             <div style={{marginTop: "15px", marginBottom: "15px"}}>
                 <div style={{verticalAlign: "center"}}>
                     <span className={"bp5-heading"} style={{fontSize: "1rem"}}>{plugin.name}</span>
-                    {creationTime && (
+                    {(creationTime && activePlugins?.some((p) => p.id === plugin.id)) && (
                         <span className={"bp5-code"}
                               style={{float: "right"}}>Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
                     )}
@@ -503,7 +550,8 @@ const SelectPluginPanel = ({plugin, activePlugins, deselectPlugin, selectPlugin,
 
             </Card>
             <Card style={{marginBottom: "15px", marginTop: "15px", border: "1px solid red"}}>
-                <div><Button text={"Remove plugin"} intent={"danger"} loading={isLoadingClean} onClick={() => setIsOpenRemove(true)}/></div>
+                <div><Button text={"Remove plugin"} intent={"danger"} loading={isLoadingClean}
+                             onClick={() => setIsOpenRemove(true)}/></div>
             </Card>
             <Alert
                 cancelButtonText="Cancel"

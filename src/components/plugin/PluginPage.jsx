@@ -27,7 +27,7 @@ export const PluginPage = () => {
     }, []);
 
     useEffect(() => {
-        window.parent.postMessage({ type: "PLUGIN_HELLO" }, "*");
+        window.parent.postMessage({type: "PLUGIN_HELLO"}, "*");
 
         const handleMessage = (event) => {
             if (event.data?.type === "PLUGIN_RENDER") {
@@ -38,7 +38,10 @@ export const PluginPage = () => {
                         if (pluginModule.default) {
                             clearTimeout(pluginTimeout);
                             // Assign the globally defined PluginComponent
-                            setPluginComponent(() => () => pluginModule.default(React));
+                            setPluginComponent(() => {
+                                const DynamicComponent = pluginModule.default;
+                                return (props) => <DynamicComponent {...props} />;
+                            })
                         }
                     })
                 } catch (error) {
@@ -60,7 +63,8 @@ export const PluginPage = () => {
         };
     }, []);
 
-    return PluginComponent ? <PluginComponent /> : <p>Loading plugin...</p>;
+    return PluginComponent ? <PluginComponent React={React}/> :
+        <p>Loading plugin...</p>;
 }
 
 /**
@@ -68,7 +72,7 @@ export const PluginPage = () => {
  */
 function createESModule(pluginCode) {
     const wrappedCode = `
-        export default function PluginComponent(React) {
+        export default function PluginComponent({React}) {
             const { useEffect } = React;
 
             useEffect(() => {
@@ -77,7 +81,7 @@ function createESModule(pluginCode) {
                     if (target && target.href.startsWith("http")) {
                         event.preventDefault();
                         window.parent.postMessage(
-                            { type: "open-external-link", url: target.href },
+                            { type: "OPEN_EXTERNAL_LINK", url: target.href },
                             "*"
                         );
                     }
@@ -87,10 +91,27 @@ function createESModule(pluginCode) {
                     document.removeEventListener("click", () => {});
                 };
             }, []);
+            
+            window.createBackendReq = function(type, data) {
+                return new Promise((resolve) => {
+                    const message = { type: "UI_MESSAGE", message: {handler: type, content: data} };
+                    window.parent.postMessage(message, "*");
+    
+                    const listener = (event) => {
+                        if (event.data?.type === "UI_MESSAGE") {
+                            window.removeEventListener("message", listener);
+                            resolve(event.data.content);
+                        }
+                    };
+                    window.removeEventListener("message", listener);
+                    window.addEventListener("message", listener);
+                });
+            };
+            
             return ${pluginCode}
         }
     `;
 
-    const blob = new Blob([wrappedCode], { type: "application/javascript" });
+    const blob = new Blob([wrappedCode], {type: "application/javascript"});
     return URL.createObjectURL(blob);
 }

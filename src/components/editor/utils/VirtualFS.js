@@ -159,7 +159,7 @@ const virtualFS = {
             const content = []
             this.parent.listModels().forEach((model) => {
                 const modelUri = model.uri.toString().replace("file://", "").replace("%40", "@")
-                if (modelUri.includes("/node_modules/")) {
+                if (modelUri.includes("/node_modules/") || modelUri.includes("/dist/")) {
                     return
                 }
                 content.push({

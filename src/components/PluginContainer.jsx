@@ -32,9 +32,16 @@ export const PluginContainer = ({plugin}) => {
         const handlePluginMessages = (event) => {
             if (event.data?.type === "PLUGIN_HELLO") {
                 setIframeReady(true)
-            }
-            if (event.data?.type === "open-external-link") {
+            } else if (event.data?.type === "OPEN_EXTERNAL_LINK") {
                 window.electron.OpenExternal(event.data.url)
+            } else if (event.data?.type === "UI_MESSAGE") {
+                window.electron.pluginUiMessage(plugin, event.data.message).then(() => {})
+                const handlePluginUiMessage = (data) => {
+                    iframeRef.current.contentWindow?.postMessage({type: "UI_MESSAGE", content: data}, "*");
+                };
+                window.electron.offPluginUiMessage(handlePluginUiMessage);
+                window.electron.onPluginUiMessage(handlePluginUiMessage);
+                window.electron.offPluginUiMessage(handlePluginUiMessage);
             }
         };
 
@@ -105,8 +112,6 @@ PluginContainer.propTypes = {
 function sanitizeCode(code) {
     // Remove any attempt to access `window`, `document`, or global objects
     const forbiddenPatterns = [
-        /window\./g,
-        /document\./g,
         /globalThis\./g,
         /process\./g,
         /require\(/g, // Blocks Node.js imports (for safety)

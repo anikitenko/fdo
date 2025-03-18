@@ -8,13 +8,14 @@ import {AppToaster} from "./components/AppToaster.jsx";
 import {PluginContainer} from "./components/PluginContainer.jsx";
 import {SideBar} from "./components/SideBar.jsx";
 import {CommandBar} from "./components/CommandBar.jsx";
+import {generateActionId} from "./utils/generateActionId";
 
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
-    const sideBarActionItems = [
-        {icon: "notifications", name: "Notifications"},
-        {icon: "cog", name: "Settings"}
-    ]
+    const [sideBarActionItems, setSideBarActionItems] = useState([
+        {id: "system-notifications", icon: "notifications", name: "Notifications"},
+        {id: "system-settings", icon: "cog", name: "Settings"}
+    ])
     const [state, setState] = useState({
         plugins: [],
         activePlugins: [],
@@ -113,27 +114,36 @@ export const Home = () => {
             // Remove only "navigate-active-" actions for plugins that are no longer active
             const filteredActions = prev.filter(action =>
                 !action.id.startsWith("navigate-active-") ||
-                state.activePlugins.some(plugin => action.id === `navigate-active-${plugin.id}`)
+                state.activePlugins.some(plugin => new RegExp(`^navigate-active-.*-${plugin.id}$`).test(action.id))
             );
             if (state.activePlugins.length === 0) {
                 return filteredActions.filter(action => !action.id.startsWith("navigate-active-"));
             }
 
             // Add new actions for plugins that are not yet registered
-            const newActions = state.activePlugins
-                .filter(plugin => !filteredActions.some(action => action.id === `navigate-active-${plugin.id}`))
+            const newActionsOpen = state.activePlugins
+                .filter(plugin => !filteredActions.some(action => action.id === `navigate-active-open-${plugin.id}`))
                 .map(plugin => ({
-                    id: `navigate-active-${plugin.id}`,
-                    name: plugin.name,
-                    subtitle: `${plugin.author} | ${plugin.version}`,
-                    keywords: plugin.description,
+                    id: `navigate-active-open-${plugin.id}`,
+                    name: "Open",
+                    subtitle: "Open plugin page",
+                    icon: <Icon icon={"share"} size={16}/>,
                     perform: () => setPlugin(plugin.id),
-                    icon: <Icon icon={plugin.icon} size={24}/>,
-                    section: "Active plugins",
+                    section: plugin.name,
                 }));
 
-            return [...filteredActions, ...newActions];
+            return [...filteredActions, ...newActionsOpen];
         });
+        setSideBarActionItems((prev) => {
+            const filteredSidePanel = prev.filter(action =>
+                action.id.startsWith("system-") ||
+                state.activePlugins.some(plugin => new RegExp(`^${plugin.id}$`).test(action.id))
+            );
+            if (state.activePlugins.length === 0) {
+                return filteredSidePanel.filter(action => action.id.startsWith("system-"));
+            }
+            return [...filteredSidePanel];
+        })
     }, [state.activePlugins]);
 
     useEffect(() => {
@@ -276,7 +286,43 @@ export const Home = () => {
         }
 
         const onPluginInit = (response) => {
-            console.log(response)
+            const {id, quickActions, sidePanelActions} = response
+            if (quickActions) {
+                quickActions.forEach((action) => {
+                    setSearchActions((prev) => {
+                        if (prev.some(a => a.id === `navigate-active-${generateActionId(action.name)}-${id}`)) return prev;
+
+                        return [
+                            ...prev,
+                            {
+                                id: `navigate-active-${generateActionId(action.name)}-${id}`,
+                                name: action.name,
+                                subtitle: action.subtitle,
+                                keywords: action.name + action.subtitle,
+                                icon: <Icon icon={action.icon ? action.icon : "dot"} size={16}/>,
+                                perform: () => {
+                                    console.log(action.message_type)
+                                },
+                                section: state.activePlugins.some(item => item.id === id).name,
+                            }
+                        ];
+                    });
+                })
+            }
+            if (sidePanelActions) {
+                setSideBarActionItems((prevState) => {
+                    if (prevState.some(a => a.id === id)) return prevState;
+                    return [
+                        ...prevState,
+                        {
+                            id,
+                            icon: sidePanelActions.icon,
+                            name: sidePanelActions.label,
+                            submenu_list: sidePanelActions.submenu_list
+                        }
+                    ]
+                })
+            }
         }
 
         const onPluginLoaded = (loadedPlugin) => {
@@ -374,7 +420,7 @@ export const Home = () => {
                         <NavigationPluginsButton active={state.activePlugins} all={state.plugins}
                                                  buttonMenuRef={buttonMenuRef}
                                                  selectPlugin={selectPlugin} deselectPlugin={deselectPlugin}
-                                                 deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin}
+                                                 deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin} setSearchActions={setSearchActions}
                         />
                     </Navbar.Group>
                     <Navbar.Group align={Alignment.END}>
