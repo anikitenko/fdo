@@ -40,6 +40,17 @@ export const PluginPage = () => {
             linkTag.href = "static://assets/css/pure-min.css";
             head.appendChild(linkTag);
 
+            // --- Inject HighlightJS Styles ---
+            const existingHjStyle = head.querySelector("#hjStyle");
+            if (existingHjStyle) {
+                head.removeChild(existingHjStyle);
+            }
+            const hjStyle = iframeDocument.createElement("link");
+            hjStyle.id = "hjStyle";
+            hjStyle.rel = "stylesheet";
+            hjStyle.href = "static://assets/css/vs.min.css";
+            head.appendChild(hjStyle);
+
             // --- Inject FontAwesome JS ---
             const existingFontJS = head.querySelector("#font-awesome-script");
             const existingFontJsBrands = head.querySelector("#font-awesome-script-brands");
@@ -75,6 +86,16 @@ export const PluginPage = () => {
             scriptTagSplitJS.id = "splitjs-script";
             scriptTagSplitJS.src = "static://assets/js/split-grid.js";
             head.appendChild(scriptTagSplitJS);
+
+            // --- Inject HighlightJS ---
+            const existinghighlightJS = head.querySelector("#highlightJS-script");
+            if (existinghighlightJS) {
+                head.removeChild(existinghighlightJS);
+            }
+            const scriptHighlightJS = iframeDocument.createElement("script");
+            scriptHighlightJS.id = "highlightJS-script";
+            scriptHighlightJS.src = "static://assets/js/highlight.min.js";
+            head.appendChild(scriptHighlightJS);
         }
     }, []);
 
