@@ -60,7 +60,7 @@ export const BLANK_TEMPLATE_RENDER = (name) => {
         "    const pVersion = text.createPText(`Version: ${version}`);\n" +
         "    const pAuthor = text.createPText(`Author: ${author}`);\n" +
         "    const pDescription = text.createPText(`Description: ${description}`);\n" +
-        "    const nested = new DOMNested().createNestedBlockDiv([\n" +
+        "    const nested = new DOMNested().createBlockDiv([\n" +
         "        myPlugin,\n" +
         "        pVersion,\n" +
         "        pAuthor,\n" +

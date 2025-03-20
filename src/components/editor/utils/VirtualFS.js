@@ -262,6 +262,12 @@ const virtualFS = {
             }
         },
         setupNodeModules() {
+            const cssType = 'declare module "*.css" {\n' +
+                '    const styles: { [className: string]: Record<string, string> };\n'+
+                '    export default styles;\n' +
+                '}'
+            monaco.languages.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
+            createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
             window.electron.GetModuleFiles().then((resultFiles) => {
                 this.parent.notifications.addToQueue("treeLoading", true)
                 for (const file of resultFiles.files) {
@@ -611,8 +617,12 @@ const virtualFS = {
         if (id === this.DEFAULT_FILE_MAIN) {
             isSelected = true;
         }
-        if (type === "folder" && id.includes("node_modules")) {
-            className = "bp5-intent-warning"
+        if (type === "folder") {
+            if (id.includes("node_modules")) {
+                className = "bp5-intent-warning"
+            } else if (id.includes("dist")) {
+                className = "bp5-text-muted tree-folder-dist"
+            }
         }
         return {
             id,

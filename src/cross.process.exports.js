@@ -1,5 +1,6 @@
 import {app, dialog, ipcMain, shell} from "electron";
 import ValidatePlugin from "./components/plugin/ValidatePlugin";
+import * as fs from "node:fs";
 import {readFileSync, writeFileSync} from "node:fs";
 import PluginORM from "./utils/PluginORM";
 import path from "node:path";
@@ -10,7 +11,7 @@ import PluginManager from "./utils/PluginManager";
 import ensureAndWrite from "./utils/ensureAndWrite";
 import generatePluginName from "./components/editor/utils/generatePluginName";
 import {workspaceTsCompilerOptions} from "./utils/workspaceTsCompilerOptions";
-import * as fs from "node:fs";
+import {extractCssStyles} from "./components/editor/utils/extractCssStyles";
 
 const AppMetrics = [];
 const MAX_METRICS = 86400; // Keep last 24 hours of data
@@ -400,9 +401,11 @@ ipcMain.handle('build', async (event, data) => {
                             };
                         });
                         build.onLoad({ filter: /\.css$/ }, async (args) => {
+                            const classMap = extractCssStyles(latestContent[args.path])
+                            const contents = `export default ${JSON.stringify(classMap)};`;
                             return {
-                                contents: latestContent[args.path],
-                                loader: "css",
+                                contents: contents,
+                                loader: "js",
                             };
                         });
                         build.onLoad({ filter: /\.*$/ }, async (args) => {

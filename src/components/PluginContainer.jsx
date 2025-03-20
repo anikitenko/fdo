@@ -75,7 +75,8 @@ export const PluginContainer = ({plugin}) => {
 
     useEffect(() => {
         if (iframeReady && iframeLoaded) {
-            const safeCode = sanitizeCode(preprocessCode(JSON.parse(content)));
+            const safeCode = sanitizeCode(JSON.parse(content.render));
+            const safeOnLoad = sanitizeCode(JSON.parse(content.onLoad));
             loadBabel().then((babel) => {
                 if (!babel || typeof babel.transform !== "function") {
                     return;
@@ -83,7 +84,7 @@ export const PluginContainer = ({plugin}) => {
                 const transformedCode = babel.transform("<>"+safeCode+"</>", {
                     presets: ["react"],
                 }).code;
-                iframeRef.current.contentWindow?.postMessage({type: "PLUGIN_RENDER", content: transformedCode}, "*");
+                iframeRef.current.contentWindow?.postMessage({type: "PLUGIN_RENDER", content: {code: transformedCode, onLoad: safeOnLoad}}, "*");
             })
         }
     }, [iframeLoaded, iframeReady]);
@@ -114,7 +115,6 @@ function sanitizeCode(code) {
     const forbiddenPatterns = [
         /globalThis\./g,
         /process\./g,
-        /require\(/g, // Blocks Node.js imports (for safety)
         /eval\(/g // Blocks eval()
     ];
 
@@ -126,14 +126,6 @@ function sanitizeCode(code) {
 
     return code;
 }
-
-const preprocessCode = (code) => {
-    return code
-        .replace(/&gt;/g, ">")  // Convert `&gt;` back to `>`
-        .replace(/&lt;/g, "<")  // Convert `&lt;` back to `<`
-        .replace(/&quot;/g, '"') // Convert `&quot;` back to `"`
-        .replace(/&apos;/g, "'") // Convert `&apos;` back to `'`
-};
 
 async function loadBabel() {
     return new Promise((resolve, reject) => {

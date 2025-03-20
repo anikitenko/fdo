@@ -36,6 +36,10 @@
     color: #ffa900;
 }
 
+.file-tree :global(.bp5-tree-node):global(.tree-folder-dist) {
+    background-color: #5b5b5b;
+}
+
 .file-tree :global(.bp5-tree-node-selected) .file-tree-icon {
     filter: brightness(1) invert(1);
 }
