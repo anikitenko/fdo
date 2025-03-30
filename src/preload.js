@@ -64,4 +64,5 @@ contextBridge.exposeInMainWorld('electron', {
         ipcRenderer.once("on-plugin-ui-message", (_, id) => {callback(id)}),
     offPluginUiMessage: (callback) =>
         ipcRenderer.removeListener("on-plugin-ui-message", callback),
+    openLiveUiWindow: (data) => ipcRenderer.send('open-live-ui-window', data),
 })

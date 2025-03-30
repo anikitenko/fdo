@@ -70,8 +70,8 @@ module.exports = {
                     to: "assets",
                 },
                 {
-                    from: path.resolve(__dirname, "node_modules/@anikitenko"),
-                    to: "assets/node_modules/@anikitenko",
+                    from: path.resolve(__dirname, "node_modules/@anikitenko/fdo-sdk"),
+                    to: "assets/node_modules/@anikitenko/fdo-sdk",
                     /*noErrorOnMissing: true,
                     globOptions: {
                         dot: true,

@@ -38,7 +38,7 @@ export async function setupVirtualWorkspace(name, template) {
         noSyntaxValidation: true,
         noSuggestionDiagnostics: true
     })
-    monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
+    monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
     if (!virtualFS.isInitWorkspace()) {
         const sandboxName = "sandbox_" + name
         virtualFS.setInitWorkspace(name, sandboxName)

@@ -17,6 +17,7 @@ import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
 import generatePluginName from "./utils/generatePluginName";
+import {ShowLightbulbIconMode} from "monaco-editor/esm/vs/editor/common/config/editorOptions";
 
 export const EditorPage = () => {
     document.title = "Plugin Editor";
@@ -161,90 +162,102 @@ export const EditorPage = () => {
                 <div className={styles["editor-header-right"]}></div>
             </div>
             <Split
-                minSize={250}
+                columnMinSize={50}
+                onDrag={() => {
+                    codeEditor?.layout();
+                }}
                 render={({
                              getGridProps,
                              getGutterProps,
                          }) => (
                     <div className={`bp5-dark ${styles["grid-container"]}`} {...getGridProps()}>
-                        <div className={styles["file-explorer"]}>
-                            <Split
-                                minSize={200}
-                                direction="column"
-                                render={({
-                                             getGridProps: getInnerGridProps,
-                                             getGutterProps: getInnerGutterProps,
-                                         }) => (
-                                    <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
-                                        <div>
-                                            <FileBrowserComponent/>
-                                        </div>
-                                        <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
-                                        <div>
-                                            <div className={styles["code-deploy-actions"]}>
-                                                <CodeDeployActions setSelectedTabId={setBuildOutputSelectedTabId}/>
-                                            </div>
+                        <Split
+                            rowMinSize={50}
+                            direction="column"
+                            render={({
+                                         getGridProps: getInnerGridProps,
+                                         getGutterProps: getInnerGutterProps,
+                                     }) => (
+                                <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
+                                    <div className={styles["file-browser-tree"]}>
+                                        <FileBrowserComponent/>
+                                    </div>
+                                    <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
+                                    <div>
+                                        <div className={styles["code-deploy-actions"]}>
+                                            <CodeDeployActions setSelectedTabId={setBuildOutputSelectedTabId}/>
                                         </div>
                                     </div>
-                                )}
-                            />
-                        </div>
+                                </div>
+                            )}
+                        />
                         <div className={styles["gutter-col"]} {...getGutterProps('column', 1)}></div>
-                        <div className={styles["code-editor-build-output-terminal"]}>
-                            <Split
-                                minSize={200}
-                                direction="column"
-                                render={({
-                                             getGridProps: getInnerCodeGridProps,
-                                             getGutterProps: getInnerCodeGutterProps,
-                                         }) => (
-                                    <div {...getInnerCodeGridProps()} id={"code-editor"} className={styles["inner-editor-terminal-grid"]}>
-                                        <div className={styles["code-editor"]}>
-                                            <FileTabs closeTab={closeTab}/>
-                                            <Editor height="100vh" defaultLanguage="plaintext"
-                                                    theme="editor-dark"
-                                                    onValidate={(e) => {
-                                                        if (e.length > 0) {
-                                                            virtualFS.tabs.addMarkers(editorModelPath, e)
-                                                        } else {
-                                                            virtualFS.tabs.removeMarkers(editorModelPath)
-                                                        }
-                                                    }}
-                                                    defaultValue={packageDefaultContent(rootFolder)}
-                                                    path={editorModelPath}
-                                                    className={styles["editor-container"]}
-                                                    onMount={(editor) => {
-                                                        setCodeEditor(editor)
-                                                        EditorStyle()
-                                                    }}
+                        <Split
+                            rowMinSize={100}
+                            onDrag={() => {
+                                codeEditor?.layout();
+                            }}
+                            direction="column"
+                            render={({
+                                         getGridProps: getInnerCodeGridProps,
+                                         getGutterProps: getInnerCodeGutterProps,
+                                     }) => (
+                                <div {...getInnerCodeGridProps()} id={"code-editor"} className={styles["inner-editor-terminal-grid"]}>
+                                    <div style={{minWidth: "0", overflow: "hidden", width: "100%"}}>
+                                        <FileTabs closeTab={closeTab}/>
+                                        <Editor defaultLanguage="plaintext"
+                                                theme="editor-dark"
+                                                height={"calc(100% - 39px)"}
+                                                onValidate={(e) => {
+                                                    if (e.length > 0) {
+                                                        virtualFS.tabs.addMarkers(editorModelPath, e)
+                                                    } else {
+                                                        virtualFS.tabs.removeMarkers(editorModelPath)
+                                                    }
+                                                }}
+                                                defaultValue={packageDefaultContent(rootFolder)}
+                                                path={editorModelPath}
+                                                className={styles["editor-container"]}
+                                                onMount={(editor) => {
+                                                    setCodeEditor(editor)
+                                                    EditorStyle()
+                                                }}
 
-                                                    options={{
-                                                        minimap: {
-                                                            enabled: true,
-                                                            autohide: true,
-                                                            size: "fill",
-                                                            scale: 2
-                                                        },
-                                                        scrollbar: {vertical: "hidden", horizontal: "auto"},
-                                                        fontSize: 13,
-                                                        mouseWheelZoom: true,
-                                                        smoothScrolling: true,
-                                                        dragAndDrop: false,
-                                                        automaticLayout: true,
-                                                        fixedOverflowWidgets: false
-                                                    }}
-                                            />
-                                        </div>
-                                        <div className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
-                                        <div className={styles["terminal-output-console"]}>
-                                            <div className={styles["build-output-terminal"]}>
-                                                <BuildOutputTerminalComponent selectedTabId={buildOutputSelectedTabId} setSelectedTabId={setBuildOutputSelectedTabId} />
-                                            </div>
+                                                options={{
+                                                    minimap: {
+                                                        enabled: true,
+                                                        autohide: true,
+                                                        size: "fill",
+                                                        scale: 1.5
+                                                    },
+                                                    linkedEditing: true,
+                                                    lightbulb: {
+                                                        enabled: ShowLightbulbIconMode.On
+                                                    },
+                                                    scrollbar: {vertical: "auto", horizontal: "auto"},
+                                                    stickyScroll: {
+                                                        enabled: true,
+                                                        maxLineCount: 5,
+                                                    },
+                                                    fontSize: 13,
+                                                    mouseWheelZoom: true,
+                                                    smoothScrolling: true,
+                                                    dragAndDrop: false,
+                                                    automaticLayout: true,
+                                                    fixedOverflowWidgets: true,
+                                                    scrollBeyondLastLine: false
+                                                }}
+                                        />
+                                    </div>
+                                    <div className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
+                                    <div className={styles["terminal-output-console"]}>
+                                        <div className={styles["build-output-terminal"]}>
+                                            <BuildOutputTerminalComponent selectedTabId={buildOutputSelectedTabId} setSelectedTabId={setBuildOutputSelectedTabId} />
                                         </div>
                                     </div>
-                                )}
-                            />
-                        </div>
+                                </div>
+                            )}
+                        />
                     </div>
                 )}
             />

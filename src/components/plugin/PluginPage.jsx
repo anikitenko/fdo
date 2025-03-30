@@ -55,6 +55,7 @@ export const PluginPage = () => {
             const existingFontJS = head.querySelector("#font-awesome-script");
             const existingFontJsBrands = head.querySelector("#font-awesome-script-brands");
             const existingFontJsSolid = head.querySelector("#font-awesome-script-solid");
+            const existingFontJsRegular = head.querySelector("#font-awesome-script-regular");
             if (existingFontJS) {
                 head.removeChild(existingFontJS);
             }
@@ -63,6 +64,9 @@ export const PluginPage = () => {
             }
             if (existingFontJsSolid) {
                 head.removeChild(existingFontJsSolid);
+            }
+            if (existingFontJsRegular) {
+                head.removeChild(existingFontJsRegular);
             }
             const scriptTagFA = iframeDocument.createElement("script");
             scriptTagFA.id = "font-awesome-script";
@@ -76,6 +80,10 @@ export const PluginPage = () => {
             scriptTagFaSolid.id = "font-awesome-script-solid";
             scriptTagFaSolid.src = "static://assets/js/fa/solid.min.js";
             head.appendChild(scriptTagFaSolid);
+            const scriptTagFaRegular = iframeDocument.createElement("script");
+            scriptTagFaRegular.id = "font-awesome-script-regular";
+            scriptTagFaRegular.src = "static://assets/js/fa/regular.min.js";
+            head.appendChild(scriptTagFaRegular);
 
             // --- Inject Split JS ---
             const existingSplitJS = head.querySelector("#splitjs-script");
@@ -88,9 +96,9 @@ export const PluginPage = () => {
             head.appendChild(scriptTagSplitJS);
 
             // --- Inject HighlightJS ---
-            const existinghighlightJS = head.querySelector("#highlightJS-script");
-            if (existinghighlightJS) {
-                head.removeChild(existinghighlightJS);
+            const existingHighlightJS = head.querySelector("#highlightJS-script");
+            if (existingHighlightJS) {
+                head.removeChild(existingHighlightJS);
             }
             const scriptHighlightJS = iframeDocument.createElement("script");
             scriptHighlightJS.id = "highlightJS-script";
@@ -146,37 +154,6 @@ export const PluginPage = () => {
 function createESModule(pluginCode, onLoad) {
     const wrappedCode = `
         export default function PluginComponent({React}) {
-            React.useEffect(() => {
-                document.addEventListener("click", (event) => {
-                    const target = event.target.closest("a");
-                    if (target && target.hasAttribute("data-no-external")) {
-                        event.preventDefault();
-                        return;
-                    }
-                    if (target && target.href.startsWith("http")) {
-                        event.preventDefault();
-                        window.parent.postMessage(
-                            { type: "OPEN_EXTERNAL_LINK", url: target.href },
-                            "*"
-                        );
-                    }
-                });
-                
-                const onLoadFn = ${onLoad}
-                if (typeof onLoadFn === "function") {
-                    try {
-                        onLoadFn();
-                    } catch (error) {
-                        console.error("Error executing onLoad:", error);
-                    }
-                }
-    
-                return () => {
-                    document.removeEventListener("click", () => {});
-                };
-                
-            }, []);
-            
             window.createBackendReq = function(type, data) {
                 return new Promise((resolve) => {
                     const message = { type: "UI_MESSAGE", message: {handler: type, content: data} };
@@ -230,6 +207,44 @@ function createESModule(pluginCode, onLoad) {
             window.removeGlobalEventListener = function(eventType, callback) {
                 window.removeEventListener(eventType, callback);
             }
+            
+            window.applyClassToSelector = function(className, selector) {
+                const el = document.querySelector(selector);
+                if (el && !el.classList.contains(className)) {
+                    el.classList.add(className);
+                }
+            }
+            
+            React.useEffect(() => {
+                document.addEventListener("click", (event) => {
+                    const target = event.target.closest("a");
+                    if (target && target.hasAttribute("data-no-external")) {
+                        event.preventDefault();
+                        return;
+                    }
+                    if (target && target.href.startsWith("http")) {
+                        event.preventDefault();
+                        window.parent.postMessage(
+                            { type: "OPEN_EXTERNAL_LINK", url: target.href },
+                            "*"
+                        );
+                    }
+                });
+                
+                const onLoadFn = ${onLoad}
+                if (typeof onLoadFn === "function") {
+                    try {
+                        onLoadFn();
+                    } catch (error) {
+                        console.error("Error executing onLoad:", error);
+                    }
+                }
+    
+                return () => {
+                    document.removeEventListener("click", () => {});
+                };
+                
+            }, []);
             
             return ${pluginCode}
         }

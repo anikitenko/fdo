@@ -1,0 +1,41 @@
+.wrapper {
+    flex-grow: 1;
+    height: 100%;
+    flex-direction: column;
+    display: flex;
+}
+
+.temp :global(.react-flow__edge-path) {
+    stroke: #bbb;
+    stroke-dasharray: 5 5;
+}
+
+.nodeHelpers {
+    padding: 12px;
+    width: 200px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    max-height: 380px;
+    overflow-y: scroll;
+}
+
+.nodeHelpers .helperItem {
+    opacity: 0.5;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    width: fit-content;
+    height: fit-content;
+    margin: auto;
+
+    &:hover {
+        opacity: 1;
+    }
+
+    &.dragging {
+        opacity: 0.5;
+        outline: 2px dashed #999;
+    }
+}

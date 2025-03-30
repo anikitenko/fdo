@@ -3,7 +3,7 @@ export const packageJsonContent = (name) => JSON.stringify({
     version: "1.0.0",
     type: "module",
     dependencies: {
-        "@anikitenko/fdo-sdk": "^1.0.10",
+        "@anikitenko/fdo-sdk": "^1.0.12",
     },
     main: "dist/index.cjs",
 }, null, 2);

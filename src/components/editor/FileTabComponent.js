@@ -18,7 +18,7 @@ const FileTabs = ({closeTab}) => {
         }
     }, [])
     return (
-        <div className={classnames(styles["file-tabs"], treeLoading ? "bp5-skeleton" : "")}>
+        <div className={classnames(styles["file-tabs"], treeLoading ? "bp5-skeleton" : "")} style={{height: "39px"}}>
             {tabs.map((tab) => (
                 <ButtonGroup key={tab.id}>
                     <Tooltip content={

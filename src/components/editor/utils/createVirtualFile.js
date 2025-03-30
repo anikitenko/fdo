@@ -8,7 +8,7 @@ import virtualFS from "./VirtualFS";
 import getLanguage from "./getLanguage";
 
 export function createVirtualFile(filePath, content, template = undefined, ignoreModel  = false, plaintext = false) {
-    const uri = monaco.Uri.parse(`file://${filePath}`);
+    const uri = monaco.Uri.file(`${filePath}`);
 
     const fileContent = template ? getTemplateContent(filePath, template, content) : content;
 

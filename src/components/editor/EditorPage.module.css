@@ -98,8 +98,10 @@
 }
 
 .editor-container {
-    background: #1e1e1e; /* Same as active tab */
-    padding: 10px;
+    background: #1e1e1e;
+    min-width: 0;
+    width: 100%;
+    height: 100%;
 }
 
 /* Fixed Header (Non-Resizable) */
@@ -151,49 +153,44 @@
 
 .grid-container {
     display: grid;
-    grid-template-columns: 250px 5px auto; /* File Explorer | Gutter | Editor */
+    grid-template-columns: 250px 2px 1fr; /* File Explorer | Gutter | Editor */
     height: 100%;
+    width: 100%;
+    min-width: 0;
     overflow: hidden;
 }
 
 .inner-files-deploy-grid {
     display: grid;
-    grid-template-rows: 450px 5px auto;
+    grid-template-rows: 47% 2px 53%;
     height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: #333;
     min-height: 0;
+    min-width: 0;
+    transition: height 0.2s ease, flex 0.2s ease;
 }
 
 .inner-editor-terminal-grid {
     display: grid;
-    grid-template-rows: 570px 5px auto;
+    grid-template-rows: 70% 2px 30%;
     height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: #333;
     min-height: 0;
+    min-width: 0;
+    transition: none;
 }
 
-.file-explorer {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
+.file-browser-tree {
     overflow: scroll;
-    background: #333;
-}
-
-.code-editor-build-output-terminal {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: scroll;
-    background: #333;
 }
 
 .code-deploy-actions {
     background: #333;
     padding: 20px;
-}
-
-.code-editor {
-    flex-grow: 1;  /* Code editor takes available space */
-    overflow: hidden;
 }
 
 .build-output-terminal {
@@ -212,20 +209,26 @@
 
 .gutter-col {
     background: #ccc;
+    grid-row: 1/-1;
     cursor: col-resize;
-    user-select: none;
+    grid-column: 2;
+    z-index: 10;
 }
 
 .gutter-row {
     background: #ccc;
+    grid-row: 2;
     cursor: row-resize;
-    user-select: none;
+    grid-column: 1/-1;
+    z-index: 10;
 }
 
 .gutter-row-editor-terminal {
     background: #ccc;
+    grid-row: 2;
     cursor: row-resize;
-    user-select: none;
+    grid-column: 1/-1;
+    z-index: 10;
 }
 
 .build-output-container {

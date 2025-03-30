@@ -199,6 +199,9 @@ const CodeDeployActions = ({setSelectedTabId}) => {
                 fill={true}
                 className={classnames(treeLoading ? "bp5-skeleton" : "")}
             >
+                <Button fill={true} text="Live UI editor" intent="warning" size="large" icon="style" endIcon="share"
+                        onClick={() => window.electron.openLiveUiWindow({})}/>
+                <Divider/>
                 <Button fill={true} text="1. Create snapshot" endIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
                 <Button fill={true} text="2. Compile" intent="primary" endIcon="build" loading={buildInProgress}
@@ -223,7 +226,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
                 className={styles["alert-delete"]}
             >
                 <p style={{color: "white"}}>
-                    Make sure to <b>Save All</b> before switching between versions. Unsaved changes will be discard. Proceed?
+                    Make sure to <b>create snapshot</b> before switching between versions. Unsaved changes will be discard. Proceed?
                 </p>
             </Alert>
         </>

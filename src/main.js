@@ -117,6 +117,24 @@ const createEditorWindow = (data) => {
     editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`);
 }
 
+const createLiveUiWindow = (data) => {
+    const liveUiWindow = new BrowserWindow({
+        width: 1024,
+        height: 800,
+        minWidth: 1024,
+        minHeight: 800,
+        webPreferences: {
+            sandbox:  true,
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+        },
+    });
+
+    const encodedData = encodeURIComponent(JSON.stringify(data));
+    liveUiWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/live-ui?data=${encodedData}`);
+}
+
 
 app.on('open-url', (event, url) => {
     dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
@@ -190,6 +208,10 @@ ipcMain.on('approve-editor-window-reload', () => {
     if (editorWindow) {
         editorWindow.reload();
     }
+});
+
+ipcMain.on('open-live-ui-window', (_event, data) => {
+    createLiveUiWindow(data)
 })
 
 // In this file you can include the rest of your app's specific main process
