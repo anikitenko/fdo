@@ -68,6 +68,10 @@ function shouldWrapInQuotes(value) {
     return typeof value === "string" && !value.startsWith("\"") && !value.endsWith("\"") && !value.includes(" + ");
 }
 
+function safeJSKey(key) {
+    return /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(key) ? key : JSON.stringify(key);
+}
+
 function resolveKeyframeRefs(obj) {
     if (typeof obj !== "object" || !obj) return obj;
     const result = {};
@@ -165,16 +169,16 @@ export function generateCodeFromNode(node) {
 
                 const composed = Object.entries(raw).map(([k, v]) => {
                     if (Array.isArray(v)) {
-                        return `${k}: [${v.join(", ")}]`;
+                        return `${safeJSKey(k)}: [${v.join(", ")}]`;
                     } else if (typeof v === "string" && v.startsWith("new DOM")) {
-                        return `${k}: ${v}`;
+                        return `${safeJSKey(k)}: ${v}`;
                     } else if (typeof v === "object" && v !== null) {
                         const inner = Object.entries(v).map(([innerKey, innerVal]) => {
                             return `${JSON.stringify(innerKey)}: ${typeof innerVal === "string" && innerVal.startsWith("new DOM") ? innerVal : JSON.stringify(innerVal)}`;
                         }).join(", ");
-                        return `${k}: { ${inner} }`;
+                        return `${safeJSKey(k)}: { ${inner} }`;
                     } else {
-                        return `${k}: ${JSON.stringify(v)}`;
+                        return `${safeJSKey(k)}: ${JSON.stringify(v)}`;
                     }
                 }).join(", ");
 

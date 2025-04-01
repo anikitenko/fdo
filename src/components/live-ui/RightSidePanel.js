@@ -3,6 +3,12 @@ import React, {useEffect, useRef, useState} from "react";
 import {withTheme} from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
 import {useStore} from '@xyflow/react';
+import {v4 as uuidv4} from 'uuid';
+
+import Tribute from "tributejs";
+import "tributejs/dist/tribute.css"
+
+import cssData from 'mdn-data/css/properties.json';
 
 import PropTypes from "prop-types";
 
@@ -26,9 +32,14 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     const node = useStore((state) =>
         selectedNodeId ? state.nodes.find((n) => n.id === selectedNodeId) : null
     );
+    const nodesKeyframe = useStore((state) =>
+        state.nodes.find((n) => n.data?.methodName === "createStyleKeyframe")
+    )
     const Form = withTheme(Bp5Theme);
     const parser = DOMMetadataParser(domMetadata);
+
     const [saveLoading, setSaveLoading] = useState(false)
+    const nodesWithKeyframe = useRef([])
     const [nodeValue, setNodeValue] = useState("")
     const [nodeClass, setNodeClass] = useState("")
     const [constructorIndex, setConstructorIndex] = useState(0);
@@ -41,12 +52,120 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     const [constructorHelperInfo, setConstructorHelperInfo] = useState("")
     const [constructorHelperText, setConstructorHelperText] = useState("Set Node class constructor")
     const [constructorParamsShow, setConstructorParamsShow] = useState(true)
-    const constructorPropsSchema = mapParamsToSchema(constructorParams);
-    const methodPropsSchema = mapParamsToSchema(methodParams)
-    const formConstructorRef = useRef(null);
-    const formMethodRef = useRef(null);
     const [dataFromConstructor, setDataFromConstructor] = useState({})
     const [dataFromMethod, setDataFromMethod] = useState({})
+
+    const constructorPropsSchema = mapParamsToSchema(constructorParams);
+    const methodPropsSchema = mapParamsToSchema(methodParams)
+
+    const formConstructorRef = useRef(null);
+    const formMethodRef = useRef(null);
+
+    const getPossibleValuesForStyles = (property) => {
+        const syntax = cssData[property]?.syntax || "";
+        return syntax
+            .split('|')
+            .map(s => s.trim())
+            .filter(v => v && !v.includes('<')) // ignore <length>, <color> etc.
+    }
+
+    const getStyleValueSuggestions = (propName = "") => {
+        const values = getPossibleValuesForStyles(propName);
+        return values.map(v => ({key: v, value: v}));
+    };
+
+    const getStyles = (name = "") => {
+        return Object.keys(cssData)
+            .filter((key) => key.includes(name))
+            .map((key) => ({
+                value: `${key}`,
+                key: `${key}`,
+            }));
+    };
+
+    const tribute = new Tribute({
+        collection: [
+            {
+                trigger: '$',
+                values: function (text, cb) {
+                    cb([...nodesWithKeyframe.current])
+                },
+                noMatchTemplate: function () {
+                    return '<span style="visibility: hidden;"></span>';
+                },
+                selectTemplate: function (item) {
+                    if (item.original.value.startsWith("keyframes.")) {
+                        return `$${item.original.value}`;
+                    }
+                },
+                menuItemLimit: 25,
+            },
+            {
+                values: [
+                    {key: "Generate Random", value: "generateRandom"},
+                    {key: "Generate Random (hex)", value: "generateRandomHex"},
+                    {key: "Generate Random (hex) (short)", value: "generateRandomHexShort"},
+                    {key: "Generate UUID", value: "uuid"},
+                    {key: "Date now", value: "dateNow"},
+                ],
+                noMatchTemplate: function () {
+                    return '<span style="visibility: hidden;"></span>';
+                },
+                selectTemplate: function (item) {
+                    if (item.original.value === "generateRandom") {
+                        return (Math.random() + 1).toString(36).substring(2)
+                    }
+                    if (item.original.value === "uuid") {
+                        return uuidv4()
+                    }
+                    if (item.original.value === "dateNow") {
+                        return Date.now().toString()
+                    }
+                    if (item.original.value === "generateRandomHex") {
+                        return Math.floor(Math.random() * 16777215).toString(16);
+                    }
+                    if (item.original.value === "generateRandomHexShort") {
+                        return Math.floor(Math.random() * 65535).toString(16);
+                    }
+                },
+                menuItemLimit: 25,
+            },
+            {
+                trigger: '.',
+                values: function (text, cb) {
+                    const styles = getStyles(text);
+                    cb([...styles])
+                },
+                noMatchTemplate: function () {
+                    return '<span style="visibility: hidden;"></span>';
+                },
+                selectTemplate: function (item) {
+                    return item.original.value
+                },
+                menuItemLimit: 25,
+            },
+            {
+                trigger: ':',
+                values: function (text, cb) {
+                    const inputEl = tribute.current?.element;
+                    const formGroup = inputEl?.closest(".bp5-form-group");
+
+                    if (!formGroup) return cb([]);
+
+                    const label = formGroup.querySelector("label")?.textContent?.trim();
+
+                    if (!label) return cb([]);
+                    cb([...getStyleValueSuggestions(label)])
+                },
+                noMatchTemplate: function () {
+                    return '<span style="visibility: hidden;"></span>';
+                },
+                selectTemplate: function (item) {
+                    return item.original.value
+                },
+                menuItemLimit: 25,
+            }]
+    })
 
     const resetAndClose = () => {
         setDataFromConstructor({})
@@ -95,6 +214,16 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     }, [node]);
 
     useEffect(() => {
+        if (!nodesKeyframe) return
+        nodesWithKeyframe.current = [{...nodesKeyframe}].filter((n) => n !== undefined).map((n) => {
+            return {
+                value: `keyframes.${n.data.label}`,
+                key: `keyframes.${n.data.label}`,
+            }
+        })
+    }, [nodesKeyframe]);
+
+    useEffect(() => {
         if (!nodeClass || !node) return
         const constructors = parser.getConstructors(nodeClass);
         if (constructors.length > 0) {
@@ -124,11 +253,27 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
         setMethodParams(method?.parameters || []);
     }, [selectedMethod]);
 
+    useEffect(() => {
+        const observer = new MutationObserver(() => {
+            document.querySelectorAll('input').forEach((input) => {
+                if (!input.hasAttribute('data-tribute-attached')) {
+                    tribute.attach(input);
+                    input.setAttribute('data-tribute-attached', 'true');
+                }
+            });
+        });
+
+        observer.observe(document.body, {childList: true, subtree: true});
+
+        return () => observer.disconnect();
+    }, [])
+
     return (
         <Drawer isOpen={propsShow} onClose={() => resetAndClose()} size={DrawerSize.STANDARD}>
             <div style={{padding: "10px", overflowY: "auto"}}>
                 <FormGroup helperText="Set pretty node label" label="Node label" labelFor="node-label">
-                    <InputGroup id="node-label" value={nodeValue} onValueChange={(v) => setNodeValue(v)} placeholder="Node label placeholder"/>
+                    <InputGroup id="node-label" value={nodeValue} onValueChange={(v) => setNodeValue(v)}
+                                placeholder="Node label placeholder"/>
                 </FormGroup>
                 <FormGroup helperText="Set Node class" label="Node class" labelFor="node-class">
                     <HTMLSelect id={"node-class"}
@@ -139,7 +284,8 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     />
                 </FormGroup>
                 {nodeClassConstructors.length > 0 && (
-                    <FormGroup helperText={constructorHelperText} label="Node class constructor" labelFor="node-class-constructor"
+                    <FormGroup helperText={constructorHelperText} label="Node class constructor"
+                               labelFor="node-class-constructor"
                                labelInfo={constructorHelperInfo}>
                         <HTMLSelect
                             id="node-class-constructor"
@@ -151,12 +297,12 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     </FormGroup>
                 )}
                 {constructorParams.length > 0 && (
-                    <div style={{ marginTop: 20, marginBottom: "10px" }}>
+                    <div style={{marginTop: 20, marginBottom: "10px"}}>
                         <Button onClick={() => setConstructorParamsShow(!constructorParamsShow)}
                                 text={`${constructorParamsShow ? "Hide" : "Show"} constructor parameters`}
                                 fill={true}
                                 intent={"primary"}
-                                style={{ marginBottom: "10px" }}
+                                style={{marginBottom: "10px"}}
                         />
                         <Collapse isOpen={constructorParamsShow} keepChildrenMounted={true}>
                             <Form
@@ -168,7 +314,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                                 }}
                                 validator={validator}
                                 uiSchema={{
-                                    "ui:submitButtonOptions": { norender: true },
+                                    "ui:submitButtonOptions": {norender: true},
                                 }}
                                 focusOnFirstError={true}
                             />
@@ -184,7 +330,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                         fill={true}
                     />
                 </FormGroup>
-                <div style={{ marginTop: 20, marginBottom: "10px" }}>
+                <div style={{marginTop: 20, marginBottom: "10px"}}>
                     <Form
                         schema={methodPropsSchema}
                         ref={formMethodRef}
@@ -197,7 +343,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                         }}
                         validator={validator}
                         uiSchema={{
-                            "ui:submitButtonOptions": { norender: true },
+                            "ui:submitButtonOptions": {norender: true},
                         }}
                         focusOnFirstError={true}
                         omitExtraData={true}
@@ -251,7 +397,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     setSaveLoading(false);
                     resetAndClose();
                     (AppToaster).show({message: `Saved!`, intent: "success"})
-                }} />
+                }}/>
             </div>
         </Drawer>
     )
