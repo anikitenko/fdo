@@ -41,7 +41,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@anikitenko/bp5-rjsf-theme": "^1.0.8",
+    "@anikitenko/bp5-rjsf-theme": "^1.0.9",
     "@anikitenko/fdo-sdk": "^1.0.12",
     "@babel/preset-react": "^7.26.3",
     "@babel/standalone": "^7.26.9",
@@ -74,6 +74,7 @@
     "monaco-editor-webpack-plugin": "^7.1.0",
     "postcss": "^8.5.3",
     "postcss-safe-parser": "^7.0.1",
+    "prettier": "^3.5.3",
     "prop-types": "^15.8.1",
     "purecss": "^3.0.0",
     "react": "^18.3.1",

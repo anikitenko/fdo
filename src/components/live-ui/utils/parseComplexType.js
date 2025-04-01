@@ -135,7 +135,7 @@ export const parseComplexType = (typeStr) => {
                     },
                 },
                 {type: "string"}
-            ]
+            ],
         };
     }
 
