@@ -1,4 +1,14 @@
-import {Button, Collapse, Drawer, DrawerSize, FormGroup, HTMLSelect, InputGroup} from "@blueprintjs/core";
+import {
+    Button,
+    Collapse,
+    Dialog,
+    DialogBody,
+    Drawer,
+    DrawerSize,
+    FormGroup,
+    HTMLSelect,
+    InputGroup
+} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 import {withTheme} from "@rjsf/core";
 import validator from "@rjsf/validator-ajv8";
@@ -8,7 +18,11 @@ import {v4 as uuidv4} from 'uuid';
 import Tribute from "tributejs";
 import "tributejs/dist/tribute.css"
 
+import {HexColorPicker} from "react-colorful";
+
 import cssData from 'mdn-data/css/properties.json';
+
+import * as styles from "../css/LiveUI.module.css"
 
 import PropTypes from "prop-types";
 
@@ -39,6 +53,10 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     const parser = DOMMetadataParser(domMetadata);
 
     const [saveLoading, setSaveLoading] = useState(false)
+    const [dialogHelperShow, setDialogHelperShow] = useState(false)
+    const [dialogHelperType, setDialogHelperType] = useState("")
+    const [dialogHelperOutput, setDialogHelperOutput] = useState("")
+    const dialogHelperResolveRef = useRef(null)
     const nodesWithKeyframe = useRef([])
     const [nodeValue, setNodeValue] = useState("")
     const [nodeClass, setNodeClass] = useState("")
@@ -60,6 +78,17 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
 
     const formConstructorRef = useRef(null);
     const formMethodRef = useRef(null);
+
+    const toCamelCase = (str) => {
+        return str.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+    }
+
+    const toKebabCase = (str) => {
+        return str
+            .replace(/([a-z])([A-Z])/g, '$1-$2') // insert dash before uppercase
+            .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2') // handle things like msTransform
+            .toLowerCase();
+    }
 
     const getPossibleValuesForStyles = (property) => {
         const syntax = cssData[property]?.syntax || "";
@@ -83,64 +112,96 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
             }));
     };
 
+    const updateInputById = (id, value) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        el.focus()
+        el.value = value
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    const showDialogHelper = ({ type }) => {
+        return new Promise((resolve) => {
+            setDialogHelperType(type);
+            setDialogHelperShow(true);
+            dialogHelperResolveRef.current = resolve;
+        });
+    }
+
     const tribute = new Tribute({
+        containerClass: "bp5-menu bp5-small bp5-elevation-4 tribute-container",
+        selectClass: styles["selectedClass"],
+        itemClass: styles["helperItemClass"],
+        searchOpts: {
+            pre: '<b style="margin: 0">',
+            post: '</b>',
+            skip: false
+        },
         collection: [
             {
                 trigger: '$',
                 values: function (text, cb) {
                     cb([...nodesWithKeyframe.current])
                 },
-                noMatchTemplate: function () {
-                    return '<span style="visibility: hidden;"></span>';
+                menuItemTemplate: function (item) {
+                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
-                    if (item.original.value.startsWith("keyframes.")) {
-                        return `$${item.original.value}`;
-                    }
+                    return `$${item.original.value}`;
                 },
                 menuItemLimit: 25,
             },
             {
+                trigger: '>',
                 values: [
+                    {key: "Pick a color", value: "pickColor"},
+                    {key: "Date now", value: "dateNow"},
                     {key: "Generate Random", value: "generateRandom"},
                     {key: "Generate Random (hex)", value: "generateRandomHex"},
                     {key: "Generate Random (hex) (short)", value: "generateRandomHexShort"},
                     {key: "Generate UUID", value: "uuid"},
-                    {key: "Date now", value: "dateNow"},
                 ],
-                noMatchTemplate: function () {
-                    return '<span style="visibility: hidden;"></span>';
+                menuItemTemplate: function (item) {
+                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
+                    const inputElement = tribute.current?.element
+                    const elId = inputElement?.id
                     if (item.original.value === "generateRandom") {
-                        return (Math.random() + 1).toString(36).substring(2)
+                        updateInputById(elId, (Math.random() + 1).toString(36).substring(2))
                     }
                     if (item.original.value === "uuid") {
-                        return uuidv4()
+                        updateInputById(elId, uuidv4())
                     }
                     if (item.original.value === "dateNow") {
-                        return Date.now().toString()
+                        updateInputById(elId, Date.now().toString())
                     }
                     if (item.original.value === "generateRandomHex") {
-                        return Math.floor(Math.random() * 16777215).toString(16);
+                        updateInputById(elId, Math.floor(Math.random() * 16777215).toString(16))
                     }
                     if (item.original.value === "generateRandomHexShort") {
-                        return Math.floor(Math.random() * 65535).toString(16);
+                        updateInputById(elId, Math.floor(Math.random() * 65535).toString(16))
+                    }
+                    if (item.original.value === "pickColor") {
+                        showDialogHelper({ type: "color" }).then((pickedColor) => {
+                            updateInputById(elId, pickedColor)
+                        });
                     }
                 },
                 menuItemLimit: 25,
             },
             {
-                trigger: '.',
+                trigger: '@',
                 values: function (text, cb) {
                     const styles = getStyles(text);
                     cb([...styles])
                 },
-                noMatchTemplate: function () {
-                    return '<span style="visibility: hidden;"></span>';
+                menuItemTemplate: function (item) {
+                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
-                    return item.original.value
+                    return toCamelCase(item.original.value)
                 },
                 menuItemLimit: 25,
             },
@@ -155,10 +216,10 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     const label = formGroup.querySelector("label")?.textContent?.trim();
 
                     if (!label) return cb([]);
-                    cb([...getStyleValueSuggestions(label)])
+                    cb([...getStyleValueSuggestions(toKebabCase(label))])
                 },
-                noMatchTemplate: function () {
-                    return '<span style="visibility: hidden;"></span>';
+                menuItemTemplate: function (item) {
+                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
                     return item.original.value
@@ -399,12 +460,29 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     (AppToaster).show({message: `Saved!`, intent: "success"})
                 }}/>
             </div>
+            <Dialog isOpen={dialogHelperShow} shouldReturnFocusOnClose={true} onClose={() => {
+                setDialogHelperShow(false);
+                const selected = dialogHelperOutput;
+                setDialogHelperOutput("");
+                setDialogHelperType("");
+
+                if (dialogHelperResolveRef.current) {
+                    dialogHelperResolveRef.current(selected);
+                    dialogHelperResolveRef.current = null;
+                }
+            }}>
+                <DialogBody>
+                    {dialogHelperType === "color" && (
+                        <HexColorPicker color={dialogHelperOutput} onChange={setDialogHelperOutput} style={{width: "auto"}} />
+                    )}
+                </DialogBody>
+            </Dialog>
         </Drawer>
     )
 }
 RightSidePanel.propTypes = {
-    setNodes: PropTypes.func,
-    propsShow: PropTypes.bool,
-    setPropsShow: PropTypes.func,
+    setNodes: PropTypes.func.isRequired,
+    propsShow: PropTypes.bool.isRequired,
+    setPropsShow: PropTypes.func.isRequired,
     selectedNodeId: PropTypes.string
 }

@@ -7,6 +7,8 @@ import parserBabel from "prettier/plugins/babel";
 import * as prettierPluginEstree from "prettier/plugins/estree";
 import {generateCodeFromNode} from "./utils/generateCodeFromNode";
 
+import propTypes from "prop-types";
+
 import hljs from "../../assets/js/hljs/highlight.min"
 import "../../assets/css/hljs/vs.min.css"
 
@@ -63,6 +65,10 @@ export const ShowCodeModal = ({showCode, setShowCode}) => {
             </DialogBody>
         </Dialog>
     )
+}
+ShowCodeModal.propTypes = {
+    showCode: propTypes.bool.isRequired,
+    setShowCode: propTypes.func.isRequired
 }
 
 const buildDependencyTree = (sourceId, edgeMap, nodeMap) => {

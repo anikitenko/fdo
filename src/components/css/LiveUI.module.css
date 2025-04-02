@@ -39,3 +39,13 @@
         outline: 2px dashed #999;
     }
 }
+
+.helperItemClass {
+    background: #ffffff !important;
+    padding: initial !important;
+    cursor: initial !important;
+}
+
+.selectedClass {
+    background: #f0f0f0;
+}
