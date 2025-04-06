@@ -4,6 +4,12 @@ import build from "./build";
 
 const codeEditorActions = (codeEditor) => {
     if (!codeEditor) return;
+    codeEditor.updateOptions({
+        padding: {
+            top: 10,
+            bottom: 150
+        }
+    });
     codeEditor.addAction({
         // A unique identifier of the contributed action.
         id: "editor-go-fullscreen",

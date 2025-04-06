@@ -12,6 +12,7 @@ import ensureAndWrite from "./utils/ensureAndWrite";
 import generatePluginName from "./components/editor/utils/generatePluginName";
 import {workspaceTsCompilerOptions} from "./utils/workspaceTsCompilerOptions";
 import {extractCssStyles} from "./components/editor/utils/extractCssStyles";
+import {resolveCssImports} from "./components/editor/utils/resolveCssImports";
 
 const AppMetrics = [];
 const MAX_METRICS = 86400; // Keep last 24 hours of data
@@ -402,9 +403,11 @@ ipcMain.handle('build', async (event, data) => {
                         });
                         build.onLoad({ filter: /\.css$/ }, async (args) => {
                             const classMap = extractCssStyles(latestContent[args.path])
-                            const contents = `export default ${JSON.stringify(classMap)};`;
+                            const importsResolved = await resolveCssImports(classMap, args.path, latestContent, extractCssStyles)
+                            const merged = { ...importsResolved, ...classMap }
+                            console.log(merged)
                             return {
-                                contents: contents,
+                                contents: `export default ${JSON.stringify(merged)};`,
                                 loader: "js",
                             };
                         });

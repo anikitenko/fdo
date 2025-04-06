@@ -41,6 +41,10 @@ module.exports = {
                     from: path.resolve(__dirname, "node_modules/@esbuild"),
                     to: "node_modules/@esbuild",
                 },
+                {
+                    from: path.resolve(__dirname, "node_modules/@anikitenko/fdo-sdk"),
+                    to: "node_modules/@anikitenko/fdo-sdk",
+                },
             ],
         })
     ],

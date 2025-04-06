@@ -159,7 +159,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     {key: "Date now", value: "dateNow"},
                     {key: "Generate Random", value: "generateRandom"},
                     {key: "Generate Random (hex)", value: "generateRandomHex"},
-                    {key: "Generate Random (hex) (short)", value: "generateRandomHexShort"},
+                    {key: "Generate Random (hex short)", value: "generateRandomHexShort"},
                     {key: "Generate UUID", value: "uuid"},
                 ],
                 menuItemTemplate: function (item) {
@@ -203,7 +203,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                 selectTemplate: function (item) {
                     return toCamelCase(item.original.value)
                 },
-                menuItemLimit: 25,
+                menuItemLimit: 40,
             },
             {
                 trigger: ':',

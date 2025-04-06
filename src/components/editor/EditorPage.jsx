@@ -46,7 +46,7 @@ export const EditorPage = () => {
             monaco.editor.registerEditorOpener({
                 openCodeEditor(source, resource, selectionOrPosition) {
                     setJumpTo({
-                        id: resource.toString().replace("file://", "").replace("%40", "@"),
+                        id: resource.toString(true).replace("file://", ""),
                         options: {
                             selection: selectionOrPosition
                         }
@@ -245,7 +245,7 @@ export const EditorPage = () => {
                                                     dragAndDrop: false,
                                                     automaticLayout: true,
                                                     fixedOverflowWidgets: true,
-                                                    scrollBeyondLastLine: false
+                                                    scrollBeyondLastLine: false,
                                                 }}
                                         />
                                     </div>

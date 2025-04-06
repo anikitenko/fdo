@@ -124,7 +124,7 @@ const FileDialogComponent = () => {
                     value={newOverlayValue}
                     placeholder={fileDialogShow.data.action === "rename" ? "Location/New name" : "Name"}
                     autoFocus={true}
-                    onKeyPress={(e) => {
+                    onKeyDown={(e) => {
                         if (e.key === "Enter") {
                             let newFile = newOverlayValueWithExt
                             if (fileDialogShow.data.action) {

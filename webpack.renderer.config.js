@@ -70,7 +70,7 @@ module.exports = {
                     to: "assets",
                 },
                 {
-                    from: path.resolve(__dirname, "node_modules/@anikitenko/fdo-sdk"),
+                    from: path.resolve(__dirname, "node_modules/@anikitenko/fdo-sdk/dist/@types"),
                     to: "assets/node_modules/@anikitenko/fdo-sdk",
                     /*noErrorOnMissing: true,
                     globOptions: {
@@ -83,8 +83,16 @@ module.exports = {
                     to: "assets/node_modules/@babel/standalone",
                 },
                 {
+                    from: path.resolve(__dirname, "node_modules/goober"),
+                    to: "assets/node_modules/goober",
+                },
+                {
                     from: path.resolve(__dirname, "node_modules/@types/node"),
                     to: "assets/node_modules/@types/node",
+                },
+                {
+                    from: path.resolve(__dirname, "node_modules/@types/react"),
+                    to: "assets/node_modules/@types/react",
                 },
             ],
         }),

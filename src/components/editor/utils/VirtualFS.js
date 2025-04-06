@@ -158,7 +158,7 @@ const virtualFS = {
             const latest = (Math.random() + 1).toString(36).substring(2)
             const content = []
             this.parent.listModels().forEach((model) => {
-                const modelUri = model.uri.toString().replace("file://", "").replace("%40", "@")
+                const modelUri = model.uri.toString(true).replace("file://", "")
                 if (modelUri.includes("/node_modules/") || modelUri.includes("/dist/")) {
                     return
                 }
@@ -207,7 +207,7 @@ const virtualFS = {
             this.setLoading()
             for (const key of Object.keys(this.parent.files)) {
                 monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
-                const model = monaco.editor.getModel(monaco.Uri.parse(`file://${key}`))
+                const model = monaco.editor.getModel(monaco.Uri.file(`${key}`))
                 if (model) {
                     model.dispose()
                 }
@@ -223,7 +223,7 @@ const virtualFS = {
             this.parent.setTreeObjectItemRoot(this.parent.pluginName)
 
             for (const file of this.versions[version].content) {
-                const uri = monaco.Uri.parse(`file://${file.id}`)
+                const uri = monaco.Uri.file(`${file.id}`)
                 const fileContent = file.content
                 monaco.languages.typescript.typescriptDefaults.addExtraLib(fileContent, file.id)
                 let model = {}
@@ -272,7 +272,7 @@ const virtualFS = {
                 this.parent.notifications.addToQueue("treeLoading", true)
                 for (const file of resultFiles.files) {
                     let plaintext = false
-                    if (file.path.startsWith("@babel/")) {
+                    if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
                         continue
                     }
 
@@ -599,7 +599,7 @@ const virtualFS = {
     },
 
     createEmptyFile(packageName) {
-        const uri = monaco.Uri.parse(`file://Untitled`);
+        const uri = monaco.Uri.file(`Untitled`);
         let model = monaco.editor.getModel(uri);
         const defaultContent = packageDefaultContent(packageName);
         if (!model) {
@@ -678,7 +678,7 @@ const virtualFS = {
             if (key.startsWith(fileName)) {
                 fileIDs.push(key)
                 monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
-                const model = monaco.editor.getModel(monaco.Uri.parse(`file://${key}`));
+                const model = monaco.editor.getModel(monaco.Uri.file(`${key}`));
                 if (model) {
                     model.dispose(); // Remove it from Monaco
                 }
@@ -733,17 +733,30 @@ const virtualFS = {
     },
     __sortTreeObjectChildrenAsc(nodes) {
         if (!nodes) return [];
+
+        const specialOrder = ["dist", "node_modules"];
+
         return nodes
             .sort((a, b) => {
-                // Folders come first
+                const isADot = a.label.startsWith(".");
+                const isBDot = b.label.startsWith(".");
+                if (isADot && !isBDot) return -1;
+                if (!isADot && isBDot) return 1;
+
+                const aSpecialIndex = specialOrder.indexOf(a.label);
+                const bSpecialIndex = specialOrder.indexOf(b.label);
+                if (aSpecialIndex !== -1 && bSpecialIndex !== -1) return aSpecialIndex - bSpecialIndex;
+                if (aSpecialIndex !== -1) return -1;
+                if (bSpecialIndex !== -1) return 1;
+
                 if (a.type === "folder" && b.type !== "folder") return -1;
                 if (a.type !== "folder" && b.type === "folder") return 1;
-                // Sort alphabetically within their type
+
                 return a.label.localeCompare(b.label);
             })
             .map(node => ({
                 ...node,
-                childNodes: this.__sortTreeObjectChildrenAsc(node.childNodes) // Recursively sort children
+                childNodes: this.__sortTreeObjectChildrenAsc(node.childNodes)
             }));
     },
 
@@ -779,7 +792,7 @@ const virtualFS = {
         if (!object) return;
 
         if (object.type === "file") {
-            const uri = monaco.Uri.parse(`file://${newFile}`);
+            const uri = monaco.Uri.file(`${newFile}`);
             const fileContent = this.files[node.id].model.getValue()
             this.deleteFile(node.id)
             const model = monaco.editor.createModel(fileContent, getLanguage(newFile), uri);
@@ -791,7 +804,7 @@ const virtualFS = {
                 if (key.startsWith(node.id)) {
                     console.log(key.replace(node.id, newFile))
                     fileContent.push({
-                        uri: monaco.Uri.parse(`file://${key.replace(node.id, newFile)}`),
+                        uri: monaco.Uri.file(`${key.replace(node.id, newFile)}`),
                         content: this.files[key].model.getValue(),
                         path: key.replace(node.id, newFile),
                         oldPath: node.id

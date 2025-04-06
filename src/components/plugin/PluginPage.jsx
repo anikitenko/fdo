@@ -48,8 +48,19 @@ export const PluginPage = () => {
             const hjStyle = iframeDocument.createElement("link");
             hjStyle.id = "hjStyle";
             hjStyle.rel = "stylesheet";
-            hjStyle.href = "static://assets/css/vs.min.css";
+            hjStyle.href = "static://assets/css/hljs/vs.min.css";
             head.appendChild(hjStyle);
+
+            // --- Inject Notyf Styles ---
+            const existingNotyfJSCss = head.querySelector("#notyfStyle");
+            if (existingNotyfJSCss) {
+                head.removeChild(existingNotyfJSCss);
+            }
+            const notyfJsStyle = iframeDocument.createElement("link");
+            notyfJsStyle.id = "notyfStyle";
+            notyfJsStyle.rel = "stylesheet";
+            notyfJsStyle.href = "static://assets/css/notyf/notyf.min.css";
+            head.appendChild(notyfJsStyle);
 
             // --- Inject FontAwesome JS ---
             const existingFontJS = head.querySelector("#font-awesome-script");
@@ -102,8 +113,28 @@ export const PluginPage = () => {
             }
             const scriptHighlightJS = iframeDocument.createElement("script");
             scriptHighlightJS.id = "highlightJS-script";
-            scriptHighlightJS.src = "static://assets/js/highlight.min.js";
+            scriptHighlightJS.src = "static://assets/js/hljs/highlight.min.js";
             head.appendChild(scriptHighlightJS);
+
+            // --- Inject Notyf JS ---
+            const existingNotyfJS = head.querySelector("#notyf-script");
+            if (existingNotyfJS) {
+                head.removeChild(existingNotyfJS);
+            }
+            const scriptNotyfJS = iframeDocument.createElement("script");
+            scriptNotyfJS.id = "notyf-script";
+            scriptNotyfJS.src = "static://assets/js/notyf/notyf.min.js";
+            head.appendChild(scriptNotyfJS);
+
+            // --- Inject Goober JS ---
+            const existingGooberJS = head.querySelector("#goober-script");
+            if (existingGooberJS) {
+                head.removeChild(existingGooberJS);
+            }
+            const scriptGooberJS = iframeDocument.createElement("script");
+            scriptGooberJS.id = "goober-script";
+            scriptGooberJS.src = "static://assets/node_modules/goober/dist/goober.umd.js";
+            head.appendChild(scriptGooberJS);
         }
     }, []);
 
