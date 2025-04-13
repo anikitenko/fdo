@@ -22,6 +22,7 @@ import {addHours, addMinutes, format, formatDistanceToNow, parse, startOfDay} fr
 import {debounce} from "lodash";
 import classNames from "classnames";
 import {AppToaster} from "./AppToaster.jsx";
+import {metricDensityReductionInterval} from "../utils/metricDensityReductionInterval";
 
 export const ManagePluginsDialog = ({
                                         show,
@@ -261,7 +262,7 @@ const SelectPluginPanel = ({
         setRefreshCountdownLoading(true)
         const fromTime = timeRangeRef.current[0].getTime();
         const toTime = timeRangeRef.current[1].getTime();
-        window.electron.GetPluginMetric(plugin.id, fromTime, toTime).then((data) => {
+        window.electron.system.getPluginMetric(plugin.id, fromTime, toTime).then((data) => {
             if (data.length === 0) return;
             if (!creationTime && data[0]?.metric?.creationTime) {
                 setCreationTime(data[0].metric.creationTime);
@@ -300,12 +301,7 @@ const SelectPluginPanel = ({
 
                 // ✅ Determine the density reduction interval based on selected time range
                 const durationMs = timeRangeRef.current[1].getTime() - timeRangeRef.current[0].getTime();
-                let interval = 1000; // Default: return all data points
-                if (durationMs > 15 * 60 * 1000) interval = 2000; // > 15 mins → every 2 sec
-                if (durationMs > 30 * 60 * 1000) interval = 5000; // > 30 mins → every 5 sec
-                if (durationMs > 60 * 60 * 1000) interval = 30000; // > 1 hour → every 30 sec
-                if (durationMs > 2 * 60 * 60 * 1000) interval = 60000; // > 2 hours → every 1 min
-                if (durationMs > 6 * 60 * 60 * 1000) interval = 300000; // > 6 hours → every 5 min
+                const interval = metricDensityReductionInterval(durationMs)
 
                 // ✅ Merge old & new data, filter outdated data, reduce density, and sort
                 const newStartTime = timeRangeRef.current[0].getTime();
@@ -342,7 +338,7 @@ const SelectPluginPanel = ({
         deselectPlugin(plugin)
         localStorage.removeItem("sandbox_" + plugin.id)
         removePlugin(plugin.id)
-        window.electron.RemovePlugin(plugin.id).then((result) => {
+        window.electron.plugin.remove(plugin.id).then((result) => {
             if (!result.success) {
                 (AppToaster).show({
                     message: `Error: Failed to remove plugin: ${result.error}`,
@@ -450,7 +446,7 @@ const SelectPluginPanel = ({
                 {localStorage.getItem("sandbox_" + plugin.id) && (
                     <>
                         <Button text={"Open"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"}
-                                onClick={() => window.electron.openEditorWindow({name: plugin.id})}/>
+                                onClick={() => window.electron.system.openEditorWindow({name: plugin.id})}/>
                         <Button text={"Clean"} style={{marginLeft: "10px"}} intent={"warning"} endIcon={"clean"}
                                 onClick={() => setIsOpenClean(true)}
                         />

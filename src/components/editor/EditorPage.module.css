@@ -49,13 +49,53 @@
     color: white;
 }
 
+.file-tabs-wrapper {
+    display: flex;
+    flex-direction: column;
+    background: #1e1e1e;
+    padding-top: 1px;
+}
+
+.file-tabs-mirror {
+    height: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-color: #555 #1e1e1e; /* For Firefox */
+    scrollbar-width: thin; /* Firefox again */
+    background: #1e1e1e; /* Same as parent to make it seamless */
+    padding: 0;
+    margin: 0;
+    border: none;
+}
+
+/* WebKit browsers (Chrome, Electron, Safari) */
+.file-tabs-mirror::-webkit-scrollbar {
+    height: 4px;
+    background: transparent; /* Transparent track background */
+}
+
+.file-tabs-mirror::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    transition: background-color 0.2s;
+    border-radius: 2px;
+    border: none;
+}
+
+.file-tabs-mirror:hover::-webkit-scrollbar-thumb {
+    background-color: #555;
+}
+
 .file-tabs {
     display: flex;
     align-items: center;
     background: #1e1e1e;
     padding: 4px 10px;
-    border-bottom: 1px solid #444;
-    overflow-x: scroll;
+    border-bottom: 1px solid #333;
+    overflow-x: auto;
+}
+
+.file-tabs::-webkit-scrollbar {
+    display: none;
 }
 
 .file-tab-tooltip {
@@ -68,33 +108,47 @@
 }
 
 .file-tab {
-    background: #333;
+    background-color: #1e1e1e !important;
+    box-shadow: none !important;
     margin-right: 6px;
-    border-radius: 5px 5px 0 0;
+    border-radius: 0;
     cursor: pointer;
     color: #bbb;
-    transition: all 0.3s;
-}
-.file-tab:hover {
-    background: #444;
+    transition: border-color 0.2s;
 }
 
 .file-tab.active {
-    background: #1e1e1e; /* Match editor's background */
-    color: white;
-    font-weight: bold;
-    border-bottom: none;
-    transition: background 0.3s ease-in-out, color 0.3s ease-in-out;
+    color: #fff !important;
+    font-weight: 500;
+    border-bottom: 2px solid #409fff;
+    transition: border-color 0.2s;
+}
+
+:global(.bp5-button-group):hover .close-tab-btn {
+    opacity: 1;
+    visibility: visible;
 }
 
 .close-tab-btn {
     font-weight: bold;
     cursor: pointer;
     color: #bbb;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
 .close-tab-btn:hover {
     color: white;
+}
+
+.close-tab-btn.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+:global(.bp5-breadcrumbs) > li::after {
+    margin: 0 !important;
 }
 
 .editor-container {
@@ -114,23 +168,30 @@
     border-bottom: 1px solid #444;
 }
 
+.editor-header-search-wrapper {
+    position: relative;
+    width: 100%;
+}
+
 .editor-header-search {
     background: #3a3a3a;
     border: none;
     padding: 6px 10px;
-    border-radius: 4px;
+    border-radius: 5px !important;
     color: white;
     outline: none;
+    padding-left: 0 !important;
 }
 
 .editor-header-search::placeholder {
     color: #aaa;
+    text-align: center;
 }
 
 .editor-header-search:hover {
-    border: 1px solid black;
+    border: 1px solid #2e2e2e;
     cursor: pointer;
-    background-color: #f7f7f7;
+    background-color: #f7f7f717;
 }
 
 /* Align left and right sections */
@@ -141,7 +202,9 @@
 
 .editor-header-center {
     display: flex;
+    align-items: center;
     justify-content: center;
+    width: 400px;
 }
 
 .editor-header-right {

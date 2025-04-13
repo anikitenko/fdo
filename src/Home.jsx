@@ -21,14 +21,17 @@ export const Home = () => {
         activePlugins: [],
     });
     const [plugin, setPlugin] = useState("");
-    const [showRightSideBar, setShowRightSideBar] = useState(true)
+    const [showRightSideBar, setShowRightSideBar] = useState(false)
     const [showCommandSearch, setShowCommandSearch] = useState(false)
+    const [hasNotifications, showHasNotifications] = useState(false)
     const buttonMenuRef = useRef(null)
+
     const [pluginReadiness, setPluginReadiness] = useState(new Map());
+    const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
     const prevPluginReadinessRef = useRef(new Map());
 
-    const isPluginReady = (pluginID) => {
-        return pluginReadiness.get(pluginID) ?? false; // Default to false if not found
+    const isPluginInit = (pluginID) => {
+        return pluginInitStatus.get(pluginID) ?? false;
     };
 
     const markPluginReady = (pluginID) => {
@@ -42,6 +45,27 @@ export const Home = () => {
             }
 
             return newReadiness;
+        });
+    };
+
+    const markPluginInitComplete = (pluginID) => {
+        setPluginInitStatus((prev) => {
+            // Create a new Map to avoid mutating the state directly
+            const status = new Map(prev);
+
+            // Only update if the plugin exists and is not already ready
+            if (status.has(pluginID) && !status.get(pluginID)) {
+                status.set(pluginID, true);
+            }
+            return status;
+        });
+        setState(prevState => {
+            return {
+                ...prevState,
+                activePlugins: prevState.activePlugins.map(plugin =>
+                    plugin.id === pluginID ? {...plugin, loading: false} : plugin
+                )
+            };
         });
     };
 
@@ -90,6 +114,26 @@ export const Home = () => {
 
     useEffect(() => {
         // Track plugin activation and deactivation
+        setPluginInitStatus((prev) => {
+            const status = new Map(prev);
+
+            // Add new plugins with INIT as false
+            state.activePlugins.forEach((plugin) => {
+                if (!status.has(plugin.id)) {
+                    status.set(plugin.id, false);
+                }
+            });
+
+            // Remove plugins that are no longer active
+            prev.forEach((_, pluginID) => {
+                if (!state.activePlugins.some((p) => p.id === pluginID)) {
+                    status.delete(pluginID);
+                }
+            });
+
+            return status;
+        });
+
         setPluginReadiness((prev) => {
             const newReadiness = new Map(prev);
 
@@ -172,7 +216,7 @@ export const Home = () => {
         // Deactivate all plugins in Electron
         const pluginIds = state.activePlugins.map(plugin => plugin.id);
 
-        Promise.all(pluginIds.map(id => window.electron.DeactivatePlugin(id)))
+        Promise.all(pluginIds.map(id => window.electron.plugin.deactivate(id)))
             .then(async (results) => {
                 // Check if all plugins were successfully deactivated
                 const allSuccessful = results.every(result => result && result.success);
@@ -204,7 +248,7 @@ export const Home = () => {
     };
 
     const deselectPlugin = (plugin) => {
-        window.electron.DeactivatePlugin(plugin.id).then(async (result) => {
+        window.electron.plugin.deactivate(plugin.id).then(async (result) => {
             if (result) {
                 if (result.success) {
                     setState(prevState => {
@@ -232,7 +276,7 @@ export const Home = () => {
     }
 
     const selectPlugin = (plugin) => {
-        window.electron.ActivatePlugin(plugin.id).then(async (result) => {
+        window.electron.plugin.activate(plugin.id).then(async (result) => {
             if (result) {
                 if (result.success) {
                     setState(prevState => {
@@ -260,12 +304,12 @@ export const Home = () => {
     useEffect(() => {
         if (pluginsInitialLoad.current) return;
         pluginsInitialLoad.current = true;
-        window.electron.GetAllPlugins().then((allPlugins) => {
-            window.electron.GetActivatedPlugins().then((activePlugins) => {
+        window.electron.plugin.getAll().then((allPlugins) => {
+            window.electron.plugin.getActivated().then((activePlugins) => {
                 setState(prevState => (
                     {
                         ...prevState, plugins: allPlugins.plugins.map(plugin => {
-                            const currPlugin = {...plugin, ...plugin.metadata, metadata: undefined};
+                            const currPlugin = {...plugin, ...plugin.metadata, loading: true};
                             if (activePlugins.plugins.some(item => item === currPlugin.id)) {
                                 selectPlugin(currPlugin);
                             }
@@ -287,6 +331,7 @@ export const Home = () => {
 
         const onPluginInit = (response) => {
             const {id, quickActions, sidePanelActions} = response
+            markPluginInitComplete(id)
             if (quickActions) {
                 quickActions.forEach((action) => {
                     setSearchActions((prev) => {
@@ -329,8 +374,8 @@ export const Home = () => {
             if (isProcessingPluginFromEditor.current) return;
             isProcessingPluginFromEditor.current = true;
             if (loadedPlugin) {
-                window.electron.GetPlugin(loadedPlugin).then((loadedPlugin) => {
-                    const newPlugin = {...loadedPlugin.plugin, ...loadedPlugin.plugin.metadata, metadata: undefined};
+                window.electron.plugin.get(loadedPlugin).then((loadedPlugin) => {
+                    const newPlugin = {...loadedPlugin.plugin, ...loadedPlugin.plugin.metadata, loading: true};
                     setState(prevState => {
                         // Check if plugin already exists
                         const pluginExists = prevState.plugins.some(item => item.id === newPlugin.id);
@@ -359,7 +404,7 @@ export const Home = () => {
             if (isUnloading.current) return;
             isUnloading.current = true;
             if (unloadedPlugin) {
-                window.electron.DeactivateUserPlugin(unloadedPlugin).then(() => {
+                window.electron.plugin.deactivateUsers(unloadedPlugin).then(() => {
                 })
                 setState(prevState => {
                     // Check if plugin already exists
@@ -380,21 +425,25 @@ export const Home = () => {
             isUnloading.current = false;
         }
 
-        window.electron.onPluginReady(onPluginReady)
-        window.electron.onPluginInit(onPluginInit)
-        window.electron.onPluginUnLoaded(onPluginUnloaded)
-        window.electron.onDeployFromEditor(onPluginLoaded)
+        window.electron.plugin.on.ready(onPluginReady)
+        window.electron.plugin.on.init(onPluginInit)
+        window.electron.plugin.on.unloaded(onPluginUnloaded)
+        window.electron.plugin.on.deployFromEditor(onPluginLoaded)
         return () => {
-            window.electron.offPluginReady(onPluginReady)
-            window.electron.offPluginInit(onPluginInit)
-            window.electron.offDeployFromEditor(onPluginLoaded)
-            window.electron.offPluginUnLoaded(onPluginUnloaded)
+            window.electron.plugin.off.ready(onPluginReady)
+            window.electron.plugin.off.init(onPluginInit)
+            window.electron.plugin.off.deployFromEditor(onPluginLoaded)
+            window.electron.plugin.off.unloaded(onPluginUnloaded)
         };
     }, [])
 
     const handlePluginChange = (newPlugin) => {
         setPlugin(null);
         setTimeout(() => setPlugin(newPlugin), 0);
+    };
+
+    const handleSideBarItemsClick = (id) => {
+        console.log(id)
     };
 
     const removePlugin = (pluginId) => {
@@ -420,7 +469,8 @@ export const Home = () => {
                         <NavigationPluginsButton active={state.activePlugins} all={state.plugins}
                                                  buttonMenuRef={buttonMenuRef}
                                                  selectPlugin={selectPlugin} deselectPlugin={deselectPlugin}
-                                                 deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin} setSearchActions={setSearchActions}
+                                                 deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin}
+                                                 setSearchActions={setSearchActions}
                         />
                     </Navbar.Group>
                     <Navbar.Group align={Alignment.END}>
@@ -433,18 +483,21 @@ export const Home = () => {
                             onKeyDown={() => setShowCommandSearch(true)}
                         />
                         <Navbar.Divider/>
-                        <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
-                                onClick={() => setShowRightSideBar(!showRightSideBar)}/>
+                        <div className={styles["notification-container"]}>
+                            <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
+                                    onClick={() => setShowRightSideBar(!showRightSideBar)}/>
+                            <span className={styles["notification-dot"]} hidden={!hasNotifications || showRightSideBar }/>
+                        </div>
                     </Navbar.Group>
                 </Navbar>
                 {showRightSideBar && (
-                    <SideBar position={"right"} menuItems={sideBarActionItems}/>
+                    <SideBar position={"right"} menuItems={sideBarActionItems} click={handleSideBarItemsClick}/>
                 )}
                 <div style={{
                     marginLeft: (state.plugins.length > 0 ? "50px" : ""),
                     marginRight: (showRightSideBar ? "50px" : "")
                 }}>
-                    {(plugin && isPluginReady(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
+                    {(plugin && isPluginInit(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
                 </div>
             </div>
         </KBarProvider>

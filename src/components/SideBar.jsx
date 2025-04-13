@@ -23,7 +23,7 @@ export const SideBar = ({position, menuItems, click}) => {
         updateVisibleItems();
         window.addEventListener("resize", updateVisibleItems);
         return () => window.removeEventListener("resize", updateVisibleItems);
-    }, []);
+    }, [menuItems]);
 
     return (
         <div ref={sidebarRef} className={classNames(styles["sidebar"], styles["collapsed"], styles[position])}>
@@ -56,7 +56,7 @@ export const SideBar = ({position, menuItems, click}) => {
                         <Tooltip content={item.name}>
                             <div className={styles["menu-item"]}>
                                 <Button variant={"minimal"} size={"large"} aria-label={item.icon}
-                                        onClick={() => click(item.id)}>
+                                        onClick={() => click(item.id)} loading={item.loading}>
                                     <Icon icon={item.icon} size={20}/>
                                 </Button>
                             </div>
@@ -70,7 +70,7 @@ export const SideBar = ({position, menuItems, click}) => {
                             <Menu>
                                 {hiddenItems.map((item, index) => (
                                     <MenuItem key={index + 1} icon={item.icon} text={item.name}
-                                              onClick={() => click(item.id)}/>
+                                              onClick={() => click(item.id)} disabled={item.loading}/>
                                 ))}
                             </Menu>
                         }

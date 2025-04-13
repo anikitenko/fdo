@@ -1,13 +1,24 @@
-import {app, BrowserWindow, dialog, ipcMain, nativeTheme, net, session} from 'electron';
+import {app, BrowserWindow, dialog, nativeTheme, net, session} from 'electron';
 import path from 'node:path';
 import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
 import {existsSync, mkdirSync} from "node:fs";
 
+import {settings} from "./utils/store";
+
+import './cross.process.exports'
+import {Certs} from "./utils/certs";
+import {registerNotificationHandlers} from "./ipc/notifications";
+import {registerSystemHandlers} from "./ipc/system";
+import {registerPluginHandlers} from "./ipc/plugin";
+
 export const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
 export const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
 export const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins.json');
+
+export const AppMetrics = [];
+export const MAX_METRICS = 86400;
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -22,61 +33,13 @@ if (process.defaultApp) {
     app.setAsDefaultProtocolClient('fdo-fiddle')
 }
 
-const getDefaultShell = () => {
-    if (process.platform === "win32") {
-        return "powershell.exe"; // Use PowerShell on Windows
-    } else {
-        return process.env.SHELL || "/bin/bash"; // Use default shell on Linux/macOS
-    }
-};
-
-let mainWindow;
-let editorWindow;
-
 const gotTheLock = app.requestSingleInstanceLock()
 
-if (!gotTheLock) {
-    app.quit()
-} else {
-    app.on('second-instance', (event, commandLine, workingDirectory) => {
-        // Someone tried to run a second instance, we should focus our window.
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore()
-            mainWindow.focus()
-        }
-        // the commandLine is array of strings in which last element is deep link url
-        dialog.showErrorBox('Welcome Back', `You arrived from: ${commandLine.pop()}`)
-    })
-
-    // Create mainWindow, load the rest of the app, etc...
-    // This method will be called when Electron has finished
-    // initialization and is ready to create browser windows.
-    // Some APIs can only be used after this event occurs.
-    app.whenReady().then(() => {
-        createWindow();
-
-        // On OS X it's common to re-create a window in the app when the
-        // dock icon is clicked and there are no other windows open.
-        app.on('activate', () => {
-            if (BrowserWindow.getAllWindows().length === 0) {
-                createWindow();
-            }
-        })
-
-        session.defaultSession.protocol.handle("static", (req) => {
-            const reqURL = new URL(req.url)
-            return net.fetch(nodeUrl.pathToFileURL(path.join(app.getAppPath(), '.webpack/renderer', 'assets', reqURL.pathname)).toString())
-        })
-    });
-
-    app.on('open-url', (event, url) => {
-        dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
-    })
-}
+if (!gotTheLock) app.quit()
 
 const createWindow = () => {
     // Create the browser window.
-    mainWindow = new BrowserWindow({
+    const mainWindow = new BrowserWindow({
         icon: 'assets/desktop_icon.png',
         width: 1024,
         height: 800,
@@ -90,59 +53,97 @@ const createWindow = () => {
     });
 
     // and load the index.html of the app.
-    mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+    mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY).then(() => {});
 
     nativeTheme.themeSource = 'dark';
 
     PluginManager.setMainWindow(mainWindow)
+
+    return mainWindow
+};
+
+app.whenReady().then(() => {
+    const mainWindow = createWindow();
+
+    // On OS X it's common to re-create a window in the app when the
+    // dock icon is clicked and there are no other windows open.
+    app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
+        }
+    })
+
+    app.on('second-instance', (event, commandLine) => {
+        // Someone tried to run a second instance, we should focus our window.
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore()
+            mainWindow.focus()
+        }
+        // the commandLine is array of strings in which last element is deep link url
+        dialog.showErrorBox('Welcome Back', `You arrived from: ${commandLine.pop()}`)
+    })
+
+    app.on('open-url', (event, url) => {
+        dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
+    })
+
+    session.defaultSession.protocol.handle("static", (req) => {
+        const reqURL = new URL(req.url)
+        return net.fetch(nodeUrl.pathToFileURL(path.join(app.getAppPath(), '.webpack/renderer', 'assets', reqURL.pathname)).toString())
+    })
+
+    setInterval(() => {
+        const metrics = app.getAppMetrics();
+        AppMetrics.push({ date: Date.now(), metrics });
+
+        if (AppMetrics.length > MAX_METRICS) {
+            AppMetrics.shift();
+        }
+    }, 1000);
+
+    registerNotificationHandlers();
+    registerSystemHandlers();
+    registerPluginHandlers();
+
+    const allRoots = settings.get('certificates.root') || [];
+    const rootCert = allRoots.find(cert =>
+        cert.label === 'root' &&
+        cert.cert &&
+        cert.key
+    );
+
+    if (rootCert) {
+        const days = Certs.daysUntilExpiry(rootCert.cert);
+
+        if (days < Certs.EXPIRY_THRESHOLD_DAYS) {
+            console.warn(`⚠️ "FDO Root Certificate" is expiring in ${Math.floor(days)} days. Regenerating...`);
+            try {
+                Certs.generateRootCA('root', true);
+            } catch (e) {
+                console.warn('❌ Failed to regenerate "FDO Root Certificate":', e);
+                app.quit();
+            }
+        } else {
+            console.log(`✔ "FDO Root Certificate" is valid for ${Math.floor(days)} more days.`);
+        }
+    } else {
+        console.warn('❌ "FDO Root Certificate" not found. Generating new...');
+        try {
+            Certs.generateRootCA('root');
+        } catch (e) {
+            console.warn('❌ Failed to generate "FDO Root Certificate":', e);
+            app.quit();
+        }
+    }
+
+    if (!existsSync(PLUGINS_DIR)) {
+        mkdirSync(PLUGINS_DIR, {recursive: true});
+    }
+
     PluginManager.setUserConfigFile(USER_CONFIG_FILE)
     PluginManager.setPluginsRegistryFile(PLUGINS_REGISTRY_FILE)
     PluginManager.loadPlugins()
-};
-
-const createEditorWindow = (data) => {
-    editorWindow = new BrowserWindow({
-        width: 1024,
-        height: 800,
-        minWidth: 1024,
-        minHeight: 800,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
-        },
-    });
-
-    const encodedData = encodeURIComponent(JSON.stringify(data));
-    editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`);
-}
-
-const createLiveUiWindow = (data) => {
-    const liveUiWindow = new BrowserWindow({
-        width: 1024,
-        height: 800,
-        minWidth: 1024,
-        minHeight: 800,
-        webPreferences: {
-            sandbox:  true,
-            nodeIntegration: false,
-            contextIsolation: true,
-            preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
-        },
-    });
-
-    const encodedData = encodeURIComponent(JSON.stringify(data));
-    liveUiWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/live-ui?data=${encodedData}`);
-}
-
-
-app.on('open-url', (event, url) => {
-    dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
-})
-
-if (!existsSync(PLUGINS_DIR)) {
-    mkdirSync(PLUGINS_DIR, {recursive: true});
-}
+});
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
@@ -152,69 +153,3 @@ app.on('window-all-closed', () => {
         app.quit();
     }
 });
-
-ipcMain.on('open-editor-window', (_event, data) => {
-    createEditorWindow(data)
-
-    /*const wss = new WebSocket.Server({noServer: true});
-
-    // Attach WebSocket to Electron’s internal HTTP request handling
-    editorWindow.webContents.session.on("upgrade", (request, socket, head) => {
-        console.log("Intercepting WebSocket connection attempt...");
-        if (request.url === "/terminal") {
-            wss.handleUpgrade(request, socket, head, (ws) => {
-                wss.emit("connection", ws, request);
-            });
-        }
-    });
-
-    wss.on("connection", (ws) => {
-        console.log("WebSocket connected");
-
-        const shell = spawn(getDefaultShell(), [], {shell: true});
-
-        shell.stdout.on("data", (data) => ws.send(data.toString()));
-        shell.stderr.on("data", (data) => ws.send(data.toString()));
-        shell.on("close", () => ws.close());
-
-        ws.on("message", (msg) => shell.stdin.write(msg + "\n"));
-
-        ws.on("close", () => {
-            console.log("WebSocket disconnected");
-            shell.kill();
-        });
-    });*/
-
-    /*editorWindow.on('close', (event) => {
-      event.preventDefault();
-      editorWindow.webContents.send('confirm-close'); // Send event to React
-    });
-    editorWindow.webContents.on('before-input-event', (event, input) => {
-      if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
-        event.preventDefault();
-        editorWindow.webContents.send('confirm-reload');
-      }
-    });
-    editorWindow.on('closed', () => (global.editorWindow = null));*/
-});
-
-ipcMain.on('approve-editor-window-close', () => {
-    if (editorWindow) {
-        editorWindow.destroy(); // Close the window
-    }
-});
-
-ipcMain.on('approve-editor-window-reload', () => {
-    if (editorWindow) {
-        editorWindow.reload();
-    }
-});
-
-ipcMain.on('open-live-ui-window', (_event, data) => {
-    createLiveUiWindow(data)
-})
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.
-
-import './cross.process.exports'

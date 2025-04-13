@@ -1,7 +1,5 @@
-// See the Electron documentation for details on how to use preload scripts:
-// https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
-
 import {contextBridge, ipcRenderer} from 'electron'
+import {NotificationChannels, PluginChannels, SystemChannels} from "./ipc/channels";
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -9,60 +7,71 @@ contextBridge.exposeInMainWorld('electron', {
         chrome: () => process.versions.chrome,
         electron: () => process.versions.electron
     },
-    OpenExternal: (url) => ipcRenderer.send("open-external-link", url),
-    GetPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke('get-plugin-metric', id, fromTime, toTime),
-    OpenFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
-    GetPluginData: (filePath) => ipcRenderer.invoke('get-plugin-data', filePath),
-    SavePlugin: (content) => ipcRenderer.invoke('save-plugin', content),
-    RemovePlugin: (id) => ipcRenderer.invoke('remove-plugin', id),
-    GetAllPlugins: () => ipcRenderer.invoke('get-all-plugins'),
-    GetPlugin: (data) => ipcRenderer.invoke('get-plugin', data),
-    GetActivatedPlugins: () => ipcRenderer.invoke('get-activated-plugins'),
-    ActivatePlugin: (id) => ipcRenderer.invoke('activate-plugin', id),
-    DeactivatePlugin: (id) => ipcRenderer.invoke('deactivate-plugin', id),
-    DeactivateUserPlugin: (id) => ipcRenderer.invoke('deactivate-user-plugin', id),
-    DeactivateAllPlugins: () => ipcRenderer.invoke('deactivate-all-plugins'),
-    loadPlugin: (id) => ipcRenderer.send("load-plugin", id),
-    onPluginLoaded: (callback) =>
-        ipcRenderer.on("plugin-loaded", (_, plugin) => {callback(plugin)}),
-    offPluginLoaded: (callback) =>
-        ipcRenderer.removeListener('plugin-loaded', callback),
-    onPluginUnLoaded: (callback) =>
-        ipcRenderer.on("plugin-unloaded", (_, plugin) => callback(plugin)),
-    offPluginUnLoaded: (callback) =>
-        ipcRenderer.removeListener('plugin-unloaded', callback),
-    openEditorWindow: (data) => ipcRenderer.send('open-editor-window', data),
-    GetModuleFiles: () => ipcRenderer.invoke('get-module-files'),
-    GetBabelPath: () => ipcRenderer.invoke('get-babel-path'),
+    notifications: {
+        get: () => ipcRenderer.invoke(NotificationChannels.GET_ALL),
+        add: (title, body, type) => ipcRenderer.invoke(NotificationChannels.ADD, title, body, type),
+        markAsRead: (id) => ipcRenderer.invoke(NotificationChannels.MARK_AS_READ, id),
+        markAllAsRead: () => ipcRenderer.invoke(NotificationChannels.MARK_ALL_AS_READ),
+        remove: (id) => ipcRenderer.invoke(NotificationChannels.REMOVE, id),
+        removeAll: () => ipcRenderer.invoke(NotificationChannels.REMOVE_ALL),
+    },
+    system:{
+        openExternal: (url) => ipcRenderer.send(SystemChannels.OPEN_EXTERNAL_LINK, url),
+        getPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke(SystemChannels.GET_PLUGIN_METRIC, id, fromTime, toTime),
+        openFileDialog: () => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG),
+        openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
+        openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
+        getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
+        getBabelPath: () => ipcRenderer.invoke(SystemChannels.GET_BABEL_PATH),
+    },
+    plugin: {
+        getData: (filePath) => ipcRenderer.invoke(PluginChannels.GET_DATA, filePath),
+        save: (content) => ipcRenderer.invoke(PluginChannels.SAVE, content),
+        remove: (id) => ipcRenderer.invoke(PluginChannels.REMOVE, id),
+        getAll: () => ipcRenderer.invoke(PluginChannels.GET_ALL),
+        get: (data) => ipcRenderer.invoke(PluginChannels.GET, data),
+        getActivated: () => ipcRenderer.invoke(PluginChannels.GET_ACTIVATED),
+        activate: (id) => ipcRenderer.invoke(PluginChannels.ACTIVATE, id),
+        deactivate: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE, id),
+        deactivateUsers: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE_USERS, id),
+        deactivateAll: () => ipcRenderer.invoke(PluginChannels.DEACTIVATE_ALL),
+        on: {
+            unloaded: (callback) =>
+                ipcRenderer.on(PluginChannels.on_off.UNLOADED, (_, plugin) => callback(plugin)),
+            ready: (callback) =>
+                ipcRenderer.on(PluginChannels.on_off.READY, (_, id) => {callback(id)}),
+            deployFromEditor: (callback) =>
+                ipcRenderer.on(PluginChannels.on_off.DEPLOY_FROM_EDITOR, (_, id) => {callback(id)}),
+            init: (callback) =>
+                ipcRenderer.on(PluginChannels.on_off.INIT, (_, id) => {callback(id)}),
+            render: (callback) =>
+                ipcRenderer.once(PluginChannels.on_off.RENDER, (_, id) => {callback(id)}),
+            uiMessage: (callback) =>
+                ipcRenderer.once(PluginChannels.on_off.UI_MESSAGE, (_, id) => {callback(id)}),
+        },
+        off: {
+            unloaded: (callback) =>
+                ipcRenderer.removeListener(PluginChannels.on_off.UNLOADED, callback),
+            ready: (callback) =>
+                ipcRenderer.removeListener(PluginChannels.on_off.READY, callback),
+            deployFromEditor: (callback) =>
+                ipcRenderer.removeListener(PluginChannels.on_off.DEPLOY_FROM_EDITOR, callback),
+            init: (callback) =>
+                ipcRenderer.removeListener(PluginChannels.on_off.INIT, callback),
+            render: (callback) =>
+                ipcRenderer.removeListener(PluginChannels.on_off.RENDER, callback),
+            uiMessage: (callback) =>
+                ipcRenderer.removeListener(PluginChannels.on_off.UI_MESSAGE, callback),
+        }
+    },
     onConfirmEditorClose: (callback) => ipcRenderer.on('confirm-close', callback),
     onConfirmEditorReload: (callback) => ipcRenderer.on('confirm-reload', callback),
     confirmEditorCloseApproved: () => ipcRenderer.send('approve-editor-window-close'),
     confirmEditorReloadApproved: () => ipcRenderer.send('approve-editor-window-reload'),
-    getEsbuildWasmPath: () => ipcRenderer.invoke('get-esbuild-wasm-path'),
     deployToMainFromEditor: (data) => ipcRenderer.invoke('deploy-to-main-from-editor', data),
-    onDeployFromEditor: (callback) =>
-        ipcRenderer.on("deploy-from-editor", (_, id) => {callback(id)}),
-    offDeployFromEditor: (callback) =>
-        ipcRenderer.removeListener('deploy-from-editor', callback),
+    saveAndCloseFromEditor: (data) => ipcRenderer.invoke('save-and-close-from-editor', data),
     Build: (data) => ipcRenderer.invoke('build', data),
-    onPluginReady: (callback) =>
-        ipcRenderer.on("plugin-ready", (_, id) => {callback(id)}),
-    offPluginReady: (callback) =>
-        ipcRenderer.removeListener("plugin-ready", callback),
     pluginInit: (id) => ipcRenderer.invoke('plugin-init', id),
     pluginRender: (id) => ipcRenderer.invoke('plugin-render', id),
-    onPluginInit: (callback) =>
-        ipcRenderer.on("on-plugin-init", (_, id) => {callback(id)}),
-    offPluginInit: (callback) =>
-        ipcRenderer.removeListener("on-plugin-init", callback),
-    onPluginRender: (callback) =>
-        ipcRenderer.once("on-plugin-render", (_, id) => {callback(id)}),
-    offPluginRender: (callback) =>
-        ipcRenderer.removeListener("on-plugin-render", callback),
     pluginUiMessage: (id, content) => ipcRenderer.invoke('plugin-ui-message', id, content),
-    onPluginUiMessage: (callback) =>
-        ipcRenderer.once("on-plugin-ui-message", (_, id) => {callback(id)}),
-    offPluginUiMessage: (callback) =>
-        ipcRenderer.removeListener("on-plugin-ui-message", callback),
-    openLiveUiWindow: (data) => ipcRenderer.send('open-live-ui-window', data),
 })

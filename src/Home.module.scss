@@ -78,6 +78,23 @@
     text-decoration: underline !important;
 }
 
+.notification-container {
+    position: relative;
+    display: inline-block;
+}
+
+.notification-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 8px;
+    height: 8px;
+    background-color: #2d72d2;
+    border-radius: 50%;
+    z-index: 1;
+    box-shadow: 0 0 0 2px #1e1e1e;
+}
+
 .footer {
     position: fixed;
     bottom: 0;

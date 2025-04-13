@@ -36,12 +36,12 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
 
     const handleFileUpload = async () => {
         setUploadLoading(true);
-        const selectedFilePath = await window.electron.OpenFileDialog();
+        const selectedFilePath = await window.electron.system.openFileDialog();
         if (!selectedFilePath) {
             setUploadLoading(false);
             return
         }
-        const pluginData = await window.electron.GetPluginData(selectedFilePath);
+        const pluginData = await window.electron.plugin.getData(selectedFilePath);
         if (pluginData) {
             if (pluginData.success) {
                 setPluginContent(pluginData.content);
@@ -58,7 +58,7 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
 
     const createPlugin = () => {
         setCreateLoading(true);
-        window.electron.SavePlugin({data: pluginContent, name: pluginName}).then(async (result) => {
+        window.electron.plugin.save({data: pluginContent, name: pluginName}).then(async (result) => {
             if (result) {
                 if (result.success) {
                     (await AppToaster).show({message: "New plugin was added and activated!", intent: "success"});
@@ -145,7 +145,7 @@ export const CreatePluginDialog = ({show, close, name, parentPluginSelect}) => {
                                 })()
                                 return
                             }
-                            window.electron.openEditorWindow({name: pluginName, template: pluginTemplate.value})
+                            window.electron.system.openEditorWindow({name: pluginName, template: pluginTemplate.value})
                             dialogClose()
                         }
                 }/>

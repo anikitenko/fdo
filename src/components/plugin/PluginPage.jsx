@@ -135,6 +135,16 @@ export const PluginPage = () => {
             scriptGooberJS.id = "goober-script";
             scriptGooberJS.src = "static://assets/node_modules/goober/dist/goober.umd.js";
             head.appendChild(scriptGooberJS);
+
+            // --- Inject Ace JS ---
+            const existingAceJS = head.querySelector("#ace-script");
+            if (existingAceJS) {
+                head.removeChild(existingAceJS);
+            }
+            const scriptAceJS = iframeDocument.createElement("script");
+            scriptAceJS.id = "ace-script";
+            scriptAceJS.src = "static://assets/js/ace/ace.js";
+            head.appendChild(scriptAceJS);
         }
     }, []);
 

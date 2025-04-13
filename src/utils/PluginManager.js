@@ -1,7 +1,7 @@
 import UserORM from "./UserORM";
 import {utilityProcess} from "electron";
 import PluginORM from "./PluginORM";
-import path from "node:path";
+import {PluginChannels} from "../ipc/channels";
 
 const PluginManager = {
     mainWindow: null,
@@ -95,14 +95,11 @@ const PluginManager = {
             this.sendUnloadToRenderer(id);
         }
     },
-    sendPluginToRenderer(id) {
-        this.mainWindow.webContents.send("plugin-loaded", id);
-    },
     sendUnloadToRenderer(id) {
-        this.mainWindow.webContents.send("plugin-unloaded", id);
+        this.mainWindow.webContents.send(PluginChannels.on_off.UNLOADED, id);
     },
     sendReadyToRenderer(id) {
-        this.mainWindow.webContents.send("plugin-ready", id);
+        this.mainWindow.webContents.send(PluginChannels.on_off.READY, id);
     }
 }
 

@@ -268,7 +268,7 @@ const virtualFS = {
                 '}'
             monaco.languages.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
-            window.electron.GetModuleFiles().then((resultFiles) => {
+            window.electron.system.getModuleFiles().then((resultFiles) => {
                 this.parent.notifications.addToQueue("treeLoading", true)
                 for (const file of resultFiles.files) {
                     let plaintext = false
@@ -343,6 +343,10 @@ const virtualFS = {
         },
         isActiveById(id) {
             return this.list.some((t) => t.id === id && t.active)
+        },
+        getActiveTabId() {
+            const activeTab = this.list.find(t => t.active);
+            return activeTab?.id ?? null;
         },
         add(tab, active = true, fromMultiple = false) {
             if (!this.list.some((t) => t.id === tab.id)) {

@@ -153,9 +153,8 @@ export const EditorPage = () => {
                 </div>
                 <div className={styles["editor-header-center"]}>
                     <InputGroup
-                        leftIcon={"search"}
-                        placeholder={virtualFS.getTreeObjectItemSelected()?.label}
-                        round={true} fill={true} size={"small"}
+                        placeholder={`\u{1F50D} ${virtualFS.getTreeObjectItemSelected()?.label}`}
+                        round={true} fill={true} size={"small"} className={styles["editor-header-search-wrapper"]}
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
                 </div>
@@ -202,12 +201,13 @@ export const EditorPage = () => {
                                          getGridProps: getInnerCodeGridProps,
                                          getGutterProps: getInnerCodeGutterProps,
                                      }) => (
-                                <div {...getInnerCodeGridProps()} id={"code-editor"} className={styles["inner-editor-terminal-grid"]}>
+                                <div {...getInnerCodeGridProps()} id={"code-editor"}
+                                     className={styles["inner-editor-terminal-grid"]}>
                                     <div style={{minWidth: "0", overflow: "hidden", width: "100%"}}>
                                         <FileTabs closeTab={closeTab}/>
                                         <Editor defaultLanguage="plaintext"
                                                 theme="editor-dark"
-                                                height={"calc(100% - 39px)"}
+                                                height={"calc(100% - 69px)"}
                                                 onValidate={(e) => {
                                                     if (e.length > 0) {
                                                         virtualFS.tabs.addMarkers(editorModelPath, e)
@@ -249,10 +249,12 @@ export const EditorPage = () => {
                                                 }}
                                         />
                                     </div>
-                                    <div className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
+                                    <div
+                                        className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
                                     <div className={styles["terminal-output-console"]}>
                                         <div className={styles["build-output-terminal"]}>
-                                            <BuildOutputTerminalComponent selectedTabId={buildOutputSelectedTabId} setSelectedTabId={setBuildOutputSelectedTabId} />
+                                            <BuildOutputTerminalComponent selectedTabId={buildOutputSelectedTabId}
+                                                                          setSelectedTabId={setBuildOutputSelectedTabId}/>
                                         </div>
                                     </div>
                                 </div>

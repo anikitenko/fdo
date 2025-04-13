@@ -33,15 +33,15 @@ export const PluginContainer = ({plugin}) => {
             if (event.data?.type === "PLUGIN_HELLO") {
                 setIframeReady(true)
             } else if (event.data?.type === "OPEN_EXTERNAL_LINK") {
-                window.electron.OpenExternal(event.data.url)
+                window.electron.system.openExternal(event.data.url)
             } else if (event.data?.type === "UI_MESSAGE") {
                 window.electron.pluginUiMessage(plugin, event.data.message).then(() => {})
                 const handlePluginUiMessage = (data) => {
                     iframeRef.current.contentWindow?.postMessage({type: "UI_MESSAGE", content: data}, "*");
                 };
-                window.electron.offPluginUiMessage(handlePluginUiMessage);
-                window.electron.onPluginUiMessage(handlePluginUiMessage);
-                window.electron.offPluginUiMessage(handlePluginUiMessage);
+                window.electron.plugin.off.uiMessage(handlePluginUiMessage);
+                window.electron.plugin.on.uiMessage(handlePluginUiMessage);
+                window.electron.plugin.off.uiMessage(handlePluginUiMessage);
             }
         };
 
@@ -63,13 +63,13 @@ export const PluginContainer = ({plugin}) => {
         };
 
         // Remove existing listeners to prevent duplication
-        window.electron.offPluginRender(handlePluginRender);
+        window.electron.plugin.off.render(handlePluginRender);
 
         // Add the event listener
-        window.electron.onPluginRender(handlePluginRender);
+        window.electron.plugin.on.render(handlePluginRender);
 
         return () => {
-            window.electron.offPluginRender(handlePluginRender);
+            window.electron.plugin.off.render(handlePluginRender);
         };
     }, [plugin]);
 
@@ -129,7 +129,7 @@ function sanitizeCode(code) {
 
 async function loadBabel() {
     return new Promise((resolve, reject) => {
-        window.electron.GetBabelPath().then(async (path) => {
+        window.electron.system.getBabelPath().then(async (path) => {
             if (path.success) {
                 try {
                     const babelFile = `static://assets/node_modules/@babel/standalone/babel.js`;

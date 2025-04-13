@@ -8,7 +8,7 @@ import {IconNames} from "@blueprintjs/icons";
 import * as styles from "./EditorPage.module.css";
 
 import build from "./utils/build";
-import {PropTypes} from "prop-types";
+import PropTypes from "prop-types";
 
 import classnames from "classnames";
 
@@ -22,6 +22,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     const [prettyVersionDate, setPrettyVersionDate] = useState("")
     const [buildInProgress, setBuildInProgress] = useState(false)
     const [deployInProgress, setDeployInProgress] = useState(false)
+    const [saveAndCloseInProgress, setSaveAndCloseInProgress] = useState(false)
     const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
     const versionText = (name, date, prev, pretty = false) => {
         if (!name) return
@@ -101,15 +102,13 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     const triggerDeploy = async () => {
         setDeployInProgress(true)
         const name = virtualFS.treeObject[0].label
-        if (!virtualFS.build.getMetadata()) {
-            try {
-                await triggerBuild()
-            } catch (e) {
-                setDeployInProgress(false)
-                return
-            } finally {
-                setDeployInProgress(false)
-            }
+        try {
+            await triggerBuild()
+        } catch (e) {
+            setDeployInProgress(false)
+            return
+        } finally {
+            setDeployInProgress(false)
         }
         await window.electron.deployToMainFromEditor({
             name: name,
@@ -119,6 +118,18 @@ const CodeDeployActions = ({setSelectedTabId}) => {
             content: virtualFS.build.getContent()
         })
         setDeployInProgress(false)
+    }
+
+    const triggerSaveAndClose = async () => {
+        setSaveAndCloseInProgress(true)
+        const name = virtualFS.treeObject[0].label
+        await window.electron.saveAndCloseFromEditor({
+            name: name,
+            sandbox:  virtualFS.sandboxName,
+            entrypoint: virtualFS.build.getEntrypoint(),
+            metadata: virtualFS.build.getMetadata(),
+            content: virtualFS.build.getContent()
+        })
     }
 
     useEffect(() => {
@@ -200,7 +211,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
                 className={classnames(treeLoading ? "bp5-skeleton" : "")}
             >
                 <Button fill={true} text="Live UI editor" intent="warning" size="large" icon="style" endIcon="share"
-                        onClick={() => window.electron.openLiveUiWindow({})}/>
+                        onClick={() => window.electron.system.openLiveUiWindow({})}/>
                 <Divider/>
                 <Button fill={true} text="1. Create snapshot" endIcon="saved" onClick={() => saveAll()}/>
                 <Divider/>
@@ -210,7 +221,8 @@ const CodeDeployActions = ({setSelectedTabId}) => {
                 <Button fill={true} text="3. Deploy" intent="success" endIcon="share" loading={deployInProgress}
                         onClick={async () => await triggerDeploy()}/>
                 <Divider/>
-                <Button fill={true} text="4. Save & Close" endIcon="cross"/>
+                <Button fill={true} text="4. Save & Close" endIcon="cross" loading={saveAndCloseInProgress}
+                        onClick={async () => await triggerSaveAndClose()}/>
             </FormGroup>
             <Alert
                 cancelButtonText="Cancel"
