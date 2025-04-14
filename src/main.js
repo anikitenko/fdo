@@ -6,9 +6,8 @@ import PluginManager from "./utils/PluginManager";
 import {existsSync, mkdirSync} from "node:fs";
 
 import {settings} from "./utils/store";
-
-import './cross.process.exports'
 import {Certs} from "./utils/certs";
+
 import {registerNotificationHandlers} from "./ipc/notifications";
 import {registerSystemHandlers} from "./ipc/system";
 import {registerPluginHandlers} from "./ipc/plugin";

@@ -104,23 +104,23 @@ export function registerSystemHandlers() {
 
         editorWindow.on('close', (event) => {
             event.preventDefault();
-            editorWindow.webContents.send('confirm-close'); // Send event to React
+            editorWindow.webContents.send(SystemChannels.on_off.CONFIRM_CLOSE); // Send event to React
         });
         editorWindow.webContents.on('before-input-event', (event, input) => {
             if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
                 event.preventDefault();
-                editorWindow.webContents.send('confirm-reload');
+                editorWindow.webContents.send(SystemChannels.on_off.CONFIRM_RELOAD);
             }
         });
         editorWindow.on('closed', () => (editorWindow = null));
 
-        ipcMain.on('approve-editor-window-close', () => {
+        ipcMain.on(SystemChannels.EDITOR_CLOSE_APPROVED, () => {
             if (editorWindow) {
                 editorWindow.destroy(); // Close the window
             }
         });
 
-        ipcMain.on('approve-editor-window-reload', () => {
+        ipcMain.on(SystemChannels.EDITOR_RELOAD_APPROVED, () => {
             if (editorWindow) {
                 editorWindow.reload();
             }

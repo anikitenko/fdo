@@ -110,7 +110,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
         } finally {
             setDeployInProgress(false)
         }
-        await window.electron.deployToMainFromEditor({
+        await window.electron.plugin.deployToMainFromEditor({
             name: name,
             sandbox:  virtualFS.sandboxName,
             entrypoint: virtualFS.build.getEntrypoint(),
@@ -123,7 +123,7 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     const triggerSaveAndClose = async () => {
         setSaveAndCloseInProgress(true)
         const name = virtualFS.treeObject[0].label
-        await window.electron.saveAndCloseFromEditor({
+        await window.electron.plugin.saveAndCloseFromEditor({
             name: name,
             sandbox:  virtualFS.sandboxName,
             entrypoint: virtualFS.build.getEntrypoint(),

@@ -9,13 +9,10 @@ import {PluginContainer} from "./components/PluginContainer.jsx";
 import {SideBar} from "./components/SideBar.jsx";
 import {CommandBar} from "./components/CommandBar.jsx";
 import {generateActionId} from "./utils/generateActionId";
+import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
 
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
-    const [sideBarActionItems, setSideBarActionItems] = useState([
-        {id: "system-notifications", icon: "notifications", name: "Notifications"},
-        {id: "system-settings", icon: "cog", name: "Settings"}
-    ])
     const [state, setState] = useState({
         plugins: [],
         activePlugins: [],
@@ -23,11 +20,16 @@ export const Home = () => {
     const [plugin, setPlugin] = useState("");
     const [showRightSideBar, setShowRightSideBar] = useState(false)
     const [showCommandSearch, setShowCommandSearch] = useState(false)
-    const [hasNotifications, showHasNotifications] = useState(false)
-    const buttonMenuRef = useRef(null)
-
+    const [notifications, setNotifications] = useState([]);
     const [pluginReadiness, setPluginReadiness] = useState(new Map());
     const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
+    const [sideBarActionItems, setSideBarActionItems] = useState([
+        {id: "system-notifications", icon: "notifications", name: "Notifications", notifications},
+        {id: "system-settings", icon: "cog", name: "Settings"}
+    ])
+    const [notificationsShow, setNotificationsShow] = useState(false)
+
+    const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
 
     const isPluginInit = (pluginID) => {
@@ -206,7 +208,7 @@ export const Home = () => {
         // Perform actions only for newly ready plugins
         if (newlyReadyPlugins.length > 0) {
             newlyReadyPlugins.forEach((pluginID) => {
-                window.electron.pluginInit(pluginID).then(() => {
+                window.electron.plugin.init(pluginID).then(() => {
                 })
             });
         }
@@ -437,13 +439,40 @@ export const Home = () => {
         };
     }, [])
 
+    useEffect(() => {
+        const handleNotificationsUpdate = (_, updatedNotifications) => {
+            setNotifications(updatedNotifications);
+
+            setSideBarActionItems(prev =>
+                prev.map(item =>
+                    item.id === "system-notifications"
+                        ? { ...item, notifications: updatedNotifications }
+                        : item
+                )
+            );
+        };
+
+        // Fetch initial notifications without the IPC event parameter
+        window.electron.notifications.get().then((notifications) => {
+            handleNotificationsUpdate(null, notifications);
+        });
+
+        window.electron.notifications.on.updated(handleNotificationsUpdate);
+
+        return () => {
+            window.electron.notifications.off.updated(handleNotificationsUpdate);
+        };
+    }, []);
+
     const handlePluginChange = (newPlugin) => {
         setPlugin(null);
         setTimeout(() => setPlugin(newPlugin), 0);
     };
 
     const handleSideBarItemsClick = (id) => {
-        console.log(id)
+        if (id === "system-notifications") {
+            setNotificationsShow(true);
+        }
     };
 
     const removePlugin = (pluginId) => {
@@ -486,7 +515,10 @@ export const Home = () => {
                         <div className={styles["notification-container"]}>
                             <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
                                     onClick={() => setShowRightSideBar(!showRightSideBar)}/>
-                            <span className={styles["notification-dot"]} hidden={!hasNotifications || showRightSideBar }/>
+                            <span
+                                className={styles["notification-dot"]}
+                                hidden={!notifications || notifications.filter(n => !n.read).length === 0 || showRightSideBar}
+                            />
                         </div>
                     </Navbar.Group>
                 </Navbar>
@@ -499,6 +531,7 @@ export const Home = () => {
                 }}>
                     {(plugin && isPluginInit(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
                 </div>
+                <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
             </div>
         </KBarProvider>
     );

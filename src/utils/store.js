@@ -37,7 +37,7 @@ export const settings = new Store({
                     id: { type: 'string' },
                     title: { type: 'string' },
                     message: { type: 'string' },
-                    type: { type: 'string', enum: ['info', 'warning', 'error', 'success'] },
+                    type: { type: 'string', enum: ['primary', 'warning', 'danger', 'success', ''] },
                     read: { type: 'boolean', default: false },
                     createdAt: { type: 'string', format: 'date-time' },
                     updatedAt: { type: 'string', format: 'date-time' }

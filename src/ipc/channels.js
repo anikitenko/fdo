@@ -21,6 +21,9 @@ export const NotificationChannels = withPrefix('notifications', {
     MARK_ALL_AS_READ: 'mark-read-all',
     REMOVE: 'remove',
     REMOVE_ALL: 'remove-all',
+    on_off: {
+        UPDATED: 'updated'
+    }
 });
 
 export const SystemChannels = withPrefix('system', {
@@ -30,7 +33,13 @@ export const SystemChannels = withPrefix('system', {
     GET_MODULE_FILES: 'get-module-files',
     GET_BABEL_PATH: 'get-babel-path',
     OPEN_EDITOR_WINDOW: 'open-editor-window',
-    OPEN_LIVE_UI_WINDOW: 'open-live-ui-window'
+    OPEN_LIVE_UI_WINDOW: 'open-live-ui-window',
+    EDITOR_CLOSE_APPROVED: 'editor-close-approved',
+    EDITOR_RELOAD_APPROVED: 'editor-reload-approved',
+    on_off: {
+        CONFIRM_CLOSE: 'confirm-close',
+        CONFIRM_RELOAD: 'confirm-reload'
+    }
 })
 
 export const PluginChannels = withPrefix('plugin', {

@@ -35,7 +35,7 @@ export const PluginContainer = ({plugin}) => {
             } else if (event.data?.type === "OPEN_EXTERNAL_LINK") {
                 window.electron.system.openExternal(event.data.url)
             } else if (event.data?.type === "UI_MESSAGE") {
-                window.electron.pluginUiMessage(plugin, event.data.message).then(() => {})
+                window.electron.plugin.uiMessage(plugin, event.data.message).then(() => {})
                 const handlePluginUiMessage = (data) => {
                     iframeRef.current.contentWindow?.postMessage({type: "UI_MESSAGE", content: data}, "*");
                 };
@@ -55,7 +55,7 @@ export const PluginContainer = ({plugin}) => {
     useEffect(() => {
         if (!plugin) return;
         // Call Electron to render the plugin
-        window.electron.pluginRender(plugin).then(() => {})
+        window.electron.plugin.render(plugin).then(() => {})
 
         // Listen for Electron event and forward it to iframe
         const handlePluginRender = (data) => {

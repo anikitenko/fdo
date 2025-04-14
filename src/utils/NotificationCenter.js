@@ -1,9 +1,18 @@
-import { settings } from './store';
-import { v4 as uuidv4 } from 'uuid';
+import {settings} from './store';
+import {v4 as uuidv4} from 'uuid';
+import {NotificationChannels} from "../ipc/channels";
+import {webContents} from "electron";
+
+function broadcastNotifications() {
+    const all = NotificationCenter.getAllNotifications();
+    webContents.getAllWebContents().forEach((wc) => {
+        wc.send(NotificationChannels.on_off.UPDATED, all);
+    });
+}
 
 export const NotificationCenter = {
     getAllNotifications() {
-        return settings.get('notifications') || [];
+        return settings.get('notifications') || []
     },
 
     addNotification({ title, message, type = 'info' }) {
@@ -22,6 +31,8 @@ export const NotificationCenter = {
         notifications.push(notification);
         settings.set('notifications', notifications);
 
+        broadcastNotifications()
+
         return notification;
     },
 
@@ -32,6 +43,8 @@ export const NotificationCenter = {
                 : n
         );
         settings.set('notifications', notifications);
+
+        broadcastNotifications()
     },
 
     markAllAsRead() {
@@ -40,14 +53,20 @@ export const NotificationCenter = {
             n.read ? n : { ...n, read: true, updatedAt: now }
         );
         settings.set('notifications', notifications);
+
+        broadcastNotifications()
     },
 
     deleteNotification(notificationId) {
         const filtered = NotificationCenter.getAllNotifications().filter(n => n.id !== notificationId);
         settings.set('notifications', filtered);
+
+        broadcastNotifications()
     },
 
     deleteAllNotifications() {
         settings.set('notifications', []);
+
+        broadcastNotifications()
     }
 };

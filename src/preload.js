@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld('electron', {
         markAllAsRead: () => ipcRenderer.invoke(NotificationChannels.MARK_ALL_AS_READ),
         remove: (id) => ipcRenderer.invoke(NotificationChannels.REMOVE, id),
         removeAll: () => ipcRenderer.invoke(NotificationChannels.REMOVE_ALL),
+        on: {
+            updated: (callback) => ipcRenderer.on(NotificationChannels.on_off.UPDATED, callback)
+        },
+        off: {
+            updated: (callback) => ipcRenderer.removeListener(NotificationChannels.on_off.UPDATED, callback),
+        }
     },
     system:{
         openExternal: (url) => ipcRenderer.send(SystemChannels.OPEN_EXTERNAL_LINK, url),
@@ -23,6 +29,12 @@ contextBridge.exposeInMainWorld('electron', {
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
         getBabelPath: () => ipcRenderer.invoke(SystemChannels.GET_BABEL_PATH),
+        confirmEditorCloseApproved: () => ipcRenderer.send(SystemChannels.EDITOR_CLOSE_APPROVED),
+        confirmEditorReloadApproved: () => ipcRenderer.send(SystemChannels.EDITOR_RELOAD_APPROVED),
+        on: {
+            confirmEditorClose: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_CLOSE, callback),
+            confirmEditorReload: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_RELOAD, callback),
+        },
     },
     plugin: {
         getData: (filePath) => ipcRenderer.invoke(PluginChannels.GET_DATA, filePath),
@@ -35,6 +47,12 @@ contextBridge.exposeInMainWorld('electron', {
         deactivate: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE, id),
         deactivateUsers: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE_USERS, id),
         deactivateAll: () => ipcRenderer.invoke(PluginChannels.DEACTIVATE_ALL),
+        deployToMainFromEditor: (data) => ipcRenderer.invoke(PluginChannels.DEPLOY_FROM_EDITOR, data),
+        saveAndCloseFromEditor: (data) => ipcRenderer.invoke(PluginChannels.SAVE_FROM_EDITOR, data),
+        build: (data) => ipcRenderer.invoke(PluginChannels.BUILD, data),
+        init: (id) => ipcRenderer.invoke(PluginChannels.INIT, id),
+        render: (id) => ipcRenderer.invoke(PluginChannels.RENDER, id),
+        uiMessage: (id, content) => ipcRenderer.invoke(PluginChannels.UI_MESSAGE, id, content),
         on: {
             unloaded: (callback) =>
                 ipcRenderer.on(PluginChannels.on_off.UNLOADED, (_, plugin) => callback(plugin)),
@@ -64,14 +82,4 @@ contextBridge.exposeInMainWorld('electron', {
                 ipcRenderer.removeListener(PluginChannels.on_off.UI_MESSAGE, callback),
         }
     },
-    onConfirmEditorClose: (callback) => ipcRenderer.on('confirm-close', callback),
-    onConfirmEditorReload: (callback) => ipcRenderer.on('confirm-reload', callback),
-    confirmEditorCloseApproved: () => ipcRenderer.send('approve-editor-window-close'),
-    confirmEditorReloadApproved: () => ipcRenderer.send('approve-editor-window-reload'),
-    deployToMainFromEditor: (data) => ipcRenderer.invoke('deploy-to-main-from-editor', data),
-    saveAndCloseFromEditor: (data) => ipcRenderer.invoke('save-and-close-from-editor', data),
-    Build: (data) => ipcRenderer.invoke('build', data),
-    pluginInit: (id) => ipcRenderer.invoke('plugin-init', id),
-    pluginRender: (id) => ipcRenderer.invoke('plugin-render', id),
-    pluginUiMessage: (id, content) => ipcRenderer.invoke('plugin-ui-message', id, content),
 })

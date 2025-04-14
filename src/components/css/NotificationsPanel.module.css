@@ -1,0 +1,31 @@
+.panelContent {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px; /* spacing between Callouts */
+}
+
+.callout {
+    position: relative;
+    padding-right: 32px; /* space for the dismiss icon */
+}
+
+.titleRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dismissIcon {
+    cursor: pointer;
+    margin-left: 8px;
+    color: var(--blueprint-icon-color, #5c7080);
+    transition: color 0.2s ease;
+}
+.dismissIcon:hover {
+    color: red;
+}
+
+.unreadTitle {
+    font-weight: 900;
+}

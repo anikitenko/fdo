@@ -105,7 +105,7 @@ export const EditorPage = () => {
             }, 100)
         });
 
-        /*const handleBeforeUnload = (event) => {
+        const handleBeforeUnload = (event) => {
             event.preventDefault()
             event.returnValue = ''
         };
@@ -113,25 +113,23 @@ export const EditorPage = () => {
         const handleElectronClose = () => {
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             if (userConfirmed) {
-                window.electron.confirmEditorCloseApproved();
+                window.electron.system.confirmEditorCloseApproved();
             }
         }
         const handleElectronReload = () => {
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             if (userConfirmed) {
-                window.electron.confirmEditorReloadApproved();
+                window.electron.system.confirmEditorReloadApproved();
             }
         };
 
         window.addEventListener('beforeunload', handleBeforeUnload)
 
-        if (window.electron) {
-            window.electron.onConfirmEditorClose(handleElectronClose)
-            window.electron.onConfirmEditorReload(handleElectronReload);
-        }*/
+        window.electron.system.on.confirmEditorClose(handleElectronClose);
+        window.electron.system.on.confirmEditorReload(handleElectronReload);
 
         return () => {
-            //window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
             unsubscribe()
             unsubscribeFileRemoved()
             unsubscribeTabSwitched()
