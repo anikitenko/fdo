@@ -13,14 +13,15 @@ export const settings = new Store({
                         type: 'object',
                         required: ['cert'],
                         properties: {
-                            key: { type: 'string', pattern: '^-----BEGIN RSA PRIVATE KEY-----([\\s\\S]*?)-----END RSA PRIVATE KEY-----\\s*$' },
+                            key: { type: 'string', pattern: '^-----BEGIN RSA PRIVATE KEY-----([\\s\\S]*?)-----END RSA PRIVATE KEY-----\\s*$', nullable: true },
                             cert: { type: 'string', pattern: '^-----BEGIN CERTIFICATE-----([\\s\\S]*?)-----END CERTIFICATE-----\\s*$' },
                             createdAt: { type: 'string', format: 'date-time' },
                             expiresAt: { type: 'string', format: 'date-time' },
                             id: { type: 'string' },
-                            identity: { type: 'string' },
+                            identity: { type: 'string', nullable: true },
                             label: { type: 'string' },
-                            lastUsedAt: { type: 'string', format: 'date-time' }
+                            lastUsedAt: { type: 'string', format: 'date-time' },
+                            imported: { type: 'boolean', default: false },
                         },
                         additionalProperties: false
                     }

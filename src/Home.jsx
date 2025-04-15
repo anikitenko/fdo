@@ -10,6 +10,7 @@ import {SideBar} from "./components/SideBar.jsx";
 import {CommandBar} from "./components/CommandBar.jsx";
 import {generateActionId} from "./utils/generateActionId";
 import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
+import {SettingsDialog} from "./components/SettingsDialog.jsx";
 
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
@@ -28,6 +29,7 @@ export const Home = () => {
         {id: "system-settings", icon: "cog", name: "Settings"}
     ])
     const [notificationsShow, setNotificationsShow] = useState(false)
+    const [showSettingsDialog, setShowSettingsDialog] = useState(false)
 
     const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
@@ -472,6 +474,8 @@ export const Home = () => {
     const handleSideBarItemsClick = (id) => {
         if (id === "system-notifications") {
             setNotificationsShow(true);
+        } else if (id === "system-settings") {
+            setShowSettingsDialog(true);
         }
     };
 
@@ -532,6 +536,7 @@ export const Home = () => {
                     {(plugin && isPluginInit(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
                 </div>
                 <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
+                <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
             </div>
         </KBarProvider>
     );

@@ -26,6 +26,18 @@ export const NotificationChannels = withPrefix('notifications', {
     }
 });
 
+export const SettingsChannels = withPrefix('settings', {
+    certificates: {
+        GET_ROOT: 'get-root',
+        CREATE: 'create',
+        RENAME: 'rename',
+        EXPORT: 'export',
+        IMPORT: 'import',
+        DELETE: 'delete',
+        RENEW: 'renew'
+    }
+})
+
 export const SystemChannels = withPrefix('system', {
     OPEN_EXTERNAL_LINK: 'open-external-link',
     GET_PLUGIN_METRIC: 'get-plugin-metric',

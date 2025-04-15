@@ -11,6 +11,7 @@ import {PluginChannels} from "./channels";
 import {workspaceTsCompilerOptions} from "../utils/workspaceTsCompilerOptions";
 import ensureAndWrite from "../utils/ensureAndWrite";
 import {EsbuildVirtualFsPlugin} from "../utils/esbuild/plugins/virtual-fs";
+import {Certs} from "../utils/certs";
 
 export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.GET_DATA, async (event, filePath) => {
@@ -247,6 +248,10 @@ export function registerPluginHandlers() {
         metadata.icon = metadata.icon.toLowerCase()
 
         await ensureAndWrite(pathToPlugin, data.content)
+        const signResult = Certs.signPlugin(pathToDir, data.rootCert)
+        if (!signResult.success) {
+            return signResult
+        }
         pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true)
 
         const mainWindow = PluginManager.mainWindow
@@ -254,6 +259,7 @@ export function registerPluginHandlers() {
             mainWindow.focus()
         }
         mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
+        return {success: true}
     })
 
     ipcMain.handle(PluginChannels.SAVE_FROM_EDITOR, async (event, data) => {

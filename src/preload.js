@@ -1,5 +1,5 @@
 import {contextBridge, ipcRenderer} from 'electron'
-import {NotificationChannels, PluginChannels, SystemChannels} from "./ipc/channels";
+import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels} from "./ipc/channels";
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -21,10 +21,21 @@ contextBridge.exposeInMainWorld('electron', {
             updated: (callback) => ipcRenderer.removeListener(NotificationChannels.on_off.UPDATED, callback),
         }
     },
+    settings: {
+        certificates: {
+            getRoot: () => ipcRenderer.invoke(SettingsChannels.certificates.GET_ROOT),
+            create: () => ipcRenderer.invoke(SettingsChannels.certificates.CREATE),
+            rename: (id, newName) => ipcRenderer.invoke(SettingsChannels.certificates.RENAME, id, newName),
+            export: (id) => ipcRenderer.invoke(SettingsChannels.certificates.EXPORT, id),
+            import: (file) => ipcRenderer.invoke(SettingsChannels.certificates.IMPORT, file),
+            delete: (file) => ipcRenderer.invoke(SettingsChannels.certificates.DELETE, file),
+            renew: (label) => ipcRenderer.invoke(SettingsChannels.certificates.RENEW, label),
+        }
+    },
     system:{
         openExternal: (url) => ipcRenderer.send(SystemChannels.OPEN_EXTERNAL_LINK, url),
         getPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke(SystemChannels.GET_PLUGIN_METRIC, id, fromTime, toTime),
-        openFileDialog: () => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG),
+        openFileDialog: (params) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params),
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),

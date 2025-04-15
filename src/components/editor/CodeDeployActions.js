@@ -1,6 +1,6 @@
 import {Select} from "@blueprintjs/select";
-import {Alert, Button, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
-import React, {useEffect, useState} from "react";
+import {Alert, Button, Card, Checkbox, Dialog, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
+import React, {useEffect, useRef, useState} from "react";
 
 import {formatDistanceToNow} from 'date-fns';
 import virtualFS from "./utils/VirtualFS";
@@ -11,6 +11,7 @@ import build from "./utils/build";
 import PropTypes from "prop-types";
 
 import classnames from "classnames";
+import {AppToaster} from "../AppToaster.jsx";
 
 const CodeDeployActions = ({setSelectedTabId}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
@@ -24,6 +25,12 @@ const CodeDeployActions = ({setSelectedTabId}) => {
     const [deployInProgress, setDeployInProgress] = useState(false)
     const [saveAndCloseInProgress, setSaveAndCloseInProgress] = useState(false)
     const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    const [rootCertificates, setRootCertificates] = useState([])
+    const [onRootCertificateSelected, setOnRootCertificateSelected] = useState(null)
+    const [showRootCertificateDialog, setShowRootCertificateDialog] = useState(false)
+    const [rememberedRootCertificate, setRememberedRootCertificate] = useState(null);
+
+    const rememberChoiceRef = useRef(false);
     const versionText = (name, date, prev, pretty = false) => {
         if (!name) return
         if (!date) return
@@ -99,6 +106,24 @@ const CodeDeployActions = ({setSelectedTabId}) => {
         setBuildInProgress(false)
     }
 
+    const selectRootCert = async () => {
+        if (rememberedRootCertificate) {
+            return rememberedRootCertificate;
+        }
+
+        return new Promise((resolve) => {
+            setOnRootCertificateSelected(() => label => {
+                if (rememberChoiceRef.current) {
+                    setRememberedRootCertificate(label);
+                }
+                resolve(label);
+                setOnRootCertificateSelected(null); // clean up
+            });
+
+            setShowRootCertificateDialog(true);
+        });
+    }
+
     const triggerDeploy = async () => {
         setDeployInProgress(true)
         const name = virtualFS.treeObject[0].label
@@ -110,13 +135,30 @@ const CodeDeployActions = ({setSelectedTabId}) => {
         } finally {
             setDeployInProgress(false)
         }
-        await window.electron.plugin.deployToMainFromEditor({
+
+        const rootCerts = await window.electron.settings.certificates.getRoot()
+        setRootCertificates(rootCerts)
+        if (rootCerts.length === 0) {
+            (await AppToaster).show({message: `No root certificate found. Please add one.`, intent: "danger"});
+            return
+        }
+
+        let selectedLabel = rootCerts[0].label;
+
+        if (rootCerts.length > 1) {
+            selectedLabel = await selectRootCert();
+        }
+        const result = await window.electron.plugin.deployToMainFromEditor({
             name: name,
             sandbox:  virtualFS.sandboxName,
             entrypoint: virtualFS.build.getEntrypoint(),
             metadata: virtualFS.build.getMetadata(),
-            content: virtualFS.build.getContent()
+            content: virtualFS.build.getContent(),
+            rootCert: selectedLabel
         })
+        if (!result.success) {
+            (await AppToaster).show({message: `${result.error}`, intent: "danger"});
+        }
         setDeployInProgress(false)
     }
 
@@ -241,6 +283,47 @@ const CodeDeployActions = ({setSelectedTabId}) => {
                     Make sure to <b>create snapshot</b> before switching between versions. Unsaved changes will be discard. Proceed?
                 </p>
             </Alert>
+            <Dialog
+                isOpen={showRootCertificateDialog}
+                onClose={() => setShowRootCertificateDialog(false)}
+                title="Select Root Certificate"
+            >
+                <div className="bp5-dialog-body">
+                    {rootCertificates.map((cert) => (
+                        <Card key={cert.label} style={{ marginBottom: "10px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div>
+                                    <div style={{ fontWeight: 600 }}>{cert.label}</div>
+                                    <div style={{ fontSize: "12px", color: "#5C7080" }}>{cert.identity}</div>
+                                </div>
+                                <Button
+                                    intent="primary"
+                                    text="Use"
+                                    onClick={() => {
+                                        setShowRootCertificateDialog(false);
+                                        if (rememberChoiceRef.current) {
+                                            setRememberedRootCertificate(cert.label);
+                                        }
+                                        if (onRootCertificateSelected) {
+                                            onRootCertificateSelected(cert.label);
+                                            setOnRootCertificateSelected(null);
+                                        }
+                                    }}
+                                />
+                            </div>
+                        </Card>
+                    ))}
+                    <div style={{ marginTop: "12px" }}>
+                        <Checkbox
+                            defaultChecked={false}
+                            onChange={(e) => {
+                                rememberChoiceRef.current = e.currentTarget.checked;
+                            }}
+                            label="Remember this selection for this session"
+                        />
+                    </div>
+                </div>
+            </Dialog>
         </>
     )
 }

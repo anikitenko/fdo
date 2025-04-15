@@ -1,0 +1,29 @@
+.panel{
+    border-left: solid 1px #d4d5d7;
+    width: 100%;
+    padding-right: 20px;
+    padding-bottom: 20px;
+}
+
+.settings :global(.bp5-tab-list) {
+    background-color: white;
+}
+
+.card-panel {
+    background: inherit;
+    border: none;
+    box-shadow: none;
+    padding: 0 5px;
+    max-height: 560px;
+    overflow-y: auto;
+}
+
+.card-setting-header {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    margin-top: 15px;
+    margin-bottom: 1rem;
+    border-bottom: 0.0625rem solid #d1d9e0b3;
+    padding-bottom: 0.5rem;
+}

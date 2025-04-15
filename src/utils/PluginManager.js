@@ -2,6 +2,7 @@ import UserORM from "./UserORM";
 import {utilityProcess} from "electron";
 import PluginORM from "./PluginORM";
 import {PluginChannels} from "../ipc/channels";
+import {Certs} from "./certs";
 
 const PluginManager = {
     mainWindow: null,
@@ -33,6 +34,13 @@ const PluginManager = {
 
         const pluginORM = new PluginORM(this.pluginConfigFile);
         const plugin = pluginORM.getPlugin(id);
+        const result = Certs.verifyPluginSignature(plugin.home)
+        if (!result.success) {
+            console.error(`Plugin ${id} failed to verify signature. ${result.error}`)
+            delete this.loadingPlugins[id];
+            this.sendUnloadToRenderer(id);
+            return;
+        }
         const child = utilityProcess.fork(plugin.entry, [], {
             serviceName: `plugin-${id}`,
             cwd: plugin.home,

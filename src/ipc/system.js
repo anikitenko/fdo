@@ -54,12 +54,9 @@ export function registerSystemHandlers() {
         return filteredData;
     });
 
-    ipcMain.handle(SystemChannels.OPEN_FILE_DIALOG, async () => {
+    ipcMain.handle(SystemChannels.OPEN_FILE_DIALOG, async (event, params) => {
         const result = await dialog.showOpenDialog({
-            title: 'Select a file',
-            buttonLabel: 'Upload',
-            properties: ['openFile'],
-            filters: [{name: 'FDO Modules (ES)', extensions: ['mjs']},]
+            ...params,
         });
 
         if (!result.canceled && result.filePaths.length > 0) {

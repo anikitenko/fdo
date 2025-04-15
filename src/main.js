@@ -11,6 +11,7 @@ import {Certs} from "./utils/certs";
 import {registerNotificationHandlers} from "./ipc/notifications";
 import {registerSystemHandlers} from "./ipc/system";
 import {registerPluginHandlers} from "./ipc/plugin";
+import {registerSettingsHandlers} from "./ipc/settings";
 
 export const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
 export const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
@@ -101,6 +102,7 @@ app.whenReady().then(() => {
     }, 1000);
 
     registerNotificationHandlers();
+    registerSettingsHandlers();
     registerSystemHandlers();
     registerPluginHandlers();
 
