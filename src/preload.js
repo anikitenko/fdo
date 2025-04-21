@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('electron', {
         getBabelPath: () => ipcRenderer.invoke(SystemChannels.GET_BABEL_PATH),
         confirmEditorCloseApproved: () => ipcRenderer.send(SystemChannels.EDITOR_CLOSE_APPROVED),
         confirmEditorReloadApproved: () => ipcRenderer.send(SystemChannels.EDITOR_RELOAD_APPROVED),
+        openPluginInEditor: (editor, pluginID) => ipcRenderer.invoke(SystemChannels.OPEN_PLUGIN_IN_EDITOR, editor, pluginID),
         on: {
             confirmEditorClose: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_CLOSE, callback),
             confirmEditorReload: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_RELOAD, callback),
@@ -64,6 +65,8 @@ contextBridge.exposeInMainWorld('electron', {
         init: (id) => ipcRenderer.invoke(PluginChannels.INIT, id),
         render: (id) => ipcRenderer.invoke(PluginChannels.RENDER, id),
         uiMessage: (id, content) => ipcRenderer.invoke(PluginChannels.UI_MESSAGE, id, content),
+        verifySignature: (id) => ipcRenderer.invoke(PluginChannels.VERIFY_SIGNATURE, id),
+        sign: (id, signerLabel) => ipcRenderer.invoke(PluginChannels.SIGN, id, signerLabel),
         on: {
             unloaded: (callback) =>
                 ipcRenderer.on(PluginChannels.on_off.UNLOADED, (_, plugin) => callback(plugin)),

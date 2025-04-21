@@ -12,6 +12,7 @@ import {registerNotificationHandlers} from "./ipc/notifications";
 import {registerSystemHandlers} from "./ipc/system";
 import {registerPluginHandlers} from "./ipc/plugin";
 import {registerSettingsHandlers} from "./ipc/settings";
+import {NotificationCenter} from "./utils/NotificationCenter";
 
 export const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
 export const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
@@ -19,6 +20,18 @@ export const PLUGINS_REGISTRY_FILE = path.join(app.getPath('userData'), 'plugins
 
 export const AppMetrics = [];
 export const MAX_METRICS = 86400;
+
+const args = process.argv.slice(app.isPackaged ? 1 : 2);
+
+if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+FDO CLI Usage:
+  --sign <path>        Sign a plugin at the given path
+  --deploy <path>      Deploy a signed plugin
+  --help               Show this help message
+`);
+    app.exit(0);
+}
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -62,14 +75,20 @@ const createWindow = () => {
     return mainWindow
 };
 
-app.whenReady().then(() => {
-    const mainWindow = createWindow();
+app.whenReady().then(async () => {
+    let mainWindow = createWindow();
+
+    mainWindow.on('closed', () => {
+        PluginManager.setMainWindow(null)
+        mainWindow = null;
+    });
 
     // On OS X it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
+            mainWindow = createWindow();
+            PluginManager.setMainWindow(mainWindow)
         }
     })
 
@@ -94,7 +113,7 @@ app.whenReady().then(() => {
 
     setInterval(() => {
         const metrics = app.getAppMetrics();
-        AppMetrics.push({ date: Date.now(), metrics });
+        AppMetrics.push({date: Date.now(), metrics});
 
         if (AppMetrics.length > MAX_METRICS) {
             AppMetrics.shift();
@@ -117,7 +136,11 @@ app.whenReady().then(() => {
         const days = Certs.daysUntilExpiry(rootCert.cert);
 
         if (days < Certs.EXPIRY_THRESHOLD_DAYS) {
-            console.warn(`⚠️ "FDO Root Certificate" is expiring in ${Math.floor(days)} days. Regenerating...`);
+            NotificationCenter.addNotification({
+                title: `FDO Root Certificate`,
+                message: `⚠️ Expiring in ${Math.floor(days)} days. Regenerating...`,
+                type: 'warning'
+            });
             try {
                 Certs.generateRootCA('root', true);
             } catch (e) {
@@ -125,10 +148,17 @@ app.whenReady().then(() => {
                 app.quit();
             }
         } else {
-            console.log(`✔ "FDO Root Certificate" is valid for ${Math.floor(days)} more days.`);
+            NotificationCenter.addNotification({
+                title: `FDO Root Certificate`,
+                message: `✔ Valid for ${Math.floor(days)} more days.`
+            });
         }
     } else {
-        console.warn('❌ "FDO Root Certificate" not found. Generating new...');
+        NotificationCenter.addNotification({
+            title: `FDO Root Certificate`,
+            message: `❌ Not found. Generating new...`,
+            type: 'warning'
+        });
         try {
             Certs.generateRootCA('root');
         } catch (e) {
@@ -143,7 +173,7 @@ app.whenReady().then(() => {
 
     PluginManager.setUserConfigFile(USER_CONFIG_FILE)
     PluginManager.setPluginsRegistryFile(PLUGINS_REGISTRY_FILE)
-    PluginManager.loadPlugins()
+    await PluginManager.loadPlugins()
 });
 
 // Quit when all windows are closed, except on macOS. There, it's common

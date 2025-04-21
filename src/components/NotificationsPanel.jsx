@@ -1,12 +1,32 @@
-import {Callout, Drawer, DrawerSize, Icon} from "@blueprintjs/core";
+import {Button, ButtonGroup, Callout, Drawer, DrawerSize, Icon, InputGroup} from "@blueprintjs/core";
 import {formatDistanceToNow} from 'date-fns';
 
 import PropTypes from "prop-types";
-import {useEffect} from "react";
+import {useEffect, useMemo, useState} from "react";
 
 import * as styles from "./css/NotificationsPanel.module.css";
 
 export const NotificationsPanel = ({notificationsShow, setNotificationsShow, notifications}) => {
+    const [searchTerm, setSearchTerm] = useState("");
+
+    const filteredNotifications = useMemo(() => {
+        if (!notifications || notifications.length === 0) return [];
+
+        return [...notifications]
+            .filter((n) => {
+                if (!searchTerm) return true;
+                const lcSearch = searchTerm.toLowerCase();
+                return (
+                    n.title?.toLowerCase().includes(lcSearch) ||
+                    n.message?.toLowerCase().includes(lcSearch)
+                );
+            })
+            .sort((a, b) =>
+                (a.read === b.read ? 0 : a.read ? 1 : -1) ||
+                new Date(b.createdAt) - new Date(a.createdAt)
+            );
+    }, [notifications, searchTerm]);
+
     useEffect(() => {
         if (notificationsShow) {
             const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
@@ -21,12 +41,30 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
     return (
         <Drawer icon={"notifications"} isOpen={notificationsShow} onClose={() => setNotificationsShow(false)}
                 size={DrawerSize.SMALL} title="Notifications">
+            <ButtonGroup fill style={{ width: "100%", justifyContent: "space-between", padding: "5px"}}>
+                <Button icon="eye-open" intent={"primary"} onClick={() => {
+                    window.electron.notifications.markAllAsRead()
+                }}>
+                    Mark all as read
+                </Button>
+                <Button icon="trash" intent="danger" onClick={() => {
+                    window.electron.notifications.removeAll()
+                }}>
+                    Remove all
+                </Button>
+            </ButtonGroup>
+            <div className={styles.filterInput}>
+                <InputGroup
+                    leftIcon={"filter"}
+                    onValueChange={setSearchTerm}
+                    placeholder="Filter notifications..."
+                    value={searchTerm}
+                    fill={true}
+                />
+            </div>
             <div className={styles.panelContent}>
-                {notifications && notifications.length > 0 ? (
-                    notifications.sort((a, b) =>
-                        (a.read === b.read ? 0 : a.read ? 1 : -1) ||
-                        new Date(b.createdAt) - new Date(a.createdAt)
-                    ).map((notification) => (
+                {filteredNotifications.length > 0 ? (
+                    filteredNotifications.map((notification) => (
                         <Callout
                             key={notification.id}
                             intent={notification.type}

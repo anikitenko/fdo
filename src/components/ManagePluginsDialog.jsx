@@ -13,6 +13,7 @@ import {
     Switch,
     Tab,
     Tabs,
+    Tag,
 } from "@blueprintjs/core";
 import PropTypes from "prop-types";
 import * as styles from './css/ManagePluginsDialog.module.css'
@@ -23,6 +24,9 @@ import {debounce} from "lodash";
 import classNames from "classnames";
 import {AppToaster} from "./AppToaster.jsx";
 import {metricDensityReductionInterval} from "../utils/metricDensityReductionInterval";
+import {CertificateValidComponent} from "./editor/utils/CertificateValidComponent";
+import {RootCertificateSelectionComponent, selectRootCert} from "./editor/utils/RootCertificateSelectionComponent";
+import {CodeEditorSelectionComponent, selectCodeEditor} from "./editor/utils/CodeEditorSelectionComponent";
 
 export const ManagePluginsDialog = ({
                                         show,
@@ -182,6 +186,22 @@ const SelectPluginPanel = ({
     const [isOpenClean, setIsOpenClean] = useState(false)
     const [isLoadingClean, setIsLoadingClean] = useState(false)
     const [isOpenRemove, setIsOpenRemove] = useState(false)
+
+    const [pluginVerification, setPluginVerification] = useState(null)
+
+    const [rootCertificates, setRootCertificates] = useState([])
+    const [resignProgress, setResignProgress] = useState(false)
+    const [onRootCertificateSelected, setOnRootCertificateSelected] = useState(null)
+    const [showRootCertificateDialog, setShowRootCertificateDialog] = useState(false)
+    const [rememberedRootCertificate, setRememberedRootCertificate] = useState(null);
+
+    const [openEditorProgress, setOpenEditorProgress] = useState(false)
+    const [showCodeEditorDialog, setShowCodeEditorDialog] = useState(false)
+    const [onCodeEditorSelected, setOnCodeEditorSelected] = useState(null)
+    const [rememberedEditor, setRememberedEditor] = useState(null);
+
+    const rememberChoiceRef = useRef(false);
+    const rememberEditorRef = useRef(false);
 
     const METRIC_COLORS = {
         "CPU Percent": "#FF5733", // Red-Orange
@@ -378,7 +398,11 @@ const SelectPluginPanel = ({
     useEffect(() => {
         if (!plugin) return;
         fetchMetrics();
-        const interval = setInterval(fetchMetrics, 5000); // Refresh every 5 seconds
+        const interval = setInterval(fetchMetrics, 5000);
+
+        window.electron.plugin.verifySignature(plugin.id).then((r) => {
+            setPluginVerification(r)
+        })
 
         return () => {
             setMetrics([])
@@ -412,7 +436,12 @@ const SelectPluginPanel = ({
         }}>
             <div style={{marginTop: "15px", marginBottom: "15px"}}>
                 <div style={{verticalAlign: "center"}}>
-                    <span className={"bp5-heading"} style={{fontSize: "1rem"}}>{plugin.name}</span>
+                    <span className={"bp5-heading"}
+                          style={{fontSize: "1rem"}}>{plugin.name} {pluginVerification?.success ? (
+                        <Tag intent="success" icon="shield" style={{verticalAlign: "bottom"}}>Certified</Tag>
+                    ) : (
+                        <Tag intent="warning" icon="warning-sign" style={{verticalAlign: "bottom"}}>Uncertified</Tag>
+                    )}</span>
                     {(creationTime && activePlugins?.some((p) => p.id === plugin.id)) && (
                         <span className={"bp5-code"}
                               style={{float: "right"}}>Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
@@ -436,21 +465,96 @@ const SelectPluginPanel = ({
                     }}
             />
             <Divider/>
+            <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+                <div style={{flex: "1", minWidth: "0", width: "0"}}>
+                    <span>Status: </span> {pluginVerification?.success ? (
+                    <Icon icon={"endorsed"} intent={"success"}/>
+                ) : (
+                    <Icon icon={"cross-circle"} intent="warning"/>
+                )}
+                    {pluginVerification?.success && (
+                        <>
+                            <div><span>Signed by <i
+                                className={"bp5-running-text"}>{pluginVerification.commonName?.value}</i></span></div>
+                            <div className={"bp5-text-overflow-ellipsis"}><span>CA is <i className={"bp5-running-text"}>{pluginVerification.signer.label}</i></span>
+                            </div>
+                            <CertificateValidComponent cert={pluginVerification.signer}/>
+                        </>
+                    )}
+                </div>
+                <Button
+                    icon="annotation"
+                    text={"ReSign"}
+                    intent="primary"
+                    loading={resignProgress}
+                    onClick={async () => {
+                        setResignProgress(true)
+                        const rootCerts = await window.electron.settings.certificates.getRoot()
+                        setRootCertificates(rootCerts)
+                        if (rootCerts.length === 0) {
+                            (AppToaster).show({
+                                message: `No root certificate found. Please add one.`,
+                                intent: "danger"
+                            });
+                            return
+                        }
+
+                        let selectedLabel = rootCerts[0].label;
+                        if (rootCerts.length > 1) {
+                            selectedLabel = await selectRootCert(setShowRootCertificateDialog, rememberedRootCertificate, rememberChoiceRef, setRememberedRootCertificate, setOnRootCertificateSelected);
+                        }
+
+
+                        if (!selectedLabel) {
+                            setResignProgress(false)
+                            return
+                        }
+
+                        window.electron.plugin.sign(plugin.id, selectedLabel).then(async (response) => {
+                            if (!response.success) {
+                                (AppToaster).show({message: `Failed to resign plugin: ${response.error}`, intent: "danger"});
+                            } else {
+                                window.electron.plugin.verifySignature(plugin.id).then((r) => {
+                                    setPluginVerification(r)
+                                })
+                            }
+                        })
+                        setResignProgress(false)
+                    }}
+                    style={{marginLeft: "1rem", alignSelf: "center"}}
+                />
+            </div>
+            <Divider/>
             <ControlGroup vertical={false}>
                 <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong
-                    style={{color: localStorage.getItem("sandbox_" + plugin.id) ? "red" : "green"}}>Sandboxed</strong>}
+                    style={{color: localStorage.getItem("sandbox_" + plugin.id) ? "red" : "green"}}>{localStorage.getItem("sandbox_" + plugin.id) ? "Sandboxed" : "No sandbox"}</strong>}
                         innerLabelChecked="yes :(" innerLabel="no :)"
                         checked={!!localStorage.getItem("sandbox_" + plugin.id)}
                         disabled={true}
                 />
-                {localStorage.getItem("sandbox_" + plugin.id) && (
+                {localStorage.getItem("sandbox_" + plugin.id) ? (
                     <>
-                        <Button text={"Open"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"}
-                                onClick={() => window.electron.system.openEditorWindow({name: plugin.id})}/>
-                        <Button text={"Clean"} style={{marginLeft: "10px"}} intent={"warning"} endIcon={"clean"}
-                                onClick={() => setIsOpenClean(true)}
-                        />
+                    <Button text={"Clean"} style={{marginLeft: "10px"}} intent={"warning"} endIcon={"clean"}
+                            onClick={() => setIsOpenClean(true)}
+                    />
+                    <Button text={"Open"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"}
+                                          onClick={() => window.electron.system.openEditorWindow({name: plugin.id})}/>
                     </>
+                ) : (
+                    <Button text={"Open in"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"} loading={openEditorProgress}
+                            onClick={async () => {
+                                setOpenEditorProgress(true)
+                                const selectedEditor = await selectCodeEditor(setShowCodeEditorDialog, rememberedEditor, rememberEditorRef, setRememberedEditor, setOnCodeEditorSelected)
+                                if (!selectedEditor) {
+                                    setOpenEditorProgress(false)
+                                    return
+                                }
+                                const result = await window.electron.system.openPluginInEditor(selectedEditor, plugin.id)
+                                if (!result.success) {
+                                    (AppToaster).show({message: `Failed to open plugin in editor: ${result.error}`, intent: "danger"});
+                                }
+                                setOpenEditorProgress(false)
+                            }}/>
                 )}
             </ControlGroup>
             <Divider/>
@@ -588,6 +692,23 @@ const SelectPluginPanel = ({
                     Plugin will be removed. Proceed?
                 </p>
             </Alert>
+            <RootCertificateSelectionComponent
+                show={showRootCertificateDialog}
+                setShow={setShowRootCertificateDialog}
+                rootCertificates={rootCertificates}
+                rememberRef={rememberChoiceRef}
+                setRememberRootCert={setRememberedRootCertificate}
+                onRootSelectedCert={onRootCertificateSelected}
+                setOnRootSelectedCert={setOnRootCertificateSelected}
+            />
+            <CodeEditorSelectionComponent
+                show={showCodeEditorDialog}
+                setShow={setShowCodeEditorDialog}
+                onEditorSelected={onCodeEditorSelected}
+                setOnEditorSelected={setOnCodeEditorSelected}
+                rememberRef={rememberEditorRef}
+                setRememberEditor={setRememberedEditor}
+            />
         </Card>
     )
 }

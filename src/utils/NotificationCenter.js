@@ -15,7 +15,7 @@ export const NotificationCenter = {
         return settings.get('notifications') || []
     },
 
-    addNotification({ title, message, type = 'info' }) {
+    addNotification({ title, message = '', type = '' }) {
         const now = new Date().toISOString();
         const notification = {
             id: uuidv4(),

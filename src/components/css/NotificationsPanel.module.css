@@ -2,7 +2,8 @@
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px; /* spacing between Callouts */
+    gap: 12px;
+    overflow-y: auto;
 }
 
 .callout {
@@ -28,4 +29,8 @@
 
 .unreadTitle {
     font-weight: 900;
+}
+
+.filterInput {
+    padding: 5px;
 }

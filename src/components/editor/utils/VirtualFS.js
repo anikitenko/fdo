@@ -76,8 +76,6 @@ const virtualFS = {
         inProgress: false,
         progress: 0,
         plugin: {
-            entrypoint: "",
-            metadata: null,
             content: null,
         },
         message: {
@@ -111,16 +109,27 @@ const virtualFS = {
             this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
         },
         getEntrypoint() {
-            return this.plugin.entrypoint
-        },
-        setEntrypoint(entry) {
-            this.plugin.entrypoint = entry
+            const latestContent = this.parent.getLatestContent()
+            const srcJson = JSON.parse(latestContent["/package.json"])
+            return srcJson.module || srcJson.main || "dist/index.cjs"
         },
         getMetadata() {
-            return this.plugin.metadata
-        },
-        setMetadata(metadata) {
-            this.plugin.metadata = metadata
+            const latestContent = this.parent.getLatestContent()
+            const srcJson = JSON.parse(latestContent["/package.json"])
+            const sourceFile = srcJson.source || "index.ts"
+            const sourceFileContent = latestContent[`/${sourceFile}`]
+            const metadataRegex = /{[^}]*\bname\s*:\s*["'`](.*?)["'`][^}]*\bversion\s*:\s*["'`](.*?)["'`][^}]*\bauthor\s*:\s*["'`](.*?)["'`][^}]*\bdescription\s*:\s*["'`](.*?)["'`][^}]*\bicon\s*:\s*["'`](.*?)["'`][^}]*}/s;
+
+            const match = sourceFileContent.match(metadataRegex);
+
+            if (!match) return null;
+            return {
+                name: match[1],
+                version: match[2],
+                author: match[3],
+                description: match[4],
+                icon: match[5],
+            }
         },
         getContent() {
             return JSON.parse(LZString.decompress(this.plugin.content))

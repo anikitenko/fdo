@@ -6,6 +6,7 @@ import React, {useEffect, useState} from "react";
 import PropTypes from "prop-types";
 import {formatDistanceToNow} from 'date-fns';
 import {AppToaster} from "./AppToaster.jsx";
+import {CertificateValidComponent} from "./editor/utils/CertificateValidComponent";
 
 export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
     return (
@@ -111,7 +112,7 @@ const CertificatePanel = () => {
                             if (response.success) {
                                 updateCertificates()
                             } else {
-                                (await AppToaster).show({message: `${response.error}`, intent: "danger"});
+                                (AppToaster).show({message: `${response.error}`, intent: "danger"});
                             }
                         })
                     }
@@ -132,11 +133,12 @@ const CertificatePanel = () => {
                                 justifyContent: "space-between",
                                 alignItems: "center",
                                 width: "100%",
+                                gap: "5px"
                             }}
                         >
-                            <div style={{display: "flex", alignItems: "center", gap: "12px"}}>
+                            <div style={{display: "flex", alignItems: "center", gap: "12px", flex: "1", minWidth: "0", width: "0"}}>
                                 <Icon icon="id-number" size={32}/>
-                                <div>
+                                <div className={"bp5-text-overflow-ellipsis"}>
                                     <div>
                                         {cert.label === "root" ? (
                                             <strong style={{color: "#2d72d2"}}>{cert.label}</strong>
@@ -157,22 +159,7 @@ const CertificatePanel = () => {
                                             fontSize: "12px"
                                         }}>{cert.id}</code>
                                     </div>
-                                    <div style={{
-                                        color: (() => {
-                                            const daysLeft = (new Date(cert.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-                                            if (daysLeft <= 0) return "#DB3737";      // red
-                                            if (daysLeft <= 90) return "#F29D49";     // orange
-                                            return "#0F9960";                         // green
-                                        })(),
-                                        fontWeight: 500
-                                    }}>
-                                        {(() => {
-                                            const daysLeft = (new Date(cert.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-                                            if (daysLeft <= 0) return "Expired";
-                                            if (daysLeft <= 90) return `Expires in ${Math.floor(daysLeft)} days`;
-                                            return `Valid — ${Math.floor(daysLeft)} days left`;
-                                        })()}
-                                    </div>
+                                    <CertificateValidComponent cert={cert} />
                                     <div>
                                 <span className={"bp5-text-muted"}>
                                     Added {formatDistanceToNow(new Date(cert.createdAt), {addSuffix: true})}

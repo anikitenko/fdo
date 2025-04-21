@@ -48,6 +48,7 @@ export const SystemChannels = withPrefix('system', {
     OPEN_LIVE_UI_WINDOW: 'open-live-ui-window',
     EDITOR_CLOSE_APPROVED: 'editor-close-approved',
     EDITOR_RELOAD_APPROVED: 'editor-reload-approved',
+    OPEN_PLUGIN_IN_EDITOR: 'open-plugin-in-editor',
     on_off: {
         CONFIRM_CLOSE: 'confirm-close',
         CONFIRM_RELOAD: 'confirm-reload'
@@ -71,6 +72,8 @@ export const PluginChannels = withPrefix('plugin', {
     BUILD: 'build',
     DEPLOY_FROM_EDITOR: 'deploy-from-editor',
     SAVE_FROM_EDITOR: 'save-from-editor',
+    VERIFY_SIGNATURE: 'verify-signature',
+    SIGN: 'sign',
     on_off: {
         UNLOADED: 'unloaded',
         READY: 'ready',

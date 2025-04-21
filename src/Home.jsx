@@ -34,6 +34,10 @@ export const Home = () => {
     const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
 
+    const isPluginReady = (pluginID) => {
+        return pluginReadiness.get(pluginID) ?? false;
+    };
+
     const isPluginInit = (pluginID) => {
         return pluginInitStatus.get(pluginID) ?? false;
     };

@@ -1,6 +1,7 @@
 import {app, ipcMain} from "electron";
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
-import {readFileSync, rmSync, writeFileSync, chmodSync} from "node:fs";
+import {rmSync, writeFileSync, chmodSync} from "node:fs";
+import { readFile } from 'node:fs/promises';
 import PluginORM from "../utils/PluginORM";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "../main.js";
 import generatePluginName from "../components/editor/utils/generatePluginName";
@@ -8,20 +9,65 @@ import path from "node:path";
 import UserORM from "../utils/UserORM";
 import PluginManager from "../utils/PluginManager";
 import {PluginChannels} from "./channels";
-import {workspaceTsCompilerOptions} from "../utils/workspaceTsCompilerOptions";
 import ensureAndWrite from "../utils/ensureAndWrite";
 import {EsbuildVirtualFsPlugin} from "../utils/esbuild/plugins/virtual-fs";
 import {Certs} from "../utils/certs";
+import {syncPluginDir} from "../utils/syncPluginDir";
+import {NotificationCenter} from "../utils/NotificationCenter";
+import {editorWindow} from "../utils/editorWindow";
+import {getIgnoreInstance} from "../utils/getIgnoreInstance";
+import {getAllFilesWithIgnorance} from "../utils/getAllFilesWithIgnorance";
 
 export function registerPluginHandlers() {
-    ipcMain.handle(PluginChannels.GET_DATA, async (event, filePath) => {
+    ipcMain.handle(PluginChannels.GET_DATA, async (event, pluginPath) => {
         try {
-            const plugin = ValidatePlugin(filePath);
-            if (!plugin) {
-                return {success: false, error: "Problem with validating plugin"};
+            const ig = await getIgnoreInstance(pluginPath, []);
+
+            const existingFiles = await getAllFilesWithIgnorance(pluginPath, (relativePath) => {
+                return !ig.ignores(relativePath);
+            });
+            let metadata;
+            let sourceFile = "index.ts";
+            const content = await Promise.all(
+                existingFiles.map(async (filePath) => {
+                    const relPath = `/${path.relative(pluginPath, filePath).replace(/\\/g, "/")}`;
+                    const buffer = await readFile(filePath);
+                    const text = buffer.toString("utf8");
+
+                    if (relPath === "/package.json") {
+                        try {
+                            const json = JSON.parse(text);
+                            sourceFile = json.source || "index.ts";
+                        } catch (err) {
+                            return {success: false, error: `Invalid package.json: ${err}`};
+                        }
+                    }
+
+                    return {
+                        path: relPath,
+                        content: text,
+                    };
+                })
+            );
+
+            const source = content.find(file => file.path === `/${sourceFile}`);
+            if (source) {
+                const metadataRegex = /{[^}]*\bname\s*:\s*["'`](.*?)["'`][^}]*\bversion\s*:\s*["'`](.*?)["'`][^}]*\bauthor\s*:\s*["'`](.*?)["'`][^}]*\bdescription\s*:\s*["'`](.*?)["'`][^}]*\bicon\s*:\s*["'`](.*?)["'`][^}]*}/s;
+                const match = source.content.match(metadataRegex);
+                if (match) {
+                    metadata = {
+                        name: match[1],
+                        version: match[2],
+                        author: match[3],
+                        description: match[4],
+                        icon: match[5],
+                    };
+                }
+            } else {
+                return {success: false, error: "No source file found"};
             }
-            const data = readFileSync(filePath, 'utf8');
-            return {success: true, content: data, metadata: plugin.metadata};
+
+            return {success: true, content, metadata};
         } catch (error) {
             return {success: false, error: error.message};
         }
@@ -85,11 +131,14 @@ export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.ACTIVATE, async (event, id) => {
         const userORM = new UserORM(USER_CONFIG_FILE);
         try {
-            PluginManager.loadPlugin(id)
+            const result = await PluginManager.loadPlugin(id)
+            if (!result.success) {
+                return {success: false, error: result.error};
+            }
             userORM.activatePlugin(id)
             return {success: true};
         } catch (error) {
-            return {success: false, error: error.message};
+            return {success: false, error: error.error};
         }
     });
 
@@ -207,26 +256,15 @@ export function registerPluginHandlers() {
             // Ensure esbuild uses the correct binary
             process.env.ESBUILD_BINARY_PATH = esbuildBinary;
             const latestContent = data.latestContent
+            const srcJson = JSON.parse(latestContent["/package.json"])
+            const pluginEntrypoint = srcJson.source || "index.ts"
             const esbuild = require("esbuild")
             const result = await esbuild.build({
-                entryPoints: ["/index.ts"],
+                entryPoints: [`/${pluginEntrypoint}`],
                 bundle: true,
                 format: "cjs",
-                minify: false,
-                treeShaking: false,
                 platform: "node",
-                sourcesContent: false,
-                jsx: "automatic",
-                keepNames: true,
                 write: false,
-                tsconfigRaw: {
-                    compilerOptions: {
-                        target: "ESNext",
-                        module: "ESNext",
-                        moduleResolution: "node",
-                        ...workspaceTsCompilerOptions
-                    },
-                },
                 plugins: [
                     EsbuildVirtualFsPlugin(latestContent)
                 ],
@@ -235,14 +273,18 @@ export function registerPluginHandlers() {
             return {success: true, files: result}
 
         } catch (error) {
-            console.log(error)
+            NotificationCenter.addNotification({title: `Build error`, message: error.toString(), type: "danger"});
             return {success: false, error: "Build error: "+error.toString()};
         }
     });
 
     ipcMain.handle(PluginChannels.DEPLOY_FROM_EDITOR, async (event, data) => {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
-        const pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
+        const plugin = pluginORM.getPlugin(data.name);
+        let pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
+        if (plugin) {
+            pathToDir = plugin.home
+        }
         const pathToPlugin = path.join(pathToDir, data.entrypoint)
         const metadata = data.metadata
         metadata.icon = metadata.icon.toLowerCase()
@@ -263,6 +305,49 @@ export function registerPluginHandlers() {
     })
 
     ipcMain.handle(PluginChannels.SAVE_FROM_EDITOR, async (event, data) => {
+        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+        const plugin = pluginORM.getPlugin(data.name);
+        let pathToDir;
+        if (data.dir === "sandbox" || data.dir.includes(data.sandbox) || !plugin) {
+            pathToDir = path.join(PLUGINS_DIR, data.name)
+        } else {
+            pathToDir = plugin.home
+        }
 
+        await syncPluginDir(pathToDir, data.content)
+
+        const signResult = Certs.signPlugin(pathToDir, data.rootCert)
+        if (!signResult.success) {
+            return signResult
+        }
+
+        const metadata = data.metadata
+        metadata.icon = metadata.icon.toLowerCase()
+        pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true)
+
+        if (data.dir.includes(data.sandbox)) {
+            rmSync(data.dir, {recursive: true, force: true})
+            const mainWindow = PluginManager.mainWindow
+            mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
+        }
+
+        const editorWindowInstance = editorWindow.getWindow()
+        if (editorWindowInstance) {
+            editorWindowInstance.destroy();
+        }
+
+        return {success: true}
+    })
+
+    ipcMain.handle(PluginChannels.VERIFY_SIGNATURE, async (event, id) => {
+        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+        const plugin = pluginORM.getPlugin(id)
+        return Certs.verifyPlugin(plugin.home)
+    })
+
+    ipcMain.handle(PluginChannels.SIGN, async (event, id, signerLabel) => {
+        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+        const plugin = pluginORM.getPlugin(id)
+        return Certs.signPlugin(plugin.home, signerLabel)
     })
 }

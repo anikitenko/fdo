@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from "react";
 import PropTypes from "prop-types";
+import {Spinner} from "@blueprintjs/core";
 
 export const PluginContainer = ({plugin}) => {
     const [height, setHeight] = useState("100vh");
@@ -91,6 +92,19 @@ export const PluginContainer = ({plugin}) => {
 
     return (
         <div id={"plugin-container"} style={{height: "100%", margin: 0, padding: 0, overflow: "hidden"}}>
+            {!iframeLoaded && (
+                <div style={{
+                    position: "absolute",
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "white",
+                    zIndex: 1
+                }}>
+                    <Spinner size={100} intent={"primary"} />
+                </div>
+            )}
             <iframe
                 ref={iframeRef}
                 title="Plugin Container ID"

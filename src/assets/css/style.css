@@ -1,0 +1,55 @@
+.plugin-page-loader {
+    width: 48px;
+    height: 48px;
+    border: 5px solid #aab3bf;
+    border-bottom-color: #2d72d2;
+    border-radius: 50%;
+    display: inline-block;
+    box-sizing: border-box;
+    animation: rotation-plugin-page 1s linear infinite;
+}
+
+@keyframes rotation-plugin-page {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.plugin-timeout-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    background-color: #fdfdfd;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.plugin-timeout-box {
+    text-align: center;
+    max-width: 300px;
+    font-family: system-ui, sans-serif;
+    color: #444;
+}
+
+.plugin-timeout-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.plugin-timeout-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+    color: #d9534f; /* Bootstrap-like red */
+}
+
+.plugin-timeout-message {
+    font-size: 0.95rem;
+    color: #777;
+}

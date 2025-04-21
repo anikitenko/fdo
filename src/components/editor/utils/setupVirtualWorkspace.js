@@ -4,8 +4,9 @@ import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 import {workspaceTsCompilerOptions} from "../../../utils/workspaceTsCompilerOptions";
 import darkTheme from "../monaco/EditorDarkTheme"
+import {AppToaster} from "../../AppToaster.jsx";
 
-export async function setupVirtualWorkspace(name, template) {
+export async function setupVirtualWorkspace(name, template, dir) {
     monaco.editor.defineTheme('editor-dark', darkTheme);
 
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -43,13 +44,25 @@ export async function setupVirtualWorkspace(name, template) {
         const sandboxName = "sandbox_" + name
         virtualFS.setInitWorkspace(name, sandboxName)
         const sandbox = localStorage.getItem(sandboxName)
-        if (sandbox) {
-            virtualFS.restoreSandbox(sandbox)
+        if (dir === "sandbox" || dir.includes(sandboxName)) {
+            if (sandbox) {
+                virtualFS.restoreSandbox(sandbox)
+            } else {
+                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
+                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
+                createVirtualFile("/package.json", packageJsonContent(name))
+                virtualFS.fs.create()
+            }
         } else {
-            createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
-            createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
-            createVirtualFile("/package.json", packageJsonContent(name))
-            virtualFS.fs.create()
+            const data = await window.electron.plugin.getData(dir)
+            if (data.success) {
+                for (const file of data.content) {
+                    createVirtualFile(file.path, file.content)
+                }
+                virtualFS.fs.create()
+            } else {
+                (AppToaster).show({message: `${data.error}`, intent: "danger"});
+            }
         }
     }
 }

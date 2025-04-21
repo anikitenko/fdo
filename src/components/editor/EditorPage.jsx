@@ -27,8 +27,9 @@ export const EditorPage = () => {
     // Extract data from the query parameter
     const searchParams = new URLSearchParams(location.search);
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
-    const rootFolder = generatePluginName(pluginData.name)
+    const pluginName = generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
+    const pluginDirectory = pluginData.dir
     const [editorModelPath, setEditorModelPath] = useState(virtualFS.getTreeObjectItemSelected()?.id)
     const [codeEditorCreated, setCodeEditorCreated] = useState(false)
     const [codeEditor, setCodeEditor] = useState(null)
@@ -42,7 +43,7 @@ export const EditorPage = () => {
 
     monaco.editor.onDidCreateEditor(async () => {
         if (!codeEditorCreated) {
-            await setupVirtualWorkspace(rootFolder, pluginTemplate)
+            await setupVirtualWorkspace(pluginName, pluginTemplate, pluginDirectory)
             monaco.editor.registerEditorOpener({
                 openCodeEditor(source, resource, selectionOrPosition) {
                     setJumpTo({
@@ -182,7 +183,7 @@ export const EditorPage = () => {
                                     <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                                     <div>
                                         <div className={styles["code-deploy-actions"]}>
-                                            <CodeDeployActions setSelectedTabId={setBuildOutputSelectedTabId}/>
+                                            <CodeDeployActions setSelectedTabId={setBuildOutputSelectedTabId} pluginDirectory={pluginDirectory}/>
                                         </div>
                                     </div>
                                 </div>
@@ -213,7 +214,7 @@ export const EditorPage = () => {
                                                         virtualFS.tabs.removeMarkers(editorModelPath)
                                                     }
                                                 }}
-                                                defaultValue={packageDefaultContent(rootFolder)}
+                                                defaultValue={packageDefaultContent(pluginName)}
                                                 path={editorModelPath}
                                                 className={styles["editor-container"]}
                                                 onMount={(editor) => {

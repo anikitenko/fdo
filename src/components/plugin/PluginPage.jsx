@@ -62,6 +62,17 @@ export const PluginPage = () => {
             notyfJsStyle.href = "static://assets/css/notyf/notyf.min.css";
             head.appendChild(notyfJsStyle);
 
+            // --- Inject Regular Styles ---
+            const existingStyleCss = head.querySelector("#styleCss");
+            if (existingStyleCss) {
+                head.removeChild(existingStyleCss);
+            }
+            const styleCss = iframeDocument.createElement("link");
+            styleCss.id = "styleCss";
+            styleCss.rel = "stylesheet";
+            styleCss.href = "static://assets/css/style.css";
+            head.appendChild(styleCss);
+
             // --- Inject FontAwesome JS ---
             const existingFontJS = head.querySelector("#font-awesome-script");
             const existingFontJsBrands = head.querySelector("#font-awesome-script-brands");
@@ -167,7 +178,7 @@ export const PluginPage = () => {
                         }
                     })
                 } catch (error) {
-                    console.error("Error rendering plugin:", error);
+                    window.electron.notifications.add("Error rendering plugin", error, "danger")
                 }
             }
         };
@@ -176,7 +187,17 @@ export const PluginPage = () => {
 
         // Set timeout to auto-fail plugin after 5 seconds
         const pluginTimeout = setTimeout(() => {
-            SetPluginComponent(() => () => <p>Plugin timed out!</p>);
+            SetPluginComponent(() => () => (
+                <div className="plugin-timeout-container">
+                    <div className="plugin-timeout-box">
+                        <div className="plugin-timeout-icon">🔌</div>
+                        <div className="plugin-timeout-title">Plugin timed out!</div>
+                        <div className="plugin-timeout-message">
+                            The plugin failed to load. You might find more details in the notification panel.
+                        </div>
+                    </div>
+                </div>
+            ));
         }, 5000);
 
         return () => {
@@ -186,7 +207,7 @@ export const PluginPage = () => {
     }, []);
 
     return PluginComponent ? <PluginComponent React={React}/> :
-        <p>Loading plugin...</p>;
+        <div style={{textAlign: "center", padding: "20px"}}><span className="plugin-page-loader"></span></div>;
 }
 
 /**

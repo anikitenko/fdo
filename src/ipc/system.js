@@ -1,10 +1,58 @@
 import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
 import PluginManager from "../utils/PluginManager";
-import {AppMetrics} from "../main.js";
+import {AppMetrics, PLUGINS_REGISTRY_FILE} from "../main.js";
 import {metricDensityReductionInterval} from "../utils/metricDensityReductionInterval";
 import {SystemChannels} from "./channels";
 import {getFilesTree} from "../utils/getFilesTree";
 import path from "node:path";
+import PluginORM from "../utils/PluginORM";
+import {editorWindow} from "../utils/editorWindow";
+
+import {exec} from "child_process";
+import {promisify} from "util";
+
+const execAsync = promisify(exec);
+
+function systemOpenEditorWindow(data) {
+    const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+    const plugin = pluginORM.getPlugin(data.name);
+    let pluginDirectory = "sandbox";
+    if (plugin) {
+        pluginDirectory = plugin.home
+    }
+
+    data.dir = pluginDirectory
+
+    const encodedData = encodeURIComponent(JSON.stringify(data));
+    const editorWindowInstance = editorWindow.createWindow()
+    editorWindowInstance.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`).then(() => {
+    });
+
+    editorWindowInstance.on('close', (event) => {
+        event.preventDefault();
+        editorWindowInstance.webContents.send(SystemChannels.on_off.CONFIRM_CLOSE); // Send event to React
+    });
+    editorWindowInstance.on('closed', () => editorWindow.nullWindow());
+
+    editorWindowInstance.webContents.on('before-input-event', (event, input) => {
+        if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
+            event.preventDefault();
+            editorWindowInstance.webContents.send(SystemChannels.on_off.CONFIRM_RELOAD);
+        }
+    });
+}
+
+async function isCommandAvailable(command) {
+    const platform = process.platform;
+    const checkCommand = platform === "win32" ? `where ${command}` : `which ${command}`;
+
+    try {
+        await execAsync(checkCommand);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 export function registerSystemHandlers() {
     // Listen for external link requests
@@ -83,45 +131,53 @@ export function registerSystemHandlers() {
         }
     })
 
+    ipcMain.handle(SystemChannels.OPEN_PLUGIN_IN_EDITOR, async (event, editor, pluginID) => {
+        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+        const plugin = pluginORM.getPlugin(pluginID);
+        if (plugin) {
+            const pluginDirectory = plugin.home
+            switch (editor) {
+                case "builtin":
+                    systemOpenEditorWindow({name: pluginID})
+                    break;
+                case "vscode":
+                    if (!await isCommandAvailable("code")) {
+                        return {success: false, error: "VS Code is not installed or not in PATH."};
+                    }
+                    await execAsync(`code "${pluginDirectory}"`);
+                    break;
+                case "idea":
+                    if (!await isCommandAvailable("idea")) {
+                        return {success: false, error: "IntelliJ IDEA is not installed or not in PATH."};
+                    }
+                    await execAsync(`code "${pluginDirectory}"`);
+                    break;
+                case "webstorm":
+                    if (!await isCommandAvailable("webstorm")) {
+                        return {success: false, error: "IntelliJ WebStorm is not installed or not in PATH."};
+                    }
+                    await execAsync(`webstorm "${pluginDirectory}"`);
+            }
+            return {success: true};
+        }
+    })
+
     ipcMain.on(SystemChannels.OPEN_EDITOR_WINDOW, (_event, data) => {
-        let editorWindow = new BrowserWindow({
-            width: 1024,
-            height: 800,
-            minWidth: 1024,
-            minHeight: 800,
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
-            },
-        });
+        systemOpenEditorWindow(data)
+    });
 
-        const encodedData = encodeURIComponent(JSON.stringify(data));
-        editorWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`).then(() => {});
+    ipcMain.once(SystemChannels.EDITOR_CLOSE_APPROVED, () => {
+        const editorWindowInstance = editorWindow.getWindow()
+        if (editorWindowInstance) {
+            editorWindowInstance.destroy(); // Close the window
+        }
+    });
 
-        editorWindow.on('close', (event) => {
-            event.preventDefault();
-            editorWindow.webContents.send(SystemChannels.on_off.CONFIRM_CLOSE); // Send event to React
-        });
-        editorWindow.webContents.on('before-input-event', (event, input) => {
-            if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
-                event.preventDefault();
-                editorWindow.webContents.send(SystemChannels.on_off.CONFIRM_RELOAD);
-            }
-        });
-        editorWindow.on('closed', () => (editorWindow = null));
-
-        ipcMain.on(SystemChannels.EDITOR_CLOSE_APPROVED, () => {
-            if (editorWindow) {
-                editorWindow.destroy(); // Close the window
-            }
-        });
-
-        ipcMain.on(SystemChannels.EDITOR_RELOAD_APPROVED, () => {
-            if (editorWindow) {
-                editorWindow.reload();
-            }
-        });
+    ipcMain.on(SystemChannels.EDITOR_RELOAD_APPROVED, () => {
+        const editorWindowInstance = editorWindow.getWindow()
+        if (editorWindowInstance) {
+            editorWindowInstance.reload();
+        }
     });
 
     ipcMain.on(SystemChannels.OPEN_LIVE_UI_WINDOW, (_event, data) => {
@@ -131,7 +187,7 @@ export function registerSystemHandlers() {
             minWidth: 1024,
             minHeight: 800,
             webPreferences: {
-                sandbox:  true,
+                sandbox: true,
                 nodeIntegration: false,
                 contextIsolation: true,
                 preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -139,6 +195,7 @@ export function registerSystemHandlers() {
         });
 
         const encodedData = encodeURIComponent(JSON.stringify(data));
-        liveUiWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/live-ui?data=${encodedData}`).then(() => {});
+        liveUiWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/live-ui?data=${encodedData}`).then(() => {
+        });
     })
 }

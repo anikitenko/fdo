@@ -3,6 +3,7 @@ import {utilityProcess} from "electron";
 import PluginORM from "./PluginORM";
 import {PluginChannels} from "../ipc/channels";
 import {Certs} from "./certs";
+import {NotificationCenter} from "./NotificationCenter";
 
 const PluginManager = {
     mainWindow: null,
@@ -19,66 +20,92 @@ const PluginManager = {
     setPluginsRegistryFile(pluginConfigFile) {
         this.pluginConfigFile = pluginConfigFile;
     },
-    loadPlugins() {
+    async loadPlugins() {
         const userORM = new UserORM(this.userConfigFile);
         const plugins = userORM.getActivatedPlugins();
-        for(const id of plugins) {
-            this.loadPlugin(id)
-        }
+
+        const loadPromises = plugins.map((id) => this.loadPlugin(id));
+
+        const results = await Promise.allSettled(loadPromises);
+
+        const loaded = results.filter(r => r.status === "fulfilled" && r.value.success).length;
+        NotificationCenter.addNotification({title: `Plugins were loaded`, message: `🔄 Loaded ${loaded} of ${plugins.length} plugins.`});
     },
-    loadPlugin(id) {
-        if (this.loadingPlugins[id]) return;
+
+    async loadPlugin(id) {
+        if (this.loadingPlugins[id]) {
+            return { success: true };
+        }
 
         this.loadingPlugins = this.loadingPlugins || {};
         this.loadingPlugins[id] = true;
 
         const pluginORM = new PluginORM(this.pluginConfigFile);
         const plugin = pluginORM.getPlugin(id);
-        const result = Certs.verifyPluginSignature(plugin.home)
+
+        const result = Certs.verifyPlugin(plugin.home);
         if (!result.success) {
-            console.error(`Plugin ${id} failed to verify signature. ${result.error}`)
             delete this.loadingPlugins[id];
             this.sendUnloadToRenderer(id);
-            return;
+            NotificationCenter.addNotification({title: `Plugin ${id} verification failed`, message: result.error, type: "danger"});
+            return { success: false, error: result.error };
         }
-        const child = utilityProcess.fork(plugin.entry, [], {
-            serviceName: `plugin-${id}`,
-            cwd: plugin.home,
-            env: {
-                PLUGIN_HOME: plugin.home,
-                LOG_LEVEL: "info",
-                ...process.env,
-            },
-        })
 
-        child.on('spawn', () => {
-            delete this.loadingPlugins[id];
-            this.loadedPlugins[id] = {
-                instance: child,
-                ready: false
-            };
-            child.postMessage({message: 'PLUGIN_READY'})
-            // Handle messages from the plugin
-            child.once('message', (message) => {
-                if (message.type === 'PLUGIN_READY') {
-                    this.setPluginReady(id)
-                    this.sendReadyToRenderer(id)
-                }
+        try {
+            const child = utilityProcess.fork(plugin.entry, [], {
+                serviceName: `plugin-${id}`,
+                cwd: plugin.home,
+                env: {
+                    PLUGIN_HOME: plugin.home,
+                    LOG_LEVEL: "info",
+                    ...process.env,
+                },
             });
-        })
 
-        child.on('error', () => {
-            console.log(`Plugin ${id} encountered an error. Exiting...`)
-            delete this.loadingPlugins[id];
-            this.sendUnloadToRenderer(id);
-        })
+            const cleanup = () => {
+                delete this.loadingPlugins[id];
+                delete this.loadedPlugins[id];
+                this.sendUnloadToRenderer(id);
+                NotificationCenter.addNotification({title: `Plugin ${id} was unloaded`});
+            };
 
-        child.on('exit', () => {
-            console.log(`Plugin ${id} exited`)
+            child.once("spawn", () => {
+                delete this.loadingPlugins[id];
+
+                this.loadedPlugins[id] = {
+                    instance: child,
+                    ready: false,
+                };
+
+                child.postMessage({ message: "PLUGIN_READY" });
+
+                child.once("message", (message) => {
+                    if (message.type === "PLUGIN_READY") {
+                        this.setPluginReady(id);
+                        this.sendReadyToRenderer(id)
+                        NotificationCenter.addNotification({title: `${id} is ready`});
+                    }
+                });
+            });
+
+            child.once("error", (err) => {
+                cleanup();
+                NotificationCenter.addNotification({title: `Error with ${id}`, message: err, type: "danger"});
+            });
+
+            child.once("exit", (code) => {
+                NotificationCenter.addNotification({title: `Plugin ${id} exited`, message: `Code is ${code}`, type: "danger"});
+                cleanup();
+            });
+
+            return { success: true };
+        } catch (err) {
             delete this.loadingPlugins[id];
-            this.sendUnloadToRenderer(id);
-        })
+            NotificationCenter.addNotification({title: `Failed to load ${id}`, message: err, type: "danger"});
+            return { success: false, error: err.message };
+        }
     },
+
     setPluginReady(id) {
         this.loadedPlugins[id].ready = true;
     },
@@ -104,10 +131,14 @@ const PluginManager = {
         }
     },
     sendUnloadToRenderer(id) {
-        this.mainWindow.webContents.send(PluginChannels.on_off.UNLOADED, id);
+        if (this.mainWindow) {
+            this.mainWindow.webContents.send(PluginChannels.on_off.UNLOADED, id);
+        }
     },
     sendReadyToRenderer(id) {
-        this.mainWindow.webContents.send(PluginChannels.on_off.READY, id);
+        if (this.mainWindow) {
+            this.mainWindow.webContents.send(PluginChannels.on_off.READY, id);
+        }
     }
 }
 
