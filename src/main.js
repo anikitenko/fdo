@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, nativeTheme, net, session} from 'electron';
+import {app, BrowserWindow, dialog, nativeTheme, net, session, protocol} from 'electron';
 import path from 'node:path';
 import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
@@ -13,6 +13,20 @@ import {registerSystemHandlers} from "./ipc/system";
 import {registerPluginHandlers} from "./ipc/plugin";
 import {registerSettingsHandlers} from "./ipc/settings";
 import {NotificationCenter} from "./utils/NotificationCenter";
+import {readFile} from "node:fs/promises";
+
+import mime from 'mime';
+
+function getPluginFilePath(urlPath) {
+    const isPackaged = app.isPackaged;
+
+    const baseDir = isPackaged
+        ? path.join(process.resourcesPath, 'app.asar', '.webpack', 'renderer', 'plugin_host')
+        : path.join(__dirname, '..', 'renderer', 'plugin_host'); // dev mode fallback
+
+    const safePath = decodeURIComponent(urlPath || '/index.html');
+    return path.join(baseDir, safePath);
+}
 
 export const PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
 export const USER_CONFIG_FILE = path.join(app.getPath('userData'), 'config.json');
@@ -110,6 +124,28 @@ app.whenReady().then(async () => {
         const reqURL = new URL(req.url)
         return net.fetch(nodeUrl.pathToFileURL(path.join(app.getAppPath(), '.webpack/renderer', 'assets', reqURL.pathname)).toString())
     })
+
+    protocol.handle('plugin', async (request) => {
+        try {
+            const url = new URL(request.url);
+            let filePath = getPluginFilePath(url.pathname === '/' ? '/index.html' : url.pathname);
+            if (request.url === "plugin://index.html/plugin_host/index.js") {
+                filePath = getPluginFilePath("/index.js")
+            }
+
+            const data = await readFile(filePath);
+            const mimeType = mime.getType(filePath) || 'text/plain';
+
+            return new Response(data, {
+                headers: {
+                    'Content-Type': mimeType,
+                },
+            });
+        } catch (err) {
+            console.error('Plugin load error:', request.url, err);
+            return new Response('File not found', { status: 404 });
+        }
+    });
 
     setInterval(() => {
         const metrics = app.getAppMetrics();

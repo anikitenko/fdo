@@ -4,7 +4,7 @@ const {FuseV1Options, FuseVersion} = require('@electron/fuses');
 module.exports = {
     packagerConfig: {
         asar: {
-            unpackDir: '.webpack/main/node_modules/@esbuild'
+            unpackDir: '.webpack/main/node_modules'
         },
         icon: 'assets/desktop_icon',
         protocols: [
@@ -47,7 +47,7 @@ module.exports = {
             name: '@electron-forge/plugin-webpack',
             config: {
                 mainConfig: './webpack.main.config.js',
-                devContentSecurityPolicy: "default-src 'self' 'unsafe-eval' 'unsafe-inline' static: blob: http: https: ws: data:",
+                devContentSecurityPolicy: "default-src 'self' 'unsafe-eval' 'unsafe-inline' static: blob: http: https: plugin: ws: data:",
                 renderer: {
                     config: './webpack.renderer.config.js',
                     entryPoints: [
@@ -58,6 +58,11 @@ module.exports = {
                             preload: {
                                 js: './src/preload.js',
                             },
+                        },
+                        {
+                            name: 'plugin_host',
+                            html: './src/plugin_host.html',
+                            js: './src/renderer_plugin_host.js',
                         },
                     ],
                 },

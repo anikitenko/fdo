@@ -131,12 +131,22 @@ const PluginManager = {
         }
     },
     sendUnloadToRenderer(id) {
-        if (this.mainWindow) {
+        if (
+            this.mainWindow &&
+            !this.mainWindow.isDestroyed() &&
+            this.mainWindow.webContents &&
+            !this.mainWindow.webContents.isDestroyed()
+        ) {
             this.mainWindow.webContents.send(PluginChannels.on_off.UNLOADED, id);
         }
     },
     sendReadyToRenderer(id) {
-        if (this.mainWindow) {
+        if (
+            this.mainWindow &&
+            !this.mainWindow.isDestroyed() &&
+            this.mainWindow.webContents &&
+            !this.mainWindow.webContents.isDestroyed()
+        ) {
             this.mainWindow.webContents.send(PluginChannels.on_off.READY, id);
         }
     }

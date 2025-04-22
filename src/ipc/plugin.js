@@ -221,6 +221,7 @@ export function registerPluginHandlers() {
 
     ipcMain.handle(PluginChannels.BUILD, async (event, data) => {
         try {
+            let nodePath;
             let esbuildBinary;
             if (process.env.NODE_ENV === "development") {
                 // In development, use the normal esbuild path
@@ -229,12 +230,8 @@ export function registerPluginHandlers() {
                     ".webpack",
                     "main",
                     "node_modules",
-                    "@esbuild",
-                    process.platform + "-" + process.arch,
-                    "bin",
-                    "esbuild"
                 ]
-                esbuildBinary = path.join(...paths);
+                nodePath = path.join(...paths)
             } else {
                 // In production, point to the unpacked binary
                 const paths = [
@@ -243,18 +240,16 @@ export function registerPluginHandlers() {
                     ".webpack",
                     "main",
                     "node_modules",
-                    "@esbuild",
-                    process.platform + "-" + process.arch,
-                    "bin",
-                    "esbuild"
                 ]
-                esbuildBinary = path.join(...paths);
+                nodePath = path.join(...paths)
             }
+            esbuildBinary = path.join(nodePath, "@esbuild", process.platform + "-" + process.arch, "bin", "esbuild");
             // Set permissions
             chmodSync(esbuildBinary, 0o755)
 
             // Ensure esbuild uses the correct binary
             process.env.ESBUILD_BINARY_PATH = esbuildBinary;
+            process.env.NODE_PATH = nodePath;
             const latestContent = data.latestContent
             const srcJson = JSON.parse(latestContent["/package.json"])
             const pluginEntrypoint = srcJson.source || "index.ts"

@@ -26,10 +26,10 @@ module.exports = {
             },
             {
                 test: /\.jsx?$/,
+                exclude: /node_modules/,
                 use: {
                     loader: 'babel-loader',
                     options: {
-                        exclude: /node_modules/,
                         presets: [
                             ["@babel/preset-react", {
                                 "runtime": "automatic"
@@ -85,6 +85,13 @@ module.exports = {
                 {
                     from: path.resolve(__dirname, "node_modules/goober"),
                     to: "assets/node_modules/goober",
+                    globOptions: {
+                        ignore: [
+                            "**/__tests__/**",
+                            "**/*.test.js",
+                            "**/*.spec.js"
+                        ]
+                    }
                 },
                 {
                     from: path.resolve(__dirname, "node_modules/@types/node"),

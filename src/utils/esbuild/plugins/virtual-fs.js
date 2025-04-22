@@ -39,7 +39,7 @@ export function EsbuildVirtualFsPlugin(latestContent) {
 
                     return {path: `${moduleBase}/${entryFile}`, namespace: "virtual"};
                 } else {
-                    const mainNodeModules = path.join(__dirname, "node_modules");
+                    const mainNodeModules = process.env.NODE_MODULES || process.env.NODE_PATH;
                     moduleBase = path.join(mainNodeModules, args.path);
                     packageJsonPath = `${moduleBase}/package.json`;
                     if (fs.existsSync(packageJsonPath)) {
