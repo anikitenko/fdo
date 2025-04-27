@@ -65,7 +65,7 @@
   "license": "MIT",
   "dependencies": {
     "@anikitenko/bp5-rjsf-theme": "^1.0.10",
-    "@anikitenko/fdo-sdk": "^1.0.12",
+    "@anikitenko/fdo-sdk": "^1.0.13",
     "@babel/preset-react": "^7.26.3",
     "@babel/standalone": "^7.27.0",
     "@blueprintjs/core": "^5.18.0",

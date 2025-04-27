@@ -22,7 +22,7 @@ module.exports = {
         },
         {
             name: '@electron-forge/maker-zip',
-            platforms: ['darwin'],
+            platforms: ['darwin', 'linux'],
         },
         {
             name: '@electron-forge/maker-deb',
@@ -30,14 +30,27 @@ module.exports = {
                 options: {
                     icon: './src/assets/icons/fdo_icon.png',
                     maintainer: 'AleXvWaN',
-                    homepage: 'https://fdo.alexvwan.me'
+                    homepage: 'https://fdo.alexvwan.me',
+                    mimeType: ['x-scheme-handler/fdo-fiddle'],
+                    section: "utils",
+                    priority: 'standard',
+                    categories: ["Utility"]
                 },
-                mimeType: ['x-scheme-handler/fdo-fiddle']
             },
         },
         {
             name: '@electron-forge/maker-rpm',
-            config: {},
+            config: {
+                options: {
+                    icon: './src/assets/icons/fdo_icon.png',
+                    license: "MIT",
+                    homepage: 'https://fdo.alexvwan.me',
+                    mimeType: ['x-scheme-handler/fdo-fiddle'],
+                    group: "utils",
+                    compressionLevel: 9,
+                    categories: ["Utility"]
+                },
+            },
         },
         {
             name: '@electron-forge/maker-dmg',
