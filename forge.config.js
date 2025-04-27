@@ -28,7 +28,9 @@ module.exports = {
             name: '@electron-forge/maker-deb',
             config: {
                 options: {
-                    icon: './src/assets/icons/fdo_icon.png'
+                    icon: './src/assets/icons/fdo_icon.png',
+                    maintainer: 'AleXvWaN',
+                    homepage: 'https://fdo.alexvwan.me'
                 },
                 mimeType: ['x-scheme-handler/fdo-fiddle']
             },
