@@ -1,9 +1,38 @@
 .panel{
     border-left: solid 1px #d4d5d7;
+    width: 100%;
+    padding-right: 20px;
+    padding-bottom: 20px;
 }
 
 .manage-plugins :global(.bp5-tab-list) {
     background-color: white;
+}
+
+.manage-plugins :global(.bp5-heading) {
+    padding: 5px;
+}
+
+:global(.bp5-popover.bp5-tooltip) {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.card-panel {
+    background: inherit;
+    border: none;
+    box-shadow: none;
+    padding: 0 5px;
+    max-height: 560px;
+    overflow-y: auto;
+}
+
+.card-setting-header {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    margin-top: 15px;
+    padding-bottom: 0.5rem;
 }
 
 .alert-clean {

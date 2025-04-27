@@ -14,6 +14,7 @@ import {
     Tab,
     Tabs,
     Tag,
+    Tooltip as TooltipBP
 } from "@blueprintjs/core";
 import PropTypes from "prop-types";
 import * as styles from './css/ManagePluginsDialog.module.css'
@@ -99,7 +100,7 @@ export const ManagePluginsDialog = ({
             isCloseButtonShown={true}
             onClose={() => setShow(false)}
             className={styles["manage-plugins"]}
-            title={<><Icon icon={"cube"} intent={"primary"}/><span className={"bp5-heading"}
+            title={<><Icon icon={"cube"} intent={"primary"} size={20}/><span className={"bp5-heading"}
                                                                    style={{fontSize: "1.2rem"}}>Manage Plugins</span></>}
             style={{
                 minWidth: 800,
@@ -202,6 +203,8 @@ const SelectPluginPanel = ({
 
     const rememberChoiceRef = useRef(false);
     const rememberEditorRef = useRef(false);
+
+    const [exportProgress, setExportProgress] = useState(false)
 
     const METRIC_COLORS = {
         "CPU Percent": "#FF5733", // Red-Orange
@@ -319,7 +322,6 @@ const SelectPluginPanel = ({
                     return prevMetrics;
                 }
 
-                // ✅ Determine the density reduction interval based on selected time range
                 const durationMs = timeRangeRef.current[1].getTime() - timeRangeRef.current[0].getTime();
                 const interval = metricDensityReductionInterval(durationMs)
 
@@ -426,32 +428,32 @@ const SelectPluginPanel = ({
     const memoizedMetrics = useMemo(() => metrics, [metrics]);
 
     return (
-        <Card style={{
-            background: "inherit",
-            border: "none",
-            boxShadow: "none",
-            padding: "0 5px",
-            maxHeight: "560px",
-            overflowY: "auto",
-        }}>
-            <div style={{marginTop: "15px", marginBottom: "15px"}}>
-                <div style={{verticalAlign: "center"}}>
-                    <span className={"bp5-heading"}
-                          style={{fontSize: "1rem"}}>{plugin.name} {pluginVerification?.success ? (
-                        <Tag intent="success" icon="shield" style={{verticalAlign: "bottom"}}>Certified</Tag>
-                    ) : (
+        <Card className={styles["card-panel"]}>
+            <div className={styles["card-setting-header"]}>
+                <span className={"bp5-heading"}
+                      style={{fontSize: "1rem", margin: "0"}}>{plugin.name} {pluginVerification?.success ? (
+                    <Tag intent="success" icon="shield" style={{verticalAlign: "bottom"}}>Certified</Tag>
+                ) : (
+                    <TooltipBP
+                        content={pluginVerification?.error}
+                        intent="warning"
+                        placement="bottom"
+                    >
                         <Tag intent="warning" icon="warning-sign" style={{verticalAlign: "bottom"}}>Uncertified</Tag>
-                    )}</span>
-                    {(creationTime && activePlugins?.some((p) => p.id === plugin.id)) && (
-                        <span className={"bp5-code"}
-                              style={{float: "right"}}>Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
-                    )}
-                </div>
-                <div>
-                    <span className={classNames("bp5-text-small", "bp5-text-muted")}>{plugin.description}</span>
-                </div>
+                    </TooltipBP>
+                )}</span>
+                {(creationTime && activePlugins?.some((p) => p.id === plugin.id)) && (
+                    <span className={"bp5-code"}
+                          style={{marginLeft: "auto"}}>Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
+                )}
             </div>
+            <span className={classNames("bp5-text-small", "bp5-text-muted")}>{plugin.description}</span>
             <Divider/>
+            <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+                <div style={{flex: "1", minWidth: "0", width: "0"}}>
+            <div>
+                Loaded from: <i className={"bp5-heading"}>{plugin.home}</i>
+            </div>
             <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong
                 style={{color: activePlugins?.some((p) => p.id === plugin.id) ? "green" : "red"}}>Enabled</strong>}
                     innerLabelChecked="yes :)" innerLabel="no :("
@@ -464,6 +466,32 @@ const SelectPluginPanel = ({
                         }
                     }}
             />
+                </div>
+            <Button
+                icon="archive"
+                text={"Export"}
+                intent="success"
+                loading={exportProgress}
+                style={{marginLeft: "auto", alignSelf: "center"}}
+                onClick={async () => {
+                    setExportProgress(true)
+                    const data = await window.electron.plugin.export(plugin.id)
+                    console.log(data)
+                    if (data) {
+                        const blob = new Blob([data], {type: 'application/zip'});
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${plugin.name}.zip`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }
+                    setExportProgress(false)
+                }}
+            />
+            </div>
             <Divider/>
             <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
                 <div style={{flex: "1", minWidth: "0", width: "0"}}>
@@ -521,7 +549,7 @@ const SelectPluginPanel = ({
                         })
                         setResignProgress(false)
                     }}
-                    style={{marginLeft: "1rem", alignSelf: "center"}}
+                    style={{marginLeft: "auto", alignSelf: "center"}}
                 />
             </div>
             <Divider/>

@@ -1,3 +1,7 @@
+.create-plugin-dialog :global(.bp5-heading) {
+    padding: 5px;
+}
+
 .new-template-image-blank {
     border-radius: 10px;
     width: 250px;

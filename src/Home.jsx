@@ -26,17 +26,13 @@ export const Home = () => {
     const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
     const [sideBarActionItems, setSideBarActionItems] = useState([
         {id: "system-notifications", icon: "notifications", name: "Notifications", notifications},
-        {id: "system-settings", icon: "cog", name: "Settings"}
+        {id: "system-settings", icon: "settings", name: "Settings"}
     ])
     const [notificationsShow, setNotificationsShow] = useState(false)
     const [showSettingsDialog, setShowSettingsDialog] = useState(false)
 
     const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
-
-    const isPluginReady = (pluginID) => {
-        return pluginReadiness.get(pluginID) ?? false;
-    };
 
     const isPluginInit = (pluginID) => {
         return pluginInitStatus.get(pluginID) ?? false;
@@ -213,10 +209,9 @@ export const Home = () => {
 
         // Perform actions only for newly ready plugins
         if (newlyReadyPlugins.length > 0) {
-            newlyReadyPlugins.forEach((pluginID) => {
-                window.electron.plugin.init(pluginID).then(() => {
-                })
-            });
+            for (const pluginID of newlyReadyPlugins) {
+                window.electron.plugin.init(pluginID)
+            }
         }
     }, [pluginReadiness]);
 

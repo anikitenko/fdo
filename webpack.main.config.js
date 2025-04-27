@@ -6,6 +6,11 @@ module.exports = {
      * that runs in the main process.
      */
     entry: './src/main.js',
+    target: 'electron-main',
+    output: {
+        path: path.resolve(__dirname, '.webpack/main'),
+        filename: 'index.js',
+    },
     // Put your normal webpack config below here
     module: {
         rules: [

@@ -136,6 +136,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
             await triggerBuild()
         } catch (e) {
             setDeployInProgress(false)
+            (await AppToaster).show({message: `Build failed: ${e.message}`, intent: "danger"});
             return
         }
 
@@ -146,7 +147,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
             return
         }
 
-        const metadata = virtualFS.build.getMetadata()
+        const metadata = await virtualFS.build.getMetadata()
         if (!metadata) {
             (await AppToaster).show({message: `No metadata found.`, intent: "danger"});
             return
@@ -189,7 +190,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
             })
         })
 
-        const metadata = virtualFS.build.getMetadata()
+        const metadata = await virtualFS.build.getMetadata()
         if (!metadata) {
             (await AppToaster).show({message: `No metadata found.`, intent: "danger"});
             return
@@ -281,7 +282,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
                     fill={true}
                 >
                     <Button fill={true} text={versionText(version?.version, prettyVersionDate, version?.prev, true)}
-                            rightIcon="double-caret-vertical"/>
+                            endIcon="double-caret-vertical"/>
                 </Select>
             </FormGroup>
             <FormGroup

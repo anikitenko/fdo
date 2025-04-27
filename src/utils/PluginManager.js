@@ -1,5 +1,5 @@
 import UserORM from "./UserORM";
-import {utilityProcess} from "electron";
+import {shell, utilityProcess} from "electron";
 import PluginORM from "./PluginORM";
 import {PluginChannels} from "../ipc/channels";
 import {Certs} from "./certs";
@@ -43,15 +43,15 @@ const PluginManager = {
         const pluginORM = new PluginORM(this.pluginConfigFile);
         const plugin = pluginORM.getPlugin(id);
 
-        const result = Certs.verifyPlugin(plugin.home);
-        if (!result.success) {
-            delete this.loadingPlugins[id];
-            this.sendUnloadToRenderer(id);
-            NotificationCenter.addNotification({title: `Plugin ${id} verification failed`, message: result.error, type: "danger"});
-            return { success: false, error: result.error };
-        }
-
         try {
+            const result = await Certs.verifyPlugin(plugin.home);
+            if (!result.success) {
+                delete this.loadingPlugins[id];
+                this.sendToMainWindow(PluginChannels.on_off.UNLOADED, id);
+                NotificationCenter.addNotification({title: `Plugin ${id} verification failed`, message: result.error, type: "danger"});
+                return { success: false, error: result.error };
+            }
+
             const child = utilityProcess.fork(plugin.entry, [], {
                 serviceName: `plugin-${id}`,
                 cwd: plugin.home,
@@ -65,7 +65,7 @@ const PluginManager = {
             const cleanup = () => {
                 delete this.loadingPlugins[id];
                 delete this.loadedPlugins[id];
-                this.sendUnloadToRenderer(id);
+                this.sendToMainWindow(PluginChannels.on_off.UNLOADED, id);
                 NotificationCenter.addNotification({title: `Plugin ${id} was unloaded`});
             };
 
@@ -77,15 +77,21 @@ const PluginManager = {
                     ready: false,
                 };
 
-                child.postMessage({ message: "PLUGIN_READY" });
-
-                child.once("message", (message) => {
+                child.on("message", (message) => {
                     if (message.type === "PLUGIN_READY") {
                         this.setPluginReady(id);
-                        this.sendReadyToRenderer(id)
+                        this.sendToMainWindow(PluginChannels.on_off.READY, id)
                         NotificationCenter.addNotification({title: `${id} is ready`});
+                    } else if (message.type === 'PLUGIN_INIT') {
+                        this.sendToMainWindow(PluginChannels.on_off.INIT, {id, ...message.response})
+                    } else if (message.type === 'PLUGIN_RENDER') {
+                        this.sendToMainWindow(PluginChannels.on_off.RENDER, message.response)
+                    } else if (message.type === 'UI_MESSAGE') {
+                        this.sendToMainWindow(PluginChannels.on_off.UI_MESSAGE, message.response)
                     }
                 });
+
+                child.postMessage({ message: "PLUGIN_READY" });
             });
 
             child.once("error", (err) => {
@@ -101,8 +107,22 @@ const PluginManager = {
             return { success: true };
         } catch (err) {
             delete this.loadingPlugins[id];
-            NotificationCenter.addNotification({title: `Failed to load ${id}`, message: err, type: "danger"});
-            return { success: false, error: err.message };
+            if (process.platform === 'darwin' && err.code === 'EPERM') {
+                const result = await dialog.showMessageBox({
+                    type: 'error',
+                    title: 'Permission Denied',
+                    message: `macOS has blocked access to:\n${id}\n\nPlease grant access in System Settings > Privacy & Security > Files and Folders.`,
+                    buttons: ['Open Settings', 'Cancel'],
+                    defaultId: 0
+                });
+
+                if (result.response === 0) {
+                    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders');
+                }
+            } else {
+                NotificationCenter.addNotification({title: `Failed to load ${id}`, message: err, type: "danger"});
+                return {success: false, error: err.message};
+            }
         }
     },
 
@@ -127,29 +147,19 @@ const PluginManager = {
         if (this.loadedPlugins[id]) {
             this.loadedPlugins[id]?.instance.kill();
             delete this.loadedPlugins[id];
-            this.sendUnloadToRenderer(id);
+            this.sendToMainWindow(PluginChannels.on_off.UNLOADED, id);
         }
     },
-    sendUnloadToRenderer(id) {
+    sendToMainWindow(type, ...data) {
         if (
             this.mainWindow &&
             !this.mainWindow.isDestroyed() &&
             this.mainWindow.webContents &&
             !this.mainWindow.webContents.isDestroyed()
         ) {
-            this.mainWindow.webContents.send(PluginChannels.on_off.UNLOADED, id);
+            this.mainWindow.webContents.send(type, ...data);
         }
     },
-    sendReadyToRenderer(id) {
-        if (
-            this.mainWindow &&
-            !this.mainWindow.isDestroyed() &&
-            this.mainWindow.webContents &&
-            !this.mainWindow.webContents.isDestroyed()
-        ) {
-            this.mainWindow.webContents.send(PluginChannels.on_off.READY, id);
-        }
-    }
 }
 
 export default PluginManager

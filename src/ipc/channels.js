@@ -49,6 +49,9 @@ export const SystemChannels = withPrefix('system', {
     EDITOR_CLOSE_APPROVED: 'editor-close-approved',
     EDITOR_RELOAD_APPROVED: 'editor-reload-approved',
     OPEN_PLUGIN_IN_EDITOR: 'open-plugin-in-editor',
+    IS_FDO_IN_PATH: 'is-fdo-in-path',
+    ADD_FDO_IN_PATH: 'add-fdo-in-path',
+    REMOVE_FDO_FROM_PATH: 'remove-fdo-from-path',
     on_off: {
         CONFIRM_CLOSE: 'confirm-close',
         CONFIRM_RELOAD: 'confirm-reload'
@@ -74,6 +77,7 @@ export const PluginChannels = withPrefix('plugin', {
     SAVE_FROM_EDITOR: 'save-from-editor',
     VERIFY_SIGNATURE: 'verify-signature',
     SIGN: 'sign',
+    EXPORT: 'export',
     on_off: {
         UNLOADED: 'unloaded',
         READY: 'ready',

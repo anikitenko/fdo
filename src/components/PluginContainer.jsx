@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from "react";
 import PropTypes from "prop-types";
 import {Spinner} from "@blueprintjs/core";
+import {useBabelWorker} from "./plugin/utils/useBabelWorker";
 
 export const PluginContainer = ({plugin}) => {
     const [height, setHeight] = useState("100vh");
@@ -9,6 +10,8 @@ export const PluginContainer = ({plugin}) => {
     const [iframeReady, setIframeReady] = useState(false);
     const [iframeLoaded, setIframeLoaded] = useState(false);
     const [content, setContent] = useState("");
+
+    const { transform } = useBabelWorker();
 
     useEffect(() => {
         const updateHeight = () => {
@@ -75,20 +78,29 @@ export const PluginContainer = ({plugin}) => {
     }, [plugin]);
 
     useEffect(() => {
-        if (iframeReady && iframeLoaded) {
-            const safeCode = sanitizeCode(JSON.parse(content.render));
-            const safeOnLoad = sanitizeCode(JSON.parse(content.onLoad));
-            loadBabel().then((babel) => {
-                if (!babel || typeof babel.transform !== "function") {
-                    return;
+        const run = async () => {
+            try {
+                if (iframeReady && iframeLoaded) {
+                    const safeOnLoad = sanitizeCode(JSON.parse(content.onLoad));
+
+                    const safeCode = "<>" + sanitizeCode(JSON.parse(content.render)) + "</>";
+                    const transformedCode = await transform(safeCode);
+
+                    iframeRef.current?.contentWindow?.postMessage({
+                        type: "PLUGIN_RENDER",
+                        content: {
+                            code: transformedCode,
+                            onLoad: safeOnLoad
+                        }
+                    }, "*");
                 }
-                const transformedCode = babel.transform("<>"+safeCode+"</>", {
-                    presets: ["react"],
-                }).code;
-                iframeRef.current.contentWindow?.postMessage({type: "PLUGIN_RENDER", content: {code: transformedCode, onLoad: safeOnLoad}}, "*");
-            })
-        }
-    }, [iframeLoaded, iframeReady]);
+            } catch (err) {
+                console.error("Sanitize/transform error:", err);
+            }
+        };
+
+        run();
+    }, [iframeLoaded, iframeReady, content]);
 
     return (
         <div id={"plugin-container"} style={{height: "100%", margin: 0, padding: 0, overflow: "hidden"}}>
@@ -139,32 +151,4 @@ function sanitizeCode(code) {
     });
 
     return code;
-}
-
-async function loadBabel() {
-    return new Promise((resolve, reject) => {
-        window.electron.system.getBabelPath().then(async (path) => {
-            if (path.success) {
-                try {
-                    const babelFile = `static://assets/node_modules/@babel/standalone/babel.js`;
-                    const script = document.createElement("script");
-                    script.src = babelFile;
-                    script.onload = () => {
-                        if (window.Babel) {
-                            resolve(window.Babel);
-                        } else {
-                            reject(new Error("❌ Babel script loaded but window.Babel is undefined"));
-                        }
-                    };
-                    script.onerror = () => reject(new Error("❌ Failed to load Babel script"));
-                    document.head.appendChild(script);
-                } catch (error) {
-                    reject(error);
-                }
-            } else {
-                console.error("Failed to load Babel:", path.error);
-                reject(new Error("Failed to load Babel"));
-            }
-        });
-    });
 }

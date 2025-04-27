@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import ignore from "ignore";
 import {NotificationCenter} from "./NotificationCenter";
+import {safeReadFileSync} from "./safeReadFileSync";
 
 export const Certs = {
     EXPIRY_THRESHOLD_DAYS: 90,
@@ -400,7 +401,7 @@ export const Certs = {
         }
     },
 
-    verifyPlugin(pluginDir) {
+    async verifyPlugin(pluginDir) {
         try {
             const metaPath = path.join(pluginDir, "fdo.meta.json");
             const sigPath = path.join(pluginDir, "fdo.signature");
@@ -409,8 +410,8 @@ export const Certs = {
                 return {success: false, error: "Missing signature or metadata file."};
             }
 
-            const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-            const signatureBuffer = fs.readFileSync(sigPath);
+            const meta = JSON.parse(await safeReadFileSync(metaPath, "utf-8"));
+            const signatureBuffer = await safeReadFileSync(sigPath);
 
             if (
                 typeof meta.fingerprint?.value !== "string" ||

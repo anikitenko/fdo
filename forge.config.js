@@ -6,7 +6,7 @@ module.exports = {
         asar: {
             unpackDir: '.webpack/main/node_modules'
         },
-        icon: 'assets/desktop_icon',
+        icon: './src/assets/icons/fdo_icon',
         protocols: [
             {
                 name: 'FDO Opener',
@@ -28,7 +28,7 @@ module.exports = {
             name: '@electron-forge/maker-deb',
             config: {
                 options: {
-                    icon: 'assets/desktop_icon.png'
+                    icon: './src/assets/icons/fdo_icon.png'
                 },
                 mimeType: ['x-scheme-handler/fdo-fiddle']
             },
@@ -37,6 +37,21 @@ module.exports = {
             name: '@electron-forge/maker-rpm',
             config: {},
         },
+        {
+            name: '@electron-forge/maker-dmg',
+            config: {
+                background: './src/assets/preview-dmg-light.png',
+                format: 'ULFO',
+                icon: './src/assets/icons/fdo_icon.icns',
+                iconSize: 120,
+                window: {
+                    size: {
+                        width: 600,
+                        height: 300
+                    }
+                }
+            }
+        }
     ],
     plugins: [
         {

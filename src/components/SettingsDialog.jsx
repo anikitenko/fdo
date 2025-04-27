@@ -1,10 +1,10 @@
 import * as styles from "./css/SettingsDialog.module.css";
-import {Button, Card, CardList, Dialog, EditableText, H2, Icon, Tab, Tabs} from "@blueprintjs/core";
+import {Button, Card, CardList, Dialog, EditableText, H2, Icon, Switch, Tab, Tabs} from "@blueprintjs/core";
 import classNames from "classnames";
 import React, {useEffect, useState} from "react";
 
 import PropTypes from "prop-types";
-import {formatDistanceToNow} from 'date-fns';
+import {differenceInDays, formatDistanceToNow} from 'date-fns';
 import {AppToaster} from "./AppToaster.jsx";
 import {CertificateValidComponent} from "./editor/utils/CertificateValidComponent";
 
@@ -18,11 +18,12 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
             isCloseButtonShown={true}
             onClose={() => setShowSettingsDialog(false)}
             className={styles["settings"]}
-            title={<><Icon icon={"cog"} intent={"primary"} style={{paddingLeft: "3px"}}/><span className={"bp5-heading"}
+            title={<><Icon icon={"settings"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span className={"bp5-heading"}
                                                                                                style={{fontSize: "1.2rem"}}>Settings</span></>}
             style={{
                 minWidth: 900,
-                paddingBottom: 0
+                paddingBottom: 0,
+                height: 620
             }}
         >
             <Tabs
@@ -30,8 +31,29 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                 animate={true}
                 id={"settings-tabs"}
                 renderActiveTabPanelOnly={true}
-                className={styles["settings"]}
             >
+                <Tab id={"general"}
+                     title={
+                         <div style={{verticalAlign: "center", width: "180px"}}
+                              className={"bp5-text-overflow-ellipsis"}>
+                             <Icon icon={"cog"} intent={"primary"}/>
+                             <span style={{
+                                 marginLeft: "5px",
+                                 fontSize: "0.8rem",
+                                 lineHeight: "10px",
+                                 textOverflow: "ellipsis"
+                             }}
+                                   className={classNames("bp5-text-muted")}>General</span>
+                         </div>
+                     }
+                     style={{
+                         borderBottom: "solid 1px #d4d5d7",
+                         borderTop: "solid 1px #d4d5d7",
+                     }}
+                     panelClassName={styles["panel"]}
+                     panel={
+                         <GeneralPanel/>
+                     }/>
                 <Tab id={"certificates"}
                      title={
                          <div style={{verticalAlign: "center", width: "180px"}}
@@ -48,7 +70,6 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                      }
                      style={{
                          borderBottom: "solid 1px #d4d5d7",
-                         borderTop: "solid 1px #d4d5d7",
                      }}
                      panelClassName={styles["panel"]}
                      panel={
@@ -61,6 +82,52 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
 SettingsDialog.propTypes = {
     showSettingsDialog: PropTypes.bool,
     setShowSettingsDialog: PropTypes.func,
+}
+
+const GeneralPanel = () => {
+    const [fdoInPath, setFdoInPath] = useState(false);
+    useEffect(() => {
+        window.electron.system.isFdoInPath().then((result) => {
+            if (result.success) {
+                setFdoInPath(true)
+            } else {
+                setFdoInPath(false)
+            }
+        })
+    }, []);
+    return (
+        <Card className={styles["card-panel"]}>
+            <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong>{fdoInPath ? "Remove" : "Install"} 'fdo' command {fdoInPath ? "from" : "in"} PATH</strong>}
+                    innerLabelChecked="installed :)" innerLabel="not installed :("
+                    checked={fdoInPath}
+                    onChange={() => {
+                        if (fdoInPath) {
+                            window.electron.system.removeFdoFromPath().then((result) => {
+                                if (result.success) {
+                                    setFdoInPath(false)
+                                } else {
+                                    if (result.error === "skip") {
+                                        return
+                                    }
+                                    (AppToaster).show({message: `${result.error}`, intent: "danger"});
+                                }
+                            })
+                        } else {
+                            window.electron.system.addFdoInPath().then((result) => {
+                                if (result.success) {
+                                    setFdoInPath(true)
+                                } else {
+                                    if (result.error === "skip") {
+                                        return
+                                    }
+                                    (AppToaster).show({message: `${result.error}`, intent: "danger"});
+                                }
+                            })
+                        }
+                    }}
+            />
+        </Card>
+    )
 }
 
 const CertificatePanel = () => {
@@ -80,6 +147,19 @@ const CertificatePanel = () => {
             updateCertificates()
         })
     }, []);
+
+    const showColoredLastUsed = (lastUsed) => {
+        const lastUsedDate = new Date(lastUsed);
+        const daysAgo = differenceInDays(new Date(), lastUsedDate);
+
+        const usageClass = daysAgo < 7 ? styles["text-green"] : styles["text-red"];
+
+        return (
+            <span className={`bp5-text-muted ${usageClass}`}>
+                Last used {formatDistanceToNow(lastUsedDate, {addSuffix: true})}
+            </span>
+        )
+    }
 
     useEffect(() => {
         updateCertificates()
@@ -136,10 +216,17 @@ const CertificatePanel = () => {
                                 gap: "5px"
                             }}
                         >
-                            <div style={{display: "flex", alignItems: "center", gap: "12px", flex: "1", minWidth: "0", width: "0"}}>
+                            <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "12px",
+                                flex: "1",
+                                minWidth: "0",
+                                width: "0"
+                            }}>
                                 <Icon icon="id-number" size={32}/>
                                 <div className={"bp5-text-overflow-ellipsis"}>
-                                    <div>
+                                    <div style={{padding: "3px"}}>
                                         {cert.label === "root" ? (
                                             <strong style={{color: "#2d72d2"}}>{cert.label}</strong>
                                         ) : (
@@ -159,16 +246,14 @@ const CertificatePanel = () => {
                                             fontSize: "12px"
                                         }}>{cert.id}</code>
                                     </div>
-                                    <CertificateValidComponent cert={cert} />
+                                    <CertificateValidComponent cert={cert}/>
                                     <div>
                                 <span className={"bp5-text-muted"}>
                                     Added {formatDistanceToNow(new Date(cert.createdAt), {addSuffix: true})}
                                 </span>
                                     </div>
                                     <div>
-                                <span className={"bp5-text-muted"}>
-                                    Last used {formatDistanceToNow(new Date(cert.lastUsedAt), {addSuffix: true})}
-                                </span>
+                                        {showColoredLastUsed(cert.lastUsedAt)}
                                     </div>
                                 </div>
                             </div>

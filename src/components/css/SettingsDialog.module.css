@@ -7,6 +7,11 @@
 
 .settings :global(.bp5-tab-list) {
     background-color: white;
+    height: 580px;
+}
+
+.settings :global(.bp5-heading) {
+    padding: 5px;
 }
 
 .card-panel {
@@ -26,4 +31,12 @@
     margin-bottom: 1rem;
     border-bottom: 0.0625rem solid #d1d9e0b3;
     padding-bottom: 0.5rem;
+}
+
+.text-green {
+    color: #32A467;
+}
+
+.text-red {
+    color: #E76A6E;
 }

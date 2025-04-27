@@ -10,6 +10,8 @@ import {editorWindow} from "../utils/editorWindow";
 
 import {exec} from "child_process";
 import {promisify} from "util";
+import {installFDOCLI, removeFDOCLI} from "../utils/installFDOCLI";
+import {lookpath} from "lookpath";
 
 const execAsync = promisify(exec);
 
@@ -40,18 +42,6 @@ function systemOpenEditorWindow(data) {
             editorWindowInstance.webContents.send(SystemChannels.on_off.CONFIRM_RELOAD);
         }
     });
-}
-
-async function isCommandAvailable(command) {
-    const platform = process.platform;
-    const checkCommand = platform === "win32" ? `where ${command}` : `which ${command}`;
-
-    try {
-        await execAsync(checkCommand);
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 export function registerSystemHandlers() {
@@ -141,24 +131,48 @@ export function registerSystemHandlers() {
                     systemOpenEditorWindow({name: pluginID})
                     break;
                 case "vscode":
-                    if (!await isCommandAvailable("code")) {
+                    if (!await lookpath("code")) {
                         return {success: false, error: "VS Code is not installed or not in PATH."};
                     }
                     await execAsync(`code "${pluginDirectory}"`);
                     break;
                 case "idea":
-                    if (!await isCommandAvailable("idea")) {
+                    if (!await lookpath("idea")) {
                         return {success: false, error: "IntelliJ IDEA is not installed or not in PATH."};
                     }
-                    await execAsync(`code "${pluginDirectory}"`);
+                    await execAsync(`idea "${pluginDirectory}"`);
                     break;
                 case "webstorm":
-                    if (!await isCommandAvailable("webstorm")) {
+                    if (!await lookpath("webstorm")) {
                         return {success: false, error: "IntelliJ WebStorm is not installed or not in PATH."};
                     }
                     await execAsync(`webstorm "${pluginDirectory}"`);
             }
             return {success: true};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.IS_FDO_IN_PATH, async () => {
+        if (await lookpath('fdo')) {
+            return {success: true};
+        } else {
+            return {success: false};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.ADD_FDO_IN_PATH, async () => {
+        if (!await lookpath("fdo")) {
+            return installFDOCLI()
+        } else {
+            return {success: false, error: "FDO CLI is already in PATH."};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.REMOVE_FDO_FROM_PATH, async () => {
+        if (await lookpath("fdo")) {
+            return removeFDOCLI()
+        } else {
+            return {success: false, error: "FDO CLI is not in PATH."};
         }
     })
 
