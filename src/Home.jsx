@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react'
 import classNames from "classnames";
 import {KBarProvider} from "kbar";
-import {Alignment, Button, Icon, InputGroup, Navbar, Tag,} from "@blueprintjs/core";
+import {Alignment, Button, Icon, InputGroup, Navbar, NavbarDivider, NavbarGroup, Tag,} from "@blueprintjs/core";
 import * as styles from './Home.module.scss'
 import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx";
 import {AppToaster} from "./components/AppToaster.jsx";
@@ -492,29 +492,29 @@ export const Home = () => {
             }}
         >
             <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
-            <div className={classNames("bp5-dark", styles["main-container"])}>
+            <div className={classNames("bp6-dark", styles["main-container"])}>
                 {state.activePlugins.length > 0 && (
                     <SideBar position={"left"} menuItems={state.activePlugins} click={handlePluginChange}/>
                 )}
                 <Navbar fixedToTop={true}>
-                    <Navbar.Group className={styles["nav-center"]}>
+                    <NavbarGroup className={styles["nav-center"]}>
                         <NavigationPluginsButton active={state.activePlugins} all={state.plugins}
                                                  buttonMenuRef={buttonMenuRef}
                                                  selectPlugin={selectPlugin} deselectPlugin={deselectPlugin}
                                                  deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin}
                                                  setSearchActions={setSearchActions}
                         />
-                    </Navbar.Group>
-                    <Navbar.Group align={Alignment.END}>
+                    </NavbarGroup>
+                    <NavbarGroup align={Alignment.END}>
                         <InputGroup
                             leftIcon={"search"} placeholder={"Search..."} inputClassName={styles["header-search"]}
-                            rightElement={<Tag minimal={true} className={"bp5-monospace-text"}
+                            rightElement={<Tag minimal={true} className={"bp6-monospace-text"}
                                                style={{fontSize: "0.6rem", background: "black"}}>Cmd+K</Tag>}
                             onClick={() => setShowCommandSearch(true)}
                             value=""
                             onKeyDown={() => setShowCommandSearch(true)}
                         />
-                        <Navbar.Divider/>
+                        <NavbarDivider/>
                         <div className={styles["notification-container"]}>
                             <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
                                     onClick={() => setShowRightSideBar(!showRightSideBar)}/>
@@ -523,7 +523,7 @@ export const Home = () => {
                                 hidden={!notifications || notifications.filter(n => !n.read).length === 0 || showRightSideBar}
                             />
                         </div>
-                    </Navbar.Group>
+                    </NavbarGroup>
                 </Navbar>
                 {showRightSideBar && (
                     <SideBar position={"right"} menuItems={sideBarActionItems} click={handleSideBarItemsClick}/>

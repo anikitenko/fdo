@@ -69,7 +69,7 @@ const PluginsCard = ({
             <Card style={{background: "#2e2e2e", borderRadius: "10px 10px 0 0"}}>
                 <div>
                     <div style={{paddingLeft: "15px", paddingRight: "15px", paddingBottom: "5px"}}>
-                        <span className={"bp5-text-large bp5-heading"}>Installed Plugins</span>
+                        <span className={"bp6-text-large bp6-heading"}>Installed Plugins</span>
                         {all.length > 0 && (
                             <Button
                                 variant={"minimal"}
@@ -102,7 +102,7 @@ const PluginsCard = ({
                     }}>
                         {all.length === 0 && (
                             <div style={{textAlign: "center", color: "#6c757d"}}>
-                                <span className={"bp5-text-muted"}>No plugins installed</span>
+                                <span className={"bp6-text-muted"}>No plugins installed</span>
                             </div>
                         )}
                         {all.map((plugin) => {
@@ -126,16 +126,16 @@ const PluginsCard = ({
                                         </div>
                                         <div style={{display: 'grid', gap: '5px'}}>
                                             <div>
-                                                <span className="bp5-heading">{plugin.name}</span>
+                                                <span className="bp6-heading">{plugin.name}</span>
                                             </div>
                                             <div>
-                                        <span className={"bp5-text-small bp5-text-muted"}>
+                                        <span className={"bp6-text-small bp6-text-muted"}>
                                             {plugin.author}
                                         </span> | <span
-                                                className={"bp5-text-small bp5-text-muted"}>{plugin.version}</span>
+                                                className={"bp6-text-small bp6-text-muted"}>{plugin.version}</span>
                                             </div>
                                             <div>
-                                                <span className="bp5-text-small">{plugin.description}</span>
+                                                <span className="bp6-text-small">{plugin.description}</span>
                                             </div>
                                         </div>
                                     </div>

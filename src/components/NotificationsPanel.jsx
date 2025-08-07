@@ -72,7 +72,7 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
                                 <div className={styles.titleRow}>
                                     <span className={!notification.read ? styles.unreadTitle : undefined}>
                                         {notification.title} <span
-                                        className={"bp5-text-small bp5-text-muted bp5-running-text"}>{formatDistanceToNow(new Date(notification.createdAt), {addSuffix: true})}</span>
+                                        className={"bp6-text-small bp6-text-muted bp6-running-text"}>{formatDistanceToNow(new Date(notification.createdAt), {addSuffix: true})}</span>
                                     </span>
                                     <Icon
                                         icon="cross"

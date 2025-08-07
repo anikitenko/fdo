@@ -16,7 +16,7 @@ export const CustomNode = ({ data, selected, isConnectable, setPropsShow }) => {
             <Card selected={selected} interactive={true} style={{cursor: "inherit", padding: "5px", position: "relative", background: data.color ? data.color : "white" }}>
                 <div style={{marginBottom: "5px"}}>
                     <Icon icon={"many-to-one"} size={8}/>
-                    <span className={"bp5-heading"} style={{fontSize: "0.8rem", padding: "0 5px", verticalAlign: "sub"}}>{data.label}</span>
+                    <span className={"bp6-heading"} style={{fontSize: "0.8rem", padding: "0 5px", verticalAlign: "sub"}}>{data.label}</span>
                     <Icon icon={"flow-branch"} size={8}/>
                 </div>
             </Card>

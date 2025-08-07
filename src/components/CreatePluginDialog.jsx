@@ -107,7 +107,7 @@ export const CreatePluginDialog = ({show, close}) => {
                 isCloseButtonShown={true}
                 onClose={dialogClose}
                 className={styles["create-plugin-dialog"]}
-                title={<><Icon icon={"console"} intent={"primary"} size={20}/><span className={"bp5-heading"}
+                title={<><Icon icon={"console"} intent={"primary"} size={20}/><span className={"bp6-heading"}
                                                                                     style={{fontSize: "1.2rem"}}>Create Plugin</span></>}
                 style={{
                     minWidth: 600,

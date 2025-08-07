@@ -18,7 +18,7 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
             isCloseButtonShown={true}
             onClose={() => setShowSettingsDialog(false)}
             className={styles["settings"]}
-            title={<><Icon icon={"settings"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span className={"bp5-heading"}
+            title={<><Icon icon={"settings"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span className={"bp6-heading"}
                                                                                                style={{fontSize: "1.2rem"}}>Settings</span></>}
             style={{
                 minWidth: 900,
@@ -35,7 +35,7 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                 <Tab id={"general"}
                      title={
                          <div style={{verticalAlign: "center", width: "180px"}}
-                              className={"bp5-text-overflow-ellipsis"}>
+                              className={"bp6-text-overflow-ellipsis"}>
                              <Icon icon={"cog"} intent={"primary"}/>
                              <span style={{
                                  marginLeft: "5px",
@@ -43,7 +43,7 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                                  lineHeight: "10px",
                                  textOverflow: "ellipsis"
                              }}
-                                   className={classNames("bp5-text-muted")}>General</span>
+                                   className={classNames("bp6-text-muted")}>General</span>
                          </div>
                      }
                      style={{
@@ -57,7 +57,7 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                 <Tab id={"certificates"}
                      title={
                          <div style={{verticalAlign: "center", width: "180px"}}
-                              className={"bp5-text-overflow-ellipsis"}>
+                              className={"bp6-text-overflow-ellipsis"}>
                              <Icon icon={"id-number"} intent={"primary"}/>
                              <span style={{
                                  marginLeft: "5px",
@@ -65,7 +65,7 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                                  lineHeight: "10px",
                                  textOverflow: "ellipsis"
                              }}
-                                   className={classNames("bp5-text-muted")}>Certificates</span>
+                                   className={classNames("bp6-text-muted")}>Certificates</span>
                          </div>
                      }
                      style={{
@@ -155,7 +155,7 @@ const CertificatePanel = () => {
         const usageClass = daysAgo < 7 ? styles["text-green"] : styles["text-red"];
 
         return (
-            <span className={`bp5-text-muted ${usageClass}`}>
+            <span className={`bp6-text-muted ${usageClass}`}>
                 Last used {formatDistanceToNow(lastUsedDate, {addSuffix: true})}
             </span>
         )
@@ -225,7 +225,7 @@ const CertificatePanel = () => {
                                 width: "0"
                             }}>
                                 <Icon icon="id-number" size={32}/>
-                                <div className={"bp5-text-overflow-ellipsis"}>
+                                <div className={"bp6-text-overflow-ellipsis"}>
                                     <div style={{padding: "3px"}}>
                                         {cert.label === "root" ? (
                                             <strong style={{color: "#2d72d2"}}>{cert.label}</strong>
@@ -241,14 +241,14 @@ const CertificatePanel = () => {
                                         <div><strong>{cert.identity}</strong></div>
                                     )}
                                     <div>
-                                        <code className={"bp5-monospace-text"} style={{
+                                        <code className={"bp6-monospace-text"} style={{
                                             overflowWrap: "anywhere",
                                             fontSize: "12px"
                                         }}>{cert.id}</code>
                                     </div>
                                     <CertificateValidComponent cert={cert}/>
                                     <div>
-                                <span className={"bp5-text-muted"}>
+                                <span className={"bp6-text-muted"}>
                                     Added {formatDistanceToNow(new Date(cert.createdAt), {addSuffix: true})}
                                 </span>
                                     </div>

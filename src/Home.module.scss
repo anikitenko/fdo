@@ -21,7 +21,7 @@
     text-overflow: ellipsis;
 }
 
-:global(.bp5-popover) :global(.bp5-popover-content) {
+:global(.bp6-popover) :global(.bp6-popover-content) {
     border-radius: 10px !important; /* Override BlueprintJS styles */
 }
 

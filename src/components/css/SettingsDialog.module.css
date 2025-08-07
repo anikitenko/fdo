@@ -5,12 +5,12 @@
     padding-bottom: 20px;
 }
 
-.settings :global(.bp5-tab-list) {
+.settings :global(.bp6-tab-list) {
     background-color: white;
     height: 580px;
 }
 
-.settings :global(.bp5-heading) {
+.settings :global(.bp6-heading) {
     padding: 5px;
 }
 

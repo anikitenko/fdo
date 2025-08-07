@@ -632,9 +632,9 @@ const virtualFS = {
         }
         if (type === "folder") {
             if (id.includes("node_modules")) {
-                className = "bp5-intent-warning"
+                className = "bp6-intent-warning"
             } else if (id.includes("dist")) {
-                className = "bp5-text-muted tree-folder-dist"
+                className = "bp6-text-muted tree-folder-dist"
             }
         }
         return {
