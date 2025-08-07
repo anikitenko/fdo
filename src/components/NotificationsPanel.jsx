@@ -1,4 +1,4 @@
-import {Button, ButtonGroup, Callout, Drawer, DrawerSize, Icon, InputGroup} from "@blueprintjs/core";
+import {Button, ButtonGroup, Callout, Drawer, DrawerSize, Icon, InputGroup, NonIdealState} from "@blueprintjs/core";
 import {formatDistanceToNow} from 'date-fns';
 
 import PropTypes from "prop-types";
@@ -90,7 +90,12 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
                         </Callout>
                     ))
                 ) : (
-                    <Callout>No notifications</Callout>
+                    <NonIdealState
+                        icon="notifications"
+                        title="No notifications"
+                        description="You're all caught up!"
+                        layout="vertical"
+                    />
                 )}
             </div>
         </Drawer>

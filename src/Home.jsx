@@ -1,7 +1,16 @@
 import React, {useEffect, useRef, useState} from 'react'
 import classNames from "classnames";
-import {KBarProvider} from "kbar";
-import {Alignment, Button, Icon, InputGroup, Navbar, NavbarDivider, NavbarGroup, Tag,} from "@blueprintjs/core";
+import {
+    Alignment,
+    Button,
+    HotkeysTarget,
+    Icon,
+    InputGroup,
+    Navbar,
+    NavbarDivider,
+    NavbarGroup,
+    Tag,
+} from "@blueprintjs/core";
 import * as styles from './Home.module.scss'
 import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx";
 import {AppToaster} from "./components/AppToaster.jsx";
@@ -486,10 +495,17 @@ export const Home = () => {
     };
 
     return (
-        <KBarProvider
-            options={{
-                enableHistory: true,
-            }}
+        <HotkeysTarget
+            hotkeys={[
+                {
+                    combo: "cmd + k",
+                    global: true,
+                    label: "Show Command Bar",
+                    onKeyDown: () => setShowCommandSearch(true),
+                    preventDefault: true,
+                    stopPropagation: true,
+                },
+            ]}
         >
             <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
             <div className={classNames("bp6-dark", styles["main-container"])}>
@@ -537,6 +553,6 @@ export const Home = () => {
                 <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
                 <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
             </div>
-        </KBarProvider>
+        </HotkeysTarget>
     );
 }

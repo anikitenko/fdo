@@ -1,191 +1,222 @@
-import {KBarAnimator, KBarPortal, KBarPositioner, KBarResults, KBarSearch, useKBar, useMatches} from "kbar";
-import React, {useEffect, useMemo} from "react";
+import {MenuDivider, MenuItem, Menu, NonIdealState, KeyComboTag} from "@blueprintjs/core";
+import React, {useEffect, useMemo, useState} from "react";
+import {Omnibar} from "@blueprintjs/select";
 import PropTypes from "prop-types";
 
-const searchStyle = {
-    padding: "12px 16px",
-    fontSize: "14px",
-    width: "100%",
-    boxSizing: "border-box",
-    outline: "none",
-    border: "none",
-    background: "#2e2e2e",
-    color: "white",
-};
+import * as styles from './css/CommandBar.module.css'
+import {debounce} from "lodash";
+import classNames from "classnames";
 
-const animatorStyle = {
-    maxWidth: "600px",
-    width: "100%",
-    background: "#2e2e2e",
-    color: "white",
-    borderRadius: "8px",
-    overflow: "hidden",
-    boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 1px 1px 0 rgba(17, 20, 24, 0.4)",
-};
+function highlightText(text, query) {
+    if (!query) {
+        return text;
+    }
 
-const groupNameStyle = {
-    padding: "8px 16px",
-    fontSize: "12px",
-    textTransform: "uppercase",
-    opacity: 0.5,
-};
+    const normalizedText = text.toLowerCase();
+    const normalizedQuery = query.toLowerCase();
 
-const RenderResults = () => {
-    const {results, rootActionId} = useMatches();
+    const parts = [];
 
-    return (
-        <KBarResults
-            items={results}
-            onRender={({item, active}) =>
-                typeof item === "string" ? (
-                    <div style={groupNameStyle}>{item}</div>
-                ) : (
-                    <ResultItem
-                        action={item}
-                        active={active}
-                        currentRootActionId={rootActionId}
-                    />
-                )
-            }
-        />
-    );
+    let lastIndex = 0;
+    let matchIndex = normalizedText.indexOf(normalizedQuery);
+
+    while (matchIndex !== -1) {
+        if (matchIndex > lastIndex) {
+            parts.push(text.substring(lastIndex, matchIndex));
+        }
+
+        parts.push(
+            <strong key={matchIndex} style={{ fontWeight: 600 }}>
+                {text.substring(matchIndex, matchIndex + query.length)}
+            </strong>
+        );
+
+        lastIndex = matchIndex + query.length;
+        matchIndex = normalizedText.indexOf(normalizedQuery, lastIndex);
+    }
+
+    if (lastIndex < text.length) {
+        parts.push(text.substring(lastIndex));
+    }
+
+    return <>{parts}</>;
 }
 
-const ResultItem = React.forwardRef(
-    (
-        {
-            action,
-            active,
-            currentRootActionId,
-        }, ref
-    ) => {
-        const ancestors = useMemo(() => {
-            if (!currentRootActionId) return action.ancestors;
-            const index = action.ancestors.findIndex(
-                (ancestor) => ancestor.id === currentRootActionId
-            );
-            // +1 removes the currentRootAction; e.g.
-            // if we are on the "Set theme" parent action,
-            // the UI should not display "Set theme… > Dark"
-            // but rather just "Dark"
-            return action.ancestors.slice(index + 1);
-        }, [action.ancestors, currentRootActionId]);
+const renderAction = (action, { handleClick, modifiers, query }) => {
+    const highlightedTitle = highlightText(action.name, query);
+    const highlightedSubtitle = action.subtitle ? highlightText(action.subtitle, query) : null;
+
+    return (
+        <MenuItem
+            key={action.id}
+            text={
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div>{highlightedTitle}</div>
+                    {highlightedSubtitle && (
+                        <div style={{ fontSize: "12px", opacity: 0.7, marginTop: "2px" }}>
+                            {highlightedSubtitle}
+                        </div>
+                    )}
+                </div>
+            }
+            labelElement={
+                action.shortcut ? <KeyComboTag combo={action.shortcut} /> : undefined
+            }
+            icon={action.icon}
+            active={modifiers.active}
+            onClick={handleClick}
+        />
+    );
+};
+
+const SECTION_PRIORITY = {
+    "Installed Plugins": 0,
+    // You can add more special priorities here later
+};
+
+function groupActionsBySection(actions) {
+    const grouped = actions.reduce((acc, action) => {
+        const section = action.section || "Other";
+        if (!acc[section]) {
+            acc[section] = [];
+        }
+        acc[section].push(action);
+        return acc;
+    }, {});
+
+    // Sort actions inside each section alphabetically by name
+    Object.keys(grouped).forEach(section => {
+        grouped[section].sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    return grouped;
+}
+
+function itemListRenderer({
+                              items,
+                              query,
+                              renderItem,
+                          }) {
+    const normalizedQuery = query.toLowerCase();
+
+    const filteredItems = items.filter(action => {
+        if (!action) return false;
+        const keywords = Array.isArray(action.keywords) ? action.keywords : [];
 
         return (
-            <div
-                ref={ref}
-                style={{
-                    padding: "12px 16px",
-                    background: active ? "var(--a1)" : "transparent",
-                    borderLeft: `2px solid ${
-                        active ? "var(--foreground)" : "transparent"
-                    }`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                }}
-            >
-                <div
-                    style={{
-                        display: "flex",
-                        gap: "8px",
-                        alignItems: "center",
-                        fontSize: 14,
-                    }}
-                >
-                    {action.icon? action.icon : ""}
-                    <div style={{display: "flex", flexDirection: "column"}}>
-                        <div>
-                            {ancestors.length > 0 &&
-                                ancestors.map((ancestor) => (
-                                    <React.Fragment key={ancestor.id}>
-                    <span
-                        style={{
-                            opacity: 0.5,
-                            marginRight: 8,
-                        }}
-                    >
-                      {ancestor.name}
-                    </span>
-                                        <span
-                                            style={{
-                                                marginRight: 8,
-                                            }}
-                                        >
-                      &rsaquo;
-                    </span>
-                                    </React.Fragment>
-                                ))}
-                            <span>{action.name}</span>
-                        </div>
-                        {action.subtitle && (
-                            <span style={{fontSize: 12}}>{action.subtitle}</span>
-                        )}
-                    </div>
-                </div>
-                {action.shortcut?.length ? (
-                    <div
-                        aria-hidden
-                        style={{display: "grid", gridAutoFlow: "column", gap: "4px"}}
-                    >
-                        {action.shortcut.map((sc) => (
-                            <kbd
-                                key={sc}
-                                style={{
-                                    padding: "4px 6px",
-                                    background: "rgba(0 0 0 / .1)",
-                                    borderRadius: "4px",
-                                    fontSize: 14,
-                                }}
-                            >
-                                {sc}
-                            </kbd>
-                        ))}
-                    </div>
-                ) : null}
+            action.name.toLowerCase().includes(normalizedQuery) ||
+            keywords.some(keyword => keyword.toLowerCase().includes(normalizedQuery))
+        );
+    });
+
+    if (filteredItems.length === 0) {
+        return (
+            <div style={{ padding: "20px" }}>
+                <NonIdealState
+                    icon="search"
+                    title="No commands found"
+                    description="Try typing different keywords."
+                    layout="vertical"
+                />
             </div>
         );
     }
-);
-ResultItem.propTypes = {
-    action: PropTypes.object,
-    active: PropTypes.bool,
-    currentRootActionId: PropTypes.string
+
+    const grouped = groupActionsBySection(filteredItems);
+
+    return (
+        <Menu>
+            {Object.entries(grouped)
+                .sort(([sectionA], [sectionB]) => {
+                    const priorityA = SECTION_PRIORITY[sectionA] ?? Infinity;
+                    const priorityB = SECTION_PRIORITY[sectionB] ?? Infinity;
+                    if (priorityA !== priorityB) {
+                        return priorityA - priorityB;
+                    }
+                    return sectionA.localeCompare(sectionB);
+                })
+                .map(([section, sectionActions]) => (
+                    <React.Fragment key={section}>
+                        <MenuDivider title={section} />
+                        {sectionActions.map((action, index) => renderItem(action, index))}
+                    </React.Fragment>
+                ))}
+        </Menu>
+    );
+}
+
+function renderGroupedInitialContent(actions, onSelect) {
+    const grouped = groupActionsBySection(actions);
+
+    return (
+        <Menu>
+            {Object.entries(grouped)
+                .sort(([sectionA], [sectionB]) => {
+                    const priorityA = SECTION_PRIORITY[sectionA] ?? Infinity;
+                    const priorityB = SECTION_PRIORITY[sectionB] ?? Infinity;
+
+                    if (priorityA !== priorityB) {
+                        return priorityA - priorityB;
+                    }
+                    return sectionA.localeCompare(sectionB);
+                })
+                .map(([section, sectionActions]) => (
+                    <React.Fragment key={section}>
+                        <MenuDivider title={section} />
+                        {sectionActions.map(action => (
+                            <MenuItem
+                                key={action.id}
+                                text={action.name}
+                                label={action.subtitle}
+                                icon={action.icon}
+                                onClick={() => onSelect(action)}
+                            />
+                        ))}
+                    </React.Fragment>
+                ))}
+        </Menu>
+    );
 }
 
 export const CommandBar = ({show, actions, setShow}) => {
-    const {query} = useKBar();
+    const [query, setQuery] = useState("");
+
+    const debouncedSetQuery = useMemo(() => debounce(setQuery, 150), [setQuery]);
 
     useEffect(() => {
-        // Store cleanup function from previous action registration
-        const unregister = query.registerActions(actions);
-
-        // Cleanup: Unregister previous actions when searchActions changes
         return () => {
-            unregister();
+            debouncedSetQuery.cancel();
         };
-    }, [actions]);
+    }, [debouncedSetQuery]);
 
-    useEffect(() => {
-        if (show) {
-            setShow(false)
-            query.toggle()
-        }
-    }, [show]);
     return (
-        <KBarPortal>
-            <KBarPositioner>
-                <KBarAnimator style={animatorStyle}>
-                    <KBarSearch style={searchStyle}/>
-                    <RenderResults/>
-                </KBarAnimator>
-            </KBarPositioner>
-        </KBarPortal>
+        <Omnibar
+            className={classNames(styles["commandBarOmnibar"], "bp6-dark")}
+            isOpen={show}
+            items={actions}
+            itemRenderer={renderAction}
+            itemListRenderer={itemListRenderer}
+            onItemSelect={(item) => {
+                item.perform();
+                setShow(false);
+            }}
+            onClose={() => setShow(false)}
+            resetOnSelect
+            initialContent={renderGroupedInitialContent(actions, (action) => {
+                action.perform();
+                setShow(false);
+            })}
+            inputProps={{
+                leftIcon: "search",
+                placeholder: "Search commands...",
+            }}
+            query={query}
+            onQueryChange={debouncedSetQuery}
+        />
     );
 }
 CommandBar.propTypes = {
     show: PropTypes.bool,
-    actions:  PropTypes.array,
+    actions: PropTypes.array,
     setShow: PropTypes.func
 }

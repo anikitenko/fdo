@@ -90,7 +90,6 @@
     "html-tags": "^5.1.0",
     "ignore": "^7.0.5",
     "jest": "^30.0.5",
-    "kbar": "^0.1.0-beta.45",
     "lodash": "^4.17.21",
     "lookpath": "^1.2.3",
     "lz-string": "^1.5.0",

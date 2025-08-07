@@ -1,5 +1,17 @@
 import * as styles from "./css/SettingsDialog.module.css";
-import {Button, Card, CardList, Dialog, EditableText, H2, Icon, Switch, Tab, Tabs} from "@blueprintjs/core";
+import {
+    Button,
+    Card,
+    CardList,
+    Dialog,
+    EditableText,
+    H2,
+    Icon,
+    NonIdealState,
+    Switch,
+    Tab,
+    Tabs
+} from "@blueprintjs/core";
 import classNames from "classnames";
 import React, {useEffect, useState} from "react";
 
@@ -18,8 +30,9 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
             isCloseButtonShown={true}
             onClose={() => setShowSettingsDialog(false)}
             className={styles["settings"]}
-            title={<><Icon icon={"settings"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span className={"bp6-heading"}
-                                                                                               style={{fontSize: "1.2rem"}}>Settings</span></>}
+            title={<><Icon icon={"settings"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span
+                className={"bp6-heading"}
+                style={{fontSize: "1.2rem"}}>Settings</span></>}
             style={{
                 minWidth: 900,
                 paddingBottom: 0,
@@ -97,7 +110,9 @@ const GeneralPanel = () => {
     }, []);
     return (
         <Card className={styles["card-panel"]}>
-            <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong>{fdoInPath ? "Remove" : "Install"} 'fdo' command {fdoInPath ? "from" : "in"} PATH</strong>}
+            <Switch size="medium" style={{marginTop: "15px"}}
+                    labelElement={<strong>{fdoInPath ? "Remove" : "Install"} 'fdo'
+                        command {fdoInPath ? "from" : "in"} PATH</strong>}
                     innerLabelChecked="installed :)" innerLabel="not installed :("
                     checked={fdoInPath}
                     onChange={() => {
@@ -204,116 +219,127 @@ const CertificatePanel = () => {
                 They form the foundation of trust in your system. Only trusted root certificates should be used,
                 and you can manage them here.
             </p>
-            <CardList>
-                {rootCertificates.map((cert) => (
-                    <Card key={cert.id} style={{padding: "12px 16px"}}>
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                width: "100%",
-                                gap: "5px"
-                            }}
-                        >
-                            <div style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "12px",
-                                flex: "1",
-                                minWidth: "0",
-                                width: "0"
-                            }}>
-                                <Icon icon="id-number" size={32}/>
-                                <div className={"bp6-text-overflow-ellipsis"}>
-                                    <div style={{padding: "3px"}}>
-                                        {cert.label === "root" ? (
-                                            <strong style={{color: "#2d72d2"}}>{cert.label}</strong>
-                                        ) : (
-                                            <strong><EditableText intent="primary" selectAllOnFocus={true}
-                                                                  placeholder={cert.label} defaultValue={cert.label}
-                                                                  onConfirm={(value) => {
-                                                                      handleRootCertLabelChange(cert.id, value)
-                                                                  }}/></strong>
+            {rootCertificates?.length > 0 ? (
+                <CardList>
+                    {rootCertificates.map((cert) => (
+                        <Card key={cert.id} style={{padding: "12px 16px"}}>
+                            <div
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    width: "100%",
+                                    gap: "5px"
+                                }}
+                            >
+                                <div style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "12px",
+                                    flex: "1",
+                                    minWidth: "0",
+                                    width: "0"
+                                }}>
+                                    <Icon icon="id-number" size={32}/>
+                                    <div className={"bp6-text-overflow-ellipsis"}>
+                                        <div style={{padding: "3px"}}>
+                                            {cert.label === "root" ? (
+                                                <strong style={{color: "#2d72d2"}}>{cert.label}</strong>
+                                            ) : (
+                                                <strong><EditableText intent="primary" selectAllOnFocus={true}
+                                                                      placeholder={cert.label} defaultValue={cert.label}
+                                                                      onConfirm={(value) => {
+                                                                          handleRootCertLabelChange(cert.id, value)
+                                                                      }}/></strong>
+                                            )}
+                                        </div>
+                                        {cert.imported !== true && (
+                                            <div><strong>{cert.identity}</strong></div>
                                         )}
-                                    </div>
-                                    {cert.imported !== true && (
-                                        <div><strong>{cert.identity}</strong></div>
-                                    )}
-                                    <div>
-                                        <code className={"bp6-monospace-text"} style={{
-                                            overflowWrap: "anywhere",
-                                            fontSize: "12px"
-                                        }}>{cert.id}</code>
-                                    </div>
-                                    <CertificateValidComponent cert={cert}/>
-                                    <div>
+                                        <div>
+                                            <code className={"bp6-monospace-text"} style={{
+                                                overflowWrap: "anywhere",
+                                                fontSize: "12px"
+                                            }}>{cert.id}</code>
+                                        </div>
+                                        <CertificateValidComponent cert={cert}/>
+                                        <div>
                                 <span className={"bp6-text-muted"}>
                                     Added {formatDistanceToNow(new Date(cert.createdAt), {addSuffix: true})}
                                 </span>
-                                    </div>
-                                    <div>
-                                        {showColoredLastUsed(cert.lastUsedAt)}
+                                        </div>
+                                        <div>
+                                            {showColoredLastUsed(cert.lastUsedAt)}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div style={{display: "flex", flexDirection: "column", gap: "6px"}}>
-                                {cert.imported !== true && (
-                                    <Button size={"small"} variant={"outlined"} intent="warning"
-                                            loading={renewRootCertProgress}
-                                            style={{borderRadius: "6px"}} onClick={() => {
-                                        setRenewRootCertProgress(true)
-                                        window.electron.settings.certificates.renew(cert.label).then(() => {
-                                            updateCertificates()
-                                        })
-                                        setRenewRootCertProgress(false)
-                                    }}>
-                                        Regenerate
-                                    </Button>
-                                )}
-                                {cert.label !== "root" && (
-                                    <>
-                                        {cert.imported !== true && (
-                                            <Button size={"small"} variant={"outlined"} intent="primary"
-                                                    loading={exportRootCertProgress}
-                                                    style={{borderRadius: "6px"}} onClick={() => {
-                                                window.electron.settings.certificates.export(cert.id).then((data) => {
-                                                    setExportRootCertProgress(true)
-                                                    if (data) {
-                                                        const blob = new Blob([data], {type: 'application/x-pem-file'});
-                                                        const url = window.URL.createObjectURL(blob);
-                                                        const a = document.createElement('a');
-                                                        a.href = url;
-                                                        a.download = `${cert.label}.crt`;
-                                                        document.body.appendChild(a);
-                                                        a.click();
-                                                        window.URL.revokeObjectURL(url);
-                                                        document.body.removeChild(a);
-                                                    }
-                                                    setExportRootCertProgress(false)
-                                                })
-                                            }}>
-                                                Export
-                                            </Button>
-                                        )}
-                                        <Button size={"small"} variant={"outlined"} intent="danger"
-                                                loading={deleteRootCertProgress}
+                                <div style={{display: "flex", flexDirection: "column", gap: "6px"}}>
+                                    {cert.imported !== true && (
+                                        <Button size={"small"} variant={"outlined"} intent="warning"
+                                                loading={renewRootCertProgress}
                                                 style={{borderRadius: "6px"}} onClick={() => {
-                                            setDeleteRootCertProgress(true)
-                                            window.electron.settings.certificates.delete(cert.id).then(() => {
+                                            setRenewRootCertProgress(true)
+                                            window.electron.settings.certificates.renew(cert.label).then(() => {
                                                 updateCertificates()
                                             })
-                                            setDeleteRootCertProgress(false)
+                                            setRenewRootCertProgress(false)
                                         }}>
-                                            Delete
+                                            Regenerate
                                         </Button>
-                                    </>
-                                )}
+                                    )}
+                                    {cert.label !== "root" && (
+                                        <>
+                                            {cert.imported !== true && (
+                                                <Button size={"small"} variant={"outlined"} intent="primary"
+                                                        loading={exportRootCertProgress}
+                                                        style={{borderRadius: "6px"}} onClick={() => {
+                                                    window.electron.settings.certificates.export(cert.id).then((data) => {
+                                                        setExportRootCertProgress(true)
+                                                        if (data) {
+                                                            const blob = new Blob([data], {type: 'application/x-pem-file'});
+                                                            const url = window.URL.createObjectURL(blob);
+                                                            const a = document.createElement('a');
+                                                            a.href = url;
+                                                            a.download = `${cert.label}.crt`;
+                                                            document.body.appendChild(a);
+                                                            a.click();
+                                                            window.URL.revokeObjectURL(url);
+                                                            document.body.removeChild(a);
+                                                        }
+                                                        setExportRootCertProgress(false)
+                                                    })
+                                                }}>
+                                                    Export
+                                                </Button>
+                                            )}
+                                            <Button size={"small"} variant={"outlined"} intent="danger"
+                                                    loading={deleteRootCertProgress}
+                                                    style={{borderRadius: "6px"}} onClick={() => {
+                                                setDeleteRootCertProgress(true)
+                                                window.electron.settings.certificates.delete(cert.id).then(() => {
+                                                    updateCertificates()
+                                                })
+                                                setDeleteRootCertProgress(false)
+                                            }}>
+                                                Delete
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </Card>
-                ))}
-            </CardList>
+                        </Card>
+                    ))}
+                </CardList>
+            ) : (
+                <div style={{padding: "20px"}}>
+                    <NonIdealState
+                        icon="shield"
+                        title="No certificates found"
+                        description="Root certificates will appear here once they are created."
+                        layout="vertical"
+                    />
+                </div>
+            )}
             <div className={styles["card-setting-header"]}>
                 <H2 style={{margin: 0}}>Registry certificates</H2>
             </div>
