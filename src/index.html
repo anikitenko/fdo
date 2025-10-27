@@ -4,6 +4,30 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>FlexDevOps (FDO)</title>
+    <script>
+        // Global polyfills for Node.js compatibility
+        (function() {
+            if (typeof globalThis === 'undefined') {
+                if (typeof window !== 'undefined') {
+                    window.globalThis = window;
+                } else if (typeof global !== 'undefined') {
+                    global.globalThis = global;
+                } else if (typeof self !== 'undefined') {
+                    self.globalThis = self;
+                }
+            }
+            
+            // Define global in multiple ways
+            if (typeof global === 'undefined') {
+                window.global = globalThis;
+                var global = globalThis;
+                globalThis.global = globalThis;
+            }
+            
+            // Make sure it's available on window
+            window.global = globalThis;
+        })();
+    </script>
 </head>
 <body>
 <div id="root"></div>

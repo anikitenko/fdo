@@ -1,7 +1,44 @@
 const MonacoWebpackPlugin = require("monaco-editor-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
+const webpack = require("webpack");
 const path = require("path");
+
 module.exports = {
+    entry: {
+        main_window: ['./src/polyfills.js', './src/renderer.js'],
+        plugin_host: ['./src/polyfills.js', './src/renderer_plugin_host.js']
+    },
+    output: {
+        path: path.resolve(__dirname, 'dist/renderer'),
+        filename: '[name].[contenthash].js',
+        chunkFilename: '[name].[contenthash].js',
+        clean: true
+    },
+    target: 'web',
+    node: {
+        global: true,
+        __dirname: false,
+        __filename: false,
+    },
+    resolve: {
+        fallback: {
+            "path": require.resolve("path-browserify"),
+            "process": require.resolve("process/browser.js"),
+            "buffer": require.resolve("buffer"),
+            "crypto": false,
+            "fs": false,
+            "stream": false,
+            "http": false,
+            "https": false,
+            "zlib": false,
+            "url": false
+        },
+        extensions: ['.js', '.jsx', '.json', '.mjs'],
+        alias: {
+            'process/browser': require.resolve('process/browser.js')
+        }
+    },
     module: {
         rules: [
             {
@@ -59,7 +96,33 @@ module.exports = {
             }
         ],
     },
+    optimization: {
+        splitChunks: {
+            chunks: 'all',
+        },
+        runtimeChunk: 'single',
+    },
     plugins: [
+        new webpack.DefinePlugin({
+            'global': 'globalThis',
+            'global.TYPED_ARRAY_SUPPORT': true,
+            'process.browser': true,
+        }),
+        new webpack.ProvidePlugin({
+            Buffer: ['buffer', 'Buffer'],
+            process: 'process/browser.js',
+            global: 'globalThis',
+        }),
+        new HtmlWebpackPlugin({
+            template: './src/index.html',
+            filename: 'index.html',
+            title: 'FlexDevOps (FDO)'
+        }),
+        new HtmlWebpackPlugin({
+            template: './src/plugin_host.html',
+            filename: 'plugin_host.html',
+            title: 'Plugin'
+        }),
         new MonacoWebpackPlugin({
             languages: ["css", "html", "javascript", "markdown", "typescript", "json"]
         }),
@@ -92,14 +155,6 @@ module.exports = {
                             "**/*.spec.js"
                         ]
                     }
-                },
-                {
-                    from: path.resolve(__dirname, "node_modules/@types/node"),
-                    to: "assets/node_modules/@types/node",
-                },
-                {
-                    from: path.resolve(__dirname, "node_modules/@types/react"),
-                    to: "assets/node_modules/@types/react",
                 },
             ],
         }),

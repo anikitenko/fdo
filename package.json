@@ -3,37 +3,46 @@
   "productName": "FDO (FlexDevOPs)",
   "version": "1.0.0",
   "description": "FDO (Flex DevOps) is a modular, plugin-driven DevOps platform built with ElectronJS and React. It empowers developers and SREs to extend core functionality using secure, versioned plugins, offering tools for automation, deployment, monitoring, and workflow customization — all from a unified desktop environment.",
-  "main": ".webpack/main",
+  "main": "dist/main/index.js",
   "scripts": {
-    "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
-    "publish": "electron-forge publish",
+    "dev": "concurrently \"npm run build:main:dev\" \"npm run build:preload:dev\" \"npm run build:renderer:dev\" \"wait-on dist/main/index.js dist/main/preload.js dist/renderer/index.html && electron .\"",
+    "start": "npm run dev",
+    "build": "npm run build:main && npm run build:preload && npm run build:renderer",
+    "build:main": "webpack --config webpack.main.config.js --mode=production",
+    "build:main:dev": "webpack --config webpack.main.config.js --mode=development --watch",
+    "build:preload": "webpack --config webpack.preload.config.js --mode=production",
+    "build:preload:dev": "webpack --config webpack.preload.config.js --mode=development --watch",
+    "build:renderer": "webpack --config webpack.renderer.config.js --mode=production",
+    "build:renderer:dev": "webpack --config webpack.renderer.config.js --mode=development --watch",
+    "package": "npm run build && electron-builder",
+    "dist": "npm run build && electron-builder --publish=never",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "publish": "npm run build && electron-builder --publish=always",
     "lint": "echo \"No linting configured\""
   },
   "devDependencies": {
     "@babel/core": "^7.26.10",
-    "@electron-forge/cli": "^7.8.3",
-    "@electron-forge/maker-deb": "^7.8.3",
-    "@electron-forge/maker-dmg": "^7.8.3",
-    "@electron-forge/maker-rpm": "^7.8.3",
-    "@electron-forge/maker-squirrel": "^7.8.3",
-    "@electron-forge/maker-zip": "^7.8.3",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.8.3",
-    "@electron-forge/plugin-fuses": "^7.8.3",
-    "@electron-forge/plugin-webpack": "^7.8.3",
     "@vercel/webpack-asset-relocator-loader": "^1.7.4",
     "babel-loader": "^10.0.0",
+    "buffer": "^6.0.3",
+    "concurrently": "^8.2.2",
     "copy-webpack-plugin": "^13.0.0",
     "css-loader": "^7.1.2",
     "electron": "37.2.6",
+    "electron-builder": "^25.1.8",
     "electron-squirrel-startup": "^1.0.1",
+    "html-webpack-plugin": "^5.6.0",
     "node-loader": "^2.1.0",
     "path-browserify": "^1.0.1",
+    "process": "^0.11.10",
     "sass": "^1.87.0",
     "sass-loader": "^16.0.5",
     "style-loader": "^4.0.0",
-    "webpack": "^5.101.0"
+    "wait-on": "^8.0.1",
+    "webpack": "^5.101.0",
+    "webpack-cli": "^6.0.1"
   },
   "keywords": [
     "devops",
@@ -118,5 +127,125 @@
     "tributejs": "^5.1.3",
     "uuid": "^11.1.0",
     "vscode-icons-js": "^11.6.1"
+  },
+  "build": {
+    "appId": "me.alexvwan.fdo",
+    "productName": "FDO (FlexDevOPs)",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "!node_modules/.bin",
+      "!node_modules/@electron-forge",
+      "!**/test/**/*",
+      "!**/*.test.*",
+      "!**/*.spec.*",
+      "!**/__tests__/**/*"
+    ],
+    "protocols": [
+      {
+        "name": "FDO Opener",
+        "schemes": [
+          "fdo-fiddle"
+        ]
+      }
+    ],
+    "asarUnpack": [
+      "dist/main/node_modules/**/*"
+    ],
+    "mac": {
+      "icon": "src/assets/icons/fdo_icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "background": "src/assets/preview-dmg-600x400.png",
+      "format": "ULFO",
+      "iconSize": 100,
+      "window": {
+        "width": 600,
+        "height": 400
+      },
+      "contents": [
+        {
+          "x": 150,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 450,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "icon": "src/assets/icons/fdo_icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "src/assets/icons/fdo_icon.png",
+      "category": "Utility",
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "deb": {
+      "maintainer": "AleXvWaN",
+      "category": "Utility"
+    },
+    "rpm": {
+      "vendor": "AleXvWaN",
+      "category": "Utility"
+    }
   }
 }

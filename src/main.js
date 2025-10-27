@@ -32,6 +32,16 @@ import {checkPathAccess} from "./utils/pathHelper";
 import log from 'electron-log/main';
 import {extractMetadata} from "./utils/extractMetadata";
 
+// Constants for electron-builder (replaces Forge webpack entries)
+const isDev = !app.isPackaged;
+const MAIN_WINDOW_WEBPACK_ENTRY = isDev
+    ? nodeUrl.pathToFileURL(nodePath.join(__dirname, '..', '..', 'dist', 'renderer', 'index.html')).toString()
+    : nodeUrl.pathToFileURL(nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html')).toString();
+
+const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY = isDev
+    ? nodePath.join(__dirname, '..', '..', 'dist', 'main', 'preload.js')
+    : nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'main', 'preload.js');
+
 if (process.platform === "darwin") {
     const knownPaths = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
     const currentPath = process.env.PATH || "";
@@ -46,10 +56,10 @@ function getPluginFilePath(urlPath) {
     const isPackaged = app.isPackaged;
 
     const baseDir = isPackaged
-        ? nodePath.join(process.resourcesPath, 'app.asar', '.webpack', 'renderer', 'plugin_host')
-        : nodePath.join(__dirname, '..', 'renderer', 'plugin_host'); // dev mode fallback
+        ? nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer')
+        : nodePath.join(__dirname, '..', '..', 'dist', 'renderer'); // dev mode fallback
 
-    const safePath = decodeURIComponent(urlPath || '/index.html');
+    const safePath = decodeURIComponent(urlPath || '/plugin_host.html');
     return nodePath.join(baseDir, safePath);
 }
 
@@ -285,15 +295,23 @@ const createWindow = async () => {
         height: 800,
         minWidth: 1024,
         minHeight: 800,
+        show: false, // show when ready to avoid white flash and improve perceived performance
+        backgroundColor: '#111111',
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
             preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+            backgroundThrottling: false,
+            spellcheck: false,
         },
     });
 
     // and load the index.html of the app.
     await mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+    });
 
     nativeTheme.themeSource = 'dark';
 
@@ -370,7 +388,10 @@ app.whenReady().then(async () => {
 
     session.defaultSession.protocol.handle("static", (req) => {
         const reqURL = new URL(req.url)
-        return net.fetch(nodeUrl.pathToFileURL(nodePath.join(app.getAppPath(), '.webpack', 'renderer', 'assets', reqURL.pathname)).toString())
+        const assetsPath = isDev
+            ? nodePath.join(__dirname, '..', '..', 'dist', 'renderer', 'assets', reqURL.pathname)
+            : nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', reqURL.pathname);
+        return net.fetch(nodeUrl.pathToFileURL(assetsPath).toString())
     })
 
     protocol.handle('plugin', async (request) => {

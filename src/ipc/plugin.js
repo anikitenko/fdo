@@ -30,7 +30,7 @@ export async function buildUsingEsbuild(virtualData) {
         // In development, use the normal esbuild path
         const paths = [
             app.getAppPath(),
-            ".webpack",
+            "dist",
             "main",
             "node_modules",
         ]
@@ -40,7 +40,7 @@ export async function buildUsingEsbuild(virtualData) {
         const paths = [
             process.resourcesPath,
             "app.asar.unpacked",
-            ".webpack",
+            "dist",
             "main",
             "node_modules",
         ]
