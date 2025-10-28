@@ -15,6 +15,16 @@ import {lookpath} from "lookpath";
 
 const execAsync = promisify(exec);
 
+// Constants for electron-builder (replaces Forge webpack entries)
+const isDev = !app.isPackaged;
+const MAIN_WINDOW_WEBPACK_ENTRY = isDev
+    ? 'file://' + path.join(__dirname, '..', '..', 'dist', 'renderer', 'index.html')
+    : 'file://' + path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html');
+
+const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY = isDev
+    ? path.join(__dirname, '..', '..', 'dist', 'main', 'preload.js')
+    : path.join(process.resourcesPath, 'app.asar', 'dist', 'main', 'preload.js');
+
 function systemOpenEditorWindow(data) {
     const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
     const plugin = pluginORM.getPlugin(data.name);
@@ -105,7 +115,11 @@ export function registerSystemHandlers() {
 
     ipcMain.handle(SystemChannels.GET_MODULE_FILES, async () => {
         try {
-            const filesTree = getFilesTree(path.join(app.getAppPath(), '.webpack', 'renderer', 'assets'), 'node_modules')
+            const isDev = !app.isPackaged;
+            const assetsPath = isDev
+                ? path.join(__dirname, '..', '..', '..', 'dist', 'renderer', 'assets')
+                : path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets');
+            const filesTree = getFilesTree(assetsPath, 'node_modules')
             return {success: true, files: filesTree};
         } catch (error) {
             return {success: false, error: error.message};
@@ -114,7 +128,10 @@ export function registerSystemHandlers() {
 
     ipcMain.handle(SystemChannels.GET_BABEL_PATH, async () => {
         try {
-            const babel = path.join(app.getAppPath(), '.webpack', 'renderer', 'assets', 'node_modules', '@babel', 'standalone')
+            const isDev = !app.isPackaged;
+            const babel = isDev
+                ? path.join(__dirname, '..', '..', '..', 'dist', 'renderer', 'assets', 'node_modules', '@babel', 'standalone')
+                : path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', 'node_modules', '@babel', 'standalone');
             return {success: true, babel};
         } catch (error) {
             return {success: false, error: error.message};

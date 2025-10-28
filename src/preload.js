@@ -1,11 +1,14 @@
 import {contextBridge, ipcRenderer} from 'electron'
-import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels} from "./ipc/channels";
+import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels} from "./ipc/channels";
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
         node: () => process.versions.node,
         chrome: () => process.versions.chrome,
         electron: () => process.versions.electron
+    },
+    startup: {
+        logMetric: (event, metadata) => ipcRenderer.send(StartupChannels.LOG_METRIC, event, metadata)
     },
     notifications: {
         get: () => ipcRenderer.invoke(NotificationChannels.GET_ALL),

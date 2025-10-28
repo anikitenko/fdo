@@ -1,0 +1,68 @@
+.commandBarOmnibar :global(.bp6-menu) {
+    background: rgba(0, 0, 0, 0.7); /* darker background */
+    backdrop-filter: blur(12px); /* stronger blur behind */
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.commandBarOmnibar :global(.bp6-menu-item) {
+    min-height: 40px; /* Increase line height */
+    padding-top: 8px;
+    padding-bottom: 8px;
+    font-size: 14px; /* Slightly bigger font */
+    transition: all 0.2s ease;
+}
+
+.commandBarOmnibar :global(.bp6-menu-item-label) {
+    font-family: "SF Mono", monospace, "Menlo", "Consolas", "Courier New", monospace;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.commandBarOmnibar :global(.bp6-menu-item.bp6-active) {
+    background-color: rgba(125, 162, 206, 0.2); /* softer blue highlight */
+}
+
+.commandBarOmnibar :global(.bp6-input) {
+    border-radius: 8px; /* nice rounded corners */
+    background: rgba(255, 255, 255, 0.08); /* glassy light background */
+    backdrop-filter: blur(10px); /* strong glassmorphism effect */
+    border: 1px solid rgba(255, 255, 255, 0.2); /* subtle border */
+    color: #fff; /* text white or near white */
+    padding: 10px 12px; /* more comfortable typing */
+    transition: all 0.3s ease;
+}
+
+.commandBarOmnibar :global(.bp6-input:focus) {
+    border-color: #5C9EFF; /* bluish focus */
+    box-shadow: 0 0 0 2px rgba(92, 158, 255, 0.4); /* soft blue glow */
+    outline: none;
+}
+
+.commandBarOmnibar :global(.bp6-input-group) {
+    background: rgba(255, 255, 255, 0.08); /* same as input */
+    backdrop-filter: blur(10px);
+    border-radius: 8px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.3s ease;
+}
+
+.commandBarOmnibar :global(.bp6-input::placeholder) {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.commandBarOmnibar :global(.bp6-input-group input.bp6-input) {
+    background: transparent !important;
+    color: white;
+    padding: 10px 12px;
+}
+
+.commandBarOmnibar :global(.bp6-input-group input.bp6-input::placeholder) {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.commandBarOmnibar :global(.bp6-input-group.bp6-active) {
+    border-color: #5C9EFF;
+    box-shadow: 0 0 0 2px rgba(92, 158, 255, 0.4);
+}

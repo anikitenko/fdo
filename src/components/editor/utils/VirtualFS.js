@@ -279,6 +279,7 @@ const virtualFS = {
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
             window.electron.system.getModuleFiles().then((resultFiles) => {
                 this.parent.notifications.addToQueue("treeLoading", true)
+                console.log("resultFiles", resultFiles)
                 for (const file of resultFiles.files) {
                     let plaintext = false
                     if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
@@ -632,9 +633,9 @@ const virtualFS = {
         }
         if (type === "folder") {
             if (id.includes("node_modules")) {
-                className = "bp5-intent-warning"
+                className = "bp6-intent-warning"
             } else if (id.includes("dist")) {
-                className = "bp5-text-muted tree-folder-dist"
+                className = "bp6-text-muted tree-folder-dist"
             }
         }
         return {

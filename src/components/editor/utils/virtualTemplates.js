@@ -7,7 +7,7 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
     const data_metadata = `
     private readonly _metadata: PluginMetadata = {
         name: "${name}",
-        version: "1.0.2",
+        version: "1.0.0",
         author: "AleXvWaN",
         description: "A sample FDO plugin",
         icon: "COG",

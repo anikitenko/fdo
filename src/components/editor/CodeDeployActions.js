@@ -40,14 +40,14 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
                 <span style={{color: "aquamarine"}}>{name}</span>
                 {prev && (
                     <div>
-                        <span className={"bp5-text-muted bp5-text-small"}>
+                        <span className={"bp6-text-muted bp6-text-small"}>
                             from <span style={{color: "aquamarine", textDecoration: "underline"}}>{prev}</span>
                         </span>
                     </div>
                 )}
                 <Divider/>
                 <span
-                    className={"bp5-text-muted"}>
+                    className={"bp6-text-muted"}>
                     {"(" + (pretty ? date : formatDistanceToNow(new Date(date), {addSuffix: true})) + ")"}
                 </span>
             </div>
@@ -239,7 +239,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
             <FormGroup
                 label={"Snapshots"}
                 fill={true}
-                className={classnames(treeLoading ? "bp5-skeleton" : "")}
+                className={classnames(treeLoading ? "bp6-skeleton" : "")}
             >
                 <Select
                     id={"plugin-template"}
@@ -288,7 +288,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
             <FormGroup
                 label="Actions"
                 fill={true}
-                className={classnames(treeLoading ? "bp5-skeleton" : "")}
+                className={classnames(treeLoading ? "bp6-skeleton" : "")}
             >
                 <Button fill={true} text="Live UI editor" intent="warning" size="large" icon="style" endIcon="share"
                         onClick={() => window.electron.system.openLiveUiWindow({})}/>

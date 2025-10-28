@@ -87,3 +87,7 @@ export const PluginChannels = withPrefix('plugin', {
         UI_MESSAGE: 'ui-message',
     }
 })
+
+export const StartupChannels = withPrefix('startup', {
+    LOG_METRIC: 'log-metric'
+})

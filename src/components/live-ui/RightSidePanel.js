@@ -130,7 +130,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     }
 
     const tribute = new Tribute({
-        containerClass: "bp5-menu bp5-small bp5-elevation-4 tribute-container",
+        containerClass: "bp6-menu bp6-small bp6-elevation-4 tribute-container",
         selectClass: styles["selectedClass"],
         itemClass: styles["helperItemClass"],
         searchOpts: {
@@ -145,7 +145,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     cb([...nodesWithKeyframe.current])
                 },
                 menuItemTemplate: function (item) {
-                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
+                    return `<a class="bp6-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
                     return `$${item.original.value}`;
@@ -163,7 +163,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     {key: "Generate UUID", value: "uuid"},
                 ],
                 menuItemTemplate: function (item) {
-                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
+                    return `<a class="bp6-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
                     const inputElement = tribute.current?.element
@@ -198,7 +198,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     cb([...styles])
                 },
                 menuItemTemplate: function (item) {
-                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
+                    return `<a class="bp6-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
                     return toCamelCase(item.original.value)
@@ -209,7 +209,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                 trigger: ':',
                 values: function (text, cb) {
                     const inputEl = tribute.current?.element;
-                    const formGroup = inputEl?.closest(".bp5-form-group");
+                    const formGroup = inputEl?.closest(".bp6-form-group");
 
                     if (!formGroup) return cb([]);
 
@@ -219,7 +219,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
                     cb([...getStyleValueSuggestions(toKebabCase(label))])
                 },
                 menuItemTemplate: function (item) {
-                    return `<a class="bp5-menu-item" tabindex="0">${item.string}</a>`
+                    return `<a class="bp6-menu-item" tabindex="0">${item.string}</a>`
                 },
                 selectTemplate: function (item) {
                     return item.original.value

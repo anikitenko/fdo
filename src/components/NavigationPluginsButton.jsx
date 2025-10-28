@@ -1,9 +1,11 @@
 import {Button, Card, Divider, Elevation, Icon, Popover, Tag} from "@blueprintjs/core";
 import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
-import {CreatePluginDialog} from "./CreatePluginDialog.jsx";
-import {useState} from "react";
-import {ManagePluginsDialog} from "./ManagePluginsDialog.jsx";
+import {lazy, Suspense, useState} from "react";
+
+// Lazy load dialogs (only needed when opened)
+const CreatePluginDialog = lazy(() => import("./CreatePluginDialog.jsx").then(m => ({default: m.CreatePluginDialog})));
+const ManagePluginsDialog = lazy(() => import("./ManagePluginsDialog.jsx").then(m => ({default: m.ManagePluginsDialog})));
 
 export const NavigationPluginsButton = ({
                                             active,
@@ -33,14 +35,16 @@ export const NavigationPluginsButton = ({
                 <Button variant={"minimal"} ref={buttonMenuRef}>
                     Plugins Activated: <Tag intent={"success"} round={true}>{active.length}</Tag> Installed: <Tag
                     intent={"primary"}
-                    round={true}>{all.length}</Tag></Button>
-            </Popover>
+                round={true}>{all.length}</Tag></Button>
+        </Popover>
+        <Suspense fallback={null}>
             <CreatePluginDialog show={showCreateDialog}
                                 close={() => setShowCreateDialog(false)}
             />
             <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
                                  selectPlugin={selectPlugin}
                                  deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}/>
+        </Suspense>
         </div>
     );
 };
@@ -69,7 +73,7 @@ const PluginsCard = ({
             <Card style={{background: "#2e2e2e", borderRadius: "10px 10px 0 0"}}>
                 <div>
                     <div style={{paddingLeft: "15px", paddingRight: "15px", paddingBottom: "5px"}}>
-                        <span className={"bp5-text-large bp5-heading"}>Installed Plugins</span>
+                        <span className={"bp6-text-large bp6-heading"}>Installed Plugins</span>
                         {all.length > 0 && (
                             <Button
                                 variant={"minimal"}
@@ -102,7 +106,7 @@ const PluginsCard = ({
                     }}>
                         {all.length === 0 && (
                             <div style={{textAlign: "center", color: "#6c757d"}}>
-                                <span className={"bp5-text-muted"}>No plugins installed</span>
+                                <span className={"bp6-text-muted"}>No plugins installed</span>
                             </div>
                         )}
                         {all.map((plugin) => {
@@ -126,16 +130,16 @@ const PluginsCard = ({
                                         </div>
                                         <div style={{display: 'grid', gap: '5px'}}>
                                             <div>
-                                                <span className="bp5-heading">{plugin.name}</span>
+                                                <span className="bp6-heading">{plugin.name}</span>
                                             </div>
                                             <div>
-                                        <span className={"bp5-text-small bp5-text-muted"}>
+                                        <span className={"bp6-text-small bp6-text-muted"}>
                                             {plugin.author}
                                         </span> | <span
-                                                className={"bp5-text-small bp5-text-muted"}>{plugin.version}</span>
+                                                className={"bp6-text-small bp6-text-muted"}>{plugin.version}</span>
                                             </div>
                                             <div>
-                                                <span className="bp5-text-small">{plugin.description}</span>
+                                                <span className="bp6-text-small">{plugin.description}</span>
                                             </div>
                                         </div>
                                     </div>
