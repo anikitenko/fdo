@@ -6,7 +6,7 @@ import {SystemChannels} from "./channels";
 import {getFilesTree} from "../utils/getFilesTree";
 import path from "node:path";
 import PluginORM from "../utils/PluginORM";
-import {editorWindow} from "../utils/editorWindow";
+import {editorWindow, isWindowValid, cleanupWindowResources} from "../utils/editorWindow";
 
 import {exec} from "child_process";
 import {promisify} from "util";
@@ -24,6 +24,30 @@ const MAIN_WINDOW_WEBPACK_ENTRY = isDev
 const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY = isDev
     ? path.join(__dirname, '..', '..', 'dist', 'main', 'preload.js')
     : path.join(process.resourcesPath, 'app.asar', 'dist', 'main', 'preload.js');
+
+// Timeout tracking for editor window close operations
+let editorCloseTimeoutId = null;
+
+/**
+ * Force closes the editor window if normal close fails
+ * Used as fallback when timeout expires
+ * @param {BrowserWindow} window - The window instance to force close
+ */
+function forceCloseWindow(window) {
+    if (!window) return;
+    
+    try {
+        if (!window.isDestroyed()) {
+            console.warn('[Editor Close] Timeout expired, forcing window closure');
+            window.destroy();
+        }
+    } catch (error) {
+        console.error('[Editor Close] Error during force close:', error);
+    } finally {
+        // Ensure cleanup happens regardless
+        editorWindow.nullWindow();
+    }
+}
 
 function systemOpenEditorWindow(data) {
     const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
@@ -44,7 +68,25 @@ function systemOpenEditorWindow(data) {
         event.preventDefault();
         editorWindowInstance.webContents.send(SystemChannels.on_off.CONFIRM_CLOSE); // Send event to React
     });
-    editorWindowInstance.on('closed', () => editorWindow.nullWindow());
+    editorWindowInstance.on('closed', () => {
+        // Clear any active close timeout
+        if (editorCloseTimeoutId) {
+            clearTimeout(editorCloseTimeoutId);
+            editorCloseTimeoutId = null;
+        }
+        
+        // Remove IPC handlers (they will be re-registered if another editor opens)
+        try {
+            ipcMain.removeHandler(SystemChannels.EDITOR_CLOSE_APPROVED);
+            ipcMain.removeHandler(SystemChannels.EDITOR_RELOAD_APPROVED);
+        } catch (error) {
+            // removeHandler can throw if handler doesn't exist, ignore
+        }
+        
+        // Null the window reference
+        editorWindow.nullWindow();
+        console.info('[Editor Close] Window closed and cleanup completed');
+    });
 
     editorWindowInstance.webContents.on('before-input-event', (event, input) => {
         if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
@@ -210,17 +252,56 @@ export function registerSystemHandlers() {
         systemOpenEditorWindow(data)
     });
 
-    ipcMain.once(SystemChannels.EDITOR_CLOSE_APPROVED, () => {
-        const editorWindowInstance = editorWindow.getWindow()
-        if (editorWindowInstance) {
-            editorWindowInstance.destroy(); // Close the window
+    ipcMain.on(SystemChannels.EDITOR_CLOSE_APPROVED, () => {
+        console.info('[Editor Close] Close approved by user');
+        const editorWindowInstance = editorWindow.getWindow();
+        
+        // Validate window before attempting to close
+        if (!isWindowValid(editorWindowInstance)) {
+            console.warn('[Editor Close] Window validation failed - already null or destroyed');
+            cleanupWindowResources({ timeoutId: editorCloseTimeoutId });
+            editorWindow.nullWindow();
+            return;
+        }
+        
+        // Start timeout mechanism (2.5 seconds) as fallback
+        editorCloseTimeoutId = setTimeout(() => {
+            console.warn('[Editor Close] Normal close timeout expired, forcing closure');
+            forceCloseWindow(editorWindowInstance);
+        }, 2500);
+        
+        // Attempt normal window destruction
+        try {
+            editorWindowInstance.destroy();
+            console.info('[Editor Close] Window destroy initiated');
+        } catch (error) {
+            console.error('[Editor Close] Error during window destruction:', error);
+            // Clear timeout and cleanup since destroy failed
+            if (editorCloseTimeoutId) {
+                clearTimeout(editorCloseTimeoutId);
+                editorCloseTimeoutId = null;
+            }
+            // Force close as fallback
+            forceCloseWindow(editorWindowInstance);
         }
     });
 
     ipcMain.on(SystemChannels.EDITOR_RELOAD_APPROVED, () => {
-        const editorWindowInstance = editorWindow.getWindow()
-        if (editorWindowInstance) {
+        console.info('[Editor Reload] Reload approved by user');
+        const editorWindowInstance = editorWindow.getWindow();
+        
+        // Validate window before attempting to reload
+        if (!isWindowValid(editorWindowInstance)) {
+            console.warn('[Editor Reload] Window validation failed - already null or destroyed');
+            return;
+        }
+        
+        // Attempt window reload
+        try {
             editorWindowInstance.reload();
+            console.info('[Editor Reload] Window reload initiated');
+        } catch (error) {
+            console.error('[Editor Reload] Error during window reload:', error);
         }
     });
 
