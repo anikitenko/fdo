@@ -117,7 +117,7 @@ export function registerSystemHandlers() {
         try {
             const isDev = !app.isPackaged;
             const assetsPath = isDev
-                ? path.join(__dirname, '..', '..', '..', 'dist', 'renderer', 'assets')
+                ? path.join(__dirname, '..', '..', 'dist', 'renderer', 'assets')
                 : path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets');
             const filesTree = getFilesTree(assetsPath, 'vendor')
             return {success: true, files: filesTree};
@@ -130,7 +130,7 @@ export function registerSystemHandlers() {
         try {
             const isDev = !app.isPackaged;
             const fdoSdkTypes = isDev
-                ? path.join(__dirname, '..', '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')
+                ? path.join(__dirname, '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')
                 : path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist');
             const filesTree = getFilesTree(fdoSdkTypes, '@types')
             return {success: true, files: filesTree};
@@ -143,7 +143,7 @@ export function registerSystemHandlers() {
         try {
             const isDev = !app.isPackaged;
             const babel = isDev
-                ? path.join(__dirname, '..', '..', '..', 'dist', 'renderer', 'assets', 'vendor', '@babel', 'standalone')
+                ? path.join(__dirname, '..', '..', 'dist', 'renderer', 'assets', 'vendor', '@babel', 'standalone')
                 : path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', 'vendor', '@babel', 'standalone');
             return {success: true, babel};
         } catch (error) {
