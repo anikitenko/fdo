@@ -8,7 +8,8 @@
 
 .callout {
     position: relative;
-    padding-right: 32px; /* space for the dismiss icon */
+    padding-right: 32px;
+    word-break: break-all;
 }
 
 .titleRow {

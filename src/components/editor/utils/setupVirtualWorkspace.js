@@ -6,7 +6,7 @@ import {workspaceTsCompilerOptions} from "../../../utils/workspaceTsCompilerOpti
 import darkTheme from "../monaco/EditorDarkTheme"
 import {AppToaster} from "../../AppToaster.jsx";
 
-export async function setupVirtualWorkspace(name, template, dir) {
+export async function setupVirtualWorkspace(name, displayName, template, dir) {
     monaco.editor.defineTheme('editor-dark', darkTheme);
 
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -48,8 +48,8 @@ export async function setupVirtualWorkspace(name, template, dir) {
             if (sandbox) {
                 virtualFS.restoreSandbox(sandbox)
             } else {
-                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
-                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
+                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template, false, false, displayName)
+                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template, false, false, displayName)
                 createVirtualFile("/package.json", packageJsonContent(name))
                 virtualFS.fs.create()
             }
