@@ -5,12 +5,17 @@ function getBabelWorkerUrl() {
 
     if (currentUrl.startsWith("http://localhost")) {
         // Development mode (React dev server)
-        return "/assets/js/babelWorker.js"; // served from `public/assets/js/`
+        return "/assets/js/babelWorker.js";
     }
 
-    // Production mode (file:// or custom Electron protocol)
+    if (currentUrl.startsWith("plugin://")) {
+        // Plugin page loaded via plugin:// protocol
+        return "static://assets/js/babelWorker.js";
+    }
+
+    // Production mode (file:// protocol for main window)
     return currentUrl.replace(
-        /renderer\/main_window\/index\.html$/,
+        /renderer\/index\.html$/,
         "renderer/assets/js/babelWorker.js"
     );
 }
