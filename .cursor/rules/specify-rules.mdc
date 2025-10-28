@@ -3,6 +3,8 @@
 Auto-generated from all feature plans. Last updated: 2025-10-27
 
 ## Active Technologies
+- JavaScript (Node.js 18+), TypeScrip + webpack 5.101.0, electron-builder 25.1.8, esbuild 0.25.8, @vercel/webpack-asset-relocator-loader 1.7.4 (002-fix-asar-unpacked-deps)
+- electron-builder configuration in package.json, webpack configuration files (002-fix-asar-unpacked-deps)
 
 - JavaScript/TypeScript (Node.js via Electron 37.2.6) + Electron 37.2.6, React 18.3.1, webpack 5.101.0, electron-builder 25.1.8 (001-app-loading-improvement)
 
@@ -22,6 +24,7 @@ npm test && npm run lint
 JavaScript/TypeScript (Node.js via Electron 37.2.6): Follow standard conventions
 
 ## Recent Changes
+- 002-fix-asar-unpacked-deps: Added JavaScript (Node.js 18+), TypeScrip + webpack 5.101.0, electron-builder 25.1.8, esbuild 0.25.8, @vercel/webpack-asset-relocator-loader 1.7.4
 
 - 001-app-loading-improvement: Added JavaScript/TypeScript (Node.js via Electron 37.2.6) + Electron 37.2.6, React 18.3.1, webpack 5.101.0, electron-builder 25.1.8
 
