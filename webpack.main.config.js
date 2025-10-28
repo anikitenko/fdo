@@ -34,6 +34,7 @@ module.exports = {
     },
     externals: {
         esbuild: "commonjs esbuild",
+        "@anikitenko/fdo-sdk": "commonjs @anikitenko/fdo-sdk",
     },
     optimization: {
         minimize: false, // Main process doesn't need minification (adds startup overhead)
