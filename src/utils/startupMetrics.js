@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
+import { hasCliOnlyCommand, getCleanCliArgs } from './cliCommands.js';
 
 // State
 let startTime = null;
@@ -135,9 +136,15 @@ function logMetric(event, metadata = {}) {
   }
   
   // Console output (synchronous, immediate feedback)
-  const slowFlag = entry.slow ? ' ⚠️ SLOW' : '';
-  const memFlag = entry.memoryWarning ? ' 🔥 HIGH MEMORY' : '';
-  console.log(`[STARTUP${slowFlag}${memFlag}] ${event}: ${elapsed}ms (Δ${delta}ms) [MEM: ${formatMemory(resources.memory.rss)}, CPU: ${resources.cpu.toFixed(1)}%]`, metadata);
+  // Only log to console in GUI mode, not during CLI-only operations
+  const cliArgs = getCleanCliArgs(process.argv);
+  const isCliOnlyMode = hasCliOnlyCommand(cliArgs);
+  
+  if (!isCliOnlyMode) {
+    const slowFlag = entry.slow ? ' ⚠️ SLOW' : '';
+    const memFlag = entry.memoryWarning ? ' 🔥 HIGH MEMORY' : '';
+    console.log(`[STARTUP${slowFlag}${memFlag}] ${event}: ${elapsed}ms (Δ${delta}ms) [MEM: ${formatMemory(resources.memory.rss)}, CPU: ${resources.cpu.toFixed(1)}%]`, metadata);
+  }
   
   // File output (asynchronous, non-blocking)
   writeLogEntry(entry);
