@@ -31,6 +31,41 @@ import {checkPathAccess} from "./utils/pathHelper";
 
 import log from 'electron-log/main';
 import {extractMetadata} from "./utils/extractMetadata";
+import {initMetrics, logMetric, logStartupError, checkSlowStartupWarning} from "./utils/startupMetrics";
+import {ipcMain} from 'electron';
+import {StartupChannels} from "./ipc/channels";
+
+// Debug logging to file (works even in packaged mode)
+const debugLog = (msg) => {
+    try {
+        const logPath = '/tmp/fdo-debug.log';
+        const timestamp = new Date().toISOString();
+        const content = `${timestamp} - ${msg}\n`;
+        // Use synchronous write to ensure it happens before any exit
+        if (!existsSync(logPath)) {
+            fs.writeFileSync(logPath, content);
+        } else {
+            fs.appendFileSync(logPath, content);
+        }
+    } catch (e) {
+        // Try to at least write the error somewhere visible
+        try {
+            fs.writeFileSync('/tmp/fdo-error.log', `Debug log error: ${e.message}\n`);
+        } catch {}
+    }
+};
+
+debugLog('[MAIN] Starting FDO main process...');
+debugLog(`[MAIN] isPackaged: ${app.isPackaged}`);
+debugLog(`[MAIN] argv: ${JSON.stringify(process.argv)}`);
+
+// Initialize startup metrics (must be early)
+initMetrics();
+
+// IPC handler for renderer process metrics
+ipcMain.on(StartupChannels.LOG_METRIC, (event, metricEvent, metadata) => {
+    logMetric(metricEvent, metadata);
+});
 
 // Constants for electron-builder (replaces Forge webpack entries)
 const isDev = !app.isPackaged;
@@ -63,16 +98,33 @@ function getPluginFilePath(urlPath) {
     return nodePath.join(baseDir, safePath);
 }
 
-export const PLUGINS_DIR = nodePath.join(app.getPath('userData'), 'plugins');
-export const USER_CONFIG_FILE = nodePath.join(app.getPath('userData'), 'config.json');
-export const PLUGINS_REGISTRY_FILE = nodePath.join(app.getPath('userData'), 'plugins.json');
+// Lazy getters for paths that require app.getPath('userData')
+// These must be functions because app.getPath() isn't available until app is ready
+export const getPluginsDir = () => nodePath.join(app.getPath('userData'), 'plugins');
+export const getUserConfigFile = () => nodePath.join(app.getPath('userData'), 'config.json');
+export const getPluginsRegistryFile = () => nodePath.join(app.getPath('userData'), 'plugins.json');
+
+// For backwards compatibility, keep these as constants that will be initialized when used
+// (they'll be calculated lazily on first access after app is ready)
+export let PLUGINS_DIR;
+export let USER_CONFIG_FILE;
+export let PLUGINS_REGISTRY_FILE;
 
 export const AppMetrics = [];
 export const MAX_METRICS = 86400;
 
 let actionInProgress = false;
-const SIGNAL_FILE = nodePath.join(app.getPath('userData'), 'deployment-finished.signal');
-const FAIL_FILE = nodePath.join(app.getPath('userData'), 'deployment-failed.signal');
+let SIGNAL_FILE;
+let FAIL_FILE;
+
+// Initialize paths once app is ready
+function initializePaths() {
+    PLUGINS_DIR = getPluginsDir();
+    USER_CONFIG_FILE = getUserConfigFile();
+    PLUGINS_REGISTRY_FILE = getPluginsRegistryFile();
+    SIGNAL_FILE = nodePath.join(app.getPath('userData'), 'deployment-finished.signal');
+    FAIL_FILE = nodePath.join(app.getPath('userData'), 'deployment-failed.signal');
+}
 
 function getValidCommandFromArgs(args, knownCommands) {
     // Skip the first arg (binary) and any Electron flags
@@ -129,7 +181,13 @@ function signPluginCLI(path, label) {
     Certs.signPlugin(path, label)
 }
 
-if (require('electron-squirrel-startup')) app.quit();
+// Early exit for Windows installer events (squirrel)
+// The 'started' variable was imported from 'electron-squirrel-startup' at the top
+debugLog(`[MAIN] Squirrel started: ${started}`);
+if (started) {
+    debugLog('[MAIN] Quitting due to squirrel startup');
+    app.quit();
+}
 
 const program = new Command();
 
@@ -147,6 +205,7 @@ program
     .name('fdo')
     .description('FlexDevOps (FDO) Application CLI')
     .version(app.getVersion())
+    .allowUnknownOption(true); // Allow macOS arguments like -psn_X_XXXXX
 
 program.configureHelp(colorHelp);
 
@@ -269,12 +328,26 @@ sign
 
 program.addCommand(sign);
 
-await program.parseAsync();
+// Only parse CLI arguments if we have explicit CLI commands
+// Skip parsing for GUI launches (Finder/Dock with -psn args or no args)
+const hasCliCommand = process.argv.slice(2).some(arg => 
+    ['compile', 'deploy', 'sign', 'certs', '--help', '--version', '-h', '-V', 'open'].includes(arg) &&
+    !arg.startsWith('-psn') // Ignore macOS Process Serial Number
+);
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (started) {
-    app.quit();
+// In dev mode, also check if we're running via terminal (not GUI)
+const isTerminalLaunch = process.stdin.isTTY || process.argv.includes('--cli');
+
+debugLog(`[MAIN] hasCliCommand: ${hasCliCommand}, isTerminalLaunch: ${isTerminalLaunch}`);
+
+if (hasCliCommand && (isTerminalLaunch || app.isPackaged)) {
+    // Parse CLI only when we have explicit commands
+    debugLog('[MAIN] Parsing CLI arguments...');
+    await program.parseAsync();
+    debugLog('[MAIN] CLI parsing complete');
 }
+
+// Note: Squirrel startup is already handled at the top of the file (line 177)
 
 if (process.defaultApp) {
     if (process.argv.length >= 2) {
@@ -286,7 +359,14 @@ if (process.defaultApp) {
 
 const gotTheLock = app.requestSingleInstanceLock()
 
-if (!gotTheLock) app.quit()
+debugLog(`[MAIN] Single instance lock: ${gotTheLock}`);
+
+if (!gotTheLock) {
+    debugLog('[MAIN] Another instance running, quitting...');
+    app.quit();
+}
+
+debugLog('[MAIN] Reached end of top-level code, waiting for app.whenReady()');
 
 const createWindow = async () => {
     // Create the browser window.
@@ -306,12 +386,48 @@ const createWindow = async () => {
         },
     });
 
-    // and load the index.html of the app.
-    await mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+    logMetric('window-created');
+
+    debugLog(`[MAIN] Loading URL: ${MAIN_WINDOW_WEBPACK_ENTRY}`);
+
+    // Track load failures
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+        debugLog(`[MAIN] did-fail-load: ${errorCode} - ${errorDescription} - ${validatedURL}`);
+        logStartupError('renderer-load-failed', new Error(errorDescription), { errorCode, validatedURL });
+    });
+
+    // Track renderer load completion
+    mainWindow.webContents.on('did-finish-load', () => {
+        debugLog('[MAIN] did-finish-load fired');
+        logMetric('renderer-loaded');
+    });
+
+    // Capture renderer console errors
+    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        if (level >= 2) { // 2 = warning, 3 = error
+            debugLog(`[RENDERER ${level === 2 ? 'WARN' : 'ERROR'}] ${message} (${sourceId}:${line})`);
+        }
+    });
 
     mainWindow.once('ready-to-show', () => {
+        debugLog('[MAIN] ready-to-show fired');
+        logMetric('window-visible');
         mainWindow.show();
+        
+        // Check if startup was slow and show warning
+        checkSlowStartupWarning('window-visible');
     });
+
+    // and load the index.html of the app.
+    debugLog('[MAIN] Calling mainWindow.loadURL...');
+    try {
+        await mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+        debugLog('[MAIN] loadURL completed successfully');
+    } catch (error) {
+        debugLog(`[MAIN] loadURL failed: ${error.message}`);
+        logStartupError('window-load-url-failed', error);
+        throw error;
+    }
 
     nativeTheme.themeSource = 'dark';
 
@@ -321,13 +437,58 @@ const createWindow = async () => {
 };
 
 app.whenReady().then(async () => {
+    debugLog('[MAIN] app.whenReady() fired!');
+    
+    // Initialize paths that require app.getPath('userData')
+    initializePaths();
+    debugLog('[MAIN] Paths initialized');
+    
     if (actionInProgress) {
+        debugLog('[MAIN] actionInProgress=true, returning early');
         return
     }
 
-    log.eventLogger.startLogging()
+    logMetric('app-ready');
 
-    let mainWindow = await createWindow();
+    log.eventLogger.startLogging()
+    
+    debugLog('[MAIN] About to create window...');
+
+    let mainWindow;
+    try {
+        mainWindow = await createWindow();
+    } catch (error) {
+        logStartupError('window-creation', error, {
+            isDev,
+            platform: process.platform,
+            arch: process.arch,
+        });
+        
+        // Show error dialog and retry
+        const response = await dialog.showMessageBox({
+            type: 'error',
+            title: 'Startup Error',
+            message: 'Failed to create application window',
+            detail: `Error: ${error.message}\n\nWould you like to retry?`,
+            buttons: ['Retry', 'Quit'],
+            defaultId: 0,
+            cancelId: 1,
+        });
+        
+        if (response.response === 0) {
+            // Retry window creation
+            try {
+                mainWindow = await createWindow();
+            } catch (retryError) {
+                logStartupError('window-creation-retry', retryError);
+                app.quit();
+                return;
+            }
+        } else {
+            app.quit();
+            return;
+        }
+    }
 
     mainWindow.on('closed', () => {
         PluginManager.setMainWindow(null)

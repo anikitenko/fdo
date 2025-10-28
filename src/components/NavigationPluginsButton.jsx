@@ -1,9 +1,11 @@
 import {Button, Card, Divider, Elevation, Icon, Popover, Tag} from "@blueprintjs/core";
 import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
-import {CreatePluginDialog} from "./CreatePluginDialog.jsx";
-import {useState} from "react";
-import {ManagePluginsDialog} from "./ManagePluginsDialog.jsx";
+import {lazy, Suspense, useState} from "react";
+
+// Lazy load dialogs (only needed when opened)
+const CreatePluginDialog = lazy(() => import("./CreatePluginDialog.jsx").then(m => ({default: m.CreatePluginDialog})));
+const ManagePluginsDialog = lazy(() => import("./ManagePluginsDialog.jsx").then(m => ({default: m.ManagePluginsDialog})));
 
 export const NavigationPluginsButton = ({
                                             active,
@@ -33,14 +35,16 @@ export const NavigationPluginsButton = ({
                 <Button variant={"minimal"} ref={buttonMenuRef}>
                     Plugins Activated: <Tag intent={"success"} round={true}>{active.length}</Tag> Installed: <Tag
                     intent={"primary"}
-                    round={true}>{all.length}</Tag></Button>
-            </Popover>
+                round={true}>{all.length}</Tag></Button>
+        </Popover>
+        <Suspense fallback={null}>
             <CreatePluginDialog show={showCreateDialog}
                                 close={() => setShowCreateDialog(false)}
             />
             <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
                                  selectPlugin={selectPlugin}
                                  deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}/>
+        </Suspense>
         </div>
     );
 };

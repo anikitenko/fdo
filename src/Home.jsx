@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react'
+import React, {lazy, Suspense, useEffect, useRef, useState} from 'react'
 import classNames from "classnames";
 import {
     Alignment,
@@ -19,7 +19,9 @@ import {SideBar} from "./components/SideBar.jsx";
 import {CommandBar} from "./components/CommandBar.jsx";
 import {generateActionId} from "./utils/generateActionId";
 import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
-import {SettingsDialog} from "./components/SettingsDialog.jsx";
+
+// Lazy load settings dialog (only needed when opened)
+const SettingsDialog = lazy(() => import("./components/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
 
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
@@ -548,11 +550,13 @@ export const Home = () => {
                     marginLeft: (state.plugins.length > 0 ? "50px" : ""),
                     marginRight: (showRightSideBar ? "50px" : "")
                 }}>
-                    {(plugin && isPluginInit(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
-                </div>
-                <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
-                <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
+                {(plugin && isPluginInit(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
             </div>
-        </HotkeysTarget>
+            <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
+            <Suspense fallback={null}>
+                <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
+            </Suspense>
+        </div>
+    </HotkeysTarget>
     );
 }
