@@ -2,6 +2,7 @@ import {app, ipcMain} from "electron";
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
 import {rmSync, chmodSync} from "node:fs";
 import { readFile } from 'node:fs/promises';
+import Module from 'node:module';
 import PluginORM from "../utils/PluginORM";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "../main.js";
 import generatePluginName from "../components/editor/utils/generatePluginName";
@@ -25,37 +26,29 @@ import archiver from "archiver"
 import {extractMetadata} from "../utils/extractMetadata";
 
 export async function buildUsingEsbuild(virtualData) {
-    let nodePath;
-    if (process.env.NODE_ENV === "development") {
-        // In development, use the normal esbuild path
-        const paths = [
-            app.getAppPath(),
-            "dist",
-            "main",
-            "node_modules",
-        ]
-        nodePath = path.join(...paths)
-    } else {
-        // In production, point to the unpacked binary
-        const paths = [
-            process.resourcesPath,
-            "app.asar.unpacked",
-            "dist",
-            "main",
-            "node_modules",
-        ]
-        nodePath = path.join(...paths)
-    }
+    const isDev = !app.isPackaged;
+    
+    // Construct the path to unpacked node_modules
+    const nodePath = isDev 
+        ? path.join(app.getAppPath(), "dist", "main", "node_modules")
+        : path.join(process.resourcesPath, "app.asar.unpacked", "dist", "main", "node_modules");
+    
     const esbuildBinary = path.join(nodePath, "@esbuild", process.platform + "-" + process.arch, "bin", "esbuild");
+    
     // Set permissions
     chmodSync(esbuildBinary, 0o755)
 
     // Ensure esbuild uses the correct binary
     process.env.ESBUILD_BINARY_PATH = esbuildBinary;
     process.env.NODE_PATH = nodePath;
+    
     const srcJson = JSON.parse(virtualData["/package.json"])
     const pluginEntrypoint = srcJson.source || "index.ts"
-    const esbuild = require("esbuild")
+    
+    // Use Module._load to load esbuild from the unpacked directory
+    // This bypasses the normal require() resolution and works with absolute paths
+    const esbuildMainPath = path.join(nodePath, "esbuild", "lib", "main.js");
+    const esbuild = Module._load(esbuildMainPath, module, false)
     return await esbuild.build({
         entryPoints: [`/${pluginEntrypoint}`],
         bundle: true,

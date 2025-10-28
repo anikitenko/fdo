@@ -43,6 +43,7 @@ export const SystemChannels = withPrefix('system', {
     GET_PLUGIN_METRIC: 'get-plugin-metric',
     OPEN_FILE_DIALOG: 'open-file-dialog',
     GET_MODULE_FILES: 'get-module-files',
+    GET_FDO_SDK_TYPES: 'get-fdo-sdk-path',
     GET_BABEL_PATH: 'get-babel-path',
     OPEN_EDITOR_WINDOW: 'open-editor-window',
     OPEN_LIVE_UI_WINDOW: 'open-live-ui-window',

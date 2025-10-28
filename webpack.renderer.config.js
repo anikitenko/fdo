@@ -13,6 +13,7 @@ module.exports = {
         path: path.resolve(__dirname, 'dist/renderer'),
         filename: '[name].[contenthash].js',
         chunkFilename: '[name].[contenthash].js',
+        publicPath: './',
         clean: true
     },
     target: 'web',
@@ -150,14 +151,14 @@ module.exports = {
         new HtmlWebpackPlugin({
             template: './src/index.html',
             filename: 'index.html',
-            title: 'FlexDevOps (FDO)'
-            // Include all chunks - both entry points will be loaded but only the one with matching DOM element will run
+            title: 'FlexDevOps (FDO)',
+            chunks: ['main_window']  // Only include main_window entry point
         }),
         new HtmlWebpackPlugin({
             template: './src/plugin_host.html',
             filename: 'plugin_host.html',
-            title: 'Plugin'
-            // Include all chunks - both entry points will be loaded but only the one with matching DOM element will run
+            title: 'Plugin',
+            chunks: ['plugin_host']  // Only include plugin_host entry point
         }),
         new MonacoWebpackPlugin({
             languages: ["css", "html", "javascript", "markdown", "typescript", "json"]
@@ -169,21 +170,12 @@ module.exports = {
                     to: "assets",
                 },
                 {
-                    from: path.resolve(__dirname, "node_modules/@anikitenko/fdo-sdk/dist/@types"),
-                    to: "assets/node_modules/@anikitenko/fdo-sdk",
-                    /*noErrorOnMissing: true,
-                    globOptions: {
-                        dot: true,
-                        ignore: ['**!/fdo-sdk.bundle.js', '**!/fdo-sdk.bundle.js.map']
-                    }*/
-                },
-                {
                     from: path.resolve(__dirname, "node_modules/@babel/standalone"),
-                    to: "assets/node_modules/@babel/standalone",
+                    to: "assets/vendor/@babel/standalone",
                 },
                 {
                     from: path.resolve(__dirname, "node_modules/goober"),
-                    to: "assets/node_modules/goober",
+                    to: "assets/vendor/goober",
                     globOptions: {
                         ignore: [
                             "**/__tests__/**",
