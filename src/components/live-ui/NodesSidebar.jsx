@@ -20,7 +20,7 @@ export default () => {
     return (
         <div className={styles.nodeHelpers}>
             <div>
-                <span className={"bp5-heading"} style={{fontStyle: "1rem"}}>Helper nodes:</span>
+                <span className={"bp6-heading"} style={{fontStyle: "1rem"}}>Helper nodes:</span>
             </div>
             <div className={classnames(styles["helperItem"])} draggable={true} onDragStart={(event) => onDragStart(event, 'concat')} onDragEnd={(e) => {
                 e.currentTarget.classList.remove(styles['dragging']);

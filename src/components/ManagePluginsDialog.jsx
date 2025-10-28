@@ -9,7 +9,7 @@ import {
     FormGroup,
     HTMLSelect,
     Icon,
-    InputGroup,
+    InputGroup, NonIdealState,
     Switch,
     Tab,
     Tabs,
@@ -100,13 +100,14 @@ export const ManagePluginsDialog = ({
             isCloseButtonShown={true}
             onClose={() => setShow(false)}
             className={styles["manage-plugins"]}
-            title={<><Icon icon={"cube"} intent={"primary"} size={20}/><span className={"bp5-heading"}
-                                                                   style={{fontSize: "1.2rem"}}>Manage Plugins</span></>}
+            title={<><Icon icon={"cube"} intent={"primary"} size={20}/><span className={"bp6-heading"}
+                                                                             style={{fontSize: "1.2rem"}}>Manage Plugins</span></>}
             style={{
                 minWidth: 800,
                 paddingBottom: 0
             }}
         >
+            {sortedPlugins?.length > 0 ? (
             <Tabs
                 vertical={true}
                 animate={true}
@@ -115,12 +116,11 @@ export const ManagePluginsDialog = ({
                 id={"manage-plugins-tabs"}
                 renderActiveTabPanelOnly={true}
             >
-                {sortedPlugins?.map((plugin, idx) => {
-                    return (
+                {sortedPlugins?.map((plugin, idx) => (
                         <Tab id={plugin.id} key={plugin.id}
                              title={
                                  <div style={{verticalAlign: "center", width: "180px"}}
-                                      className={"bp5-text-overflow-ellipsis"}>
+                                      className={"bp6-text-overflow-ellipsis"}>
                                      <Icon icon={plugin.icon} intent={"primary"}/>
                                      <span style={{
                                          marginLeft: "5px",
@@ -128,7 +128,7 @@ export const ManagePluginsDialog = ({
                                          lineHeight: "10px",
                                          textOverflow: "ellipsis"
                                      }}
-                                           className={classNames("bp5-text-muted")}>{plugin.name}</span>
+                                           className={classNames("bp6-text-muted")}>{plugin.name}</span>
                                  </div>
                              }
                              style={{
@@ -145,8 +145,18 @@ export const ManagePluginsDialog = ({
                                  />
                              }/>
                     )
-                })}
+                )}
             </Tabs>
+            ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                    <NonIdealState
+                        icon="layout"
+                        title="No plugins found"
+                        description="Please add or install plugins to manage them here."
+                        layout="vertical"
+                    />
+                </div>
+            )}
         </Dialog>
     )
 }
@@ -430,7 +440,7 @@ const SelectPluginPanel = ({
     return (
         <Card className={styles["card-panel"]}>
             <div className={styles["card-setting-header"]}>
-                <span className={"bp5-heading"}
+                <span className={"bp6-heading"}
                       style={{fontSize: "1rem", margin: "0"}}>{plugin.name} {pluginVerification?.success ? (
                     <Tag intent="success" icon="shield" style={{verticalAlign: "bottom"}}>Certified</Tag>
                 ) : (
@@ -443,54 +453,54 @@ const SelectPluginPanel = ({
                     </TooltipBP>
                 )}</span>
                 {(creationTime && activePlugins?.some((p) => p.id === plugin.id)) && (
-                    <span className={"bp5-code"}
+                    <span className={"bp6-code"}
                           style={{marginLeft: "auto"}}>Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
                 )}
             </div>
-            <span className={classNames("bp5-text-small", "bp5-text-muted")}>{plugin.description}</span>
+            <span className={classNames("bp6-text-small", "bp6-text-muted")}>{plugin.description}</span>
             <Divider/>
             <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
                 <div style={{flex: "1", minWidth: "0", width: "0"}}>
-            <div>
-                Loaded from: <i className={"bp5-heading"}>{plugin.home}</i>
-            </div>
-            <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong
-                style={{color: activePlugins?.some((p) => p.id === plugin.id) ? "green" : "red"}}>Enabled</strong>}
-                    innerLabelChecked="yes :)" innerLabel="no :("
-                    checked={activePlugins?.some((p) => p.id === plugin.id)}
-                    onChange={() => {
-                        if (activePlugins?.some((p) => p.id === plugin.id)) {
-                            deselectPlugin(plugin)
-                        } else {
-                            selectPlugin(plugin)
-                        }
-                    }}
-            />
+                    <div>
+                        Loaded from: <i className={"bp6-heading"}>{plugin.home}</i>
+                    </div>
+                    <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong
+                        style={{color: activePlugins?.some((p) => p.id === plugin.id) ? "green" : "red"}}>Enabled</strong>}
+                            innerLabelChecked="yes :)" innerLabel="no :("
+                            checked={activePlugins?.some((p) => p.id === plugin.id)}
+                            onChange={() => {
+                                if (activePlugins?.some((p) => p.id === plugin.id)) {
+                                    deselectPlugin(plugin)
+                                } else {
+                                    selectPlugin(plugin)
+                                }
+                            }}
+                    />
                 </div>
-            <Button
-                icon="archive"
-                text={"Export"}
-                intent="success"
-                loading={exportProgress}
-                style={{marginLeft: "auto", alignSelf: "center"}}
-                onClick={async () => {
-                    setExportProgress(true)
-                    const data = await window.electron.plugin.export(plugin.id)
-                    console.log(data)
-                    if (data) {
-                        const blob = new Blob([data], {type: 'application/zip'});
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${plugin.name}.zip`;
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        document.body.removeChild(a);
-                    }
-                    setExportProgress(false)
-                }}
-            />
+                <Button
+                    icon="archive"
+                    text={"Export"}
+                    intent="success"
+                    loading={exportProgress}
+                    style={{marginLeft: "auto", alignSelf: "center"}}
+                    onClick={async () => {
+                        setExportProgress(true)
+                        const data = await window.electron.plugin.export(plugin.id)
+                        console.log(data)
+                        if (data) {
+                            const blob = new Blob([data], {type: 'application/zip'});
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${plugin.name}.zip`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                        }
+                        setExportProgress(false)
+                    }}
+                />
             </div>
             <Divider/>
             <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
@@ -503,8 +513,9 @@ const SelectPluginPanel = ({
                     {pluginVerification?.success && (
                         <>
                             <div><span>Signed by <i
-                                className={"bp5-running-text"}>{pluginVerification.commonName?.value}</i></span></div>
-                            <div className={"bp5-text-overflow-ellipsis"}><span>CA is <i className={"bp5-running-text"}>{pluginVerification.signer.label}</i></span>
+                                className={"bp6-running-text"}>{pluginVerification.commonName?.value}</i></span></div>
+                            <div className={"bp6-text-overflow-ellipsis"}><span>CA is <i
+                                className={"bp6-running-text"}>{pluginVerification.signer.label}</i></span>
                             </div>
                             <CertificateValidComponent cert={pluginVerification.signer}/>
                         </>
@@ -540,7 +551,10 @@ const SelectPluginPanel = ({
 
                         window.electron.plugin.sign(plugin.id, selectedLabel).then(async (response) => {
                             if (!response.success) {
-                                (AppToaster).show({message: `Failed to resign plugin: ${response.error}`, intent: "danger"});
+                                (AppToaster).show({
+                                    message: `Failed to resign plugin: ${response.error}`,
+                                    intent: "danger"
+                                });
                             } else {
                                 window.electron.plugin.verifySignature(plugin.id).then((r) => {
                                     setPluginVerification(r)
@@ -562,14 +576,15 @@ const SelectPluginPanel = ({
                 />
                 {localStorage.getItem("sandbox_" + plugin.id) ? (
                     <>
-                    <Button text={"Clean"} style={{marginLeft: "10px"}} intent={"warning"} endIcon={"clean"}
-                            onClick={() => setIsOpenClean(true)}
-                    />
-                    <Button text={"Open"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"}
-                                          onClick={() => window.electron.system.openEditorWindow({name: plugin.id})}/>
+                        <Button text={"Clean"} style={{marginLeft: "10px"}} intent={"warning"} endIcon={"clean"}
+                                onClick={() => setIsOpenClean(true)}
+                        />
+                        <Button text={"Open"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"}
+                                onClick={() => window.electron.system.openEditorWindow({name: plugin.id})}/>
                     </>
                 ) : (
-                    <Button text={"Open in"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"} loading={openEditorProgress}
+                    <Button text={"Open in"} style={{marginLeft: "10px"}} intent={"primary"} endIcon={"share"}
+                            loading={openEditorProgress}
                             onClick={async () => {
                                 setOpenEditorProgress(true)
                                 const selectedEditor = await selectCodeEditor(setShowCodeEditorDialog, rememberedEditor, rememberEditorRef, setRememberedEditor, setOnCodeEditorSelected)
@@ -579,7 +594,10 @@ const SelectPluginPanel = ({
                                 }
                                 const result = await window.electron.system.openPluginInEditor(selectedEditor, plugin.id)
                                 if (!result.success) {
-                                    (AppToaster).show({message: `Failed to open plugin in editor: ${result.error}`, intent: "danger"});
+                                    (AppToaster).show({
+                                        message: `Failed to open plugin in editor: ${result.error}`,
+                                        intent: "danger"
+                                    });
                                 }
                                 setOpenEditorProgress(false)
                             }}/>
@@ -587,7 +605,7 @@ const SelectPluginPanel = ({
             </ControlGroup>
             <Divider/>
             <Card style={{marginBottom: "15px", marginTop: "15px", border: "1px solid darkblue"}}>
-                <p style={{textAlign: "right"}} className={classNames("bp5-text-small", "bp5-text-muted")}>
+                <p style={{textAlign: "right"}} className={classNames("bp6-text-small", "bp6-text-muted")}>
                     Next refresh in {refreshCountdownLoading ? "..." : refreshCountdown} sec.
                 </p>
                 {/* Time Range Picker */}

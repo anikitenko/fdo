@@ -5,15 +5,15 @@
     padding-bottom: 20px;
 }
 
-.manage-plugins :global(.bp5-tab-list) {
+.manage-plugins :global(.bp6-tab-list) {
     background-color: white;
 }
 
-.manage-plugins :global(.bp5-heading) {
+.manage-plugins :global(.bp6-heading) {
     padding: 5px;
 }
 
-:global(.bp5-popover.bp5-tooltip) {
+:global(.bp6-popover.bp6-tooltip) {
     background: transparent !important;
     box-shadow: none !important;
 }

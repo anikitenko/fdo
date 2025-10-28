@@ -109,7 +109,7 @@ const FileDialogComponent = () => {
         >
             <DialogBody>
                 <div style={{textAlign: "center"}}>
-                    <span className={"bp5-heading"} style={{color: "white"}}>
+                    <span className={"bp6-heading"} style={{color: "white"}}>
                         {getDialogTitle()}
                     </span>
                 </div>

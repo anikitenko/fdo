@@ -56,11 +56,11 @@ const FileTabs = ({closeTab}) => {
 
     return (
         <div className={classnames(styles["file-tabs-wrapper"])}>
-            <div className={classnames(styles["file-tabs-mirror"], treeLoading ? "bp5-skeleton" : "")}
+            <div className={classnames(styles["file-tabs-mirror"], treeLoading ? "bp6-skeleton" : "")}
                  ref={topScrollRef}>
                 <div ref={mirrorRef} style={{height: "1px"}}></div>
             </div>
-            <div className={classnames(styles["file-tabs"], treeLoading ? "bp5-skeleton" : "")} style={{height: "39px"}}
+            <div className={classnames(styles["file-tabs"], treeLoading ? "bp6-skeleton" : "")} style={{height: "39px"}}
                  ref={contentScrollRef}>
                 {tabs.map((tab) => (
                     <ButtonGroup key={tab.id}>

@@ -8,7 +8,7 @@ module.exports = {
     entry: './src/main.js',
     target: 'electron-main',
     output: {
-        path: path.resolve(__dirname, '.webpack/main'),
+        path: path.resolve(__dirname, 'dist/main'),
         filename: 'index.js',
     },
     // Put your normal webpack config below here
@@ -34,6 +34,15 @@ module.exports = {
     },
     externals: {
         esbuild: "commonjs esbuild",
+    },
+    optimization: {
+        minimize: false, // Main process doesn't need minification (adds startup overhead)
+        moduleIds: 'deterministic',
+    },
+    node: {
+        global: true,
+        __dirname: false,
+        __filename: false,
     },
     plugins: [
         new CopyWebpackPlugin({

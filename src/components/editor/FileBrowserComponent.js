@@ -68,7 +68,7 @@ const FileBrowserComponent = () => {
                 onNodeExpand={handleNodeExpand}
                 onNodeCollapse={handleNodeCollapse}
                 onNodeContextMenu={handleContextMenu}
-                className={classnames(styles["file-tree"], treeLoading ? "bp5-skeleton" : "")}
+                className={classnames(styles["file-tree"], treeLoading ? "bp6-skeleton" : "")}
             />
             <ContextMenu contextElement={contextElement} />
         </>

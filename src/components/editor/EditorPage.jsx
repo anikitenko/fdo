@@ -168,7 +168,7 @@ export const EditorPage = () => {
                              getGridProps,
                              getGutterProps,
                          }) => (
-                    <div className={`bp5-dark ${styles["grid-container"]}`} {...getGridProps()}>
+                    <div className={`bp6-dark ${styles["grid-container"]}`} {...getGridProps()}>
                         <Split
                             rowMinSize={50}
                             direction="column"
