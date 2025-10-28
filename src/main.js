@@ -21,6 +21,7 @@ import {readFile} from "node:fs/promises";
 import mime from 'mime';
 import {Command} from 'commander';
 import {getIgnoreInstance} from "./utils/getIgnoreInstance";
+import { hasCliCommand, hasCliOnlyCommand, getCleanCliArgs } from "./utils/cliCommands.js";
 import {getAllFilesWithIgnorance} from "./utils/getAllFilesWithIgnorance";
 import ensureAndWrite from "./utils/ensureAndWrite";
 
@@ -210,8 +211,13 @@ program
 program.configureHelp(colorHelp);
 
 program
-    .command('open', {isDefault: true})
-    .description('Open FDO application');
+    .command('open')
+    .description('Open FDO application')
+    .action(() => {
+        // This action will be executed when 'open' is explicitly called
+        // If we reach here, we want to open the GUI (do nothing, let normal flow continue)
+        debugLog('[MAIN] Open command called, will launch GUI');
+    });
 
 program
     .command('compile <path>')
@@ -283,12 +289,16 @@ program
     });
 
 const sign = new Command('sign')
-    .description('Manage plugin signing');
+    .description('Manage plugin signing')
+    .action(() => {
+        // If sign is called without subcommand, show help
+        sign.help();
+    });
 
 sign.configureHelp(colorHelp);
 
 sign
-    .command('list', {isDefault: true})
+    .command('list')
     .description('List available signing certificates')
     .action(() => {
         actionInProgress = true;
@@ -328,23 +338,49 @@ sign
 
 program.addCommand(sign);
 
-// Only parse CLI arguments if we have explicit CLI commands
-// Skip parsing for GUI launches (Finder/Dock with -psn args or no args)
-const hasCliCommand = process.argv.slice(2).some(arg => 
-    ['compile', 'deploy', 'sign', 'certs', '--help', '--version', '-h', '-V', 'open'].includes(arg) &&
-    !arg.startsWith('-psn') // Ignore macOS Process Serial Number
-);
+// Get CLI arguments (excluding electron/node and script path)
+const cliArgs = getCleanCliArgs(process.argv);
+
+// Check if we have CLI commands
+const hasCommand = hasCliCommand(cliArgs);
+const isCliOnlyCommand = hasCliOnlyCommand(cliArgs);
 
 // In dev mode, also check if we're running via terminal (not GUI)
 const isTerminalLaunch = process.stdin.isTTY || process.argv.includes('--cli');
 
-debugLog(`[MAIN] hasCliCommand: ${hasCliCommand}, isTerminalLaunch: ${isTerminalLaunch}`);
+debugLog(`[MAIN] CLI args: ${JSON.stringify(cliArgs)}`);
+debugLog(`[MAIN] hasCommand: ${hasCommand}, isTerminalLaunch: ${isTerminalLaunch}, isCliOnlyCommand: ${isCliOnlyCommand}`);
 
-if (hasCliCommand && (isTerminalLaunch || app.isPackaged)) {
+if (hasCommand && (isTerminalLaunch || app.isPackaged)) {
     // Parse CLI only when we have explicit commands
     debugLog('[MAIN] Parsing CLI arguments...');
-    await program.parseAsync();
+    
+    // In packaged apps, process.argv includes the .asar path which commander
+    // interprets as a command. We need to construct proper argv for commander.
+    // Format: [executable, 'fdo', ...actualArgs]
+    let commanderArgv;
+    if (app.isPackaged) {
+        // Packaged: process.argv = [executable, app.asar, ...args]
+        // Commander needs: [executable, 'fdo', ...args]
+        commanderArgv = [process.argv[0], 'fdo', ...process.argv.slice(2)];
+    } else {
+        // Dev: process.argv = [electron, app-path, ...args]
+        // Commander can use default or we construct: [electron, 'fdo', ...args]
+        commanderArgv = [process.argv[0], 'fdo', ...process.argv.slice(2)];
+    }
+    
+    debugLog(`[MAIN] Commander argv: ${JSON.stringify(commanderArgv)}`);
+    await program.parseAsync(commanderArgv);
     debugLog('[MAIN] CLI parsing complete');
+    
+    // If this was a CLI-only command, exit now without creating GUI
+    if (isCliOnlyCommand) {
+        debugLog('[MAIN] CLI-only command executed, exiting...');
+        app.exit(0);
+    }
+} else if (cliArgs.length === 0) {
+    // No arguments provided - default to opening GUI
+    debugLog('[MAIN] No CLI arguments, will open GUI');
 }
 
 // Note: Squirrel startup is already handled at the top of the file (line 177)
