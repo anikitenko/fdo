@@ -279,7 +279,6 @@ const virtualFS = {
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
             window.electron.system.getModuleFiles().then((resultFiles) => {
                 this.parent.notifications.addToQueue("treeLoading", true)
-                console.log("resultFiles", resultFiles)
                 for (const file of resultFiles.files) {
                     let plaintext = false
                     if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
@@ -292,6 +291,14 @@ const virtualFS = {
                         plaintext = true
                     }
                     createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
+                }
+                this.parent.notifications.addToQueue("treeLoading", false)
+            })
+            window.electron.system.getFdoSdkTypes().then((resultFiles) => {
+                this.parent.notifications.addToQueue("treeLoading", true)
+                for (const file of resultFiles.files) {
+                    monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`)
+                    createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content)
                 }
                 this.parent.notifications.addToQueue("treeLoading", false)
             })
