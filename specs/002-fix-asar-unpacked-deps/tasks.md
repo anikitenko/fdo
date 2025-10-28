@@ -26,11 +26,11 @@ This is a build configuration fix for an Electron desktop application:
 
 **Purpose**: Prepare workspace for configuration changes and validation script development
 
-- [ ] T001 Create `scripts/` directory at repository root for validation scripts
-- [ ] T002 [P] Review research.md to understand root cause and solution approach
-- [ ] T003 [P] Review data-model.md to understand configuration schema
+- [x] T001 Create `scripts/` directory at repository root for validation scripts
+- [x] T002 [P] Review research.md to understand root cause and solution approach
+- [x] T003 [P] Review data-model.md to understand configuration schema
 
-**Checkpoint**: Workspace prepared, design documents understood
+**Checkpoint**: ✅ Workspace prepared, design documents understood
 
 ---
 
@@ -40,12 +40,12 @@ This is a build configuration fix for an Electron desktop application:
 
 **⚠️ CRITICAL**: Complete backup before making any configuration changes
 
-- [ ] T004 Backup current `webpack.main.config.js` to `webpack.main.config.js.backup`
-- [ ] T005 Backup current `package.json` build section (document current asarUnpack patterns)
-- [ ] T006 Document current package size by running `npm run dist:mac` and recording DMG size in specs/002-fix-asar-unpacked-deps/baseline-metrics.md
-- [ ] T007 [P] Document current packages in unpacked resources by listing contents of `release/mac/FDO (FlexDevOPs).app/Contents/Resources/app.asar.unpacked/node_modules/`
+- [x] T004 Backup current `webpack.main.config.js` to `webpack.main.config.js.backup`
+- [x] T005 Backup current `package.json` build section (document current asarUnpack patterns)
+- [x] T006 Document current package size by running `npm run dist:mac` and recording DMG size in specs/002-fix-asar-unpacked-deps/baseline-metrics.md
+- [x] T007 [P] Document current packages in unpacked resources by listing contents of `release/mac/FDO (FlexDevOPs).app/Contents/Resources/app.asar.unpacked/node_modules/`
 
-**Checkpoint**: Baseline established, safe to proceed with configuration changes
+**Checkpoint**: ✅ Baseline established, safe to proceed with configuration changes
 
 ---
 
@@ -71,9 +71,9 @@ This is a build configuration fix for an Electron desktop application:
     "dist/main/node_modules/@anikitenko/**/*"
   ]
   ```
-- [ ] T010 [US1] Clean build artifacts by running `rm -rf dist/ release/` to ensure fresh build
-- [ ] T011 [US1] Test configuration changes by running `npm run build && npm run dist:mac`
-- [ ] T012 [US1] Verify package contents by listing `release/mac/FDO (FlexDevOPs).app/Contents/Resources/app.asar.unpacked/node_modules/` - should show only 3 directories
+- [x] T010 [US1] Clean build artifacts by running `rm -rf dist/ release/` to ensure fresh build
+- [x] T011 [US1] Test configuration changes by running `npm run build && npm run dist:mac`
+- [x] T012 [US1] Verify package contents by listing `release/mac/FDO (FlexDevOPs).app/Contents/Resources/app.asar.unpacked/node_modules/` - should show only 3 directories
 - [ ] T013 [US1] Verify application functionality by launching packaged app and testing plugin build/deploy workflow
 - [ ] T014 [US1] Test on additional platforms (if available): Windows (`npm run dist:win`), Linux (`npm run dist:linux`)
 
