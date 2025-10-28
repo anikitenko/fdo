@@ -120,7 +120,7 @@ export const PluginContainer = ({plugin}) => {
             <iframe
                 ref={iframeRef}
                 title="Plugin Container ID"
-                src={"plugin://index.html"}
+                src={"plugin://"}
                 sandbox="allow-scripts"
                 onLoad={() => setIframeLoaded(true)}
                 style={{width: width, height: height, border: "none", overflow: "hidden", boxSizing: "border-box"}}
