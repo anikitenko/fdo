@@ -43,7 +43,7 @@ export const EditorPage = () => {
 
     monaco.editor.onDidCreateEditor(async () => {
         if (!codeEditorCreated) {
-            await setupVirtualWorkspace(pluginName, pluginTemplate, pluginDirectory)
+            await setupVirtualWorkspace(pluginName, pluginData.name.trim(), pluginTemplate, pluginDirectory)
             monaco.editor.registerEditorOpener({
                 openCodeEditor(source, resource, selectionOrPosition) {
                     setJumpTo({

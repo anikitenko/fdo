@@ -559,15 +559,18 @@ app.whenReady().then(async () => {
         try {
             const url = new URL(request.url);
             let relativePath = url.pathname;
+            
+            console.log('[PLUGIN PROTOCOL] Request:', request.url, 'Path:', relativePath);
 
             // Normalize special cases
             if (relativePath === '/' || relativePath === '/index.html') {
-                relativePath = '/index.html';
+                relativePath = '/plugin_host.html';
             } else if (relativePath === '/plugin_host/index.js') {
                 relativePath = '/index.js';
             }
 
             const filePath = getPluginFilePath(relativePath);
+            console.log('[PLUGIN PROTOCOL] Serving file:', filePath);
             const data = await readFile(filePath);
             const mimeType = mime.getType(filePath) || 'text/plain';
 
@@ -577,6 +580,7 @@ app.whenReady().then(async () => {
                 },
             });
         } catch (err) {
+            console.error('[PLUGIN PROTOCOL] Error:', err.message, 'for URL:', request.url);
             if (err.code === 'ENOENT') {
                 NotificationCenter.addNotification({
                     title: `Plugin loading`,

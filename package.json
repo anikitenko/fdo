@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.26.10",
+    "@electron/asar": "^4.0.1",
     "@vercel/webpack-asset-relocator-loader": "^1.7.4",
     "babel-loader": "^10.0.0",
     "buffer": "^6.0.3",
@@ -151,8 +152,11 @@
       "buildResources": "build"
     },
     "files": [
-      "dist",
+      "dist/**/*",
       "package.json",
+      "!node_modules/**/*",
+      "!dist/main/node_modules/@esbuild/**/*",
+      "!dist/main/node_modules/esbuild/**/*",
       "!dist/**/test/**/*",
       "!dist/**/*.test.*",
       "!dist/**/*.spec.*",

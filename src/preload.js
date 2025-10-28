@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('electron', {
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
+        getFdoSdkTypes: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_TYPES),
         getBabelPath: () => ipcRenderer.invoke(SystemChannels.GET_BABEL_PATH),
         confirmEditorCloseApproved: () => ipcRenderer.send(SystemChannels.EDITOR_CLOSE_APPROVED),
         confirmEditorReloadApproved: () => ipcRenderer.send(SystemChannels.EDITOR_RELOAD_APPROVED),

@@ -1,4 +1,4 @@
-importScripts("static://assets/node_modules/@babel/standalone/babel.js");
+importScripts("static://assets/vendor/@babel/standalone/babel.js");
 
 self.onmessage = function (e) {
     const { code, options } = e.data;

@@ -135,7 +135,7 @@ const OutputPanel = ({buildOutputIntent, buildOutput}) => {
     return (
         <div ref={outputRef} className={styles["build-output-panel"]}>
             <div>
-                <Callout style={{margin: "10px", borderRadius: "5px"}} intent={buildOutputIntent}>
+                <Callout style={{margin: "10px", borderRadius: "5px", wordBreak: "break-word"}} intent={buildOutputIntent}>
                     {buildOutput.length === 0 && <div>
                         <span>Build output will be here...</span>
                     </div>}
