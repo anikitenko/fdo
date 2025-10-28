@@ -35,6 +35,9 @@ export const EditorPage = () => {
     const [codeEditor, setCodeEditor] = useState(null)
     const [jumpTo, setJumpTo] = useState(null)
     const [buildOutputSelectedTabId, setBuildOutputSelectedTabId] = useState("problems")
+    // Request deduplication flags for window close/reload
+    const [closeInProgress, setCloseInProgress] = useState(false)
+    const [reloadInProgress, setReloadInProgress] = useState(false)
     const closeTab = (fileID) => {
         if (virtualFS.getModel(fileID))
             virtualFS.updateModelState(fileID, codeEditor.saveViewState())
@@ -112,15 +115,39 @@ export const EditorPage = () => {
         };
 
         const handleElectronClose = () => {
+            // Prevent duplicate close requests
+            if (closeInProgress) {
+                console.log('[Editor Close] Close already in progress, ignoring duplicate request');
+                return;
+            }
+            
+            setCloseInProgress(true);
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
+            
             if (userConfirmed) {
                 window.electron.system.confirmEditorCloseApproved();
+                // Component will unmount after close, no need to reset flag
+            } else {
+                // User cancelled, allow retry
+                setCloseInProgress(false);
             }
         }
         const handleElectronReload = () => {
+            // Prevent duplicate reload requests
+            if (reloadInProgress) {
+                console.log('[Editor Reload] Reload already in progress, ignoring duplicate request');
+                return;
+            }
+            
+            setReloadInProgress(true);
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
+            
             if (userConfirmed) {
                 window.electron.system.confirmEditorReloadApproved();
+                // Window will reload, no need to reset flag
+            } else {
+                // User cancelled, allow retry
+                setReloadInProgress(false);
             }
         };
 
