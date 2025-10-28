@@ -138,24 +138,40 @@
   "build": {
     "appId": "me.alexvwan.fdo",
     "productName": "FDO (FlexDevOPs)",
-    "asar": true,
+    "asar": {
+      "smartUnpack": false
+    },
     "compression": "maximum",
+    "includeSubNodeModules": false,
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "npmRebuild": false,
     "directories": {
       "output": "release",
       "buildResources": "build"
     },
     "files": [
-      "dist/**/*",
-      "node_modules/**/*",
-      "!node_modules/.bin",
-      "!node_modules/@electron-forge",
-      "!**/test/**/*",
-      "!**/*.test.*",
-      "!**/*.spec.*",
-      "!**/__tests__/**/*",
-      "!**/*.md",
-      "!**/LICENSE",
-      "!**/CHANGELOG*"
+      "dist",
+      "package.json",
+      "!dist/**/test/**/*",
+      "!dist/**/*.test.*",
+      "!dist/**/*.spec.*",
+      "!dist/**/__tests__/**/*",
+      "!dist/**/*.md"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/main/node_modules/esbuild",
+        "to": "app.asar.unpacked/dist/main/node_modules/esbuild"
+      },
+      {
+        "from": "dist/main/node_modules/@esbuild",
+        "to": "app.asar.unpacked/dist/main/node_modules/@esbuild"
+      },
+      {
+        "from": "dist/main/node_modules/@anikitenko",
+        "to": "app.asar.unpacked/dist/main/node_modules/@anikitenko"
+      }
     ],
     "protocols": [
       {
@@ -164,9 +180,6 @@
           "fdo-fiddle"
         ]
       }
-    ],
-    "asarUnpack": [
-      "dist/main/node_modules/**/*"
     ],
     "mac": {
       "icon": "src/assets/icons/fdo_icon.icns",
