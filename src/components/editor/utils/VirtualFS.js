@@ -278,7 +278,6 @@ const virtualFS = {
             monaco.languages.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
             window.electron.system.getModuleFiles().then((resultFiles) => {
-                console.log("resultFiles", resultFiles)
                 this.parent.notifications.addToQueue("treeLoading", true)
                 for (const file of resultFiles.files) {
                     let plaintext = false
