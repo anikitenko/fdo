@@ -10,6 +10,8 @@ Auto-generated from all feature plans. Last updated: 2025-10-27
 - JavaScript (Node.js via Electron 37.2.6) (004-dynamic-cli-paths)
 - JavaScript/Node.js (project uses Node.js for Electron app, version determined by package.json engines field) + npm CLI (package manager), npm outdated/audit APIs, Git (for rollback checkpoints) (005-npm-package-updates)
 - File system (package.json, package-lock.json, generated reports in specs directory) (005-npm-package-updates)
+- Node.js (via Electron 37.2.6), JavaScript ES6+ + Electron (BrowserWindow, ipcMain, utilityProcess), React 18.3.1 for renderer (006-fix-editor-close)
+- N/A (stateless window lifecycle management) (006-fix-editor-close)
 
 - JavaScript/TypeScript (Node.js via Electron 37.2.6) + Electron 37.2.6, React 18.3.1, webpack 5.101.0, electron-builder 25.1.8 (001-app-loading-improvement)
 
@@ -29,9 +31,9 @@ npm test && npm run lint
 JavaScript/TypeScript (Node.js via Electron 37.2.6): Follow standard conventions
 
 ## Recent Changes
+- 006-fix-editor-close: Added Node.js (via Electron 37.2.6), JavaScript ES6+ + Electron (BrowserWindow, ipcMain, utilityProcess), React 18.3.1 for renderer
 - 005-npm-package-updates: Added JavaScript/Node.js (project uses Node.js for Electron app, version determined by package.json engines field) + npm CLI (package manager), npm outdated/audit APIs, Git (for rollback checkpoints)
 - 004-dynamic-cli-paths: Added JavaScript (Node.js via Electron 37.2.6)
-- 003-fix-asar-node-modules: Added JavaScript (Node.js 20+), TypeScript 5.x (for build tooling)
 
 
 <!-- MANUAL ADDITIONS START -->
