@@ -26,6 +26,9 @@
  * ```
  */
 
+// Log renderer process start
+window.electron?.startup?.logMetric('renderer-process-start');
+
 import "normalize.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
 // include blueprint-icons.css for icon font support

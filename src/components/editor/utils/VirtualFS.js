@@ -279,6 +279,7 @@ const virtualFS = {
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
             window.electron.system.getModuleFiles().then((resultFiles) => {
                 this.parent.notifications.addToQueue("treeLoading", true)
+                console.log("resultFiles", resultFiles)
                 for (const file of resultFiles.files) {
                     let plaintext = false
                     if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {

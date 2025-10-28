@@ -2,8 +2,8 @@ import React, { Suspense, lazy } from 'react';
 import { HashRouter, Route, Routes } from 'react-router-dom';
 
 import {Home} from './Home.jsx';
-const EditorPage = lazy(() => import('./components/editor/EditorPage.jsx'));
-const LiveUI = lazy(() => import('./components/live-ui/LiveUI.jsx'));
+const EditorPage = lazy(() => import('./components/editor/EditorPage.jsx').then(m => ({ default: m.EditorPage })));
+const LiveUI = lazy(() => import('./components/live-ui/LiveUI.jsx').then(m => ({ default: m.LiveUI })));
 
 function App() {
     return (

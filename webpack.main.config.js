@@ -35,6 +35,10 @@ module.exports = {
     externals: {
         esbuild: "commonjs esbuild",
     },
+    optimization: {
+        minimize: false, // Main process doesn't need minification (adds startup overhead)
+        moduleIds: 'deterministic',
+    },
     node: {
         global: true,
         __dirname: false,

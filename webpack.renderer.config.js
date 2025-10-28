@@ -99,8 +99,42 @@ module.exports = {
     optimization: {
         splitChunks: {
             chunks: 'all',
+            cacheGroups: {
+                // Vendor bundle for large npm packages
+                vendor: {
+                    test: /[\\/]node_modules[\\/]/,
+                    name: 'vendors',
+                    priority: 10,
+                    reuseExistingChunk: true,
+                },
+                // Blueprint UI components (large)
+                blueprint: {
+                    test: /[\\/]node_modules[\\/]@blueprintjs[\\/]/,
+                    name: 'blueprint',
+                    priority: 20,
+                    reuseExistingChunk: true,
+                },
+                // React core (commonly used)
+                react: {
+                    test: /[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/,
+                    name: 'react-vendor',
+                    priority: 30,
+                    chunks: 'all',
+                    minChunks: 1,
+                    enforce: true, // Always create this chunk
+                    reuseExistingChunk: true,
+                },
+                // Common code used across 2+ chunks
+                common: {
+                    minChunks: 2,
+                    priority: 5,
+                    reuseExistingChunk: true,
+                    enforce: true,
+                },
+            },
         },
         runtimeChunk: 'single',
+        moduleIds: 'deterministic', // Better long-term caching
     },
     plugins: [
         new webpack.DefinePlugin({
@@ -117,11 +151,13 @@ module.exports = {
             template: './src/index.html',
             filename: 'index.html',
             title: 'FlexDevOps (FDO)'
+            // Include all chunks - both entry points will be loaded but only the one with matching DOM element will run
         }),
         new HtmlWebpackPlugin({
             template: './src/plugin_host.html',
             filename: 'plugin_host.html',
             title: 'Plugin'
+            // Include all chunks - both entry points will be loaded but only the one with matching DOM element will run
         }),
         new MonacoWebpackPlugin({
             languages: ["css", "html", "javascript", "markdown", "typescript", "json"]
