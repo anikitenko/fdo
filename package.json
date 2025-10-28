@@ -82,7 +82,7 @@
   "license": "MIT",
   "dependencies": {
     "@anikitenko/bp5-rjsf-theme": "^1.0.11",
-    "@anikitenko/fdo-sdk": "^1.0.13",
+    "@anikitenko/fdo-sdk": "^1.0.18",
     "@babel/preset-react": "^7.27.1",
     "@babel/standalone": "^7.28.2",
     "@blueprintjs/core": "^6.1.0",
@@ -139,10 +139,6 @@
     "appId": "me.alexvwan.fdo",
     "productName": "FDO (FlexDevOPs)",
     "asar": true,
-    "asarUnpack": [
-      "**/*.{node,dll}",
-      "node_modules/fsevents/**/*"
-    ],
     "compression": "maximum",
     "directories": {
       "output": "release",
