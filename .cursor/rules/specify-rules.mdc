@@ -8,6 +8,8 @@ Auto-generated from all feature plans. Last updated: 2025-10-27
 - JavaScript (Node.js 20+), TypeScript 5.x (for build tooling) (003-fix-asar-node-modules)
 - File system (packaged ASAR archive, webpack build output) (003-fix-asar-node-modules)
 - JavaScript (Node.js via Electron 37.2.6) (004-dynamic-cli-paths)
+- JavaScript/Node.js (project uses Node.js for Electron app, version determined by package.json engines field) + npm CLI (package manager), npm outdated/audit APIs, Git (for rollback checkpoints) (005-npm-package-updates)
+- File system (package.json, package-lock.json, generated reports in specs directory) (005-npm-package-updates)
 
 - JavaScript/TypeScript (Node.js via Electron 37.2.6) + Electron 37.2.6, React 18.3.1, webpack 5.101.0, electron-builder 25.1.8 (001-app-loading-improvement)
 
@@ -27,9 +29,9 @@ npm test && npm run lint
 JavaScript/TypeScript (Node.js via Electron 37.2.6): Follow standard conventions
 
 ## Recent Changes
+- 005-npm-package-updates: Added JavaScript/Node.js (project uses Node.js for Electron app, version determined by package.json engines field) + npm CLI (package manager), npm outdated/audit APIs, Git (for rollback checkpoints)
 - 004-dynamic-cli-paths: Added JavaScript (Node.js via Electron 37.2.6)
 - 003-fix-asar-node-modules: Added JavaScript (Node.js 20+), TypeScript 5.x (for build tooling)
-- 002-fix-asar-unpacked-deps: Added JavaScript (Node.js 18+), TypeScrip + webpack 5.101.0, electron-builder 25.1.8, esbuild 0.25.8, @vercel/webpack-asset-relocator-loader 1.7.4
 
 
 <!-- MANUAL ADDITIONS START -->
