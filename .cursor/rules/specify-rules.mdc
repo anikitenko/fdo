@@ -1,0 +1,29 @@
+# fdo Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2025-10-27
+
+## Active Technologies
+
+- JavaScript/TypeScript (Node.js via Electron 37.2.6) + Electron 37.2.6, React 18.3.1, webpack 5.101.0, electron-builder 25.1.8 (001-app-loading-improvement)
+
+## Project Structure
+
+```text
+src/
+tests/
+```
+
+## Commands
+
+npm test && npm run lint
+
+## Code Style
+
+JavaScript/TypeScript (Node.js via Electron 37.2.6): Follow standard conventions
+
+## Recent Changes
+
+- 001-app-loading-improvement: Added JavaScript/TypeScript (Node.js via Electron 37.2.6) + Electron 37.2.6, React 18.3.1, webpack 5.101.0, electron-builder 25.1.8
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->
