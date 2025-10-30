@@ -38,6 +38,7 @@ jobs:
         env:
           ELECTRON_TEST_MODE: 'true'
           CI: 'true'
+          ELECTRON_DISABLE_SANDBOX: 'true'
         run: npm run test:e2e:ci
 
       - name: Upload test results (JUnit XML)
