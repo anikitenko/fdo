@@ -31,9 +31,9 @@ npm test && npm run lint
 JavaScript/TypeScript (Node.js via Electron 37.2.6): Follow standard conventions
 
 ## Recent Changes
+- 001-fix-ui-tests: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 006-fix-editor-close: Added Node.js (via Electron 37.2.6), JavaScript ES6+ + Electron (BrowserWindow, ipcMain, utilityProcess), React 18.3.1 for renderer
 - 005-npm-package-updates: Added JavaScript/Node.js (project uses Node.js for Electron app, version determined by package.json engines field) + npm CLI (package manager), npm outdated/audit APIs, Git (for rollback checkpoints)
-- 004-dynamic-cli-paths: Added JavaScript (Node.js via Electron 37.2.6)
 
 
 <!-- MANUAL ADDITIONS START -->

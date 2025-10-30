@@ -1,3 +1,20 @@
+// Dynamically add JUnit reporter if available to support CI (FR-023)
+const reporters = ['default'];
+try {
+  require.resolve('jest-junit');
+  reporters.push([
+    'jest-junit',
+    {
+      outputDirectory: 'test-results',
+      outputName: 'junit.xml',
+      ancestorSeparator: ' > ',
+      addFileAttribute: 'true'
+    }
+  ]);
+} catch (e) {
+  // jest-junit not installed; keep default reporter only
+}
+
 module.exports = {
   testEnvironment: 'node', // Default to node for backend/unit tests
   testMatch: ['**/tests/**/*.test.js'],
@@ -18,6 +35,7 @@ module.exports = {
     'node_modules/(?!(monaco-editor)/)'
   ],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
-  verbose: true
+  verbose: true,
+  reporters
 };
 
