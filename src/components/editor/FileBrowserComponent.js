@@ -11,7 +11,9 @@ import classnames from "classnames";
 
 const FileBrowserComponent = () => {
     const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
-    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    // ALWAYS initialize with false - skeleton should NEVER appear during initial load
+    // Only show skeleton on explicit user actions (version switch, snapshot create)
+    const [treeLoading, setTreeLoading] = useState(false)
     const [contextElement, setContextElement] = useState(null)
     const {show} = useContextMenu();
 

@@ -3,6 +3,29 @@
  * Tests for close reliability fix (Feature 006)
  */
 
+// Mock electron at module level before any imports
+jest.mock('electron', () => ({
+    app: {
+        isPackaged: false,
+        getAppPath: jest.fn(() => '/fake/app/path')
+    },
+    ipcMain: {
+        on: jest.fn(),
+        once: jest.fn(),
+        removeHandler: jest.fn()
+    },
+    BrowserWindow: jest.fn()
+}));
+
+// Mock node:path
+jest.mock('node:path', () => {
+    const path = jest.requireActual('path');
+    return {
+        ...path,
+        join: jest.fn((...args) => args.join('/'))
+    };
+});
+
 describe('Editor Window Lifecycle', () => {
     let mockWindow;
     let mockIpcMain;
@@ -22,17 +45,8 @@ describe('Editor Window Lifecycle', () => {
             }
         };
 
-        mockIpcMain = {
-            on: jest.fn(),
-            once: jest.fn(),
-            removeHandler: jest.fn()
-        };
-
-        // Mock modules
-        jest.mock('electron', () => ({
-            ipcMain: mockIpcMain,
-            BrowserWindow: jest.fn()
-        }));
+        const electron = require('electron');
+        mockIpcMain = electron.ipcMain;
 
         // Import after mocking
         editorWindow = require('../../src/utils/editorWindow').editorWindow;

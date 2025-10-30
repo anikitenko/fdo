@@ -1,6 +1,7 @@
 import Store from 'electron-store';
 
 export const settings = new Store({
+    projectName: 'FDO (FlexDevOPs)', // Required for electron-store/conf
     encryptionKey: "FDO-APPLICATION",
     name: "settings",
     schema: {
