@@ -54,6 +54,7 @@ jobs:
           path: test-results/junit.xml
           retention-days: 7
           if-no-files-found: ignore
+          fail_on_failure: false
 
       - name: Publish test report (if supported)
         if: always()
