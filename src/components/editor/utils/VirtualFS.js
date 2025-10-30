@@ -170,10 +170,11 @@ const virtualFS = {
                 this._pendingTreeLoading = data;
                 if (!this._rafScheduled) {
                     this._rafScheduled = true;
+                    const self = this; // Capture context explicitly
                     requestAnimationFrame(() => {
-                        this.__dispatch("treeLoading", this._pendingTreeLoading);
-                        this._pendingTreeLoading = null;
-                        this._rafScheduled = false;
+                        self.__dispatch("treeLoading", self._pendingTreeLoading);
+                        self._pendingTreeLoading = null;
+                        self._rafScheduled = false;
                     });
                 }
                 return;
