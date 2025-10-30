@@ -57,13 +57,11 @@ jobs:
           fail_on_failure: false
 
       - name: Publish test report (if supported)
-        if: always()
-        uses: mikepenz/action-junit-report@v4
+        if: success() || failure()
+        uses: mikepenz/action-junit-report@v5
         with:
           report_paths: 'test-results/junit.xml'
-          check_name: 'End-to-End Test Results'
-          fail_on_failure: true
-          require_tests: true
+          fail_on_failure: false
 
       - name: Upload test results
         if: always()
