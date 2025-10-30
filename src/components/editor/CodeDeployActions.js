@@ -13,6 +13,7 @@ import PropTypes from "prop-types";
 import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
 import {RootCertificateSelectionComponent, selectRootCert} from "./utils/RootCertificateSelectionComponent";
+import { useTreeLoading } from "./hooks/useTreeLoading";
 
 const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
@@ -28,7 +29,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
     const [buildInProgress, setBuildInProgress] = useState(false)
     const [deployInProgress, setDeployInProgress] = useState(false)
     const [saveAndCloseInProgress, setSaveAndCloseInProgress] = useState(false)
-    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    const treeLoading = useTreeLoading();
     const [rootCertificates, setRootCertificates] = useState([])
     const [onRootCertificateSelected, setOnRootCertificateSelected] = useState(null)
     const [showRootCertificateDialog, setShowRootCertificateDialog] = useState(false)
@@ -328,11 +329,9 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("treeVersionsUpdate", setVersions)
-        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
 
         return () => {
             unsubscribe()
-            unsubscribeLoading()
         }
     }, []);
     return (

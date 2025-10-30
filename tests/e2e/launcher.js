@@ -8,6 +8,10 @@ const { join } = require('path');
 const electron = require('electron');
 const net = require('net');
 
+const RETRY_DELAY_MS = 2000;
+const MAX_RETRIES = 3;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Helper function to check if a port is open
 function isPortOpen(port, host = 'localhost') {
   return new Promise((resolve) => {
@@ -39,7 +43,38 @@ class ElectronTestApp {
     this.pid = null;
   }
 
-  async launch() {
+  async launch(options = {}) {
+    const {
+      maxAttempts = MAX_RETRIES,
+      retryDelayMs = RETRY_DELAY_MS
+    } = options;
+
+    let attempt = 0;
+    let lastError = null;
+
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      try {
+        console.log(`[Launcher] Attempt ${attempt}/${maxAttempts} starting...`);
+        await this._launchOnce();
+        console.log(`[Launcher] ✓ Electron launch succeeded (attempt ${attempt}/${maxAttempts})`);
+        return this;
+      } catch (error) {
+        lastError = error;
+        console.error(`[Launcher] ✗ Launch attempt ${attempt}/${maxAttempts} failed: ${error.message}`);
+        await this.close().catch(() => {});
+        if (attempt < maxAttempts) {
+          console.log(`[Launcher] Retrying in ${retryDelayMs}ms...`);
+          await sleep(retryDelayMs);
+        }
+      }
+    }
+
+    const finalMessage = `[Launcher] Failed to start Electron after ${maxAttempts} attempts. Last error: ${lastError?.message || 'unknown error'}`;
+    throw new Error(finalMessage);
+  }
+
+  async _launchOnce() {
     return new Promise((resolve, reject) => {
       console.log('[Launcher] Starting Electron app...');
 
@@ -86,6 +121,10 @@ class ElectronTestApp {
         if (settled) return;
         settled = true;
         cleanupListeners();
+        // Ensure the Electron process is terminated even on launch failure
+        this.close().catch(() => {
+          /* ignore secondary shutdown errors */
+        });
         reject(error);
       };
 
@@ -98,6 +137,7 @@ class ElectronTestApp {
       });
 
       const waitForServer = async () => {
+        const logPath = process.env.ELECTRON_LOG_FILE || process.env.E2E_ELECTRON_LOG || '/tmp/e2e-electron.log';
         while (!settled && (Date.now() - startTime) < timeoutMs) {
           const open = await isPortOpen(targetPort);
           if (open) {
@@ -111,7 +151,8 @@ class ElectronTestApp {
         }
 
         if (!settled) {
-          handleFailure(new Error(`[Launcher] Test server did not start listening on port ${targetPort} within ${timeoutMs}ms`));
+          const timeoutMessage = `[Launcher] Test server did not start listening on port ${targetPort} within ${timeoutMs}ms. Check Electron logs at ${logPath} and ensure no other process is using the port.`;
+          handleFailure(new Error(timeoutMessage));
         }
       };
 
@@ -145,5 +186,9 @@ class ElectronTestApp {
   }
 }
 
-module.exports = { ElectronTestApp };
+module.exports = {
+  ElectronTestApp,
+  RETRY_DELAY_MS,
+  MAX_RETRIES
+};
 

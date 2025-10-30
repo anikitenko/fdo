@@ -5,17 +5,17 @@ import * as styles from './EditorPage.module.css'
 import {useEffect, useRef, useState} from "react";
 import classnames from "classnames";
 import {getIconForFile, getIconForOpenFolder} from "vscode-icons-js";
+import { useTreeLoading } from "./hooks/useTreeLoading";
 
 const FileTabs = ({closeTab}) => {
     const [tabs, setTabs] = useState([])
-    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    const treeLoading = useTreeLoading();
     const topScrollRef = useRef(null);
     const contentScrollRef = useRef(null);
     const mirrorRef = useRef(null);
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("fileTabs", setTabs);
-        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
 
         const top = topScrollRef.current;
         const content = contentScrollRef.current;
@@ -46,7 +46,6 @@ const FileTabs = ({closeTab}) => {
         // Cleanup
         return () => {
             unsubscribe();
-            unsubscribeLoading();
 
             top.removeEventListener("scroll", syncBottom);
             content.removeEventListener("scroll", syncTop);

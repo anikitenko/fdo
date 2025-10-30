@@ -5,6 +5,19 @@
 
 const WebSocket = require('ws');
 const { ElectronTestApp } = require('./launcher');
+const net = require('net');
+
+function isPortInUse(port, host = '127.0.0.1') {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const timeout = 200;
+    socket.setTimeout(timeout);
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('timeout', () => { socket.destroy(); resolve(false); });
+    socket.once('error', () => { socket.destroy(); resolve(false); });
+    socket.connect(port, host);
+  });
+}
 
 class TestClient {
   constructor() {
@@ -17,17 +30,25 @@ class TestClient {
   async start() {
     // Check if SKIP_LAUNCH env var is set (for manual app launch)
     const skipLaunch = process.env.SKIP_LAUNCH === 'true';
+    const port = parseInt(process.env.E2E_TEST_SERVER_PORT || '9555', 10);
     
     if (skipLaunch) {
       console.log('[TestClient] Skipping app launch - expecting manually started app');
     } else {
+      // Fail fast on port conflict to avoid ambiguous retries (FR-005a)
+      const portBusy = (await isPortInUse(port, '127.0.0.1')) || (await isPortInUse(port, 'localhost'));
+      if (portBusy) {
+        const msg = `Port conflict detected on ${port}. Another FDO/Electron test run may be active. Please terminate stale processes (e.g., pkill -9 Electron) and retry.`;
+        console.error(`[TestClient] ✗ ${msg}`);
+        throw new Error(msg);
+      }
       // Launch Electron app
       this.app = new ElectronTestApp();
       await this.app.launch();
     }
 
     // Connect to test server
-    await this.connect();
+    await this.connect(port);
     
     return this;
   }

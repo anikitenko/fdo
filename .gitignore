@@ -1,6 +1,7 @@
 .idea/
 dist/
 release/
+test-results/
 
 # Logs
 logs

@@ -5,6 +5,21 @@
 
 const { TestClient } = require('./client');
 
+const CONTENT_BACKOFF_MS = [0, 50, 100, 200, 400, 800, 400]; // Total ≤ 2s (after first check)
+
+async function pollWithBackoff(backoffs, fn) {
+  for (let idx = 0; idx < backoffs.length; idx++) {
+    const delay = backoffs[idx];
+    if (delay > 0) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    if (await fn(idx)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 let client;
 
 beforeAll(async () => {
@@ -304,9 +319,8 @@ describe('Snapshot Loading UX', () => {
       });
       
       // Verify index file content is visible in editor after initial load (poll up to 2s)
-      let indexContentOk = false;
-      for (let i = 0; i < 10; i++) {
-        indexContentOk = await client.eval(`
+      const indexContentOk = await pollWithBackoff(CONTENT_BACKOFF_MS, async (attempt) => {
+        const ok = await client.eval(`
           (() => {
             const models = (window.monaco?.editor?.getModels?.() || []);
             const model = models.find(m => {
@@ -316,11 +330,28 @@ describe('Snapshot Loading UX', () => {
             return !!(model && model.getValue().trim().length > 0);
           })()
         `);
-        if (indexContentOk) {
-          await client.eval(`window._mark && window._mark('index_content_ready')`);
-          break;
+        if (ok) {
+          await client.eval('window._mark && window._mark("index_content_ready")');
         }
-        await new Promise(r => setTimeout(r, 200));
+        return ok;
+      });
+      if (indexContentOk) {
+        await client.eval('window._mark && window._mark("index_content_ready")');
+      }
+
+      if (!indexContentOk) {
+        // Emit diagnostics per FR-006a before failing
+        const diag = await client.eval(`(() => {
+          const models = (window.monaco?.editor?.getModels?.() || []).map(m => ({
+            path: (m?.uri?.path || m?.uri?.fsPath || ''),
+            lang: m?.getLanguageId?.() || 'unknown',
+            length: m?.getValue?.().length || 0
+          }));
+          const activePath = (window.__fdo_active_file_path || null);
+          const lastErrors = (window.__fdo_errors || []).slice(-5);
+          return { models, activePath, lastErrors };
+        })()`);
+        console.log('[Diagnostics] Monaco models:', JSON.stringify(diag, null, 2));
       }
       expect(indexContentOk).toBe(true);
 
@@ -355,8 +386,8 @@ describe('Snapshot Loading UX', () => {
         const tIndex = toMs(perf.marks.index_content_ready, perf.start);
         console.log(`[Metrics] initial: tree_ready=${tTree}ms, editor_ready=${tEditor}ms, index_content=${tIndex}ms, mut(tree)=${perf.mut.tree}, mut(editor)=${perf.mut.editor}`);
         // Reasonable upper bounds to catch regressions (tweak if environment requires)
-        expect(perf.mut.tree).toBeLessThan(400);
-        expect(perf.mut.editor).toBeLessThan(400);
+        expect(perf.mut.tree).toBeLessThan(250);
+        expect(perf.mut.editor).toBeLessThan(250);
       }
     }, 30000);
     
@@ -830,9 +861,8 @@ describe('Snapshot Loading UX', () => {
       expect(totalTime).toBeLessThan(3000);
       
       // Verify editor shows content after switch completes (poll up to 2s)
-      let indexContentOkAfterSwitch = false;
-      for (let i = 0; i < 10; i++) {
-        indexContentOkAfterSwitch = await client.eval(`
+      const indexContentOkAfterSwitch = await pollWithBackoff(CONTENT_BACKOFF_MS, async () => {
+        return await client.eval(`
           (() => {
             const models = (window.monaco?.editor?.getModels?.() || []);
             const model = models.find(m => {
@@ -842,8 +872,19 @@ describe('Snapshot Loading UX', () => {
             return !!(model && model.getValue().trim().length > 0);
           })()
         `);
-        if (indexContentOkAfterSwitch) break;
-        await new Promise(r => setTimeout(r, 200));
+      });
+      if (!indexContentOkAfterSwitch) {
+        const diag2 = await client.eval(`(() => {
+          const models = (window.monaco?.editor?.getModels?.() || []).map(m => ({
+            path: (m?.uri?.path || m?.uri?.fsPath || ''),
+            lang: m?.getLanguageId?.() || 'unknown',
+            length: m?.getValue?.().length || 0
+          }));
+          const activePath = (window.__fdo_active_file_path || null);
+          const lastErrors = (window.__fdo_errors || []).slice(-5);
+          return { models, activePath, lastErrors };
+        })()`);
+        console.log('[Diagnostics] Monaco models after switch:', JSON.stringify(diag2, null, 2));
       }
       expect(indexContentOkAfterSwitch).toBe(true);
 

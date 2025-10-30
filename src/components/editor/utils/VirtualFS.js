@@ -974,6 +974,28 @@ const virtualFS = {
                     // For version switch, turn OFF skeleton and let CodeDeployActions handle tab restoration
                     this.stopLoading();
 
+                    const activeTabId = this.parent.tabs.getActiveTabId() || this.parent.DEFAULT_FILE_MAIN;
+                    if (typeof window !== 'undefined') {
+                        window.__fdo_active_file_path = activeTabId || null;
+                    }
+
+                    try {
+                        if (monaco?.editor && typeof monaco.editor.getEditors === 'function') {
+                            const editors = monaco.editor.getEditors();
+                            const activeModel = activeTabId ? this.parent.getModel(activeTabId) : null;
+                            if (activeModel) {
+                                editors.forEach((editorInstance) => {
+                                    if (editorInstance?.getModel?.() !== activeModel) {
+                                        editorInstance?.setModel?.(activeModel);
+                                    }
+                                    editorInstance?.layout?.();
+                                });
+                            }
+                        }
+                    } catch (refreshError) {
+                        console.error('[VirtualFS] Failed to refresh active editor after restore:', refreshError);
+                    }
+
                     // Ensure index.ts is selected and visible in editor after switch
                     // Use requestAnimationFrame to run after React updates complete
                     requestAnimationFrame(() => {
@@ -1477,6 +1499,9 @@ const virtualFS = {
         if (this.__setTreeObjectItemBool(this.treeObject, id, prop))
             this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
         if (prop === "isSelected") {
+            if (typeof window !== 'undefined') {
+                window.__fdo_active_file_path = id;
+            }
             this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(id))
         }
     },
