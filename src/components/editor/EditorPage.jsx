@@ -5,13 +5,14 @@ import {Editor, loader} from '@monaco-editor/react';
 
 import * as styles from './EditorPage.module.css'
 import {useEffect, useState} from "react";
-import {Button, InputGroup} from "@blueprintjs/core";
+import {Alert, Button, InputGroup} from "@blueprintjs/core";
 import {setupVirtualWorkspace} from "./utils/setupVirtualWorkspace";
 import virtualFS from "./utils/VirtualFS";
 import {packageDefaultContent} from "./utils/packageDefaultContent";
 import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
+import SnapshotProgress from "./SnapshotProgress";
 import CodeDeployActions from "./CodeDeployActions";
 import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
@@ -38,6 +39,54 @@ export const EditorPage = () => {
     // Request deduplication flags for window close/reload
     const [closeInProgress, setCloseInProgress] = useState(false)
     const [reloadInProgress, setReloadInProgress] = useState(false)
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+    const [showReloadConfirm, setShowReloadConfirm] = useState(false)
+    
+    // Handler functions for close/reload confirmations
+    const handleElectronClose = () => {
+        // Prevent duplicate close requests
+        if (closeInProgress) {
+            console.log('[Editor Close] Close already in progress, ignoring duplicate request');
+            return;
+        }
+        
+        setCloseInProgress(true);
+        setShowCloseConfirm(true);
+    }
+    
+    const handleElectronReload = () => {
+        // Prevent duplicate reload requests
+        if (reloadInProgress) {
+            console.log('[Editor Reload] Reload already in progress, ignoring duplicate request');
+            return;
+        }
+        
+        setReloadInProgress(true);
+        setShowReloadConfirm(true);
+    };
+    
+    const confirmClose = () => {
+        window.electron.system.confirmEditorCloseApproved();
+        setShowCloseConfirm(false);
+        // Component will unmount after close, no need to reset flag
+    };
+    
+    const cancelClose = () => {
+        setShowCloseConfirm(false);
+        setCloseInProgress(false);
+    };
+    
+    const confirmReload = () => {
+        window.electron.system.confirmEditorReloadApproved();
+        setShowReloadConfirm(false);
+        // Window will reload, no need to reset flag
+    };
+    
+    const cancelReload = () => {
+        setShowReloadConfirm(false);
+        setReloadInProgress(false);
+    };
+    
     const closeTab = (fileID) => {
         if (virtualFS.getModel(fileID))
             virtualFS.updateModelState(fileID, codeEditor.saveViewState())
@@ -47,6 +96,12 @@ export const EditorPage = () => {
     monaco.editor.onDidCreateEditor(async () => {
         if (!codeEditorCreated) {
             await setupVirtualWorkspace(pluginName, pluginData.name.trim(), pluginTemplate, pluginDirectory)
+            
+            // Initialize multi-window synchronization
+            if (virtualFS.fs && virtualFS.fs.setupMultiWindowSync) {
+                virtualFS.fs.setupMultiWindowSync();
+            }
+            
             monaco.editor.registerEditorOpener({
                 openCodeEditor(source, resource, selectionOrPosition) {
                     setJumpTo({
@@ -63,6 +118,16 @@ export const EditorPage = () => {
     })
 
     useEffect(() => codeEditorActions(codeEditor), [codeEditor]);
+
+    // Ensure a default selection/model is applied after editor is ready
+    useEffect(() => {
+        if (!codeEditor) return;
+        const selected = virtualFS.getTreeObjectItemSelected();
+        if (!selected && virtualFS.getModel(virtualFS.DEFAULT_FILE_MAIN)) {
+            virtualFS.setTreeObjectItemBool(virtualFS.DEFAULT_FILE_MAIN, "isSelected");
+            codeEditor.setModel(virtualFS.getModel(virtualFS.DEFAULT_FILE_MAIN));
+        }
+    }, [codeEditor]);
 
     useEffect(() => {
         if (jumpTo) {
@@ -109,55 +174,10 @@ export const EditorPage = () => {
             }, 100)
         });
 
-        const handleBeforeUnload = (event) => {
-            event.preventDefault()
-            event.returnValue = ''
-        };
-
-        const handleElectronClose = () => {
-            // Prevent duplicate close requests
-            if (closeInProgress) {
-                console.log('[Editor Close] Close already in progress, ignoring duplicate request');
-                return;
-            }
-            
-            setCloseInProgress(true);
-            const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
-            
-            if (userConfirmed) {
-                window.electron.system.confirmEditorCloseApproved();
-                // Component will unmount after close, no need to reset flag
-            } else {
-                // User cancelled, allow retry
-                setCloseInProgress(false);
-            }
-        }
-        const handleElectronReload = () => {
-            // Prevent duplicate reload requests
-            if (reloadInProgress) {
-                console.log('[Editor Reload] Reload already in progress, ignoring duplicate request');
-                return;
-            }
-            
-            setReloadInProgress(true);
-            const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
-            
-            if (userConfirmed) {
-                window.electron.system.confirmEditorReloadApproved();
-                // Window will reload, no need to reset flag
-            } else {
-                // User cancelled, allow retry
-                setReloadInProgress(false);
-            }
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload)
-
         window.electron.system.on.confirmEditorClose(handleElectronClose);
         window.electron.system.on.confirmEditorReload(handleElectronReload);
 
         return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
             unsubscribe()
             unsubscribeFileRemoved()
             unsubscribeTabSwitched()
@@ -289,7 +309,38 @@ export const EditorPage = () => {
                     </div>
                 )}
             />
+            <SnapshotProgress notifications={virtualFS.notifications} />
             <FileDialogComponent/>
+            
+            {/* Close Confirmation Dialog */}
+            <Alert
+                isOpen={showCloseConfirm}
+                onConfirm={confirmClose}
+                onCancel={cancelClose}
+                cancelButtonText="Cancel"
+                confirmButtonText="OK"
+                intent="danger"
+                icon="warning-sign"
+                canEscapeKeyCancel={true}
+                canOutsideClickCancel={false}
+            >
+                <p>Changes will be discarded unless a snapshot is created!</p>
+            </Alert>
+            
+            {/* Reload Confirmation Dialog */}
+            <Alert
+                isOpen={showReloadConfirm}
+                onConfirm={confirmReload}
+                onCancel={cancelReload}
+                cancelButtonText="Cancel"
+                confirmButtonText="OK"
+                intent="danger"
+                icon="warning-sign"
+                canEscapeKeyCancel={true}
+                canOutsideClickCancel={false}
+            >
+                <p>Changes will be discarded unless a snapshot is created!</p>
+            </Alert>
         </div>
     );
 }

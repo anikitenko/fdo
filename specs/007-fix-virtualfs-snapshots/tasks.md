@@ -1,559 +1,450 @@
 # Tasks: VirtualFS Snapshot Fix
 
-**Status**: Ready for Implementation  
-**Created**: October 28, 2025  
-**Branch**: `007-fix-virtualfs-snapshots`
+**Feature**: VirtualFS Snapshot Creation and Restoration Fix  
+**Branch**: `007-fix-virtualfs-snapshots`  
+**Generated**: October 28, 2025
 
-## Task Overview
+## Overview
 
-**Total Tasks**: 13  
-**Estimated Effort**: 5-7 days  
-**Priority Breakdown**: P0 (4 tasks), P1 (9 tasks)
+This tasks file organizes implementation work by user story to enable independent, incremental delivery. Each user story can be implemented and tested independently, allowing for parallel development and early value delivery.
 
----
-
-## Phase 1: Core Reliability Fixes (P0)
-
-### Task 1.1: Implement Atomic Transaction Pattern
-
-**ID**: VFSSNAP-001  
-**Priority**: P0 (Critical)  
-**Estimated Effort**: 1 day  
-**Assignee**: TBD  
-**Dependencies**: None
-
-**Description**:
-Implement snapshot-before-modify pattern with rollback capability to ensure atomic operations. Prevents partial writes and data corruption.
-
-**Acceptance Criteria**:
-- [ ] Create `captureCurrentState()` method to snapshot state before operations
-- [ ] Wrap `fs.create()` in try-catch with rollback on failure
-- [ ] Wrap `fs.set()` in try-catch with rollback on failure
-- [ ] Implement `rollback()` method to restore previous state
-- [ ] Create `AtomicOperationError` class for operation failures
-- [ ] Validate that partial writes never persist to localStorage
-- [ ] Test rollback with induced failures at each operation step (file capture, compression, storage)
-- [ ] Verify in-memory state matches localStorage after rollback
-
-**Related Requirements**: FR-016, FR-017, FR-018, FR-019
-
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js`
-
-**Implementation Notes**:
-- Backup includes: versions object, version pointers, localStorage snapshot
-- Rollback should emit notification to inform user
-- Use lodash `cloneDeep` for in-memory state backup
+**Total Tasks**: 28  
+**User Stories**: 3 (2 P1, 1 P2)  
+**Estimated Effort**: 10-12 days
 
 ---
 
-### Task 1.2: Fix Monaco Model Disposal
+## Task Format
 
-**ID**: VFSSNAP-002  
-**Priority**: P0 (Critical)  
-**Estimated Effort**: 0.5 days  
-**Assignee**: TBD  
-**Dependencies**: None
+All tasks follow this strict format:
+```
+- [ ] [TaskID] [Markers] Description with file path
+```
 
-**Description**:
-Fix model disposal errors by adding proper validation and cleanup sequence. Prevents "model already disposed" errors and orphaned markers.
-
-**Acceptance Criteria**:
-- [ ] Create `safeDisposeModel(path)` method with validation
-- [ ] Check `model.isDisposed()` before all disposal operations
-- [ ] Clear TypeScript/JSX markers before model disposal
-- [ ] Clear TypeScript extra libs before model disposal
-- [ ] Wrap all disposal operations in try-catch with logging
-- [ ] Update `fs.set()` to use safe disposal method
-- [ ] Verify no "model already disposed" errors in test suite
-- [ ] Verify no orphaned markers remain after restoration
-
-**Related Requirements**: FR-004, FR-005, FR-006, FR-007
-
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js` (fs.set method)
-
-**Implementation Notes**:
-- Always clear markers for .ts/.tsx files
-- Log disposal failures but don't block restoration
-- Clean up `this.parent.files` tracking
+**Markers**:
+- `[P]` - Parallelizable (can run simultaneously with other [P] tasks in same phase)
+- `[US1]`, `[US2]`, `[US3]` - User Story labels (for story-specific tasks)
 
 ---
 
-### Task 1.3: Implement Error Logging Infrastructure
+## Phase 1: Setup & Infrastructure (Days 1-2)
 
-**ID**: VFSSNAP-003  
-**Priority**: P0 (Critical)  
-**Estimated Effort**: 0.5 days  
-**Assignee**: TBD  
-**Dependencies**: Verify electron-log in package.json
+**Goal**: Establish foundational infrastructure required by all user stories
 
-**Description**:
-Set up structured logging with electron-log for all snapshot operations. Enables debugging of production issues.
+**Independent Test Criteria**: 
+- ✅ electron-log configured and writing to file
+- ✅ SnapshotLogger class can be imported
+- ✅ Test infrastructure (Jest) runs successfully
 
-**Acceptance Criteria**:
-- [ ] Verify electron-log is installed (check package.json)
-- [ ] Add electron-log to dependencies if missing
-- [ ] Create `src/utils/SnapshotLogger.js` class
-- [ ] Implement `logStart()`, `logComplete()`, `logError()`, `logRollback()` methods
-- [ ] Include version IDs, timestamps, context in all log entries
-- [ ] Configure electron-log file transport to 'info' level
-- [ ] Add logger instance to VirtualFS.fs object
-- [ ] Integrate logging into create/set/delete operations
-- [ ] Verify logs written to expected file location
-- [ ] Document log format and example queries
+### Setup Tasks
 
-**Related Requirements**: FR-028, FR-029, FR-030, SC-012
+- [x] T001 Verify electron-log dependency in package.json, add if missing (npm install --save electron-log)
+- [x] T002 [P] Create SnapshotLogger class in src/utils/SnapshotLogger.js with logStart, logComplete, logError, logRollback methods
+- [x] T003 [P] Configure Jest test environment if not present, create tests/ directory structure
+- [x] T004 Import SnapshotLogger into src/components/editor/utils/VirtualFS.js and initialize logger in fs object
 
-**Files Created**:
-- `src/utils/SnapshotLogger.js`
-
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js`
-- `package.json` (if electron-log missing)
-
-**Implementation Notes**:
-- Log format: `[sandboxName] Snapshot.{operation}.{event}`
-- Include fileCount, duration, error context
-- Use log.transports.file.level configuration
+**Deliverable**: Logging infrastructure ready for use across all user stories
 
 ---
 
-### Task 1.4: Add Storage Quota Validation
+## Phase 2: Foundational Reliability (Days 3-4)
 
-**ID**: VFSSNAP-004  
-**Priority**: P0 (Critical)  
-**Estimated Effort**: 0.5 days  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-003 (logging)
+**Goal**: Implement atomic transaction pattern and error handling - blocking prerequisites for all user stories
 
-**Description**:
-Implement proactive storage quota checking to prevent silent failures and provide user warnings.
+**Independent Test Criteria**:
+- ✅ captureCurrentState() and rollback() methods exist
+- ✅ All fs operations wrapped in try-catch
+- ✅ Rollback test passes (induced failure restores state)
 
-**Acceptance Criteria**:
-- [ ] Create `checkStorageQuota()` async method
-- [ ] Use navigator.storage.estimate() API
-- [ ] Block operations if quota usage >95%
-- [ ] Emit 'storageWarning' notification at 80% threshold
-- [ ] Emit 'storageWarning' with 'critical' severity at 95%
-- [ ] Call quota check before all create() operations
-- [ ] Handle QuotaExceededError in persistSnapshot() with rollback
-- [ ] Test with simulated quota limits (mock navigator.storage)
-- [ ] Verify graceful degradation if storage API unavailable
+### Foundational Tasks
 
-**Related Requirements**: FR-007, FR-020, FR-023, SC-009
+- [x] T005 Create captureCurrentState() method in VirtualFS.fs to snapshot in-memory state and localStorage
+- [x] T006 Create AtomicOperationError class in src/components/editor/utils/VirtualFS.js
+- [x] T007 Implement rollback(backupState) method in VirtualFS.fs to restore previous state
+- [x] T008 [P] Create checkStorageQuota() async method using navigator.storage.estimate() API
+- [x] T009 [P] Implement safeDisposeModel(path) method with isDisposed() validation and marker cleanup
+- [x] T010 Update fs.set() to use safeDisposeModel for all model cleanup operations
 
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js`
-
-**Implementation Notes**:
-- Return boolean: can proceed with operation
-- Don't block on check failure (log warning, allow proceed)
-- Include usage/quota in MB in notifications
+**Deliverable**: Core reliability infrastructure (atomic operations, safe disposal, quota checking)
 
 ---
 
-## Phase 2: User Experience Improvements (P1)
+## Phase 3: User Story 1 - Reliable Snapshot Creation (Days 5-7) [P1]
 
-### Task 2.1: Implement Progress Tracking
+**User Story**: A developer working on a plugin creates a snapshot to save current work state. System reliably captures all file contents, editor states, and metadata without data loss or corruption.
 
-**ID**: VFSSNAP-005  
-**Priority**: P1 (High)  
-**Estimated Effort**: 1 day  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-001 (atomic operations)
+**Independent Test Criteria**:
+- ✅ Create snapshot with 5 files, verify all contents captured
+- ✅ Create snapshot with syntax errors, completes successfully
+- ✅ Rapid succession snapshots (3 within 1 second) all succeed
+- ✅ Storage nearly full: clear error message, no partial data
+- ✅ Induced failure: rollback confirmation displayed to user
 
-**Description**:
-Add stage-based progress tracking with percentage and detail information for create/restore operations.
+### US1: Implementation Tasks
 
-**Acceptance Criteria**:
-- [ ] Define SNAPSHOT_STAGES constant with weights for create/restore
-- [ ] Create `ProgressTracker` class
-- [ ] Implement `startStage()`, `updateProgress()`, `complete()` methods
-- [ ] Emit 'snapshotProgress' notifications with percentage, stage, detail
-- [ ] Integrate progress tracking into `fs.create()` method
-- [ ] Integrate progress tracking into `fs.set()` method
-- [ ] Show file counts in detail (e.g., "15/20 files")
-- [ ] Reset progress to 0 at operation start
-- [ ] Test progress events emitted in correct sequence
-- [ ] Verify progress reaches 100% on completion
+- [ ] T011 [US1] Wrap fs.create() in try-catch with rollback on failure in src/components/editor/utils/VirtualFS.js
+- [ ] T012 [P] [US1] Create ProgressTracker class with startStage, updateProgress, complete methods
+- [ ] T013 [P] [US1] Define SNAPSHOT_STAGES constant with create stages (Capturing 40%, Compressing 20%, Validating 10%, Saving 30%)
+- [ ] T014 [US1] Integrate ProgressTracker into fs.create() method with stage-based progress emissions
+- [ ] T015 [US1] Add checkStorageQuota() call before fs.create() operations, block if >95%
+- [ ] T016 [US1] Implement persistSnapshot() with QuotaExceededError handling and rollback
+- [ ] T017 [P] [US1] Add logStart, logComplete, logError calls throughout fs.create() method
 
-**Related Requirements**: FR-009, FR-010, FR-011
+### US1: UI Tasks
 
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js`
+- [ ] T018 [P] [US1] Create SnapshotProgress.jsx component with Blueprint ProgressBar in src/components/editor/
+- [ ] T019 [US1] Subscribe to 'snapshotProgress' notifications in SnapshotProgress component
+- [ ] T020 [US1] Import and render SnapshotProgress component in src/components/editor/EditorPage.jsx
 
-**Implementation Notes**:
-- Create stages: Capturing(40%), Compressing(20%), Validating(10%), Saving(30%)
-- Restore stages: Loading(10%), Cleaning(20%), Restoring(50%), Updating(20%)
-- Throttle notifications if needed (max 20/sec)
+### US1: Testing Tasks
 
----
+- [ ] T021 [P] [US1] Create tests/unit/VirtualFS-create.test.js with tests for 0, 1, 5, 20, 50 file scenarios
+- [ ] T022 [P] [US1] Add rollback test with induced create() failure to VirtualFS-create.test.js
+- [ ] T023 [P] [US1] Add storage quota simulation tests to VirtualFS-create.test.js
+- [ ] T024 [P] [US1] Create tests/performance/snapshot-create-benchmarks.js to validate SC-004 (<2s for 20 files/5MB)
 
-### Task 2.2: Build Progress UI Component
+**Deliverable**: Fully functional, tested snapshot creation with progress feedback and error handling
 
-**ID**: VFSSNAP-006  
-**Priority**: P1 (High)  
-**Estimated Effort**: 0.5 days  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-005 (progress tracking)
-
-**Description**:
-Create React component to display snapshot operation progress with Blueprint ProgressBar.
-
-**Acceptance Criteria**:
-- [ ] Create `src/components/editor/SnapshotProgress.jsx` component
-- [ ] Subscribe to 'snapshotProgress' notifications in useEffect
-- [ ] Display ProgressBar with percentage value
-- [ ] Show stage name above progress bar
-- [ ] Show detail text (file counts) below progress bar
-- [ ] Use Blueprint Callout with PRIMARY intent
-- [ ] Auto-hide 1 second after 100% completion
-- [ ] Handle null/undefined progress gracefully
-- [ ] Import and render in EditorPage.jsx
-- [ ] Style appropriately (non-intrusive, visible)
-
-**Related Requirements**: FR-011, SC-004, SC-005
-
-**Files Created**:
-- `src/components/editor/SnapshotProgress.jsx`
-
-**Files Affected**:
-- `src/components/editor/EditorPage.jsx`
-
-**Implementation Notes**:
-- Use Blueprint ProgressBar, Callout, Intent components
-- Position at top of editor or in dedicated panel
-- Add CSS for snapshot-progress class
+**Acceptance Validation**:
+1. Create snapshot with 5 files → All contents captured exactly
+2. Create with syntax errors → Completes successfully  
+3. Rapid succession (3 snapshots <1s apart) → All succeed
+4. Storage 96% full → Clear error, no partial data
+5. Simulated failure → Rollback message displayed
 
 ---
 
-### Task 2.3: Implement Snapshot Deletion UI
+## Phase 4: User Story 2 - Reliable Snapshot Restoration (Days 8-10) [P1]
 
-**ID**: VFSSNAP-007  
-**Priority**: P1 (High)  
-**Estimated Effort**: 1 day  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-003 (logging)
+**User Story**: A developer restores a previous version to review or continue from an earlier state. System reliably reconstructs exact editor state including files, tabs, positions, and tree structure, without residual data.
 
-**Description**:
-Add UI for users to manually delete snapshots with confirmation dialog and safety checks.
+**Independent Test Criteria**:
+- ✅ Restore snapshot with 3 files, verify exact state match
+- ✅ Restore with nested folders, tree rebuilds correctly
+- ✅ Rapid version switching (A→B→A in 5 seconds) succeeds
+- ✅ Restore 20+ file snapshot shows progress indicators
+- ✅ No "model already disposed" errors
 
-**Acceptance Criteria**:
-- [ ] Add `deleteSnapshot(version)` method to VirtualFS.fs
-- [ ] Prevent deletion of currently active snapshot
-- [ ] Validate snapshot exists before deletion
-- [ ] Update version_latest pointer if deleted
-- [ ] Persist deletion to localStorage
-- [ ] Emit 'treeVersionsUpdate' notification after deletion
-- [ ] Emit 'snapshotDeleted' notification with version
-- [ ] Add delete button to each version in version list UI
-- [ ] Disable delete button for current version
-- [ ] Show Blueprint Alert confirmation dialog
-- [ ] Display timestamp and "cannot undo" warning in dialog
-- [ ] Handle deletion errors with toast notification
-- [ ] Test edge cases: delete last version, delete version in chain
+### US2: Implementation Tasks
 
-**Related Requirements**: FR-022, FR-024, FR-025, FR-026
+- [ ] T025 [US2] Wrap fs.set() in try-catch with rollback on failure in src/components/editor/utils/VirtualFS.js
+- [ ] T026 [P] [US2] Define SNAPSHOT_STAGES.restore constant (Loading 10%, Cleaning 20%, Restoring 50%, Updating 20%)
+- [ ] T027 [US2] Integrate ProgressTracker into fs.set() method with restore stage emissions
+- [ ] T028 [US2] Update fs.set() to call safeDisposeModel for each file cleanup before restoration
+- [ ] T029 [US2] Add validation that all models disposed successfully before creating new ones
+- [ ] T030 [P] [US2] Add logStart, logComplete, logError calls throughout fs.set() method
+- [ ] T031 [US2] Add 'operationRollback' notification emission in rollback() method with user message
 
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js`
-- `src/components/editor/EditorPage.jsx` (or version list component)
+### US2: Testing Tasks
 
-**Implementation Notes**:
-- Use Blueprint Button (icon="trash", minimal, small)
-- Use Blueprint Alert for confirmation
-- Log deletion operations for audit trail
+- [ ] T032 [P] [US2] Create tests/unit/VirtualFS-restore.test.js with valid/invalid version ID tests
+- [ ] T033 [P] [US2] Add Monaco model disposal sequence test to VirtualFS-restore.test.js
+- [ ] T034 [P] [US2] Add rapid switching test (restore A→B→A within 5 seconds) to VirtualFS-restore.test.js
+- [ ] T035 [P] [US2] Create tests/performance/snapshot-restore-benchmarks.js to validate SC-005 (<3s for 20 files/5MB)
 
----
+### US2: Integration Tasks
 
-### Task 2.4: Implement Storage Warning UI
+- [ ] T036 [US2] Create integration test in tests/integration/create-restore-cycle.test.js for full roundtrip verification
+- [ ] T037 [US2] Add memory stability test over 10 consecutive operations to validate SC-006
 
-**ID**: VFSSNAP-008  
-**Priority**: P1 (High)  
-**Estimated Effort**: 0.5 days  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-004 (quota validation)
+**Deliverable**: Fully functional, tested snapshot restoration with progress feedback
 
-**Description**:
-Display user-friendly warnings when storage quota is approaching limits.
-
-**Acceptance Criteria**:
-- [ ] Subscribe to 'storageWarning' notifications in EditorPage
-- [ ] Show non-blocking toast at 80% usage (warning severity)
-- [ ] Show blocking dialog at 95% usage (critical severity)
-- [ ] Include usage in MB, quota in MB, and percentage in message
-- [ ] Provide "Manage Snapshots" button in critical dialog
-- [ ] Link to version list panel for snapshot management
-- [ ] Toast should auto-dismiss after 5 seconds
-- [ ] Dialog should block until user acknowledges
-- [ ] Test both warning and critical flows
-- [ ] Verify clear, actionable messaging
-
-**Related Requirements**: FR-023, FR-025, SC-009
-
-**Files Affected**:
-- `src/components/editor/EditorPage.jsx`
-
-**Implementation Notes**:
-- Use Blueprint Toast for warnings
-- Use Blueprint Dialog/Alert for critical
-- Format: "Storage at 85% (42MB / 50MB)"
+**Acceptance Validation**:
+1. Restore snapshot with 3 files → Exact state match
+2. Restore nested folder structure → Tree correct
+3. Rapid switching A→B→A (5 sec) → No errors
+4. Restore 20+ files → Progress bar shows stages
+5. Run 10 consecutive restores → No memory growth
 
 ---
 
-## Phase 3: Multi-Window Synchronization (P1)
+## Phase 5: User Story 3 - Version Management & Multi-Window (Days 11-13) [P2]
 
-### Task 3.1: Implement localStorage Event Listener
+**User Story**: A developer works with version history UI and potentially multiple windows. Version list stays synchronized, showing accurate current version information. Multi-window operations don't corrupt data.
 
-**ID**: VFSSNAP-009  
-**Priority**: P1 (High)  
-**Estimated Effort**: 1 day  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-001 (atomic operations), VFSSNAP-003 (logging)
+**Independent Test Criteria**:
+- ✅ Create 5 snapshots, restore #3, UI shows #3 as current
+- ✅ Create snapshot, version list updates immediately
+- ✅ Delete snapshot, version list updates, current version protected
+- ✅ Storage warning at 80%, critical dialog at 95%
+- ✅ Two windows: create in one, other sees new version <2s
 
-**Description**:
-Enable multi-window synchronization using localStorage 'storage' events with last-write-wins conflict resolution.
+### US3: Deletion UI Tasks
 
-**Acceptance Criteria**:
-- [ ] Create `setupMultiWindowSync()` method
-- [ ] Register window 'storage' event listener
-- [ ] Filter events to match sandboxName key only
-- [ ] Ignore events from current window (oldValue === null)
-- [ ] Parse and decompress external localStorage changes
-- [ ] Implement `handleExternalChange(externalData)` method
-- [ ] Update local versions object with external data (last-write-wins)
-- [ ] Update version_latest and version_current pointers
-- [ ] Emit 'treeVersionsUpdate' notification on external changes
-- [ ] Implement `handleCurrentVersionDeleted()` method
-- [ ] Switch to latest version if current deleted externally
-- [ ] Emit 'snapshotExternalChange' notification with warning
-- [ ] Test with 2 windows: create, delete, restore operations
-- [ ] Verify <2 second sync latency (SC-013)
-- [ ] Verify no data corruption on simultaneous operations (SC-014)
+- [ ] T038 [P] [US3] Add deleteSnapshot(version) method to VirtualFS.fs with validation in src/components/editor/utils/VirtualFS.js
+- [ ] T039 [P] [US3] Implement current version deletion prevention check in deleteSnapshot()
+- [ ] T040 [P] [US3] Update version_latest pointer if deleted version was latest
+- [ ] T041 [P] [US3] Add logStart, logComplete calls to deleteSnapshot() method
+- [ ] T042 [US3] Add delete button to version list items in src/components/editor/EditorPage.jsx
+- [ ] T043 [US3] Implement Blueprint Alert confirmation dialog for snapshot deletion
+- [ ] T044 [US3] Disable delete button for current version in version list UI
 
-**Related Requirements**: FR-031, FR-032, FR-033, FR-034, SC-013, SC-014
+### US3: Storage Warning Tasks
 
-**Files Affected**:
-- `src/components/editor/utils/VirtualFS.js`
+- [ ] T045 [P] [US3] Subscribe to 'storageWarning' notifications in EditorPage component
+- [ ] T046 [P] [US3] Implement warning toast display for 80% usage severity
+- [ ] T047 [P] [US3] Implement critical blocking dialog for 95% usage severity
+- [ ] T048 [US3] Add "Manage Snapshots" action in critical dialog linking to version list
 
-**Implementation Notes**:
-- Call setupMultiWindowSync() in VirtualFS init or EditorPage mount
-- Log all external change events for debugging
-- Handle JSON parse errors gracefully
+### US3: Multi-Window Tasks
 
----
+- [ ] T049 [US3] Create setupMultiWindowSync() method in VirtualFS.fs
+- [ ] T050 [US3] Register window 'storage' event listener in setupMultiWindowSync()
+- [ ] T051 [US3] Implement handleExternalChange(externalData) to update local state
+- [ ] T052 [US3] Implement handleCurrentVersionDeleted() to switch to latest or maintain state
+- [ ] T053 [US3] Call setupMultiWindowSync() in VirtualFS init or EditorPage mount
+- [ ] T054 [P] [US3] Add logStart, logComplete calls to multi-window sync methods
 
-## Phase 4: Testing & Validation (P1)
+### US3: Testing Tasks
 
-### Task 4.1: Unit Tests for Core Operations
+- [ ] T055 [P] [US3] Create tests/unit/VirtualFS-delete.test.js with edge cases (current, non-existent, last)
+- [ ] T056 [P] [US3] Create tests/integration/multi-window.test.js with 2-window simulation
+- [ ] T057 [P] [US3] Add simultaneous create test from 2 windows to multi-window.test.js
+- [ ] T058 [P] [US3] Add delete in window A, verify update in window B test
+- [ ] T059 [P] [US3] Add sync latency test to verify <2 second update (SC-013)
 
-**ID**: VFSSNAP-010  
-**Priority**: P1 (High)  
-**Estimated Effort**: 1 day  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-001, VFSSNAP-002, VFSSNAP-003, VFSSNAP-004
+**Deliverable**: Complete version management UI with multi-window synchronization
 
-**Description**:
-Create comprehensive unit test suite for all VirtualFS snapshot operations.
-
-**Acceptance Criteria**:
-- [ ] Set up Jest test environment (if not exists)
-- [ ] Create test file: `tests/unit/VirtualFS.test.js`
-- [ ] Mock localStorage, Monaco editor, notifications
-- [ ] Test `fs.create()` with 0, 1, 5, 20, 50 file scenarios
-- [ ] Test `fs.set()` with valid and invalid version IDs
-- [ ] Test `fs.deleteSnapshot()` edge cases (current, non-existent, last)
-- [ ] Test rollback on create() failure
-- [ ] Test rollback on set() failure
-- [ ] Test Monaco model disposal sequence
-- [ ] Test compression/decompression roundtrip
-- [ ] Test storage quota checking logic
-- [ ] Achieve ≥80% code coverage on VirtualFS.fs methods
-- [ ] All tests passing in CI
-
-**Related Requirements**: All FR-* requirements
-
-**Files Created**:
-- `tests/unit/VirtualFS.test.js`
-
-**Implementation Notes**:
-- Use jest.mock() for external dependencies
-- Test both success and failure paths
-- Verify notification emissions
-- Check localStorage state after operations
+**Acceptance Validation**:
+1. Create 5 snapshots, restore #3 → UI shows #3 current
+2. Create snapshot → Version list updates immediately
+3. Delete old snapshot → List updates, current protected
+4. Fill storage to 82% → Warning toast appears
+5. Create in window A → Window B sees it <2 seconds
 
 ---
 
-### Task 4.2: Integration Tests for Multi-Window
+## Phase 6: Polish & Cross-Cutting (Days 14-15)
 
-**ID**: VFSSNAP-011  
-**Priority**: P1 (High)  
-**Estimated Effort**: 1 day  
-**Assignee**: TBD  
-**Dependencies**: VFSSNAP-009 (multi-window sync)
+**Goal**: Final integration, performance validation, documentation
 
-**Description**:
-Create integration tests simulating multi-window scenarios and verifying synchronization.
+**Independent Test Criteria**:
+- ✅ All 14 success criteria (SC-001 to SC-014) pass
+- ✅ 80%+ code coverage achieved
+- ✅ Manual QA sign-off complete
 
-**Acceptance Criteria**:
-- [ ] Create test file: `tests/integration/multi-window.test.js`
-- [ ] Simulate 2 browser contexts/windows
-- [ ] Test simultaneous create() from both windows
-- [ ] Verify both snapshots created without corruption
-- [ ] Test delete in window A, verify version list update in window B
-- [ ] Test restore in window A, verify current pointer in window B
-- [ ] Test rapid operations (<1 sec apart) from both windows
-- [ ] Verify last-write-wins behavior on conflicts
-- [ ] Measure sync latency, verify <2 seconds (SC-013)
-- [ ] Verify data integrity after all multi-window tests (SC-014)
-- [ ] All tests passing consistently (no flaky tests)
+### Polish Tasks
 
-**Related Requirements**: FR-031, FR-032, FR-033, FR-034, SC-013, SC-014
+- [ ] T060 [P] Run full test suite (unit + integration + performance) and verify all passing
+- [ ] T061 [P] Generate code coverage report and verify ≥80% for VirtualFS.fs methods
+- [ ] T062 [P] Run memory profiler on 10 consecutive operations to validate SC-006
+- [ ] T063 [P] Measure actual compression ratios and verify ≥50% per SC-007
+- [ ] T064 [P] Update research.md with any implementation decisions made during development
+- [ ] T065 Manual QA testing with real plugin projects (5, 20, 50 files)
+- [ ] T066 Document any discovered issues or edge cases in research.md
+- [ ] T067 Update quickstart.md with any learned troubleshooting tips
+- [ ] T068 Create PR description summarizing changes, linking to spec.md and tasks.md
 
-**Files Created**:
-- `tests/integration/multi-window.test.js`
-
-**Implementation Notes**:
-- May need Playwright or Puppeteer for multi-window simulation
-- Simulate localStorage 'storage' events programmatically
-- Add timing assertions for sync latency
+**Deliverable**: Production-ready, fully tested implementation
 
 ---
 
-### Task 4.3: Performance Testing
+## Dependencies & Execution Order
 
-**ID**: VFSSNAP-012  
-**Priority**: P1 (High)  
-**Estimated Effort**: 0.5 days  
-**Assignee**: TBD  
-**Dependencies**: All implementation tasks complete
+### Story Dependencies
 
-**Description**:
-Validate that snapshot operations meet performance success criteria.
+```
+Phase 1 (Setup)
+    ↓
+Phase 2 (Foundational) ← MUST complete before any user story
+    ↓
+    ├─→ Phase 3 (US1: Creation) [P1] ← Can start after Phase 2
+    │
+    ├─→ Phase 4 (US2: Restoration) [P1] ← Can start after Phase 2 (independent of US1)
+    │
+    └─→ Phase 5 (US3: Version UI) [P2] ← Can start after Phase 2 (independent of US1, US2)
+         
+Phase 6 (Polish) ← Requires all user stories complete
+```
 
-**Acceptance Criteria**:
-- [ ] Create test file: `tests/performance/snapshot-benchmarks.js`
-- [ ] Generate test projects: 5, 10, 20, 50 files with varied content sizes
-- [ ] Measure create() duration for each project size
-- [ ] Verify create <2 seconds for 20 files/5MB (SC-004)
-- [ ] Measure restore() duration for each project size
-- [ ] Verify restore <3 seconds for 20 files/5MB (SC-005)
-- [ ] Measure memory usage before/after 10 consecutive operations
-- [ ] Verify no continuous memory growth (SC-006)
-- [ ] Calculate actual compression ratios achieved
-- [ ] Verify ≥50% compression ratio (SC-007)
-- [ ] Document all performance results
-- [ ] Flag any regressions or areas needing optimization
+### Parallel Execution Opportunities
 
-**Related Requirements**: SC-004, SC-005, SC-006, SC-007
+**Phase 1 (Setup)**: 2 parallel streams
+- Stream A: T001 → T004
+- Stream B: T002 (can run with Stream A)
+- Stream C: T003 (can run with Stream A & B)
 
-**Files Created**:
-- `tests/performance/snapshot-benchmarks.js`
-- `specs/007-fix-virtualfs-snapshots/performance-results.md`
+**Phase 2 (Foundational)**: 2 parallel streams after T007
+- Stream A: T005 → T006 → T007
+- Stream B (after T007): T008, T009 → T010
 
-**Implementation Notes**:
-- Use performance.now() for precise timing
-- Use performance.memory (Chrome) for memory tracking
-- Run benchmarks multiple times, report average
-- Consider using benchmark.js library
+**Phase 3 (US1)**: 3 parallel streams
+- Stream A: T011 → T014 → T015 → T016
+- Stream B: T012 → T013 (can run with Stream A)
+- Stream C: T017, T018 → T019 → T020 (can run with Stream A/B)
+- Stream D: T021, T022, T023, T024 (all tests can run in parallel after T017)
 
----
+**Phase 4 (US2)**: 3 parallel streams
+- Stream A: T025 → T027 → T028 → T029 → T031
+- Stream B: T026, T030 (can run with Stream A)
+- Stream C: T032, T033, T034, T035, T036, T037 (all tests can run in parallel after T031)
 
-### Task 4.4: Manual QA Testing
+**Phase 5 (US3)**: 3 parallel streams
+- Stream A: T038 → T039 → T040 → T041 → T042 → T043 → T044
+- Stream B: T045 → T046 → T047 → T048 (can run with Stream A)
+- Stream C: T049 → T050 → T051 → T052 → T053 → T054 (can run with Stream A/B)
+- Stream D: T055, T056, T057, T058, T059 (all tests can run in parallel after T054)
 
-**ID**: VFSSNAP-013  
-**Priority**: P1 (High)  
-**Estimated Effort**: 1 day  
-**Assignee**: QA Team  
-**Dependencies**: All implementation and automated tests complete
-
-**Description**:
-Perform manual exploratory testing with real plugin projects to validate end-to-end user experience.
-
-**Acceptance Criteria**:
-- [ ] Test with small project (5 files, <1MB)
-- [ ] Test with medium project (20 files, ~5MB)
-- [ ] Test with large project (50 files, ~10MB)
-- [ ] Create multiple snapshots in each project
-- [ ] Restore various snapshots, verify exact state reconstruction
-- [ ] Test snapshot deletion workflow
-- [ ] Trigger storage warnings by filling quota
-- [ ] Test multi-window scenarios manually
-- [ ] Test error scenarios (simulate failures)
-- [ ] Verify progress bars display correctly
-- [ ] Verify all error messages are clear and helpful
-- [ ] Document any bugs or UX issues found
-- [ ] All critical bugs fixed before sign-off
-
-**Related Requirements**: All user scenarios from spec.md
-
-**Files Created**:
-- `specs/007-fix-virtualfs-snapshots/qa-test-report.md`
-
-**Implementation Notes**:
-- Use real plugin projects from team members
-- Test on different OS (macOS, Windows, Linux)
-- Test in different Electron versions if applicable
-- Document steps to reproduce any issues
+**Phase 6 (Polish)**: All tasks except T065 can run in parallel
 
 ---
 
-## Task Summary by Phase
+## Independent Test Criteria by Story
 
-### Phase 1: Core Reliability (4 tasks, ~2.5 days)
-1. VFSSNAP-001: Atomic transactions
-2. VFSSNAP-002: Monaco disposal fixes
-3. VFSSNAP-003: Logging infrastructure
-4. VFSSNAP-004: Storage quota validation
+### User Story 1: Snapshot Creation
 
-### Phase 2: UX Improvements (4 tasks, ~3 days)
-5. VFSSNAP-005: Progress tracking
-6. VFSSNAP-006: Progress UI component
-7. VFSSNAP-007: Snapshot deletion UI
-8. VFSSNAP-008: Storage warning UI
+**Manual Test Scenario**:
+1. Open editor with 5-file plugin project
+2. Make changes in multiple files (add/edit code)
+3. Click "Create Snapshot" button
+4. Verify progress bar shows 4 stages
+5. Verify snapshot appears in version list
+6. Close and reopen editor
+7. Verify files still show changes (not yet restored)
 
-### Phase 3: Multi-Window (1 task, ~1 day)
-9. VFSSNAP-009: localStorage sync
+**Automated Tests**:
+- `VirtualFS-create.test.js`: Unit tests for create logic
+- `snapshot-create-benchmarks.js`: Performance validation
 
-### Phase 4: Testing (4 tasks, ~3.5 days)
-10. VFSSNAP-010: Unit tests
-11. VFSSNAP-011: Integration tests
-12. VFSSNAP-012: Performance tests
-13. VFSSNAP-013: Manual QA
-
----
-
-## Progress Tracking
-
-| Phase | Tasks Complete | Total Tasks | Status |
-|-------|----------------|-------------|--------|
-| Phase 1 | 0 | 4 | Not Started |
-| Phase 2 | 0 | 4 | Not Started |
-| Phase 3 | 0 | 1 | Not Started |
-| Phase 4 | 0 | 4 | Not Started |
-| **Total** | **0** | **13** | **0%** |
+**Success Criteria Validated**:
+- SC-001: 100% success for ≤50 files
+- SC-004: Create <2s for 20 files/5MB
+- SC-009: Graceful quota errors
 
 ---
 
-## Quick Start Guide
+### User Story 2: Snapshot Restoration
 
-**To begin implementation**:
+**Manual Test Scenario**:
+1. Create snapshot A with 3 files (current state)
+2. Make changes, add new file (4 files now)
+3. Select snapshot A from version list
+4. Click "Restore"
+5. Verify progress bar shows 4 stages
+6. Verify editor shows exactly 3 files from snapshot A
+7. Verify file contents match snapshot A exactly
+8. Verify tabs match snapshot A
 
-1. Start with Task VFSSNAP-001 (Atomic Transactions) - foundation for all other work
-2. Complete all Phase 1 tasks before moving to Phase 2 (ensures reliability first)
-3. Phase 2 and 3 can run in parallel if multiple developers available
-4. Phase 4 runs after implementation complete
+**Automated Tests**:
+- `VirtualFS-restore.test.js`: Unit tests for restore logic
+- `create-restore-cycle.test.js`: Integration test
+- `snapshot-restore-benchmarks.js`: Performance validation
 
-**Daily standup questions**:
-- Which task(s) are you working on today?
-- Any blockers or dependencies waiting?
-- Which task(s) will you complete today?
+**Success Criteria Validated**:
+- SC-002: 100% restoration fidelity
+- SC-003: 20+ consecutive operations
+- SC-005: Restore <3s for 20 files/5MB
+- SC-006: Stable memory
+- SC-011: Zero unusable states
 
-**Definition of Done** (for each task):
-- [ ] Code implemented and self-reviewed
-- [ ] Unit tests written and passing
-- [ ] Code reviewed by peer
-- [ ] Acceptance criteria verified
-- [ ] Documentation updated
-- [ ] Task marked complete in tracking system
+---
+
+### User Story 3: Version Management & Multi-Window
+
+**Manual Test Scenario**:
+1. Create 5 snapshots over time
+2. Verify version list shows all 5 with timestamps
+3. Restore snapshot #3, verify "current" indicator moves
+4. Try to delete current snapshot, verify prevented
+5. Delete old snapshot, verify list updates
+6. Fill storage to 82%, verify warning toast
+7. Open same project in 2 windows
+8. Create snapshot in window A
+9. Verify window B shows new snapshot <2 seconds
+10. Delete snapshot in window B
+11. Verify window A list updates
+
+**Automated Tests**:
+- `VirtualFS-delete.test.js`: Unit tests for deletion
+- `multi-window.test.js`: Integration tests
+
+**Success Criteria Validated**:
+- SC-008: 100% accurate version list
+- SC-009: Graceful storage errors
+- SC-013: Multi-window sync <2s
+- SC-014: No corruption on simultaneous ops
+
+---
+
+## MVP Scope Recommendation
+
+**Minimum Viable Product** (Phase 3 only):
+- User Story 1: Reliable Snapshot Creation
+- Includes: Atomic operations, progress feedback, storage warnings
+- Excludes: Restoration improvements, version UI, multi-window
+
+**Rationale**: Snapshot creation is the most critical path. Users can tolerate manual page refresh for restoration, but cannot work if snapshots don't save reliably. This provides immediate value while allowing incremental delivery.
+
+**Incremental Delivery Path**:
+1. **Week 1**: Phase 1-3 (MVP: Reliable Creation)
+2. **Week 2**: Phase 4 (Add: Reliable Restoration)
+3. **Week 3**: Phase 5-6 (Add: Version UI + Multi-Window + Polish)
+
+---
+
+## Implementation Strategy
+
+### Day-by-Day Breakdown
+
+| Day | Phase | Focus | Deliverable |
+|-----|-------|-------|-------------|
+| 1 | Phase 1 | Setup infrastructure | Logging ready |
+| 2 | Phase 2 | Atomic operations | Rollback pattern works |
+| 3-5 | Phase 3 | US1 Implementation | Create snapshots reliably |
+| 6-7 | Phase 3 | US1 Testing | US1 fully validated |
+| 8-9 | Phase 4 | US2 Implementation | Restore snapshots reliably |
+| 10 | Phase 4 | US2 Testing | US2 fully validated |
+| 11-12 | Phase 5 | US3 Implementation | Version UI + multi-window |
+| 13 | Phase 5 | US3 Testing | US3 fully validated |
+| 14-15 | Phase 6 | Polish & QA | Production ready |
+
+### Team Allocation (if 2+ developers)
+
+**Developer A**: Focus on US1 and US2 (core snapshot logic)
+**Developer B**: Focus on US3 (UI and multi-window)
+**Both**: Collaborate on Phase 1 & 2 (foundational)
+
+### Quality Gates
+
+- [ ] After Phase 2: All rollback tests passing
+- [ ] After Phase 3: US1 acceptance criteria met
+- [ ] After Phase 4: US2 acceptance criteria met  
+- [ ] After Phase 5: US3 acceptance criteria met
+- [ ] After Phase 6: All 14 success criteria (SC-001 to SC-014) validated
+
+---
+
+## Task Progress Tracking
+
+| Phase | Total Tasks | Completed | Status |
+|-------|-------------|-----------|--------|
+| Phase 1: Setup | 4 | 0 | Not Started |
+| Phase 2: Foundational | 6 | 0 | Not Started |
+| Phase 3: US1 | 14 | 0 | Not Started |
+| Phase 4: US2 | 13 | 0 | Not Started |
+| Phase 5: US3 | 22 | 0 | Not Started |
+| Phase 6: Polish | 9 | 0 | Not Started |
+| **Total** | **68** | **0** | **0%** |
+
+---
+
+## Quick Reference
+
+**Start Here**: T001 (Verify electron-log)
+**Critical Path**: T001→T005→T011→T025→T049
+**Parallel Opportunities**: 45% of tasks can run in parallel
+**MVP Completion**: After T024 (Phase 3 complete)
+**Full Completion**: After T068 (All phases)
+
+**Files Modified**:
+- `src/components/editor/utils/VirtualFS.js` (major refactor)
+- `src/components/editor/EditorPage.jsx` (UI integration)
+- `src/utils/SnapshotLogger.js` (new file)
+- `src/components/editor/SnapshotProgress.jsx` (new file)
+- `tests/*` (new test files)
+
+**Key Documentation**:
+- Full details: [plan.md](plan.md)
+- Research & decisions: [research.md](research.md)
+- Quick start: [quickstart.md](quickstart.md)
+- Requirements: [spec.md](spec.md)

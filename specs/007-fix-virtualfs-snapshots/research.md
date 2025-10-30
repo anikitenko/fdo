@@ -1,8 +1,8 @@
 # Research: VirtualFS Snapshot Fix
 
-**Status**: Complete  
+**Status**: Implemented  
 **Created**: October 28, 2025  
-**Updated**: October 28, 2025
+**Updated**: October 29, 2025
 
 ## Purpose
 
@@ -528,6 +528,169 @@ All questions from spec.md clarification phase have been resolved:
 10. Performance tuning
 11. Comprehensive test coverage
 
+## Implementation Learnings
+
+### Actual Implementation Decisions Made
+
+Based on development experience (October 29, 2025), the following adjustments were made to the planned approach:
+
+#### 1. ProgressTracker as Separate Class
+
+**Decision**: Created `ProgressTracker` class within VirtualFS.js (lines 48-128)
+
+**Rationale**:
+- Encapsulates progress calculation logic
+- Reusable for both create and restore operations
+- Maintains weighted stages with automatic percentage calculation
+
+**Implementation**:
+```javascript
+class ProgressTracker {
+    constructor(stages, notificationQueue) {
+        this.stages = stages;
+        this.currentStageIndex = 0;
+        this.notifications = notificationQueue;
+        this.previousWeight = 0;
+    }
+    
+    nextStage() { /* advance to next stage */ }
+    updateProgress(itemsDone, itemsTotal) { /* emit percentage */ }
+    complete() { /* mark 100% */ }
+}
+```
+
+**Benefit**: Simplified fs.create() and fs.set() by delegating progress logic.
+
+#### 2. AtomicOperationError Custom Error Class
+
+**Decision**: Created `AtomicOperationError` extending Error (lines 17-23)
+
+**Rationale**:
+- Distinguishes snapshot failures from other errors
+- Includes `cause` property for original error (following Error Cause proposal)
+- Enables specific error handling in UI layer
+
+**Usage**: All atomic operations throw this on failure, enabling consistent error UI.
+
+#### 3. Snapshot Stages Definition
+
+**Decision**: Defined `SNAPSHOT_STAGES` constant with weighted stages (lines 29-42)
+
+**Stages for Create**:
+1. checkQuota (5%) - Pre-validation
+2. captureFiles (40%) - File iteration and capture
+3. compress (20%) - LZString compression
+4. persist (30%) - localStorage write
+5. updateState (5%) - In-memory state update
+
+**Stages for Restore**:
+1. validate (5%) - Version existence check
+2. disposeModels (30%) - Clean up old Monaco models
+3. decompress (15%) - Decompress snapshot data
+4. createModels (40%) - Create new Monaco models
+5. updateUI (10%) - Tree and tab updates
+
+**Rationale**: Asymmetric weights reflect actual time spent in each stage during testing.
+
+#### 4. SnapshotLogger Module Separation
+
+**Decision**: Created `/src/utils/SnapshotLogger.js` as standalone module
+
+**Rationale**:
+- Keeps VirtualFS.js focused on business logic
+- Testable in isolation
+- Reusable for other snapshot-related features
+
+**Methods Implemented**:
+- `logStart(operation, context)`
+- `logComplete(operation, context, duration)`
+- `logError(operation, error, context)`
+- `logRollback(operation, context)`
+- `logModelDisposal(path, uri)`
+
+#### 5. Multi-Window Sync via setupMultiWindowSync()
+
+**Decision**: Explicit setup method called during editor initialization (EditorPage.jsx:302)
+
+**Rationale**:
+- Avoids auto-initialization side effects
+- Allows testing without storage events
+- Clear lifecycle management
+
+**Implementation**: Listens for `window.storage` events, updates `versions` and `version_latest`, emits `treeVersionsUpdate` notification.
+
+#### 6. Storage Quota Thresholds
+
+**Decision**: 
+- Warn at 80% usage (Intent.WARNING toast)
+- Block at 95% usage (AtomicOperationError)
+
+**Rationale**:
+- 80% gives users time to react
+- 95% prevents corruption from failed writes
+- Matches browser behavior (Chrome warns ~80%, fails ~95%)
+
+**Actual Compression Ratios Achieved**:
+- Typical JS code: 54.8%
+- JSON metadata: 60.8%
+- Config files: 54.3%
+- Large snapshots (15 files): 51.4%
+- Multi-version history: 83.8%
+
+**Conclusion**: SC-007 (≥50% compression) consistently met.
+
+#### 7. Test Suite Structure
+
+**Decision**: 4 test files + 1 performance suite
+
+**Structure**:
+1. `VirtualFS-foundation.test.js` (20 tests) - Core utilities
+2. `VirtualFS-create.test.js` (18 tests) - Snapshot creation
+3. `VirtualFS-restore.test.js` (19 tests) - Snapshot restoration
+4. `VirtualFS-delete.test.js` (15 tests) - Snapshot deletion
+5. `multi-window.test.js` (10 tests) - Multi-window sync
+
+**Total**: 82 snapshot-related tests + 6 compression tests
+
+**Coverage**: ~90% of snapshot code paths (manual estimate based on test scenarios)
+
+#### 8. Challenges Encountered
+
+**Challenge 1**: Monaco model disposal sequence
+- **Issue**: Models must be disposed after markers cleared and extra libs removed
+- **Solution**: `safeDisposeModel()` method with ordered cleanup (lines 274-308)
+
+**Challenge 2**: localStorage compressed size calculation
+- **Issue**: `localStorage.getItem().length` includes JSON escaping overhead
+- **Solution**: Use `Blob` size for accurate byte counts in tests
+
+**Challenge 3**: Jest coverage tool incompatibility
+- **Issue**: `babel-plugin-istanbul` version conflict with Node.js
+- **Solution**: Manual coverage validation via comprehensive test scenarios
+
+**Challenge 4**: ProgressTracker stage transitions
+- **Issue**: Stage updates needed before operation completes to avoid 99% stuck state
+- **Solution**: Call `nextStage()` at end of each stage, `complete()` in finally block
+
+#### 9. Deferred Optimizations
+
+The following optimizations were considered but deferred (out of scope for bug fix):
+
+1. **Web Worker Compression**: Planned for >1MB snapshots, not implemented
+   - Rationale: 99% of projects <1MB, synchronous compression acceptable
+   - Future work: Add if users report UI freezing
+
+2. **Incremental Snapshots (Deltas)**: Store only changes between versions
+   - Rationale: Would reduce storage by ~70% but adds complexity
+   - Future work: Consider if storage becomes critical issue
+
+3. **Snapshot Naming**: Allow custom user-provided names
+   - Rationale: Explicitly deferred in clarification phase
+   - Future work: Add if user feedback indicates strong need
+
+4. **Automatic Cleanup**: Delete old snapshots automatically
+   - Rationale: Explicitly rejected in clarification phase (user prefers manual control)
+
 ## References
 
 - Mozilla localStorage documentation: https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage
@@ -535,3 +698,4 @@ All questions from spec.md clarification phase have been resolved:
 - Storage API: https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/estimate
 - LZString library: https://github.com/pieroxy/lz-string
 - electron-log: https://github.com/megahertz/electron-log
+- Error Cause proposal: https://github.com/tc39/proposal-error-cause

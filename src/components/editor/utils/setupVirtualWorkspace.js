@@ -44,14 +44,20 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
         const sandboxName = "sandbox_" + name
         virtualFS.setInitWorkspace(name, sandboxName)
         const sandbox = localStorage.getItem(sandboxName)
-        if (dir === "sandbox" || dir.includes(sandboxName)) {
+        
+        // Check if this is a sandbox (not loading from an external plugin directory)
+        const isSandboxMode = dir === "sandbox" || dir.includes(name);
+        
+        if (isSandboxMode) {
             if (sandbox) {
-                virtualFS.restoreSandbox(sandbox)
+                await virtualFS.restoreSandbox()
             } else {
-                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template, false, false, displayName)
-                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template, false, false, displayName)
+                // Default to "blank" template if none specified
+                const defaultTemplate = template || "blank";
+                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, "", defaultTemplate, false, false, displayName)
+                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, "", defaultTemplate, false, false, displayName)
                 createVirtualFile("/package.json", packageJsonContent(name))
-                virtualFS.fs.create()
+                await virtualFS.fs.create()
             }
         } else {
             const data = await window.electron.plugin.getData(dir)
@@ -59,7 +65,7 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
                 for (const file of data.content) {
                     createVirtualFile(file.path, file.content)
                 }
-                virtualFS.fs.create()
+                await virtualFS.fs.create()
             } else {
                 (AppToaster).show({message: `${data.error}`, intent: "danger"});
             }

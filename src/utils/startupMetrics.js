@@ -143,7 +143,15 @@ function logMetric(event, metadata = {}) {
   if (!isCliOnlyMode) {
     const slowFlag = entry.slow ? ' ⚠️ SLOW' : '';
     const memFlag = entry.memoryWarning ? ' 🔥 HIGH MEMORY' : '';
-    console.log(`[STARTUP${slowFlag}${memFlag}] ${event}: ${elapsed}ms (Δ${delta}ms) [MEM: ${formatMemory(resources.memory.rss)}, CPU: ${resources.cpu.toFixed(1)}%]`, metadata);
+    
+    // Safely log to console (avoid EPIPE errors in test mode)
+    try {
+      if (process.stdout && process.stdout.writable) {
+        console.log(`[STARTUP${slowFlag}${memFlag}] ${event}: ${elapsed}ms (Δ${delta}ms) [MEM: ${formatMemory(resources.memory.rss)}, CPU: ${resources.cpu.toFixed(1)}%]`, metadata);
+      }
+    } catch (err) {
+      // Ignore errors when stdout is closed (e.g., in test mode)
+    }
   }
   
   // File output (asynchronous, non-blocking)
@@ -332,7 +340,14 @@ function writeLogEntry(entry) {
   // Async append (non-blocking)
   fs.appendFile(logFilePath, line, 'utf-8', (err) => {
     if (err) {
-      console.error('[STARTUP] Failed to write log:', err.message);
+      // Safely log error (avoid EPIPE)
+      try {
+        if (process.stderr && process.stderr.writable) {
+          console.error('[STARTUP] Failed to write log:', err.message);
+        }
+      } catch (e) {
+        // Ignore - stdout/stderr closed
+      }
     }
   });
 }
