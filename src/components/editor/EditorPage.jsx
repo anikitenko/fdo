@@ -14,6 +14,7 @@ import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
 import SnapshotToolbarMount from "../snapshots/SnapshotMount.jsx";
+import { isSnapshotsEnabled } from "../snapshots/featureFlag.js";
 import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
@@ -192,8 +193,8 @@ export const EditorPage = () => {
                     />
                 </div>
                 <div className={styles["editor-header-right"]}>
-                    {/* Snapshot Toolbar */}
-                    <SnapshotToolbarMount />
+                    {/* Snapshot Toolbar (feature-flagged) */}
+                    {isSnapshotsEnabled() ? <SnapshotToolbarMount /> : null}
                 </div>
             </div>
             <Split
