@@ -44,7 +44,7 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
         const sandboxName = "sandbox_" + name
         virtualFS.setInitWorkspace(name, sandboxName)
         const sandbox = localStorage.getItem(sandboxName)
-        if (sandbox) {
+        if ((dir === "sandbox" || dir.includes(sandboxName)) && sandbox) {
             await virtualFS.restoreSandbox()
         } else if (dir === "sandbox" || dir.includes(sandboxName)) {
             createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
