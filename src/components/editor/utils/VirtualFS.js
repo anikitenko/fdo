@@ -1,3 +1,4 @@
+import React from 'react';
 import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
 import * as monaco from "monaco-editor";
 import {packageDefaultContent} from "./packageDefaultContent";
@@ -36,7 +37,7 @@ const virtualFS = {
     notifications: {
         queue: [],
         processing: false,
-        listeners: undefined,
+        listeners: new Map(),
         subscribe(event, callback) {
             if (!this.listeners) this.listeners = new Map();
             if (!this.listeners.has(event)) {
