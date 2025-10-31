@@ -59,9 +59,6 @@ module.exports = {
                 {
                     from: path.resolve(__dirname, "node_modules/@anikitenko/fdo-sdk"),
                     to: "node_modules/@anikitenko/fdo-sdk",
-                    globOptions: {
-                        ignore: ["node_modules/@anikitenko/fdo-sdk/node_modules/**"] // Exclude only nested node_modules
-                    }
                 },
             ],
         })

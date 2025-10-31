@@ -8,7 +8,124 @@ import getLanguage from "./getLanguage";
 import LZString from "lz-string";
 import {createVirtualFile} from "./createVirtualFile";
 import {extractMetadata} from "../../../utils/extractMetadata";
-import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
+import {SnapshotLogger} from "../../../utils/SnapshotLogger";
+
+/**
+ * Error thrown when an atomic snapshot operation fails
+ * Includes the original error cause for debugging
+ */
+class AtomicOperationError extends Error {
+    constructor(message, cause) {
+        super(message);
+        this.name = 'AtomicOperationError';
+        this.cause = cause;
+    }
+}
+
+/**
+ * Snapshot operation stages for progress tracking
+ * Each stage has a weight representing percentage of total operation
+ */
+const SNAPSHOT_STAGES = {
+    create: {
+        CAPTURING: { label: 'Capturing files...', weight: 40 },
+        COMPRESSING: { label: 'Compressing data...', weight: 20 },
+        VALIDATING: { label: 'Validating snapshot...', weight: 10 },
+        SAVING: { label: 'Saving to storage...', weight: 30 }
+    },
+    restore: {
+        LOADING: { label: 'Loading snapshot...', weight: 10 },
+        CLEANING: { label: 'Cleaning up...', weight: 20 },
+        RESTORING: { label: 'Restoring files...', weight: 50 },
+        UPDATING: { label: 'Updating UI...', weight: 20 }
+    }
+};
+
+/**
+ * Tracks progress of snapshot operations and emits progress notifications
+ * Manages stage-based progress reporting with weighted completion percentages
+ */
+class ProgressTracker {
+    constructor(operation, notificationQueue, stages) {
+        this.operation = operation; // 'create' or 'restore'
+        this.notificationQueue = notificationQueue;
+        this.stages = stages;
+        this.currentStage = null;
+        this.currentStageIndex = 0;
+        this.stageKeys = Object.keys(stages);
+        this.stageProgress = 0; // Progress within current stage (0-100)
+        this.totalProgress = 0; // Overall progress (0-100)
+    }
+
+    /**
+     * Start a new stage of the operation
+     * @param {string} stageKey - Key from SNAPSHOT_STAGES (e.g., 'CAPTURING')
+     * @param {Object} context - Additional context (fileCount, etc.)
+     */
+    startStage(stageKey, context = {}) {
+        this.currentStage = stageKey;
+        this.currentStageIndex = this.stageKeys.indexOf(stageKey);
+        this.stageProgress = 0;
+        
+        // Calculate total progress up to start of this stage
+        this.totalProgress = this.stageKeys.slice(0, this.currentStageIndex)
+            .reduce((sum, key) => sum + this.stages[key].weight, 0);
+        
+        this.emit({
+            stage: this.stages[stageKey].label,
+            progress: this.totalProgress,
+            ...context
+        });
+    }
+
+    /**
+     * Update progress within the current stage
+     * @param {number} stagePercent - Progress within current stage (0-100)
+     * @param {Object} context - Additional context
+     */
+    updateProgress(stagePercent, context = {}) {
+        if (!this.currentStage) return;
+        
+        this.stageProgress = Math.min(100, Math.max(0, stagePercent));
+        
+        // Calculate total progress: completed stages + current stage progress
+        const completedWeight = this.stageKeys.slice(0, this.currentStageIndex)
+            .reduce((sum, key) => sum + this.stages[key].weight, 0);
+        const currentWeight = (this.stages[this.currentStage].weight * this.stageProgress) / 100;
+        this.totalProgress = Math.min(100, completedWeight + currentWeight);
+        
+        this.emit({
+            stage: this.stages[this.currentStage].label,
+            progress: Math.round(this.totalProgress),
+            ...context
+        });
+    }
+
+    /**
+     * Mark operation as complete
+     * @param {Object} context - Final context (version, fileCount, etc.)
+     */
+    complete(context = {}) {
+        this.totalProgress = 100;
+        this.emit({
+            stage: 'Complete',
+            progress: 100,
+            complete: true,
+            ...context
+        });
+    }
+
+    /**
+     * Emit progress notification to the queue
+     * @param {Object} data - Progress data to emit
+     */
+    emit(data) {
+        this.notificationQueue.addToQueue('snapshotProgress', {
+            operation: this.operation,
+            ...data
+        });
+    }
+}
 
 const defaultTreeObject = {
     id: "/",
@@ -183,62 +300,66 @@ const virtualFS = {
             }
         },
         stopLoading() {
-            this.loading = false
-            this.parent.notifications.addToQueue("treeLoading", false)
-        },
-        create(prevVersion = "", tabs = []) {
-            this.setLoading();
-
-            // Generate a human-readable version name
-            const latest = uniqueNamesGenerator({ dictionaries: [adjectives, colors], separator: '-', length: 2 });
-
-            const content = [];
-            this.parent.listModels().forEach((model) => {
-                const modelUri = model.uri.toString(true).replace("file://", "");
-                if (modelUri.includes("/node_modules/") || modelUri.includes("/dist/")) {
-                    return;
-                }
-                content.push({
-                    id: modelUri,
-                    content: model.getValue(),
-                    state: null
-                });
-            });
-
-            const date = new Date().toISOString();
-            this.versions[latest] = {
-                tabs: tabs,
-                content: content,
-                version: latest,
-                prev: prevVersion,
-                date: date
-            };
-            this.version_latest = latest;
-            this.version_current = latest;
-
-            const sandboxFs = localStorage.getItem(this.parent.sandboxName);
-            if (sandboxFs) {
-                const unpacked = JSON.parse(LZString.decompress(sandboxFs));
-                unpacked.versions[latest] = _.cloneDeep(this.versions[latest]);
-                unpacked.version_latest = latest;
-                unpacked.version_current = latest;
-                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(unpacked)));
-            } else {
-                const fs = {
-                    versions: {},
-                    version_latest: 0,
-                    version_current: 0,
-                };
-                fs.versions[latest] = _.cloneDeep(this.versions[latest]);
-                fs.version_latest = latest;
-                fs.version_current = latest;
-                const backupData = structuredClone(fs);
-                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(backupData)));
+            if (this._loadingCount === 0) {
+                return;
             }
-            this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list());
-
-            this.stopLoading();
-            return { version: latest, date: date, prev: prevVersion };
+            this._loadingCount -= 1;
+            if (this._loadingCount === 0) {
+                this.loading = false;
+                this.parent.notifications.addToQueue("treeLoading", false);
+            }
+        },
+        /**
+         * Capture current state for potential rollback
+         * Creates a deep copy of in-memory state and localStorage snapshot
+         * @returns {Object} Backup state including versions, pointers, and localStorage data
+         */
+        captureCurrentState() {
+            return {
+                versions: _.cloneDeep(this.versions),
+                version_latest: this.version_latest,
+                version_current: this.version_current,
+                localStorage: localStorage.getItem(this.parent.sandboxName)
+            };
+        },
+        /**
+         * Rollback to a previous state after operation failure
+         * Restores in-memory state and localStorage to backup snapshot
+         * @param {Object} backupState - State captured by captureCurrentState()
+         */
+        async rollback(backupState) {
+            try {
+                // Restore in-memory state
+                this.versions = backupState.versions;
+                this.version_latest = backupState.version_latest;
+                this.version_current = backupState.version_current;
+                
+                // Restore localStorage
+                if (backupState.localStorage) {
+                    localStorage.setItem(this.parent.sandboxName, backupState.localStorage);
+                }
+                
+                // Notify user of rollback
+                this.parent.notifications.addToQueue('operationRollback', {
+                    message: 'Operation failed and was rolled back to previous state',
+                    severity: 'warning'
+                });
+                
+                if (this.logger) {
+                    this.logger.logRollback('snapshot', {
+                        version: this.version_current,
+                        reason: 'Operation failed, state restored'
+                    });
+                }
+            } catch (rollbackError) {
+                // Log rollback failure but don't throw to avoid cascading failures
+                if (this.logger) {
+                    this.logger.logError('rollback', rollbackError, {
+                        version: this.version_current,
+                        failurePoint: 'rollback'
+                    });
+                }
+            }
         },
         /**
          * Check browser storage quota before snapshot operations
