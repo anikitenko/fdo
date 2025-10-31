@@ -44,18 +44,12 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
         const sandboxName = "sandbox_" + name
         virtualFS.setInitWorkspace(name, sandboxName)
         const sandbox = localStorage.getItem(sandboxName)
-        
-        // Check if this is a sandbox (not loading from an external plugin directory)
-        const isSandboxMode = dir === "sandbox" || dir.includes(name);
-        
-        if (isSandboxMode) {
+        if (dir === "sandbox" || dir.includes(sandboxName) || sandbox) {
             if (sandbox) {
                 await virtualFS.restoreSandbox()
             } else {
-                // Default to "blank" template if none specified
-                const defaultTemplate = template || "blank";
-                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, "", defaultTemplate, false, false, displayName)
-                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, "", defaultTemplate, false, false, displayName)
+                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
+                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
                 createVirtualFile("/package.json", packageJsonContent(name))
                 await virtualFS.fs.create()
             }
