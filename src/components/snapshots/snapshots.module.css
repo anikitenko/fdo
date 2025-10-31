@@ -1,0 +1,20 @@
+.snapshot-provider-root {}
+.toolbar { display: flex; align-items: center; gap: 8px; }
+.timeline-menu { min-width: 280px; }
+.menu-item-row { display: flex; align-items: center; gap: 8px; }
+.rename-inline { padding: 8px; }
+.drawer-root {}
+.drawer-content { display: flex; flex-direction: column; height: 100%; }
+.drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; }
+.drawer-footer { padding: 8px 12px; display: flex; justify-content: flex-end; }
+.search-row { padding: 8px 12px; }
+.timeline-container { flex: 1; overflow: auto; padding: 8px 12px; }
+.loading-box { display: flex; align-items: center; justify-content: center; height: 100%; }
+.timeline-root { display: flex; flex-direction: column; gap: 8px; }
+.timeline-item { display: flex; flex-direction: column; gap: 8px; }
+.timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.meta { display: flex; align-items: center; gap: 8px; }
+.timeline-actions { display: flex; justify-content: flex-end; }
+.space-left { margin-left: 6px; }
+.rename-input { background: transparent; color: var(--bp6-text-color); border: 1px solid var(--bp6-divider-black); padding: 4px 6px; border-radius: 3px; }

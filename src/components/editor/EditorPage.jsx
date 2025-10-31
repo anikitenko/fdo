@@ -13,6 +13,7 @@ import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
+import SnapshotToolbarMount from "../snapshots/SnapshotMount.jsx";
 import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
@@ -109,6 +110,8 @@ export const EditorPage = () => {
             }, 100)
         });
 
+        const isTestEnv = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test') || (typeof window !== 'undefined' && window.__TEST__);
+
         const handleBeforeUnload = (event) => {
             event.preventDefault()
             event.returnValue = ''
@@ -125,7 +128,7 @@ export const EditorPage = () => {
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
-                window.electron.system.confirmEditorCloseApproved();
+                window.electron.system.confirmEditorCloseApproved?.();
                 // Component will unmount after close, no need to reset flag
             } else {
                 // User cancelled, allow retry
@@ -143,7 +146,7 @@ export const EditorPage = () => {
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
-                window.electron.system.confirmEditorReloadApproved();
+                window.electron.system.confirmEditorReloadApproved?.();
                 // Window will reload, no need to reset flag
             } else {
                 // User cancelled, allow retry
@@ -151,13 +154,17 @@ export const EditorPage = () => {
             }
         };
 
-        window.addEventListener('beforeunload', handleBeforeUnload)
-
-        window.electron.system.on.confirmEditorClose(handleElectronClose);
-        window.electron.system.on.confirmEditorReload(handleElectronReload);
+        // Skip blocking handlers in tests/E2E to avoid hangs
+        if (!isTestEnv) {
+            window.addEventListener('beforeunload', handleBeforeUnload)
+            window.electron?.system?.on?.confirmEditorClose?.(handleElectronClose);
+            window.electron?.system?.on?.confirmEditorReload?.(handleElectronReload);
+        }
 
         return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
+            if (!isTestEnv) {
+                window.removeEventListener('beforeunload', handleBeforeUnload);
+            }
             unsubscribe()
             unsubscribeFileRemoved()
             unsubscribeTabSwitched()
@@ -184,7 +191,10 @@ export const EditorPage = () => {
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
                 </div>
-                <div className={styles["editor-header-right"]}></div>
+                <div className={styles["editor-header-right"]}>
+                    {/* Snapshot Toolbar */}
+                    <SnapshotToolbarMount />
+                </div>
             </div>
             <Split
                 columnMinSize={50}
