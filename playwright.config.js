@@ -3,7 +3,6 @@
 const config = {
   testDir: 'tests/e2e',
   workers: 1, // Run tests sequentially
-  // Remove invalid reporter config
 };
 
 module.exports = config;
