@@ -8,6 +8,7 @@ import getLanguage from "./getLanguage";
 import LZString from "lz-string";
 import {createVirtualFile} from "./createVirtualFile";
 import {extractMetadata} from "../../../utils/extractMetadata";
+import { uniqueNamesGenerator, adjectives, colors, animals } from 'unique-names-generator';
 
 const defaultTreeObject = {
     id: "/",
@@ -163,21 +164,25 @@ const virtualFS = {
             this.parent.notifications.addToQueue("treeLoading", false)
         },
         create(prevVersion = "", tabs = []) {
-            this.setLoading()
-            const latest = (Math.random() + 1).toString(36).substring(2)
-            const content = []
+            this.setLoading();
+
+            // Generate a human-readable version name
+            const latest = uniqueNamesGenerator({ dictionaries: [adjectives, colors], separator: '-', length: 2 });
+
+            const content = [];
             this.parent.listModels().forEach((model) => {
-                const modelUri = model.uri.toString(true).replace("file://", "")
+                const modelUri = model.uri.toString(true).replace("file://", "");
                 if (modelUri.includes("/node_modules/") || modelUri.includes("/dist/")) {
-                    return
+                    return;
                 }
                 content.push({
                     id: modelUri,
                     content: model.getValue(),
                     state: null
-                })
-            })
-            const date = new Date().toISOString()
+                });
+            });
+
+            const date = new Date().toISOString();
             this.versions[latest] = {
                 tabs: tabs,
                 content: content,
@@ -185,32 +190,32 @@ const virtualFS = {
                 prev: prevVersion,
                 date: date
             };
-            this.version_latest = latest
-            this.version_current = latest
+            this.version_latest = latest;
+            this.version_current = latest;
 
-            const sandboxFs = localStorage.getItem(this.parent.sandboxName)
+            const sandboxFs = localStorage.getItem(this.parent.sandboxName);
             if (sandboxFs) {
-                const unpacked = JSON.parse(LZString.decompress(sandboxFs))
-                unpacked.versions[latest] = _.cloneDeep(this.versions[latest])
-                unpacked.version_latest = latest
-                unpacked.version_current = latest
-                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(unpacked)))
+                const unpacked = JSON.parse(LZString.decompress(sandboxFs));
+                unpacked.versions[latest] = _.cloneDeep(this.versions[latest]);
+                unpacked.version_latest = latest;
+                unpacked.version_current = latest;
+                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(unpacked)));
             } else {
                 const fs = {
                     versions: {},
                     version_latest: 0,
                     version_current: 0,
-                }
-                fs.versions[latest] = _.cloneDeep(this.versions[latest])
-                fs.version_latest = latest
-                fs.version_current = latest
-                const backupData = structuredClone(fs)
-                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(backupData)))
+                };
+                fs.versions[latest] = _.cloneDeep(this.versions[latest]);
+                fs.version_latest = latest;
+                fs.version_current = latest;
+                const backupData = structuredClone(fs);
+                localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(backupData)));
             }
-            this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
+            this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list());
 
-            this.stopLoading()
-            return {version: latest, date: date, prev: prevVersion}
+            this.stopLoading();
+            return { version: latest, date: date, prev: prevVersion };
         },
         set(version) {
             this.setLoading()
