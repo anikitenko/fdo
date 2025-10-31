@@ -11,8 +11,9 @@ test.afterAll(async () => {
   for (const win of electronApp.windows()) {
     try {
       await win.close();
-    } catch (e) {}
-  }
+    } catch (e) {
+      console.error('Error closing window:', e);
+    }
   await electronApp.close();
 }, 60000);
 
