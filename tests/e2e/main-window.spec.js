@@ -1,12 +1,9 @@
 const { test, expect, _electron: electron } = require('@playwright/test');
 
-test.beforeAll(async () => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-});
-
 let electronApp;
 
 test.beforeAll(async () => {
+  await new Promise(resolve => setTimeout(resolve, 1000));
   electronApp = await electron.launch({ args: ['.'] });
 });
 
