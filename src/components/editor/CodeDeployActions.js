@@ -319,7 +319,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
             >
                 <p style={{color: "white"}}>
                     Make sure to <b>create snapshot</b> before switching between versions. Unsaved changes will be
-                    discard. Proceed?
+                    discarded. Proceed?
                 </p>
             </Alert>
             <RootCertificateSelectionComponent
