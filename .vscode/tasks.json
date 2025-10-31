@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install Playwright for Electron",
+			"type": "shell",
+			"command": "npm install --save-dev playwright",
+			"args": [],
+			"isBackground": false
+		}
+	]
+}
