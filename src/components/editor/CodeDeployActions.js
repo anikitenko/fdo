@@ -1,5 +1,5 @@
 import {Select} from "@blueprintjs/select";
-import {Alert, Button, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
+import {Alert, Button, Divider, FormGroup, MenuItem, Icon} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 
 import {formatDistanceToNow} from 'date-fns';
@@ -13,6 +13,7 @@ import PropTypes from "prop-types";
 import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
 import {RootCertificateSelectionComponent, selectRootCert} from "./utils/RootCertificateSelectionComponent";
+import { useTreeLoading } from "./hooks/useTreeLoading";
 
 const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
@@ -20,12 +21,15 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
     const [versions, setVersions] = useState(virtualFS.fs.list())
     const [isOpenSwitch, setIsOpenSwitch] = useState(false)
     const [isLoadingSwitch, setIsLoadingSwitch] = useState(false)
+    const [isOpenDelete, setIsOpenDelete] = useState(false)
+    const [isLoadingDelete, setIsLoadingDelete] = useState(false)
+    const [versionToDelete, setVersionToDelete] = useState(null)
     const [versionsDate, setVersionsDate] = useState(Date.now())
     const [prettyVersionDate, setPrettyVersionDate] = useState("")
     const [buildInProgress, setBuildInProgress] = useState(false)
     const [deployInProgress, setDeployInProgress] = useState(false)
     const [saveAndCloseInProgress, setSaveAndCloseInProgress] = useState(false)
-    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    const treeLoading = useTreeLoading();
     const [rootCertificates, setRootCertificates] = useState([])
     const [onRootCertificateSelected, setOnRootCertificateSelected] = useState(null)
     const [showRootCertificateDialog, setShowRootCertificateDialog] = useState(false)
@@ -64,17 +68,26 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
         };
     }, [versionsDate]);
 
-    const saveAll = () => {
-        const newVersion = virtualFS.fs.create(
-            version.version,
-            virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => {
-                return {
-                    id: t.id,
-                    active: t.active
-                }
-            })
-        )
-        handleSwitchFsVersion(newVersion)
+    const saveAll = async () => {
+        try {
+            const newVersion = await virtualFS.fs.create(
+                version.version,
+                virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => {
+                    return {
+                        id: t.id,
+                        active: t.active
+                    }
+                })
+            )
+            // Don't automatically switch - the new snapshot is already current
+            // await handleSwitchFsVersion(newVersion)
+        } catch (error) {
+            console.error('Failed to save snapshot:', error);
+            (await AppToaster).show({
+                message: `Failed to save snapshot: ${error.message}`,
+                intent: "danger"
+            });
+        }
     }
 
     const handleRootCertificateSelection = async () => {
@@ -105,18 +118,107 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
         setNewVersion(ver)
     }
 
-    const handleConfirmSwitch = () => {
+    const handleConfirmSwitch = async () => {
         setIsLoadingSwitch(true)
-        handleSwitchFsVersion(newVersion)
-        setIsLoadingSwitch(false)
-        setIsOpenSwitch(false)
+        try {
+            await handleSwitchFsVersion(newVersion)
+        } catch (error) {
+            console.error('Failed to switch version:', error);
+            (await AppToaster).show({
+                message: `Failed to switch version: ${error.message}`,
+                intent: "danger"
+            });
+        } finally {
+            setIsLoadingSwitch(false)
+            setIsOpenSwitch(false)
+        }
     }
 
-    const handleSwitchFsVersion = (ver) => {
-        const data = virtualFS.fs.set(ver.version)
-        if (data.tabs.length > 0) {
+    const handleConfirmDelete = async () => {
+        setIsLoadingDelete(true)
+        try {
+            await virtualFS.fs.deleteSnapshot(versionToDelete.version);
+            (await AppToaster).show({
+                message: `Snapshot deleted: ${versionToDelete.version.substring(0, 8)}`,
+                intent: "success"
+            });
+            // Refresh version list
+            setVersions(virtualFS.fs.list());
+        } catch (error) {
+            console.error('Failed to delete snapshot:', error);
+            (await AppToaster).show({
+                message: `Failed to delete snapshot: ${error.message}`,
+                intent: "danger"
+            });
+        } finally {
+            setIsLoadingDelete(false)
+            setIsOpenDelete(false)
+            setVersionToDelete(null)
+        }
+    }
+
+    const handleDeleteSnapshot = (item, event) => {
+        event.stopPropagation(); // Prevent version selection
+        setVersionToDelete(item);
+        setIsOpenDelete(true);
+    }
+
+    const handleSwitchFsVersion = async (ver) => {
+        if (!ver || !ver.version) {
+            throw new Error('Invalid version: version object or version ID is missing');
+        }
+        
+        const switchId = Math.random().toString(36).substring(7);
+        console.log(`[CodeDeployActions] ========== START SWITCH ${switchId} ==========`);
+        
+        // Do NOT call setLoading here; VirtualFS.set(userInitiated=true) will handle loading
+        console.log('[CodeDeployActions] Starting version switch - delegating loading to VirtualFS.set');
+        
+        console.log('[CodeDeployActions] Starting restoration...');
+        // User-initiated switch - restoration will suppress UI notifications
+        const data = await virtualFS.fs.set(ver.version, { userInitiated: true })
+        console.log('[CodeDeployActions] Version switch complete, opening tabs...');
+        
+        // Emit UI updates immediately for smooth UX
+        console.log('[CodeDeployActions] Adding tabs to UI...');
+        if (data.tabs && data.tabs.length > 0) {
             virtualFS.tabs.addMultiple(data.tabs)
         }
+        console.log('[CodeDeployActions] Tabs added');
+        
+        // Emit notifications and stop loading in single frame for better UX
+        console.log('[CodeDeployActions] Emitting UI notifications...');
+        if (virtualFS.fs._deferredNotifications) {
+            virtualFS.notifications.addToQueue("treeUpdate", virtualFS.fs._deferredNotifications.treeUpdate);
+            if (virtualFS.fs._deferredNotifications.fileSelected) {
+                virtualFS.notifications.addToQueue("fileSelected", virtualFS.fs._deferredNotifications.fileSelected);
+            }
+            virtualFS.fs._deferredNotifications = null;
+        }
+        console.log('[CodeDeployActions] UI notifications emitted');
+        
+        // VirtualFS.set already handles stopLoading(), no need to call it here
+        console.log(`[CodeDeployActions] ========== END SWITCH ${switchId} ==========`);
+        
+        // Re-enable TypeScript diagnostics after everything settles
+        setTimeout(() => {
+            console.log('[CodeDeployActions] Enabling TypeScript diagnostics...');
+            virtualFS.fs.enableTypeScriptDiagnostics();
+        }, 150);
+        
+        // Ensure an active selection exists; default to the first tab or index.ts
+        try {
+            const currentSelected = virtualFS.getTreeObjectItemSelected();
+            if (!currentSelected) {
+                const activeTabId = virtualFS.tabs.getActiveTabId();
+                if (activeTabId) {
+                    virtualFS.setTreeObjectItemBool(activeTabId, 'isSelected');
+                } else if (virtualFS.getTreeObjectItemById(virtualFS.DEFAULT_FILE_MAIN)) {
+                    virtualFS.setTreeObjectItemBool(virtualFS.DEFAULT_FILE_MAIN, 'isSelected');
+                }
+            }
+        } catch (_) {}
+
         setVersion(ver)
         setVersionsDate(ver.date)
         setPrettyVersionDate(formatDistanceToNow(new Date(ver.date), {addSuffix: true}))
@@ -227,11 +329,9 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("treeVersionsUpdate", setVersions)
-        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
 
         return () => {
             unsubscribe()
-            unsubscribeLoading()
         }
     }, []);
     return (
@@ -248,6 +348,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
                         (item,
                          {handleClick, handleFocus, modifiers}
                         ) => {
+                            const canDelete = versions.length > 1 && !item.current;
                             return (<MenuItem
                                 active={item.current === version.current}
                                 disabled={modifiers.disabled}
@@ -257,6 +358,21 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
                                 roleStructure="listoption"
                                 text={versionText(item.version, item.date, item.prev)}
                                 className={item.current === version.current ? "selected-item" : ""}
+                                labelElement={
+                                    canDelete && (
+                                        <Icon
+                                            icon="trash"
+                                            intent="danger"
+                                            onClick={(e) => handleDeleteSnapshot(item, e)}
+                                            title="Delete snapshot"
+                                            style={{ 
+                                                cursor: 'pointer',
+                                                padding: '4px',
+                                                marginTop: '35px'
+                                            }}
+                                        />
+                                    )
+                                }
                             />)
                         }
                     }
@@ -320,6 +436,27 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
                 <p style={{color: "white"}}>
                     Make sure to <b>create snapshot</b> before switching between versions. Unsaved changes will be
                     discard. Proceed?
+                </p>
+            </Alert>
+            <Alert
+                cancelButtonText="Cancel"
+                canEscapeKeyCancel={true}
+                canOutsideClickCancel={true}
+                confirmButtonText="Delete"
+                icon={IconNames.TRASH}
+                intent={"danger"}
+                isOpen={isOpenDelete}
+                loading={isLoadingDelete}
+                onCancel={() => {
+                    setIsOpenDelete(false);
+                    setVersionToDelete(null);
+                }}
+                onConfirm={handleConfirmDelete}
+                className={styles["alert-delete"]}
+            >
+                <p style={{color: "white"}}>
+                    Are you sure you want to delete snapshot <b>{versionToDelete?.version.substring(0, 8)}</b>?
+                    <br/>This action cannot be undone.
                 </p>
             </Alert>
             <RootCertificateSelectionComponent

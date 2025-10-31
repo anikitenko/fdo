@@ -1,0 +1,97 @@
+.snapshotProgressContainer {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 400px;
+    max-width: calc(100vw - 40px);
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.snapshotProgress {
+    background: var(--bp6-dialog-background-color, #ffffff);
+    border: 1px solid var(--bp6-border-color, #d3d8de);
+    border-radius: 6px;
+    padding: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    pointer-events: auto;
+    margin-bottom: 12px;
+}
+
+.snapshotProgressHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.snapshotProgressOperation {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--bp6-text-color, #1c2127);
+}
+
+.snapshotProgressStage {
+    font-size: 12px;
+    color: var(--bp6-text-color-muted, #5f6b7c);
+}
+
+.snapshotProgressDetails {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--bp6-text-color-muted, #5f6b7c);
+    text-align: right;
+}
+
+/* Ensure progress bar is visible */
+.snapshotProgress :global(.bp6-progress-bar) {
+    height: 8px;
+}
+
+.snapshotProgress :global(.bp6-progress-meter) {
+    background-color: var(--bp6-intent-primary, #2d72d2);
+    opacity: 1;
+}
+
+.snapshotMessage {
+    margin-bottom: 12px;
+    pointer-events: auto;
+    animation: slideIn 0.3s ease-out;
+}
+
+.snapshotMessage strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.snapshotMessageDetails {
+    font-size: 13px;
+    margin-top: 6px;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Dark theme support */
+:global(.bp6-dark) .snapshotProgress {
+    background: var(--bp6-dark-dialog-background-color, #30404d);
+    border-color: var(--bp6-dark-border-color, #1c2127);
+}
+
+:global(.bp6-dark) .snapshotProgressOperation {
+    color: var(--bp6-dark-text-color, #f6f7f9);
+}
+
+:global(.bp6-dark) .snapshotProgressStage,
+:global(.bp6-dark) .snapshotProgressDetails {
+    color: var(--bp6-dark-text-color-muted, #a7b6c2);
+}
+

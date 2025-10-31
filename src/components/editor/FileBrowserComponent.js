@@ -8,19 +8,18 @@ import 'react-contexify/ReactContexify.css';
 import {Tree} from "@blueprintjs/core";
 import ContextMenu from "./context_menu/CONTEXT_MENU";
 import classnames from "classnames";
+import { useTreeLoading } from './hooks/useTreeLoading';
 
 const FileBrowserComponent = () => {
     const [treeData, setTreeData] = useState(virtualFS.getTreeObjectSortedAsc())
-    const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    const treeLoading = useTreeLoading();
     const [contextElement, setContextElement] = useState(null)
     const {show} = useContextMenu();
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("treeUpdate", setTreeData);
-        const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
         return () => {
             unsubscribe();
-            unsubscribeLoading();
         }
     }, []);
 

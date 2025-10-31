@@ -1,6 +1,7 @@
 .idea/
 dist/
 release/
+test-results/
 
 # Logs
 logs
@@ -94,3 +95,4 @@ typings/
 
 # Electron-Forge
 out/
+.tmp/

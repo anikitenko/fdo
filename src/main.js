@@ -3,6 +3,7 @@ import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
 import fs, {existsSync, mkdirSync} from "node:fs";
+import { startTestServer } from './ipc/test-server.js';
 
 import nodePath from "node:path";
 
@@ -55,6 +56,14 @@ const debugLog = (msg) => {
         } catch {}
     }
 };
+
+// Console output to keep process alive in sandboxed environments
+console.log('[MAIN] ========== ELECTRON PROCESS STARTING ==========');
+console.log('[MAIN] Starting FDO main process...');
+console.log(`[MAIN] isPackaged: ${app.isPackaged}`);
+console.log(`[MAIN] argv: ${JSON.stringify(process.argv)}`);
+console.log(`[MAIN] ELECTRON_TEST_MODE: ${process.env.ELECTRON_TEST_MODE}`);
+console.log('[MAIN] ========== EARLY INIT COMPLETE ==========');
 
 debugLog('[MAIN] Starting FDO main process...');
 debugLog(`[MAIN] isPackaged: ${app.isPackaged}`);
@@ -467,7 +476,29 @@ const createWindow = async () => {
 
     nativeTheme.themeSource = 'dark';
 
-    PluginManager.setMainWindow(mainWindow)
+    PluginManager.setMainWindow(mainWindow);
+    
+    // Start test server if in test mode
+    const isTestMode = process.env.ELECTRON_TEST_MODE === 'true';
+    debugLog(`[MAIN] isTestMode: ${isTestMode}`);
+    console.log('[MAIN] isTestMode:', isTestMode);
+    if (isTestMode) {
+        debugLog('[MAIN] TEST MODE DETECTED - Starting test server...');
+        console.log('[MAIN] Starting test server...');
+        try {
+            debugLog('[MAIN] Calling startTestServer()...');
+            await startTestServer(mainWindow);
+            debugLog('[MAIN] ✓ Test server started successfully');
+            console.log('[MAIN] Test server started successfully');
+            // Keep process alive with periodic heartbeat in test mode
+            setInterval(() => {
+                debugLog(`[MAIN] Test mode heartbeat - alive at ${new Date().toISOString()}`);
+            }, 5000);
+        } catch (error) {
+            debugLog(`[MAIN] ✗ Failed to start test server: ${error.message}`);
+            console.error('[MAIN] Failed to start test server:', error);
+        }
+    }
 
     return mainWindow
 };

@@ -46,12 +46,12 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
         const sandbox = localStorage.getItem(sandboxName)
         if (dir === "sandbox" || dir.includes(sandboxName) || sandbox) {
             if (sandbox) {
-                virtualFS.restoreSandbox(sandbox)
+                await virtualFS.restoreSandbox()
             } else {
                 createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
                 createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
                 createVirtualFile("/package.json", packageJsonContent(name))
-                virtualFS.fs.create()
+                await virtualFS.fs.create()
             }
         } else {
             const data = await window.electron.plugin.getData(dir)
@@ -59,7 +59,7 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
                 for (const file of data.content) {
                     createVirtualFile(file.path, file.content)
                 }
-                virtualFS.fs.create()
+                await virtualFS.fs.create()
             } else {
                 (AppToaster).show({message: `${data.error}`, intent: "danger"});
             }
