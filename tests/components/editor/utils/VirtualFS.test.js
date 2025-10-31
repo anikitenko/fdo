@@ -1,5 +1,8 @@
 import VirtualFS from "../../../../src/components/editor/utils/VirtualFS";
 
+// Jest requires ES module support. Add this pragma to enable it.
+// @jest-environment jsdom
+
 describe('VirtualFS Tests', () => {
     let fs;
 

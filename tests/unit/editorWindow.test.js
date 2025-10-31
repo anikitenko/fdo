@@ -1,3 +1,18 @@
+jest.mock('electron', () => ({
+  app: { isPackaged: false },
+  BrowserWindow: jest.fn(),
+  ipcMain: {
+    on: jest.fn(),
+    once: jest.fn(),
+    removeHandler: jest.fn()
+  },
+  dialog: {},
+  nativeTheme: {},
+  net: {},
+  protocol: {},
+  session: {},
+}));
+
 /**
  * Unit tests for editor window lifecycle management
  * Tests for close reliability fix (Feature 006)
@@ -27,12 +42,6 @@ describe('Editor Window Lifecycle', () => {
             once: jest.fn(),
             removeHandler: jest.fn()
         };
-
-        // Mock modules
-        jest.mock('electron', () => ({
-            ipcMain: mockIpcMain,
-            BrowserWindow: jest.fn()
-        }));
 
         // Import after mocking
         editorWindow = require('../../src/utils/editorWindow').editorWindow;
