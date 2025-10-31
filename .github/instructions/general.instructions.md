@@ -1,3 +1,6 @@
+---
+applyTo: '**'
+---
 # Copilot Instructions for AI Coding Agents
 
 These are practical, project-specific notes to help AI agents be productive immediately in this repo.
