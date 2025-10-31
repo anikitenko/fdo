@@ -44,15 +44,13 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
         const sandboxName = "sandbox_" + name
         virtualFS.setInitWorkspace(name, sandboxName)
         const sandbox = localStorage.getItem(sandboxName)
-        if (dir === "sandbox" || dir.includes(sandboxName) || sandbox) {
-            if (sandbox) {
-                await virtualFS.restoreSandbox()
-            } else {
-                createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
-                createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
-                createVirtualFile("/package.json", packageJsonContent(name))
-                await virtualFS.fs.create()
-            }
+        if (sandbox) {
+            await virtualFS.restoreSandbox()
+        } else if (dir === "sandbox" || dir.includes(sandboxName)) {
+            createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
+            createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
+            createVirtualFile("/package.json", packageJsonContent(name))
+            await virtualFS.fs.create()
         } else {
             const data = await window.electron.plugin.getData(dir)
             if (data.success) {
