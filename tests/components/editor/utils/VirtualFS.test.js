@@ -91,7 +91,7 @@ describe('VirtualFS snapshots', () => {
     createModel('/a.ts', 'A');
     const v1 = virtualFS.fs.create('', []);
     virtualFS.setFileContent('/a.ts', 'B');
-    const v2 = virtualFS.fs.create(v1.version, []);
+    virtualFS.fs.create(v1.version, []);
 
     const ok = virtualFS.fs.deleteVersion(v1.version);
     expect(ok).toBe(true);
