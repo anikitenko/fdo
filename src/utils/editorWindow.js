@@ -45,10 +45,10 @@ export const editorWindow = {
 
     createWindow() {
         this.window = new BrowserWindow({
-            width: 1024,
-            height: 800,
-            minWidth: 1024,
-            minHeight: 800,
+            width: 1060,
+            height: 860,
+            minWidth: 1060,
+            minHeight: 860,
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,

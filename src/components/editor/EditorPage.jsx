@@ -13,6 +13,8 @@ import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
+import SnapshotToolbarMount from "../snapshots/SnapshotMount.jsx";
+import SidebarSection from "../common/SidebarSection.jsx";
 import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
@@ -105,9 +107,18 @@ export const EditorPage = () => {
             setTimeout(() => {
                 setEditorModelPath(tabID)
                 virtualFS.setTreeObjectItemSelectedSilent(tabID)
+                // Ensure the editor model is switched and its view state (cursor/scroll/selection) is restored
+                const model = virtualFS.getModel(tabID);
+                if (model) {
+                    codeEditor?.setModel(model);
+                    const state = virtualFS.getModelState(tabID);
+                    if (state) codeEditor?.restoreViewState(state);
+                }
                 codeEditor?.focus()
             }, 100)
         });
+
+        const isTestEnv = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test') || (typeof window !== 'undefined' && window.__TEST__);
 
         const handleBeforeUnload = (event) => {
             event.preventDefault()
@@ -125,7 +136,7 @@ export const EditorPage = () => {
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
-                window.electron.system.confirmEditorCloseApproved();
+                window.electron.system.confirmEditorCloseApproved?.();
                 // Component will unmount after close, no need to reset flag
             } else {
                 // User cancelled, allow retry
@@ -143,7 +154,7 @@ export const EditorPage = () => {
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
-                window.electron.system.confirmEditorReloadApproved();
+                window.electron.system.confirmEditorReloadApproved?.();
                 // Window will reload, no need to reset flag
             } else {
                 // User cancelled, allow retry
@@ -151,21 +162,40 @@ export const EditorPage = () => {
             }
         };
 
-        window.addEventListener('beforeunload', handleBeforeUnload)
-
-        window.electron.system.on.confirmEditorClose(handleElectronClose);
-        window.electron.system.on.confirmEditorReload(handleElectronReload);
+        // Skip blocking handlers in tests/E2E to avoid hangs
+        if (!isTestEnv) {
+            window.addEventListener('beforeunload', handleBeforeUnload)
+            window.electron?.system?.on?.confirmEditorClose?.(handleElectronClose);
+            window.electron?.system?.on?.confirmEditorReload?.(handleElectronReload);
+        }
 
         return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
+            if (!isTestEnv) {
+                window.removeEventListener('beforeunload', handleBeforeUnload);
+            }
             unsubscribe()
             unsubscribeFileRemoved()
             unsubscribeTabSwitched()
         }
     }, []);
 
+    // Compact mode state & handlers
+    const [compact, setCompact] = useState(true);
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('ui.compact.enabled');
+            setCompact(raw === 'true');
+        } catch (_) {}
+    }, []);
+    /*const toggleCompact = () => {
+        const next = !compact;
+        setCompact(next);
+        try { localStorage.setItem('ui.compact.enabled', next ? 'true' : 'false'); } catch (_) {}
+        try { window.dispatchEvent(new Event('ui:compact-changed')); } catch (_) {}
+    };*/
+
     return (
-        <div className={styles["editor-page-component"]}>
+        <div className={`${styles["editor-page-component"]} ${compact ? styles["compact"] : ""}`}>
             <div className={styles["editor-header"]}>
                 <div className={styles["editor-header-left"]}>
                     <Button icon="arrow-left" variant={"minimal"}
@@ -184,7 +214,10 @@ export const EditorPage = () => {
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
                 </div>
-                <div className={styles["editor-header-right"]}></div>
+                <div className={styles["editor-header-right"]}>
+                    {/* Snapshot Toolbar (always on) */}
+                    <SnapshotToolbarMount />
+                </div>
             </div>
             <Split
                 columnMinSize={50}
@@ -205,7 +238,9 @@ export const EditorPage = () => {
                                      }) => (
                                 <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
                                     <div className={styles["file-browser-tree"]}>
-                                        <FileBrowserComponent/>
+                                        <SidebarSection id="project-explorer" title="Project Explorer" defaultCollapsed={false}>
+                                            <FileBrowserComponent/>
+                                        </SidebarSection>
                                     </div>
                                     <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                                     <div>
