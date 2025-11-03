@@ -45,7 +45,6 @@ const FileTabs = ({closeTab}) => {
             resizeObserver = new ResizeObserver(updateMirrorWidth);
             resizeObserver.observe(content);
 
-            // Cleanup listeners via returned function
             return () => {
                 unsubscribeFileTabs();
                 unsubscribeTabSwitched();
