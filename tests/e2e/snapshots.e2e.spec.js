@@ -181,7 +181,6 @@ test.describe('Snapshots E2E', () => {
     const win = await openEditorWithMockedIPC(app);
     // Monkey-patch localStorage to throw
     await win.evaluate(() => {
-      const origSet = window.localStorage.setItem.bind(window.localStorage);
       window.localStorage.setItem = function(k, v) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; };
     });
 
