@@ -75,7 +75,7 @@ describe('SnapshotToolbarActions', () => {
     const v1 = virtualFS.fs.create('', []);
     // create second snapshot so deletion is allowed
     virtualFS.setFileContent('/a.ts', 'B');
-    const v2 = virtualFS.fs.create(v1.version, []);
+    virtualFS.fs.create(v1.version, []);
 
     render(<Wrapper><SnapshotToolbarActions /></Wrapper>);
 
