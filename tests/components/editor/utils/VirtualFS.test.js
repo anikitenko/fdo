@@ -61,7 +61,7 @@ describe('VirtualFS snapshots', () => {
     const v1 = virtualFS.fs.create('', [{ id: '/a.ts', active: true }]);
     // change model content and create v2
     virtualFS.setFileContent('/a.ts', 'B');
-    const v2 = virtualFS.fs.create(v1.version, [{ id: '/a.ts', active: true }]);
+    virtualFS.fs.create(v1.version, [{ id: '/a.ts', active: true }]);
 
     const data = virtualFS.fs.set(v1.version);
     expect(data.tabs).toEqual([{ id: '/a.ts', active: true }]);
