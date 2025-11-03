@@ -45,7 +45,14 @@ export const SnapshotProvider = ({children}) => {
       // Models likely recreated; rebind listeners
       bindModelChangeListeners();
     });
-    return () => {unsubA();unsubB();unsubC();unsubD();unsubE(); disposeModelChangeListeners();};
+    return () => {
+      unsubA();
+      unsubB();
+      unsubC();
+      unsubD();
+      unsubE();
+      disposeModelChangeListeners();
+    };
   }, []);
 
   // Bind to monaco models to detect unsaved edits
