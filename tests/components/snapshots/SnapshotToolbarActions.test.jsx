@@ -4,7 +4,6 @@ import {HotkeysProvider} from '@blueprintjs/core';
 import {SnapshotProvider} from '../../../src/components/snapshots/SnapshotContext.jsx';
 import SnapshotToolbarActions from '../../../src/components/snapshots/SnapshotToolbarActions.jsx';
 import virtualFS from '../../../src/components/editor/utils/VirtualFS';
-import * as styles from '../../../src/components/snapshots/snapshots.module.css';
 import {AppToaster} from '../../__mocks__/AppToaster.jsx';
 
 function Wrapper({children}) {
