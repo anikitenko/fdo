@@ -255,7 +255,7 @@ const virtualFS = {
                     fs.versions[latest] = _.cloneDeep(this.versions[latest]);
                     fs.version_latest = latest;
                     fs.version_current = latest;
-                    const backupData = JSON.parse(JSON.stringify(fs));
+                    const backupData = _.cloneDeep(fs);
                     localStorage.setItem(this.parent.sandboxName, LZString.compress(JSON.stringify(backupData)));
                 }
             } catch (e) {
