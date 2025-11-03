@@ -1,12 +1,12 @@
 import React, {useState} from "react";
-import {Button, ButtonGroup, Card, Icon, Tag} from "@blueprintjs/core";
+import {Button, ButtonGroup, Card, Elevation, Icon, Tag} from "@blueprintjs/core";
 import * as styles from "./snapshots.module.css";
 
 const SnapshotItem = ({item, isCurrent, onSwitch, onRename, onDelete}) => {
   const [rename, setRename] = useState(false);
   const [val, setVal] = useState(item.version);
   return (
-    <Card interactive className={styles["timeline-item"]}>
+    <Card elevation={Elevation.TWO} className={styles["timeline-item"]}>
       <div className={styles["timeline-head"]}>
         <div className={styles["title"]}>
           <Icon icon="git-commit" />
@@ -19,7 +19,7 @@ const SnapshotItem = ({item, isCurrent, onSwitch, onRename, onDelete}) => {
         </div>
       </div>
       <div className={styles["timeline-actions"]}>
-        <ButtonGroup minimal>
+        <ButtonGroup variant={"minimal"} className={styles["actions-group"]}>
           <Button icon="share" text="Switch" intent="primary" onClick={()=>onSwitch(item.version)} />
           {rename ? (
             <>
@@ -40,7 +40,7 @@ const SnapshotItem = ({item, isCurrent, onSwitch, onRename, onDelete}) => {
 const SnapshotTimeline = ({versions, current, onSwitch, onRename, onDelete}) => {
   return (
     <div className={styles["timeline-root"]}>
-      {versions.map(v => (
+      {versions.sort((a, b) => new Date(b.date) - new Date(a.date)).map(v => (
         <SnapshotItem key={v.version} item={v} isCurrent={v.version === current.version} onSwitch={onSwitch} onRename={onRename} onDelete={onDelete} />
       ))}
     </div>

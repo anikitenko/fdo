@@ -9,7 +9,7 @@ import getLanguage from "./getLanguage";
 import LZString from "lz-string";
 import {createVirtualFile} from "./createVirtualFile";
 import {extractMetadata} from "../../../utils/extractMetadata";
-import { uniqueNamesGenerator, adjectives, colors, animals } from 'unique-names-generator';
+import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
 
 const defaultTreeObject = {
     id: "/",
@@ -502,9 +502,41 @@ const virtualFS = {
         addMultiple(tabs) {
             for (const tab of tabs) {
                 const item = this.parent.getTreeObjectItemById(tab.id)
+                if (!item) continue;
                 this.add(item, tab?.active, true)
             }
             this.parent.notifications.addToQueue("fileTabs", this.get())
+        },
+        replaceFromSaved(savedTabs = []) {
+            // Atomically replace the current tabs with the provided saved set
+            this.list = [];
+
+            const items = [];
+            for (const t of savedTabs || []) {
+                const item = this.parent.getTreeObjectItemById(t.id);
+                if (item) items.push({ item, active: !!t.active });
+            }
+
+            // Fallback when no saved items exist or none were found in the current tree
+            if (items.length === 0) {
+                const fallbackId = this.parent.DEFAULT_FILE_MAIN || "/index.ts";
+                const fallbackItem = this.parent.getTreeObjectItemById(fallbackId);
+                if (fallbackItem) items.push({ item: fallbackItem, active: true });
+            }
+
+            // Populate list
+            for (const x of items) {
+                this.list.push(x.item);
+            }
+
+            // Determine and set active tab (defaults to the first if none flagged active)
+            const activeEntry = items.find(x => x.active) || items[0];
+            if (activeEntry) {
+                this.setActiveTab(activeEntry.item);
+            }
+
+            // Notify listeners once with the final list
+            this.parent.notifications.addToQueue("fileTabs", this.get());
         },
         addMarkers(id, markers) {
             for (const i of this.list) {
@@ -774,7 +806,7 @@ const virtualFS = {
             id,
             label: name,
             icon: <img className={styles["file-tree-icon"]}
-                       src={type === "folder" ? "renderer/assets/icons/vscode/" + getIconForFolder(name) : "renderer/assets/icons/vscode/" + getIconForFile(name)}
+                       src={type === "folder" ? "static://assets/icons/vscode/" + getIconForFolder(name) : "static://assets/icons/vscode/" + getIconForFile(name)}
                        width="20" height="20" alt="icon"/>,
             isExpanded: false,
             type: type,
