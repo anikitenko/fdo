@@ -7,6 +7,11 @@ const RecentMenu = ({versions, onSwitch, onRename, onDelete, openPanel}) => {
   const [renameId, setRenameId] = useState(null);
   const [renameValue, setRenameValue] = useState("");
 
+  const handleRenameConfirm = (versionId) => {
+    onRename(versionId, renameValue.trim());
+    setRenameId(null);
+  };
+
   return (
     <Menu className={styles["timeline-menu"]} data-testid="recent-menu">
       {versions.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8).map(v => (
@@ -25,7 +30,7 @@ const RecentMenu = ({versions, onSwitch, onRename, onDelete, openPanel}) => {
           {renameId === v.version ? (
             <div className={styles["rename-inline"]} onClick={(e)=>e.stopPropagation()}>
               <InputGroup autoFocus value={renameValue} onChange={(e)=>setRenameValue(e.target.value)} rightElement={
-                <Button variant={"minimal"} intent="success" icon="tick" onClick={() => { onRename(v.version, renameValue.trim()); setRenameId(null); }}/>
+                <Button variant={"minimal"} intent="success" icon="tick" onClick={() => handleRenameConfirm(v.version)}/>
               }/>
             </div>
           ) : (
