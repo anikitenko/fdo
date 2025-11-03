@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from "react";
-import {Button, ButtonGroup, Card, Divider, Drawer, H4, InputGroup, NonIdealState, Spinner, Tag} from "@blueprintjs/core";
+import {Button, ButtonGroup, Divider, Drawer, H4, InputGroup, NonIdealState, Spinner} from "@blueprintjs/core";
 import {useSnapshots} from "./SnapshotContext.jsx";
 import SnapshotTimeline from "./SnapshotTimeline.jsx";
 import * as styles from "./snapshots.module.css";
@@ -7,7 +7,7 @@ import * as styles from "./snapshots.module.css";
 const Header = ({onClose}) => (
   <div className={styles["drawer-header"]}>
     <H4>Snapshots</H4>
-    <Button minimal icon="cross" onClick={onClose} />
+    <Button variant={"minimal"} icon="cross" onClick={onClose} />
   </div>
 );
 
@@ -20,7 +20,7 @@ const Footer = ({creating, onCreate}) => (
 );
 
 const SnapshotPanel = () => {
-  const {panelOpen, closePanel, versions, current, loading, creating, createSnapshot, switchTo, renameSnapshot, deleteSnapshot} = useSnapshots();
+  const {panelOpen, closePanel, versions, current, loading, creating, createSnapshot, requestSwitch, renameSnapshot, deleteSnapshot} = useSnapshots();
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -43,7 +43,7 @@ const SnapshotPanel = () => {
           ) : filtered.length === 0 ? (
             <NonIdealState title="No snapshots" description="Create your first snapshot to get started." icon="camera" />
           ) : (
-            <SnapshotTimeline versions={filtered} current={current} onSwitch={switchTo} onRename={renameSnapshot} onDelete={deleteSnapshot} />
+            <SnapshotTimeline versions={filtered} current={current} onSwitch={requestSwitch} onRename={renameSnapshot} onDelete={deleteSnapshot} />
           )}
         </div>
         <Divider />

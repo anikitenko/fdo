@@ -7,52 +7,64 @@ import classnames from "classnames";
 import {getIconForFile, getIconForOpenFolder} from "vscode-icons-js";
 
 const FileTabs = ({closeTab}) => {
-    const [tabs, setTabs] = useState([])
+    const [tabs, setTabs] = useState(virtualFS.tabs.get())
     const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
     const topScrollRef = useRef(null);
     const contentScrollRef = useRef(null);
     const mirrorRef = useRef(null);
 
     useEffect(() => {
-        const unsubscribe = virtualFS.notifications.subscribe("fileTabs", setTabs);
+        const unsubscribeFileTabs = virtualFS.notifications.subscribe("fileTabs", setTabs);
+        const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", () => setTabs(virtualFS.tabs.get()));
         const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
+
+        // Ensure initial state is in sync even if no events fire immediately
+        setTabs(virtualFS.tabs.get());
+        setTreeLoading(virtualFS.fs.getLoading());
 
         const top = topScrollRef.current;
         const content = contentScrollRef.current;
         const mirror = mirrorRef.current;
 
-        if (!top || !content || !mirror) return;
-
+        let resizeObserver;
         const updateMirrorWidth = () => {
+            if (!mirror || !content) return;
             mirror.style.width = content.scrollWidth + "px";
         };
 
-        updateMirrorWidth(); // Set initially
+        if (top && content && mirror) {
+            updateMirrorWidth(); // Set initially
 
-        const syncTop = () => {
-            top.scrollLeft = content.scrollLeft;
-        };
-        const syncBottom = () => {
-            content.scrollLeft = top.scrollLeft;
-        };
+            const syncTop = () => { top.scrollLeft = content.scrollLeft; };
+            const syncBottom = () => { content.scrollLeft = top.scrollLeft; };
 
-        top.addEventListener("scroll", syncBottom);
-        content.addEventListener("scroll", syncTop);
+            top.addEventListener("scroll", syncBottom);
+            content.addEventListener("scroll", syncTop);
 
-        // ResizeObserver for dynamic content
-        const resizeObserver = new ResizeObserver(updateMirrorWidth);
-        resizeObserver.observe(content);
+            // ResizeObserver for dynamic content
+            resizeObserver = new ResizeObserver(updateMirrorWidth);
+            resizeObserver.observe(content);
 
-        // Cleanup
+            // Cleanup listeners via returned function
+            return () => {
+                unsubscribeFileTabs();
+                unsubscribeTabSwitched();
+                unsubscribeLoading();
+
+                top.removeEventListener("scroll", syncBottom);
+                content.removeEventListener("scroll", syncTop);
+                if (resizeObserver) resizeObserver.disconnect();
+            };
+        }
+
+        // If refs are not ready yet, still return a cleanup for subscriptions
         return () => {
-            unsubscribe();
+            unsubscribeFileTabs();
+            unsubscribeTabSwitched();
             unsubscribeLoading();
-
-            top.removeEventListener("scroll", syncBottom);
-            content.removeEventListener("scroll", syncTop);
-            resizeObserver.disconnect();
+            if (resizeObserver) resizeObserver.disconnect();
         };
-    }, [tabs]);
+    }, []);
 
     return (
         <div className={classnames(styles["file-tabs-wrapper"])}>

@@ -1,0 +1,48 @@
+.sectionRoot {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  background: rgba(0,0,0,0.15);
+}
+
+/* Compact variant applied by SidebarSection when ui.compact.enabled=true */
+.compactRoot .sectionHeader { padding: 4px 8px; }
+.compactRoot .sectionBodyInner { padding: 6px 8px 8px 8px; }
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.sectionBody {
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease;
+}
+
+.sectionBodyInner {
+  padding: 8px 10px 10px 10px;
+}
+
+.collapsed {
+  opacity: 0.0;
+}
+
+.stickyBar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(0,0,0,0.25);
+  backdrop-filter: saturate(120%) blur(2px);
+  padding: 6px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}

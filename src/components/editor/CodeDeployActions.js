@@ -1,6 +1,7 @@
 import {Select} from "@blueprintjs/select";
-import {Alert, Button, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
+import {Alert, Button, ButtonGroup, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
+import SidebarSection from "../common/SidebarSection.jsx";
 
 import {formatDistanceToNow} from 'date-fns';
 import virtualFS from "./utils/VirtualFS";
@@ -236,74 +237,44 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
     }, []);
     return (
         <>
-            <FormGroup
-                label={"Snapshots"}
-                fill={true}
-                className={classnames(treeLoading ? "bp6-skeleton" : "")}
+            <SidebarSection
+              id="snapshots"
+              title="Snapshots"
+              defaultCollapsed={false}
             >
-                <Select
-                    id={"plugin-template"}
-                    items={versions}
-                    itemRenderer={
-                        (item,
-                         {handleClick, handleFocus, modifiers}
-                        ) => {
-                            return (<MenuItem
-                                active={item.current === version.current}
-                                disabled={modifiers.disabled}
-                                key={item?.version}
-                                onClick={handleClick}
-                                onFocus={handleFocus}
-                                roleStructure="listoption"
-                                text={versionText(item.version, item.date, item.prev)}
-                                className={item.current === version.current ? "selected-item" : ""}
-                            />)
-                        }
-                    }
-                    popoverProps={
-                        {
-                            minimal: true,
-                            matchTargetWidth: true,
-                            usePortal: false,
-                            position: "top",
-                            popoverClassName: styles["versions-scrollable-dropdown"],
-                            onOpened: () => {
-                                setTimeout(() => {
-                                    const selectedItem = document.getElementsByClassName("selected-item");
-                                    if (selectedItem && selectedItem.length > 0) {
-                                        selectedItem[0].scrollIntoView({block: "nearest", behavior: "smooth"});
-                                    }
-                                }, 0);
-                            }
-                        }
-                    }
-                    onItemSelect={setFsVersion}
-                    filterable={false}
-                    fill={true}
-                >
-                    <Button fill={true} text={versionText(version?.version, prettyVersionDate, version?.prev, true)}
-                            endIcon="double-caret-vertical"/>
-                </Select>
-            </FormGroup>
-            <FormGroup
-                label="Actions"
+              <Button
                 fill={true}
-                className={classnames(treeLoading ? "bp6-skeleton" : "")}
+                intent="primary"
+                icon="history"
+                text="Open Snapshot Timeline…"
+                onClick={() => {
+                  try { window.__openSnapshotsPanel && window.__openSnapshotsPanel(); } catch (_) {}
+                }}
+              />
+              <Divider />
+              <div className="bp6-text-muted bp6-text-small" style={{ textAlign: 'center' }}>
+                Use the Snapshot toolbar to create, rename, or delete snapshots.
+              </div>
+            </SidebarSection>
+
+            <SidebarSection
+              id="actions"
+              title="Actions"
+              defaultCollapsed={false}
+              sticky={(
+                <ButtonGroup fill={true} vertical={true}>
+                  <Button text="Compile" intent="primary" icon="build" loading={buildInProgress}
+                          onClick={async () => await triggerBuild()} />
+                  <Button text="Deploy" intent="success" icon="share" loading={deployInProgress}
+                          onClick={async () => await triggerDeploy()} />
+                  <Button text="Save & Close" icon="cross" loading={saveAndCloseInProgress}
+                          onClick={async () => await triggerSaveAndClose()} />
+                </ButtonGroup>
+              )}
             >
-                <Button fill={true} text="Live UI editor" intent="warning" size="large" icon="style" endIcon="share"
-                        onClick={() => window.electron.system.openLiveUiWindow({})}/>
-                <Divider/>
-                <Button fill={true} text="1. Create snapshot" endIcon="saved" onClick={() => saveAll()}/>
-                <Divider/>
-                <Button fill={true} text="2. Compile" intent="primary" endIcon="build" loading={buildInProgress}
-                        onClick={async () => await triggerBuild()}/>
-                <Divider/>
-                <Button fill={true} text="3. Deploy" intent="success" endIcon="share" loading={deployInProgress}
-                        onClick={async () => await triggerDeploy()}/>
-                <Divider/>
-                <Button fill={true} text="4. Save & Close" endIcon="cross" loading={saveAndCloseInProgress}
-                        onClick={async () => await triggerSaveAndClose()}/>
-            </FormGroup>
+            </SidebarSection>
+            <Button fill={true} text="Live UI editor" intent="warning" icon="style" endIcon="share"
+                    onClick={() => window.electron.system.openLiveUiWindow({})}/>
             <Alert
                 cancelButtonText="Cancel"
                 canEscapeKeyCancel={true}

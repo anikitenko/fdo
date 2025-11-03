@@ -216,7 +216,7 @@
 
 .grid-container {
     display: grid;
-    grid-template-columns: 250px 2px 1fr; /* File Explorer | Gutter | Editor */
+    grid-template-columns: 290px 2px 1fr; /* File Explorer | Gutter | Editor */
     height: 100%;
     width: 100%;
     min-width: 0;
@@ -395,3 +395,41 @@
     overflow-y: auto;
 }
 
+
+/** Compact mode adjustments: applied when root container has .compact */
+.compact .editor-header {
+  padding: 4px 8px;
+}
+
+.compact .editor-header-left :global(.bp6-button),
+.compact .editor-header-right :global(.bp6-button) {
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.compact .editor-header-search-wrapper {
+  height: 26px;
+}
+
+.compact .editor-header-search {
+  font-size: 12px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* Sidebar columns compact spacing */
+.compact .inner-files-deploy-grid .file-browser-tree,
+.compact .inner-files-deploy-grid .code-deploy-actions {
+  padding: 4px;
+}
+
+/* Tabs dense mode */
+.compact .file-tabs { padding: 2px 6px; }
+.compact .file-tabs-mirror { height: 3px; }
+
+/* Terminal header/tabs compact spacing */
+.compact .terminal-output-console { padding-top: 2px; }
+
+/* Toggle alignment */
+.compact-toggle { margin-right: 8px; }
