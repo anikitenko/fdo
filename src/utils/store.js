@@ -61,6 +61,147 @@ export const settings = new Store({
                 },
                 additionalProperties: false
             }
+        },
+        ai: {
+            type: "object",
+            properties: {
+                chat: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["name", "model", "apiKey", "provider"],
+                        properties: {
+                            id: {type: "string"},
+                            name: {type: "string"},
+                            provider: {type: "string"},
+                            model: {type: "string"},
+                            apiKey: {type: "string", nullable: true},
+                            default: {type: "boolean", default: false},
+                            createdAt: {type: "string", format: "date-time"},
+                            updatedAt: {type: "string", format: "date-time"},
+                            usage: {
+                                type: "object",
+                                properties: {
+                                    totalTokens: {type: "number", default: 0},
+                                    monthlyTokens: {type: "number", default: 0},
+                                    lastUsedAt: {type: "string", format: "date-time"},
+                                },
+                                additionalProperties: false,
+                            },
+                        },
+                        additionalProperties: false,
+                    }
+                },
+                coding: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["name", "model", "apiKey", "provider"],
+                        properties: {
+                            id: {type: "string"},
+                            name: {type: "string"},
+                            provider: {type: "string"},
+                            model: {type: "string"},
+                            apiKey: {type: "string", nullable: true},
+                            default: {type: "boolean", default: false},
+                            createdAt: {type: "string", format: "date-time"},
+                            updatedAt: {type: "string", format: "date-time"},
+                            usage: {
+                                type: "object",
+                                properties: {
+                                    totalTokens: {type: "number", default: 0},
+                                    monthlyTokens: {type: "number", default: 0},
+                                    lastUsedAt: {type: "string", format: "date-time"},
+                                },
+                                additionalProperties: false,
+                            },
+                        },
+                        additionalProperties: false,
+                    }
+                },
+                sessions: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["id", "name", "createdAt", "messages"],
+                        properties: {
+                            id: { type: "string" },
+                            name: { type: "string" },
+                            createdAt: { type: "string", format: "date-time" },
+                            updatedAt: { type: "string", format: "date-time" },
+                            messages: {
+                                type: "array",
+                                items: {
+                                    type: "object",
+                                    required: ["id", "role", "content", "createdAt"],
+                                    properties: {
+                                        id: { type: "string" },
+                                        role: { type: "string", enum: ["user", "assistant"] },
+                                        content: { type: "string" },
+                                        createdAt: { type: "string", format: "date-time" },
+                                        model: { type: "string" },
+                                        inputTokens: { type: "number", minimum: 0},
+                                        outputTokens: { type: "number", minimum: 0 },
+                                        local: { type: "boolean", default: false },
+                                        totalTokens: { type: "number", minimum: 0 },
+                                        inputCost: { type: "number", minimum: 0 },
+                                        outputCost: { type: "number", minimum: 0 },
+                                        totalCost: { type: "number", minimum: 0 },
+                                    },
+                                    additionalProperties: false
+                                }
+                            },
+                            stats: {
+                                type: "object",
+                                properties: {
+                                    models: {
+                                        type: "object",
+                                        additionalProperties: {
+                                            type: "object",
+                                            required: ["model", "provider", "estimatedUsed", "maxTokens", "percentUsed", "updatedAt"],
+                                            properties: {
+                                                model: { type: "string" },
+                                                provider: { type: "string" },
+                                                estimatedUsed: { type: "number", minimum: 0 },
+                                                totalMessages: { type: "number", minimum: 0 },
+                                                maxTokens: { type: "number", minimum: 1 },
+                                                percentUsed: { type: "number", minimum: 0, maximum: 100 },
+                                                updatedAt: { type: "string", format: "date-time" },
+                                            },
+                                        },
+                                    },
+                                    summary: {
+                                        type: "object",
+                                        properties: {
+                                            totalTokens: { type: "number" },
+                                            totalMessages: { type: "number" },
+                                            lastModel: { type: "string" },
+                                            updatedAt: { type: "string", format: "date-time" },
+                                        },
+                                        additionalProperties: false,
+                                    },
+                                },
+                                additionalProperties: false,
+                            },
+                        },
+                        additionalProperties: false
+                    }
+                },
+                options: {
+                    type: "object",
+                    properties: {
+                        chatStreamingDefault: { type: "boolean", default: false }
+                    },
+                    additionalProperties: false
+                }
+            },
+            additionalProperties: false,
+            default: {
+                chat: [],
+                coding: [],
+                sessions: [],
+                options: { chatStreamingDefault: false }
+            },
         }
     }
 });

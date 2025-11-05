@@ -35,6 +35,7 @@ import {extractMetadata} from "./utils/extractMetadata";
 import {initMetrics, logMetric, logStartupError, checkSlowStartupWarning} from "./utils/startupMetrics";
 import {ipcMain} from 'electron';
 import {StartupChannels} from "./ipc/channels";
+import {registerAiChatHandlers} from "./ipc/ai/ai_chat";
 
 // Debug logging to file (works even in packaged mode)
 const debugLog = (msg) => {
@@ -648,6 +649,7 @@ app.whenReady().then(async () => {
     registerSettingsHandlers();
     registerSystemHandlers();
     registerPluginHandlers();
+    registerAiChatHandlers();
 
     const allRoots = settings.get('certificates.root') || [];
     const rootCert = allRoots.find(cert =>

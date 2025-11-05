@@ -1,8 +1,8 @@
 import React from 'react';
 import {render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {HotkeysProvider} from '@blueprintjs/core';
-import {SnapshotProvider} from '../../../src/components/snapshots/SnapshotContext.jsx';
-import SnapshotToolbarActions from '../../../src/components/snapshots/SnapshotToolbarActions.jsx';
+import {SnapshotProvider} from '../../../src/components/editor/snapshots/SnapshotContext.jsx';
+import SnapshotToolbarActions from '../../../src/components/editor/snapshots/SnapshotToolbarActions.jsx';
 import virtualFS from '../../../src/components/editor/utils/VirtualFS';
 import {AppToaster} from '../../__mocks__/AppToaster.jsx';
 
