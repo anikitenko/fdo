@@ -6,7 +6,7 @@ import classnames from "classnames";
 
 export default function MarkdownRenderer({ skeleton, text, role }) {
     return (
-        <div className={classnames(skeleton ? 'bp6-skeleton' : '', role !== "user" && styles["markdown-body"], role !== "user" && "markdown-body")}>
+        <div className={classnames(skeleton ? 'bp6-skeleton' : styles["markdown-body"], role !== "user" && "markdown-body")}>
             <Markdown>{text}</Markdown>
         </div>
     );
