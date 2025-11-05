@@ -37,12 +37,12 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const chatAssistants = useMemo(() => (assistants || []).filter(a => a.purpose === 'chat'), [assistants]);
     const providerOptions = useMemo(() => {
         const uniq = Array.from(new Set(chatAssistants.map(a => a.provider)));
-        return uniq.map(p => ({ label: (p || '').charAt(0).toUpperCase() + (p || '').slice(1), value: p }));
+        return uniq.map(p => ({label: (p || '').charAt(0).toUpperCase() + (p || '').slice(1), value: p}));
     }, [chatAssistants]);
     const modelOptions = useMemo(() => {
         const filtered = chatAssistants.filter(a => !provider || a.provider === provider);
         const uniq = Array.from(new Set(filtered.map(a => a.model)));
-        return uniq.map(m => ({ label: m, value: m }));
+        return uniq.map(m => ({label: m, value: m}));
     }, [chatAssistants, provider]);
 
     useEffect(() => {
@@ -71,19 +71,19 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     setModel("");
                 }
             } catch (e) {
-                AppToaster.show({ message: e.message, intent: "danger" });
+                AppToaster.show({message: e.message, intent: "danger"});
             }
         })();
     }, [showAiChatDialog]);
 
     useEffect(() => {
         if (!showAiChatDialog) return;
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        messagesEndRef.current?.scrollIntoView({behavior: 'smooth'});
     }, [messages.length, showAiChatDialog]);
 
     // Streaming event listeners
     useEffect(() => {
-        if (!showAiChatDialog) return;
+        if (!showAiChatDialog || !session?.id) return;
         const onDelta = (data) => {
             if (!data || data.sessionId !== session?.id) return;
             setSession(prev => {
@@ -93,10 +93,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 if (idx === -1) {
                     const id = streamingAssistantIdRef.current || crypto.randomUUID?.() || `a-${Math.random().toString(36).slice(2)}`;
                     streamingAssistantIdRef.current = id;
-                    msgs.push({ id, role: 'assistant', content: '', createdAt: new Date().toISOString(), skeleton: true });
+                    msgs.push({
+                        id,
+                        role: 'assistant',
+                        content: '',
+                        createdAt: new Date().toISOString(),
+                        skeleton: true
+                    });
                     idx = msgs.length - 1;
                 }
-                const m = { ...msgs[idx] };
+                const m = {...msgs[idx]};
                 if (data.type === 'content') {
                     m.content = (m.content || '') + String(data.content || '');
                     m.skeleton = false;
@@ -104,7 +110,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     m.thinking = (m.thinking || '') + String(data.content || '');
                 }
                 msgs[idx] = m;
-                return { ...prev, messages: msgs };
+                return {...prev, messages: msgs};
             });
         };
         const onDone = (data) => {
@@ -113,8 +119,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 if (!prev) return prev;
                 const msgs = [...(prev.messages || [])];
                 const idx = msgs.findIndex(m => m.id === streamingAssistantIdRef.current);
-                if (idx !== -1) msgs[idx] = { ...msgs[idx], skeleton: false };
-                return { ...prev, messages: msgs };
+                if (idx !== -1) msgs[idx] = {...msgs[idx], skeleton: false};
+                return {...prev, messages: msgs};
             });
             setSending(false);
             streamingAssistantIdRef.current = null;
@@ -127,27 +133,43 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 const idx = msgs.findIndex(m => m.id === streamingAssistantIdRef.current);
                 const errText = String(data.error || 'Error while streaming');
                 if (idx !== -1) {
-                    msgs[idx] = { ...msgs[idx], skeleton: false, content: errText };
+                    msgs[idx] = {...msgs[idx], skeleton: false, content: errText};
                 } else {
                     const id = crypto.randomUUID?.() || `e-${Math.random().toString(36).slice(2)}`;
-                    msgs.push({ id, role: 'assistant', content: errText, createdAt: new Date().toISOString(), skeleton: false });
+                    msgs.push({
+                        id,
+                        role: 'assistant',
+                        content: errText,
+                        createdAt: new Date().toISOString(),
+                        skeleton: false
+                    });
                 }
-                return { ...prev, messages: msgs };
+                return {...prev, messages: msgs};
             });
             setSending(false);
             streamingAssistantIdRef.current = null;
         };
         const onStats = (data) => {
-            if (!data || data.sessionId !== session?.id) return;
-            const statsObj = {
-                model: data.model,
-                provider: data.provider,
-                estimatedUsed: data.estimatedUsed,
-                maxTokens: data.maxTokens,
-                percentUsed: data.percentUsed,
-                updatedAt: new Date().toISOString(),
-            };
-            setStats(statsObj);
+            // Only accept if it's for current session & dialog is visible
+            if (data?.sessionId !== session.id) return;
+            const activeStats = data.models?.[model];
+            if (activeStats) {
+                setStats(activeStats);
+                setSession(prev =>
+                    prev?.id === data.sessionId
+                        ? {
+                            ...prev,
+                            stats: {
+                                ...(prev.stats || {}),
+                                models: {
+                                    ...(prev.stats?.models || {}),
+                                    [model]: activeStats,
+                                },
+                            },
+                        }
+                        : prev
+                );
+            }
         };
         window.electron.aiChat.on.statsUpdate(onStats);
         window.electron.aiChat.on.streamDelta(onDelta);
@@ -159,16 +181,17 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             window.electron.aiChat.off.streamDone(onDone);
             window.electron.aiChat.off.streamError(onError);
         };
-    }, [showAiChatDialog, session?.id]);
+    }, [showAiChatDialog, session?.id, model]);
 
     useEffect(() => {
-        if (!session) return;
-        if (session.stats) {
-            setStats(session.stats);
-        } else {
-            setStats(null);
-        }
-    }, [session?.id]);
+        if (!session?.id) return;
+
+        const activeStats =
+            session.stats?.models?.[model] ??
+            session.stats?.summary ??
+            null;
+        setStats(activeStats);
+    }, [session?.id, session?.stats, model]);
 
     useEffect(() => {
         if (!model) return;
@@ -176,7 +199,10 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             .then(caps => {
                 setCapabilities(caps);
             })
-            .catch(err => console.warn("[AI Chat UI] capability load failed:", err));
+            .catch(err => {
+                AppToaster.show({message: `Capability load failed: ${err.message}`, intent: "warning"});
+                console.warn("[AI Chat UI] capability load failed:", err)
+            });
     }, [model]);
 
     useEffect(() => {
@@ -201,8 +227,20 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             ...session,
             messages: [
                 ...(session.messages || []),
-                { id: crypto.randomUUID?.() || `u-${Math.random().toString(36).slice(2)}`, role: 'user', content, createdAt: now },
-                { id: tempAssistantId, role: 'assistant', content: ' ', createdAt: now, skeleton: true, thinkingRequested: thinking },
+                {
+                    id: crypto.randomUUID?.() || `u-${Math.random().toString(36).slice(2)}`,
+                    role: 'user',
+                    content,
+                    createdAt: now
+                },
+                {
+                    id: tempAssistantId,
+                    role: 'assistant',
+                    content: ' ',
+                    createdAt: now,
+                    skeleton: true,
+                    thinkingRequested: thinking
+                },
             ]
         };
         setSession(optimistic);
@@ -210,17 +248,28 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         // Set streaming bubble id so deltas update this one
         streamingAssistantIdRef.current = tempAssistantId;
         try {
-            const updated = await window.electron.aiChat.sendMessage({ sessionId: session.id, content, think: thinking, stream: streaming || thinking, provider, model });
+            const updated = await window.electron.aiChat.sendMessage({
+                sessionId: session.id,
+                content,
+                think: thinking,
+                stream: streaming || thinking,
+                provider,
+                model
+            });
             // Replace with authoritative session from main (removes skeleton)
             setSession(updated);
         } catch (e) {
-            AppToaster.show({ message: e.message, intent: "danger" });
+            AppToaster.show({message: e.message, intent: "danger"});
             // Replace skeleton with error text locally if call failed
             setSession(prev => {
                 const msgs = (prev?.messages || []).map(m => (
-                    m.id === tempAssistantId ? { ...m, skeleton: false, content: `Error: ${e?.message || 'Failed to send message'}` } : m
+                    m.id === tempAssistantId ? {
+                        ...m,
+                        skeleton: false,
+                        content: `Error: ${e?.message || 'Failed to send message'}`
+                    } : m
                 ));
-                return { ...(prev || session), messages: msgs };
+                return {...(prev || session), messages: msgs};
             });
         } finally {
             setSending(false);
@@ -261,41 +310,46 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 flexDirection: 'column'
             }}
         >
-            <div style={{ flex: 1, overflow: 'auto', padding: '0 1rem' }}>
+            <div style={{flex: 1, overflow: 'auto', padding: '0 1rem'}}>
                 {!hasAssistants ? (
                     <NonIdealState
                         icon="manual"
                         title="No AI Assistants yet"
                         description="Add your first AI Assistant to integrate intelligent collaboration into your workflow."
                     />
-                ) : ( <>
-                    {(messages || []).map(m => {
-                        const isAssistant = m.role === 'assistant';
-                        const isStreamingLive = isAssistant && (streamingAssistantIdRef.current === m.id) && sending;
-                        const showActivityHeader = isAssistant && (m.skeleton || isStreamingLive);
-                        const headerLabel = m.thinkingRequested ? 'Thinking…' : 'Responding…';
-                        return (
-                            <div key={m.id} style={{ display: 'flex', justifyContent: isAssistant ? 'flex-start' : 'flex-end', margin: '8px 0' }}>
-                                <div className={`${styles.bubble} ${isAssistant ? styles.assistantBubble : styles.userBubble}`}>
-                                    {showActivityHeader && (
-                                        <div className={styles.thinkingHeader}>
-                                            <Spinner size={14} intent="none" style={{ color: '#000' }} />
-                                            <span>{headerLabel}</span>
+                ) : (<>
+                        {(messages || []).map(m => {
+                            const isAssistant = m.role === 'assistant';
+                            const isStreamingLive = isAssistant && (streamingAssistantIdRef.current === m.id) && sending;
+                            const showActivityHeader = isAssistant && (m.skeleton || isStreamingLive);
+                            const headerLabel = m.thinkingRequested ? 'Thinking…' : 'Responding…';
+                            return (
+                                <div key={m.id} style={{
+                                    display: 'flex',
+                                    justifyContent: isAssistant ? 'flex-start' : 'flex-end',
+                                    margin: '8px 0'
+                                }}>
+                                    <div
+                                        className={`${styles.bubble} ${isAssistant ? styles.assistantBubble : styles.userBubble}`}>
+                                        {showActivityHeader && (
+                                            <div className={styles.thinkingHeader}>
+                                                <Spinner size={14} intent="none" style={{color: '#000'}}/>
+                                                <span>{headerLabel}</span>
+                                            </div>
+                                        )}
+                                        {isAssistant && m.thinking && (
+                                            <div className={styles.thinkingBlock}>
+                                                {m.thinking}
+                                            </div>
+                                        )}
+                                        <div className={m.skeleton ? 'bp6-skeleton' : ''}>
+                                            {m.content}
                                         </div>
-                                    )}
-                                    {isAssistant && m.thinking && (
-                                        <div className={styles.thinkingBlock}>
-                                            {m.thinking}
-                                        </div>
-                                    )}
-                                    <div className={m.skeleton ? 'bp6-skeleton' : ''}>
-                                        {m.content}
                                     </div>
                                 </div>
-                            </div>
-                        );
-                    })}
-                    <div ref={messagesEndRef} />
+                            );
+                        })}
+                        <div ref={messagesEndRef}/>
                     </>
                 )}
             </div>
@@ -334,7 +388,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         onInteraction={(state) => setOptionsOpen(state)}
                         placement="top"
                         content={
-                            <div style={{ padding: 12, minWidth: 260 }}>
+                            <div style={{padding: 12, minWidth: 260}}>
                                 <FormGroup label="Thinking mode">
                                     <Switch
                                         checked={thinking}
@@ -357,7 +411,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         innerLabel="Off"
                                         disabled={thinking || !capabilities?.streaming}
                                     />
-                                    {thinking && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>Auto-enabled while Thinking is ON</div>}
+                                    {thinking &&
+                                        <div style={{fontSize: 11, opacity: 0.8, marginTop: 4}}>Auto-enabled while
+                                            Thinking is ON</div>}
                                 </FormGroup>
                                 <FormGroup label="Provider">
                                     <HTMLSelect
@@ -409,14 +465,58 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     </Tooltip>
                 </ControlGroup>
                 {stats && (
-                    <div style={{ marginTop: "6px", fontSize: "12px", display: "flex", gap: "8px", alignItems: "center", justifyContent: "center" }}>
-                        <Tag minimal intent="primary">{stats.model}</Tag>
-                        <Tag minimal intent={stats.percentUsed > 80 ? "danger" : stats.percentUsed > 50 ? "warning" : "success"}>
-                            {`${Math.round(stats.percentUsed ?? 0)}% of ${(stats.maxTokens ?? 0).toLocaleString()} tokens`}
+                    <div
+                        style={{
+                            marginTop: "6px",
+                            fontSize: "12px",
+                            display: "flex",
+                            gap: "8px",
+                            alignItems: "center",
+                            justifyContent: "center",
+                        }}
+                    >
+                        {/* 🔹 Label tag — model name or "Session Total" */}
+                        {stats.lastModel && "Last used model: "}
+                        <Tag
+                            minimal
+                            intent="none"
+                            style={{opacity: stats.model ? 1 : 0.7}}
+                        >
+                            {stats.model || stats.lastModel || "Session Total"}
                         </Tag>
+
+                        {/* 🔹 Usage / percentage tag */}
+                        {stats.maxTokens && stats.percentUsed ? (
+                            <>
+                            <Tag
+                                minimal
+                                intent={
+                                    stats.percentUsed > 80
+                                        ? "danger"
+                                        : stats.percentUsed > 50
+                                            ? "warning"
+                                            : "success"
+                                }
+                            >
+                                {`${Math.round(stats.percentUsed)}% of ${stats.maxTokens.toLocaleString()} tokens`}
+                            </Tag>
+                            <Tag minimal intent="none">
+                                {`${(stats.estimatedUsed ?? 0).toLocaleString()} tokens used`}
+                            </Tag>
+                            </>
+                        ) : (
+                            <Tag minimal intent="none">
+                                {`${(stats.totalTokens ?? 0).toLocaleString()} tokens used`}
+                            </Tag>
+                        )}
+
+                        {/* 🔹 Details line */}
                         <span>
-                            ≈ {(stats.estimatedUsed ?? 0).toLocaleString()} used
-                            {stats.totalMessages ? ` • ${stats.totalMessages} msg` : ""}
+                          {stats.totalMessages
+                              ? `• ${stats.totalMessages} msg`
+                              : stats.messageCount
+                                  ? `• ${stats.messageCount} msg`
+                                  : ""}
                         </span>
                     </div>
                 )}
