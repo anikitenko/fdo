@@ -17,7 +17,7 @@
 }
 
 .userBubble {
-    background: white;
+    background: #252a31;
     color: var(--bp6-text-color);
     border: 1px solid var(--bp6-divider-color);
 }
