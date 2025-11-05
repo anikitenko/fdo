@@ -16,6 +16,7 @@ import {
 } from "@blueprintjs/core";
 import {AppToaster} from "../AppToaster";
 import React, {useEffect, useMemo, useRef, useState} from "react";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const [session, setSession] = useState(null);
@@ -342,9 +343,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 {m.thinking}
                                             </div>
                                         )}
-                                        <div className={m.skeleton ? 'bp6-skeleton' : ''}>
-                                            {m.content}
-                                        </div>
+                                        <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role} />
                                     </div>
                                 </div>
                             );
