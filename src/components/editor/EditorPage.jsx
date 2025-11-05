@@ -13,7 +13,7 @@ import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
-import SnapshotToolbarMount from "../snapshots/SnapshotMount.jsx";
+import SnapshotToolbarMount from "./snapshots/SnapshotMount.jsx";
 import SidebarSection from "../common/SidebarSection.jsx";
 import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";

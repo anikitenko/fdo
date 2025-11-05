@@ -21,7 +21,8 @@ import {generateActionId} from "./utils/generateActionId";
 import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
 
 // Lazy load settings dialog (only needed when opened)
-const SettingsDialog = lazy(() => import("./components/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
+const SettingsDialog = lazy(() => import("./components/settings/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
+const AiChatDialog = lazy(() => import("./components/ai-chat/AiChatDialog.jsx").then(m => ({default: m.AiChatDialog})));
 
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
@@ -30,17 +31,21 @@ export const Home = () => {
         activePlugins: [],
     });
     const [plugin, setPlugin] = useState("");
-    const [showRightSideBar, setShowRightSideBar] = useState(false)
+    const [showRightSideBar, setShowRightSideBar] = useState(() => {
+        return localStorage.getItem("showRightSideBar") === "true";
+    });
     const [showCommandSearch, setShowCommandSearch] = useState(false)
     const [notifications, setNotifications] = useState([]);
     const [pluginReadiness, setPluginReadiness] = useState(new Map());
     const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
     const [sideBarActionItems, setSideBarActionItems] = useState([
         {id: "system-notifications", icon: "notifications", name: "Notifications", notifications},
-        {id: "system-settings", icon: "settings", name: "Settings"}
+        {id: "system-settings", icon: "settings", name: "Settings"},
+        {id: "system-ai-chat", icon: "chat", name: "Chat with AI Assistant"},
     ])
     const [notificationsShow, setNotificationsShow] = useState(false)
     const [showSettingsDialog, setShowSettingsDialog] = useState(false)
+    const [showAiChatDialog, setShowAiChatDialog] = useState(false)
 
     const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
@@ -486,6 +491,8 @@ export const Home = () => {
             setNotificationsShow(true);
         } else if (id === "system-settings") {
             setShowSettingsDialog(true);
+        } else if (id === "system-ai-chat") {
+            setShowAiChatDialog(true)
         }
     };
 
@@ -535,7 +542,10 @@ export const Home = () => {
                         <NavbarDivider/>
                         <div className={styles["notification-container"]}>
                             <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
-                                    onClick={() => setShowRightSideBar(!showRightSideBar)}/>
+                                    onClick={() => {
+                                        setShowRightSideBar(!showRightSideBar);
+                                        localStorage.setItem("showRightSideBar", !showRightSideBar)
+                                    }}/>
                             <span
                                 className={styles["notification-dot"]}
                                 hidden={!notifications || notifications.filter(n => !n.read).length === 0 || showRightSideBar}
@@ -555,6 +565,7 @@ export const Home = () => {
             <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
             <Suspense fallback={null}>
                 <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
+                <AiChatDialog setShowAiChatDialog={setShowAiChatDialog} showAiChatDialog={showAiChatDialog} />
             </Suspense>
         </div>
     </HotkeysTarget>
