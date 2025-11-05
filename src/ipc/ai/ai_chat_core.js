@@ -197,7 +197,7 @@ export async function handleStreamingResponse(
             assistantMsg["outputCost"] = complete?.usage.output_cost;
             assistantMsg["totalCost"] = complete?.usage.total_cost;
         }
-        const prevStats = session.stats || {};
+        const prevStats = session.stats?.models?.[llm.model] || {};
 
         const newUsed = (prevStats.estimatedUsed || 0) + tokenEstimate;
         const newPercent = Number(((newUsed / maxTokens) * 100).toFixed(1));
@@ -305,7 +305,7 @@ export async function handleNonStreamingResponse(
         assistantMsg["outputCost"] = resp.usage.output_cost;
         assistantMsg["totalCost"] = resp.usage.total_cost;
     }
-    const prevStats = session.stats || {};
+    const prevStats = session.stats?.models?.[llm.model] || {};
 
     const newUsed = (prevStats.estimatedUsed || 0) + tokenEstimate;
     const newPercent = Number(((newUsed / maxTokens) * 100).toFixed(1));
