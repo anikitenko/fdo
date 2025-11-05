@@ -212,6 +212,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         }
     }, [stats]);
 
+    useEffect(() => {
+        document.addEventListener("click", (event) => {
+            const target = event.target.closest("a");
+            if (target && target.href.startsWith("http")) {
+                event.preventDefault();
+                window.electron.system.openExternal(target.href)
+            }
+        });
+    }, [])
+
     const hasAssistants = useMemo(() => (chatAssistants || []).length > 0, [chatAssistants]);
     const canSend = useMemo(() => !sending && !!input.trim() && hasAssistants, [sending, input, hasAssistants]);
 
