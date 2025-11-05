@@ -129,11 +129,14 @@ export async function handleStreamingResponse(
     useThink,
     maxTokens
 ) {
+
+    const messages = session.messages.map(({ role, content }) => ({ role, content }));
     const resp = await llm.chat(content, {
         think: useThink,
         stream: true,
         max_tokens: Math.floor((maxTokens || 8192) * 0.95), // stay 5% under limit
         max_thinking_tokens: useThink ? 2048 : undefined,
+        messages
     });
 
     let full = "";
@@ -264,11 +267,13 @@ export async function handleNonStreamingResponse(
     useThink,
     maxTokens
 ) {
+    const messages = session.messages.map(({ role, content }) => ({ role, content }));
     const resp = await llm.chat(content, {
         think: useThink,
         stream: false,
         max_tokens: Math.floor((maxTokens || 8192) * 0.9), // 10% margin
         max_thinking_tokens: useThink ? 2048 : undefined,
+        messages
     });
 
     let reply = "";
