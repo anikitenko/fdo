@@ -49,7 +49,7 @@ export function saveSessionsDebounced(sessions, immediate = false) {
     }
 }
 
-export function prepareSessionMessage(sessionId, content, attachments) {
+export function prepareSessionMessage(sessionId, content) {
     if (!content || !String(content).trim()) throw new Error("Message content is empty.");
 
     const sessions = (settings.get("ai.sessions", []) || []).slice();
@@ -58,9 +58,6 @@ export function prepareSessionMessage(sessionId, content, attachments) {
 
     const now = new Date().toISOString();
     const userMsg = { id: crypto.randomUUID(), role: "user", content, createdAt: now };
-    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
-        userMsg.attachments = attachments;
-    }
     const session = { ...sessions[idx], messages: [...sessions[idx].messages, userMsg], updatedAt: now };
     sessions[idx] = session;
     saveSessionsDebounced(sessions, true);

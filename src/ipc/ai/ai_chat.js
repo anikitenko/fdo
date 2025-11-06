@@ -31,11 +31,9 @@ export function registerAiChatHandlers() {
         return session;
     })
 
-    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature, attachments }) => {
+    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature }) => {
         return await withSessionLock(sessionId, async () => {
-            // Process attachments in main process (download remote files to temp)
-            const processed = await processAttachments(attachments);
-            const { session, sessions, idx } = prepareSessionMessage(sessionId, content, processed);
+            const { session, sessions, idx } = prepareSessionMessage(sessionId, content);
             const assistantInfo = selectAssistant(provider, model);
             const { llm, streaming, maxTokens } = await createLlmInstance(assistantInfo, content, think, stream, temperature);
 
