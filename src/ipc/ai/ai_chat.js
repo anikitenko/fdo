@@ -31,11 +31,11 @@ export function registerAiChatHandlers() {
         return session;
     })
 
-    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model }) => {
+    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature }) => {
         return await withSessionLock(sessionId, async () => {
             const { session, sessions, idx } = prepareSessionMessage(sessionId, content);
             const assistantInfo = selectAssistant(provider, model);
-            const { llm, streaming, maxTokens } = await createLlmInstance(assistantInfo, content, think, stream);
+            const { llm, streaming, maxTokens } = await createLlmInstance(assistantInfo, content, think, stream, temperature);
 
             const caps = await getModelCapabilities(assistantInfo.model, assistantInfo);
             const useThink = !!think && caps.reasoning;
