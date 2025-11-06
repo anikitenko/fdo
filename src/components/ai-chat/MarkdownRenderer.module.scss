@@ -106,7 +106,9 @@
 
 .markdown-body th {
   background: rgba(255, 255, 255, 0.05);
-  color: var(--pt-text-color-strong, #f5f8fa);
+  color: black;
 }
 
-
+.markdown-body td {
+  color: black;
+}

@@ -2,6 +2,7 @@ import {ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
 import {settings} from "../../utils/store";
 import {
+    compressSessionMessages,
     createLlmInstance,
     handleNonStreamingResponse,
     handleStreamingResponse,
@@ -38,6 +39,13 @@ export function registerAiChatHandlers() {
 
             const caps = await getModelCapabilities(assistantInfo.model, assistantInfo);
             const useThink = !!think && caps.reasoning;
+
+            const activeStats = session.stats?.models?.[model];
+            const threshold = 0.85; // 85%
+
+            if (activeStats && activeStats.estimatedUsed / activeStats.maxTokens > threshold) {
+                await compressSessionMessages(session, event, llm, maxTokens, assistantInfo, sessions, idx);
+            }
 
             try {
                 if (streaming) {

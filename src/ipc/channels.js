@@ -54,6 +54,8 @@ export const AiChatChannels = withPrefix('ai-chat', {
         STREAM_DONE: 'stream-done',
         STREAM_ERROR: 'stream-error',
         STATS_UPDATE: 'stats-update',
+        COMPRESSION_START: 'compression-start',
+        COMPRESSION_DONE: 'compression-done',
     }
 })
 
