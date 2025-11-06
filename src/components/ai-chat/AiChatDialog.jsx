@@ -12,11 +12,31 @@ import {
     Tag,
     Switch,
     Popover,
-    Spinner, NonIdealState
+    Spinner, NonIdealState, Slider
 } from "@blueprintjs/core";
 import {AppToaster} from "../AppToaster";
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
+
+const costUsageTooltip = (
+    inputTokens, outputTokens, local, totalTokens, inputCost, outputCost, totalCost
+) => {
+    const formatCost = (value) => `$${value.toFixed(5)}`;
+    const formatTokens = (num) =>
+        num >= 1000 ? `${(num / 1000).toFixed(1)}K` : num.toString();
+    if (!inputTokens && !outputTokens && !local && !totalTokens && !inputCost && !outputCost && !totalCost) return null
+    return (
+        <div>
+            <div>Input tokens: {formatTokens(inputCost)}</div>
+            <div>Output tokens: {formatTokens(outputCost)}</div>
+            <div>Local: {local ? "yes" : "no"}</div>
+            <div>Total tokens: {formatTokens(totalTokens)}</div>
+            <div>Input cost: {formatCost(inputCost)}</div>
+            <div>Output cost: {formatCost(outputCost)}</div>
+            <div>Total cost: {formatCost(totalCost)}</div>
+        </div>
+    )
+}
 
 export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const [session, setSession] = useState(null);
@@ -32,6 +52,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const streamingAssistantIdRef = useRef(null);
     const [stats, setStats] = useState(null);
     const [capabilities, setCapabilities] = useState(null);
+    const [summarizingProgress, setSummarizingProgress] = useState(false);
+    const [summarizingModel, setSummarizingModel] = useState("");
+    const [temperature, setTemperature] = useState(0.7);
 
     const messages = session?.messages || [];
 
@@ -172,11 +195,24 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 );
             }
         };
+        const onSummaryStart = (data) => {
+            if (data?.sessionId !== session.id) return;
+            setSummarizingProgress(true);
+            setSummarizingModel(data.model);
+        }
+        const onSummaryEnd = (data) => {
+            if (data?.sessionId !== session.id) return;
+            setSummarizingProgress(false);
+        }
+        window.electron.aiChat.on.compressionStart(onSummaryStart);
+        window.electron.aiChat.on.compressionDone(onSummaryEnd);
         window.electron.aiChat.on.statsUpdate(onStats);
         window.electron.aiChat.on.streamDelta(onDelta);
         window.electron.aiChat.on.streamDone(onDone);
         window.electron.aiChat.on.streamError(onError);
         return () => {
+            window.electron.aiChat.off.compressionStart(onSummaryStart);
+            window.electron.aiChat.off.compressionDone(onSummaryEnd);
             window.electron.aiChat.off.statsUpdate(onStats);
             window.electron.aiChat.off.streamDelta(onDelta);
             window.electron.aiChat.off.streamDone(onDone);
@@ -265,7 +301,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 think: thinking,
                 stream: streaming || thinking,
                 provider,
-                model
+                model,
+                temperature
             });
             // Replace with authoritative session from main (removes skeleton)
             setSession(updated);
@@ -353,7 +390,15 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 {m.thinking}
                                             </div>
                                         )}
-                                        <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role} />
+                                        {m.role === 'user' ? (
+                                            <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role} />
+                                        ) : (
+                                            <Tooltip content={costUsageTooltip(
+                                                m.inputTokens, m.outputTokens, m.local, m.totalTokens, m.inputCost, m.outputCost, m.totalCost
+                                            )}>
+                                                <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role} />
+                                            </Tooltip>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -423,6 +468,18 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                     {thinking &&
                                         <div style={{fontSize: 11, opacity: 0.8, marginTop: 4}}>Auto-enabled while
                                             Thinking is ON</div>}
+                                </FormGroup>
+                                <FormGroup label="Temperature">
+                                    <Slider
+                                        handleHtmlProps={{ "aria-label": "temperature" }}
+                                        labelStepSize={2}
+                                        max={2}
+                                        min={0}
+                                        onChange={setTemperature}
+                                        stepSize={0.1}
+                                        value={temperature}
+                                        vertical={false}
+                                    />
                                 </FormGroup>
                                 <FormGroup label="Provider">
                                     <HTMLSelect
@@ -527,6 +584,12 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                   ? `• ${stats.messageCount} msg`
                                   : ""}
                         </span>
+                    </div>
+                )}
+                {summarizingProgress && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 8 }}>
+                        <Spinner size={14} intent="none" style={{ color: '#000' }} />
+                        <span>Summarizing chat history for model {summarizingModel}...</span>
                     </div>
                 )}
             </div>

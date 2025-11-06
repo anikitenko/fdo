@@ -34,12 +34,16 @@ contextBridge.exposeInMainWorld('electron', {
             streamDone: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_DONE, (_, data) => callback(data)),
             streamError: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_ERROR, (_, data) => callback(data)),
             statsUpdate: (cb) => ipcRenderer.on(AiChatChannels.on_off.STATS_UPDATE, (_, data) => cb(data)),
+            compressionStart: (cb) => ipcRenderer.on(AiChatChannels.on_off.COMPRESSION_START, (_, data) => cb(data)),
+            compressionDone: (cb) => ipcRenderer.on(AiChatChannels.on_off.COMPRESSION_DONE, (_, data) => cb(data)),
         },
         off: {
             streamDelta: (callback) => ipcRenderer.removeListener(AiChatChannels.on_off.STREAM_DELTA, callback),
             streamDone: (callback) => ipcRenderer.removeListener(AiChatChannels.on_off.STREAM_DONE, callback),
             streamError: (callback) => ipcRenderer.removeListener(AiChatChannels.on_off.STREAM_ERROR, callback),
             statsUpdate: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.STATS_UPDATE, cb),
+            compressionStart: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.COMPRESSION_START, cb),
+            compressionDone: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.COMPRESSION_DONE, cb),
         }
     },
     settings: {

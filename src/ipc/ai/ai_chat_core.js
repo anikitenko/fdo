@@ -84,7 +84,7 @@ export function selectAssistant(provider, model) {
     return assistantInfo;
 }
 
-export async function createLlmInstance(assistantInfo, content, think, stream) {
+export async function createLlmInstance(assistantInfo, content, think, stream, temperature) {
     const caps = await getModelCapabilities(assistantInfo.model, assistantInfo);
 
     // 🧩 Optional diagnostic
@@ -116,6 +116,7 @@ export async function createLlmInstance(assistantInfo, content, think, stream) {
         extended: true,
         tools: toolsToUse,
         max_tokens: maxTokens,
+        temperature: temperature
     });
 
     return {llm, streaming, toolsToUse, maxTokens};
