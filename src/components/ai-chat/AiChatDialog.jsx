@@ -12,11 +12,14 @@ import {
     Tag,
     Switch,
     Popover,
-    Spinner, NonIdealState, Slider
+    Spinner, NonIdealState, Slider, MenuDivider, MenuItem, Menu, ContextMenu
 } from "@blueprintjs/core";
 import {AppToaster} from "../AppToaster";
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
+import NewSessionDialog from "./components/NewSessionDialog";
+import AttachFromUrlDialog from "./components/AttachFromUrlDialog";
+import {shortenUrl} from "./utils/shortenUrl";
 
 const costUsageTooltip = (
     inputTokens, outputTokens, local, totalTokens, inputCost, outputCost, totalCost
@@ -40,10 +43,13 @@ const costUsageTooltip = (
 
 export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const [session, setSession] = useState(null);
+    const [sessionList, setSessionList] = useState([]);
     const [input, setInput] = useState("");
     const [sending, setSending] = useState(false);
     const [thinking, setThinking] = useState(false);
     const [optionsOpen, setOptionsOpen] = useState(false);
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [attachmentOpen, setAttachmentOpen] = useState(false);
     const [assistants, setAssistants] = useState([]);
     const [provider, setProvider] = useState("");
     const [model, setModel] = useState("");
@@ -55,6 +61,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const [summarizingProgress, setSummarizingProgress] = useState(false);
     const [summarizingModel, setSummarizingModel] = useState("");
     const [temperature, setTemperature] = useState(0.7);
+    const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
+    const [attachFromUrlDialogOpen, setAttachFromUrlDialogOpen] = useState(false);
+    const [attachments, setAttachments] = useState([]);
 
     const messages = session?.messages || [];
 
@@ -69,6 +78,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         return uniq.map(m => ({label: m, value: m}));
     }, [chatAssistants, provider]);
 
+    const sessionCreate = async (name, list) => {
+        const created = await window.electron.aiChat.createSession(name);
+        setSession(created);
+        if (list) {
+            setSessionList([...list, {id: created.id, name, updatedAt: created.updatedAt}]);
+        } else {
+            setSessionList([{id: created.id, name, updatedAt: created.updatedAt}]);
+        }
+    }
+
     useEffect(() => {
         if (!showAiChatDialog) return;
         (async () => {
@@ -76,10 +95,18 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 // sessions
                 const sessions = await window.electron.aiChat.getSessions();
                 if (sessions && sessions.length > 0) {
-                    setSession(sessions[0]);
+                    const mostRecent = sessions.reduce((latest, current) => {
+                        return new Date(current.updatedAt) > new Date(latest.updatedAt) ? current : latest;
+                    });
+                    setSession(mostRecent);
+                    const list = sessions.map(({id, name, updatedAt}) => ({
+                        id,
+                        name,
+                        updatedAt,
+                    }));
+                    setSessionList(list);
                 } else {
-                    const created = await window.electron.aiChat.createSession("New Chat");
-                    setSession(created);
+                    await sessionCreate("New Chat");
                 }
                 // assistants
                 const list = await window.electron.settings.ai.getAssistants();
@@ -338,6 +365,58 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         }
     };
 
+    const onSessionChange = async (id) => {
+        const sessions = await window.electron.aiChat.getSessions();
+        const session = sessions.find(s => s.id === id);
+        if (session) {
+            setSession(session);
+        } else {
+            setSession(null);
+        }
+    }
+
+    const onOpenFromLocal = async () => {
+        const data = await window.electron.system.openFileDialog({
+            title: 'Select files to attach',
+            buttonLabel: 'Attach',
+            properties: ['openFile', 'multiSelections'],
+        }, true)
+        if (!data) return;
+        const newAttachments = []
+        for (const file of data) {
+            const basename = file.split(/[\\/]/).pop();
+            newAttachments.push({
+                name: basename,
+                path: file,
+                type: 'local',
+            })
+        }
+        const newAttachmentsList = [...attachments, ...newAttachments];
+        setAttachments(Array.from(new Map(newAttachmentsList.map(item => [item.path, item])).values()));
+    }
+
+    const onOpenFromUrl = (url) => {
+        const makeShortenUrl = shortenUrl(url);
+        if (!makeShortenUrl) return;
+        const newAttachmentsList = [...attachments, {
+            name: makeShortenUrl,
+            path: url,
+            type: 'url',
+        }];
+        setAttachments(Array.from(new Map(newAttachmentsList.map(item => [item.path, item])).values()));
+    }
+
+    const onOpenFromSession = async (id) => {
+        const sessions = await window.electron.aiChat.getSessions();
+        const session = sessions.find(s => s.id === id);
+        const newAttachmentsList = [...attachments, {
+            name: session.name,
+            path: session.id,
+            type: 'session',
+        }];
+        setAttachments(Array.from(new Map(newAttachmentsList.map(item => [item.path, item])).values()));
+    }
+
     return (
         <Dialog
             autoFocus={true}
@@ -391,12 +470,12 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                             </div>
                                         )}
                                         {m.role === 'user' ? (
-                                            <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role} />
+                                            <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role}/>
                                         ) : (
                                             <Tooltip content={costUsageTooltip(
                                                 m.inputTokens, m.outputTokens, m.local, m.totalTokens, m.inputCost, m.outputCost, m.totalCost
                                             )}>
-                                                <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role} />
+                                                <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role}/>
                                             </Tooltip>
                                         )}
                                     </div>
@@ -416,16 +495,91 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 }}
             >
                 <ControlGroup fill={true} vertical={false}>
-                    <Button
-                        icon="history"
-                        variant={"minimal"}
-                        title="Session History"
-                    />
-                    <Button
-                        icon="plus"
-                        variant={"minimal"}
-                        title={"Attach"}
-                    />
+                    <Popover
+                        isOpen={historyOpen}
+                        onInteraction={(state) => setHistoryOpen(state)}
+                        placement="top"
+                        content={
+                            <div style={{
+                                padding: 12,
+                                maxWidth: 320,
+                                maxHeight: "300px",
+                                flexDirection: "column",
+                                display: "flex"
+                            }}>
+                                <div
+                                    style={{
+                                        position: "sticky",
+                                        top: 0,
+                                        zIndex: 2,
+                                        background: "var(--pt-app-background-color, #fff)",
+                                    }}
+                                >
+                                    <Menu>
+                                        <MenuItem icon="add" text="New session" intent="primary"
+                                                  onClick={() => setNewSessionDialogOpen(true)}/>
+                                        <MenuDivider/>
+                                    </Menu>
+                                </div>
+                                <div
+                                    style={{
+                                        overflowY: "auto",
+                                        flex: "1 1 auto",
+                                    }}
+                                >
+                                    <Menu>
+                                        {[...sessionList]
+                                            .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).map(s => (
+                                                <MenuItem key={s.id} intent={s.id === session.id ? "success" : "none"}
+                                                          icon={s.id === session.id ? "tick" : null}
+                                                          text={s.name}
+                                                          onClick={() => onSessionChange(s.id)}
+                                                />
+                                            ))
+                                        }
+                                    </Menu>
+                                </div>
+                            </div>
+                        }
+                    >
+                        <Button
+                            icon="history"
+                            variant={"minimal"}
+                            title="Session History"
+                            onClick={() => setHistoryOpen(v => !v)}
+                        />
+                    </Popover>
+                    <Popover
+                        isOpen={attachmentOpen}
+                        onInteraction={(state) => setAttachmentOpen(state)}
+                        placement="top"
+                        content={
+                            <div style={{
+                                padding: 12,
+                            }}>
+                                <Menu>
+                                    <MenuItem icon="clipboard-file" text="From local file/image" intent="primary" onClick={onOpenFromLocal}/>
+                                    <MenuItem icon="globe-network-add" text="From URL" intent="primary" onClick={() => setAttachFromUrlDialogOpen(true)}/>
+                                    <MenuItem text="From session" icon="chat" intent="primary">
+                                        {[...sessionList]
+                                            .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).filter(s => s.id !== session.id).map(s => (
+                                                <MenuItem key={`attachment-${s.id}`}
+                                                          text={s.name} onClick={() => onOpenFromSession(s.id)}
+                                                />
+                                            ))
+                                        }
+                                    </MenuItem>
+                                </Menu>
+                            </div>
+                        }
+                    >
+                        <Button
+                            icon="plus"
+                            variant={"minimal"}
+                            title={"Attach"}
+                            onClick={() => setAttachmentOpen(v => !v)}
+                        />
+                    </Popover>
                     <TextArea
                         placeholder={hasAssistants ? "Type a message..." : "Add a Chat assistant in Settings to start chatting"}
                         fill
@@ -436,6 +590,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={onKeyDown}
                         disabled={sending || !hasAssistants}
+                        autoFocus={true}
                     />
                     <Popover
                         isOpen={optionsOpen}
@@ -471,7 +626,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                 </FormGroup>
                                 <FormGroup label="Temperature">
                                     <Slider
-                                        handleHtmlProps={{ "aria-label": "temperature" }}
+                                        handleHtmlProps={{"aria-label": "temperature"}}
                                         labelStepSize={2}
                                         max={2}
                                         min={0}
@@ -530,6 +685,23 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         />
                     </Tooltip>
                 </ControlGroup>
+                {attachments.length > 0 && (
+                    <div style={{ marginTop: "5px" }}>
+                        <div style={{ marginBottom: "8px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                            {attachments.map((a) => (
+                                <Tag
+                                    key={a.path}
+                                    round
+                                    onRemove={() => setAttachments(as => as.filter(aa => aa.path !== a.path))}
+                                    intent="primary"
+                                    style={{ cursor: "default" }}
+                                >
+                                    {a.name}
+                                </Tag>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 {stats && (
                     <div
                         style={{
@@ -554,21 +726,21 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         {/* 🔹 Usage / percentage tag */}
                         {stats.maxTokens && stats.percentUsed ? (
                             <>
-                            <Tag
-                                minimal
-                                intent={
-                                    stats.percentUsed > 80
-                                        ? "danger"
-                                        : stats.percentUsed > 50
-                                            ? "warning"
-                                            : "success"
-                                }
-                            >
-                                {`${Math.round(stats.percentUsed)}% of ${stats.maxTokens.toLocaleString()} tokens`}
-                            </Tag>
-                            <Tag minimal intent="none">
-                                {`${(stats.estimatedUsed ?? 0).toLocaleString()} tokens used`}
-                            </Tag>
+                                <Tag
+                                    minimal
+                                    intent={
+                                        stats.percentUsed > 80
+                                            ? "danger"
+                                            : stats.percentUsed > 50
+                                                ? "warning"
+                                                : "success"
+                                    }
+                                >
+                                    {`${Math.round(stats.percentUsed)}% of ${stats.maxTokens.toLocaleString()} tokens`}
+                                </Tag>
+                                <Tag minimal intent="none">
+                                    {`${(stats.estimatedUsed ?? 0).toLocaleString()} tokens used`}
+                                </Tag>
                             </>
                         ) : (
                             <Tag minimal intent="none">
@@ -587,12 +759,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     </div>
                 )}
                 {summarizingProgress && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 8 }}>
-                        <Spinner size={14} intent="none" style={{ color: '#000' }} />
+                    <div
+                        style={{display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', marginTop: 8}}>
+                        <Spinner size={14} intent="none" style={{color: '#000'}}/>
                         <span>Summarizing chat history for model {summarizingModel}...</span>
                     </div>
                 )}
             </div>
+            <NewSessionDialog isOpen={newSessionDialogOpen} setIsOpen={setNewSessionDialogOpen}
+                              onSubmit={(name) => sessionCreate(name, sessionList)}/>
+            <AttachFromUrlDialog isOpen={attachFromUrlDialogOpen} setIsOpen={setAttachFromUrlDialogOpen} onSubmit={(url) => {onOpenFromUrl(url)}}/>
         </Dialog>
     )
 }

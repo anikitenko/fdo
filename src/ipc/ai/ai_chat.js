@@ -1,4 +1,4 @@
-import {ipcMain} from "electron";
+import {app, ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
 import {settings} from "../../utils/store";
 import {
@@ -31,9 +31,11 @@ export function registerAiChatHandlers() {
         return session;
     })
 
-    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature }) => {
+    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature, attachments }) => {
         return await withSessionLock(sessionId, async () => {
-            const { session, sessions, idx } = prepareSessionMessage(sessionId, content);
+            // Process attachments in main process (download remote files to temp)
+            const processed = await processAttachments(attachments);
+            const { session, sessions, idx } = prepareSessionMessage(sessionId, content, processed);
             const assistantInfo = selectAssistant(provider, model);
             const { llm, streaming, maxTokens } = await createLlmInstance(assistantInfo, content, think, stream, temperature);
 
