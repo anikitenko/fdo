@@ -294,6 +294,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         setSending(true);
         setInput("");
 
+
         // Optimistic UI: append user message and a skeleton assistant bubble
         const now = new Date().toISOString();
         const tempAssistantId = crypto.randomUUID?.() || `temp-${Math.random().toString(36).slice(2)}`;
@@ -346,6 +347,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 ));
                 return {...(prev || session), messages: msgs};
             });
+            // Important: do NOT clear attachments on error
         } finally {
             setSending(false);
         }
