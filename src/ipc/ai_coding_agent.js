@@ -124,8 +124,12 @@ async function handleGenerateCode(event, data) {
     const { prompt, language, context, assistantId } = data;
     const requestId = crypto.randomUUID();
 
+    console.log('[AI Coding Agent Backend] Generate code request', { requestId, language, promptLength: prompt?.length, assistantId });
+
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
+        console.log('[AI Coding Agent Backend] Assistant selected', { name: assistantInfo.name, provider: assistantInfo.provider, model: assistantInfo.model });
+        
         const llm = await createCodingLlm(assistantInfo, true);
 
         let fullPrompt = `Generate ${language || "code"} for the following request:\n\n${prompt}`;
@@ -135,11 +139,13 @@ async function handleGenerateCode(event, data) {
         }
 
         llm.user(fullPrompt);
+        console.log('[AI Coding Agent Backend] Sending to LLM');
         const resp = await llm.chat({ stream: true });
 
         let fullContent = "";
 
         if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            console.log('[AI Coding Agent Backend] Streaming started');
             for await (const chunk of resp.stream) {
                 if (!chunk) continue;
                 const { type, content: piece } = chunk;
@@ -155,12 +161,15 @@ async function handleGenerateCode(event, data) {
             }
 
             await resp.complete();
+            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
             event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
             return { success: true, requestId, content: fullContent };
         }
 
+        console.error('[AI Coding Agent Backend] Invalid LLM response');
         return { success: false, error: "Invalid response from LLM" };
     } catch (error) {
+        console.error('[AI Coding Agent Backend] Error in handleGenerateCode', error);
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
