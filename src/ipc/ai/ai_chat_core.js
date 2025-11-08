@@ -502,7 +502,7 @@ export async function handleStreamingResponse(
 
             throw new Error(`This model cannot process one of your attachments${fieldInfo}. Only images and PDFs are supported right now.`);
         }
-        throw new Error(err.message || "An unexpected error occurred.")
+        throw new Error(err.message || "An unexpected error occurred.");
     }
 
     let full = "";
