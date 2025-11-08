@@ -99,7 +99,7 @@ function systemOpenEditorWindow(data) {
 export function registerSystemHandlers() {
     // Listen for external link requests
     ipcMain.on(SystemChannels.OPEN_EXTERNAL_LINK, (event, url) => {
-        if (typeof url === "string" && url.startsWith("http")) {
+        if (typeof url === "string" && (url.startsWith("http") || url.startsWith("file:"))) {
             shell.openExternal(url).then(() => {
             });
         }
@@ -144,13 +144,17 @@ export function registerSystemHandlers() {
         return filteredData;
     });
 
-    ipcMain.handle(SystemChannels.OPEN_FILE_DIALOG, async (event, params) => {
+    ipcMain.handle(SystemChannels.OPEN_FILE_DIALOG, async (event, params, multiple = false) => {
         const result = await dialog.showOpenDialog({
             ...params,
         });
 
         if (!result.canceled && result.filePaths.length > 0) {
-            return result.filePaths[0]; // Return the selected file path
+            if (!multiple) {
+                return result.filePaths[0];
+            } else {
+                return result.filePaths;
+            }
         }
         return null; // Return null if no file was selected
     });
