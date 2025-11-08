@@ -250,7 +250,7 @@ async function createAttachment(attachment) {
         return {
             messages: sessions[idx].messages.map(({ role, content }) => ({ role, content })),
             sessionID: attachment.name
-        }
+        };
     }
 }
 
