@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('electron', {
         createSession: (name) => ipcRenderer.invoke(AiChatChannels.SESSION_CREATE, name),
         sendMessage: (data) => ipcRenderer.invoke(AiChatChannels.SEND_MESSAGE, data),
         getCapabilities: (model, provider) => ipcRenderer.invoke(AiChatChannels.GET_CAPABILITIES, model, provider),
+        detectAttachmentType: (data) => ipcRenderer.invoke(AiChatChannels.DETECT_ATTACHMENT_TYPE, data),
         on: {
             streamDelta: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
             streamDone: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_DONE, (_, data) => callback(data)),

@@ -136,18 +136,14 @@ export function registerSettingsHandlers() {
         // --- locate item to remove ---
         const idx = list.findIndex(a => sameId(a, data.id) || sameName(a, data.name));
         if (idx === -1) {
-            console.log('[REMOVE] nothing to remove', { key, id: data.id, name: data.name });
             return list;
         }
 
         const [removed] = list.splice(idx, 1);
 
-        console.log('[REMOVE] before-fix', list.map(a => ({ name: a.name, id: a.id, default: a.default, updatedAt: a.updatedAt, createdAt: a.createdAt })));
-
         // If nothing left, just save empty
         if (list.length === 0) {
             settings.set(key, []);
-            console.log('[REMOVE] after-fix (empty)', []);
             return [];
         }
 
@@ -207,7 +203,5 @@ export function registerSettingsHandlers() {
         }
 
         settings.set(key, list);
-
-        console.log('[REMOVE] after-fix', list.map(a => ({ name: a.name, id: a.id, default: a.default, updatedAt: a.updatedAt })));
     })
 }

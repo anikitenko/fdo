@@ -26,8 +26,6 @@ const MODELS = [
     { label: "GPT-4o", value: "gpt-4o", provider: "openai" },
     { label: "GPT-4o-mini", value: "gpt-4o-mini", provider: "openai" },
     { label: "GPT-3.5 Turbo", value: "gpt-3.5-turbo", provider: "openai" },
-    { label: "o1-preview", value: "o1-preview", provider: "openai" },
-    { label: "o1-mini", value: "o1-mini", provider: "openai" },
     { label: "Claude Haiku 4.5", value: "claude-haiku-4-5-20251001", provider: "anthropic" },
     { label: "Claude Sonnet 4.5", value: "claude-sonnet-4-5-20250929", provider: "anthropic" },
     { label: "Claude Opus 4.1", value: "claude-opus-4-1-20250805", provider: "anthropic" },

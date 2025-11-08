@@ -10,6 +10,7 @@ import {
     selectAssistant, withSessionLock
 } from "./ai_chat_core";
 import {getModelCapabilities} from "./model_capabilities";
+import {detectAttachmentType} from "./utils/detectAttachmentType";
 
 export function registerAiChatHandlers() {
     ipcMain.handle(AiChatChannels.SESSIONS_GET, async () => {
@@ -31,28 +32,29 @@ export function registerAiChatHandlers() {
         return session;
     })
 
-    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature }) => {
+    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, temperature, attachments }) => {
         return await withSessionLock(sessionId, async () => {
-            const { session, sessions, idx } = prepareSessionMessage(sessionId, content);
+            const { session, sessions, idx } = await prepareSessionMessage(sessionId, content, attachments);
             const assistantInfo = selectAssistant(provider, model);
-            const { llm, streaming, maxTokens } = await createLlmInstance(assistantInfo, content, think, stream, temperature);
 
             const caps = await getModelCapabilities(assistantInfo.model, assistantInfo);
             const useThink = !!think && caps.reasoning;
+
+            const { llm, streaming, maxTokens, withMessages } = await createLlmInstance(assistantInfo, content, useThink, stream, caps, temperature, attachments);
 
             const activeStats = session.stats?.models?.[model];
             const threshold = 0.85; // 85%
 
             if (activeStats && activeStats.estimatedUsed / activeStats.maxTokens > threshold) {
-                await compressSessionMessages(session, event, llm, maxTokens, assistantInfo, sessions, idx);
+                await compressSessionMessages(session, event, llm, assistantInfo, sessions, idx);
             }
 
             try {
                 if (streaming) {
-                    const result = await handleStreamingResponse(llm, event, { session, sessions, idx, sessionId }, content, useThink, maxTokens);
+                    const result = await handleStreamingResponse(llm, event, { session, sessions, idx, sessionId }, content, useThink, maxTokens, caps, withMessages);
                     if (result) return result;
                 }
-                return await handleNonStreamingResponse(llm, event, { session, sessions, idx }, content, useThink, maxTokens);
+                return await handleNonStreamingResponse(llm, event, { session, sessions, idx }, content, useThink, maxTokens, caps, withMessages);
             } catch (e) {
                 const errorText = `Error: ${e?.message || "Failed to get response from AI"}`;
                 event.sender.send(AiChatChannels.on_off.STREAM_ERROR, { sessionId, error: errorText });
@@ -69,5 +71,14 @@ export function registerAiChatHandlers() {
     ipcMain.handle(AiChatChannels.GET_CAPABILITIES, async (_, model, provider) => {
         const assistantInfo = selectAssistant(provider, model);
         return await getModelCapabilities(assistantInfo.model, assistantInfo);
+    })
+
+    ipcMain.handle(AiChatChannels.DETECT_ATTACHMENT_TYPE, async (_, files) => {
+        const types = []
+        for (const file of files) {
+            const type = await detectAttachmentType(file);
+            types.push(type);
+        }
+        return types;
     })
 }

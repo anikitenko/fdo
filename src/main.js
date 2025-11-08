@@ -50,7 +50,7 @@ const debugLog = (msg) => {
             fs.appendFileSync(logPath, content);
         }
     } catch (e) {
-        // Try to at least write the error somewhere visible
+        // Try to at least write the error somewhere visibly
         try {
             fs.writeFileSync('/tmp/fdo-error.log', `Debug log error: ${e.message}\n`);
         } catch {}

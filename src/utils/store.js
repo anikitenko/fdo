@@ -138,6 +138,7 @@ export const settings = new Store({
                                         id: { type: "string" },
                                         role: { type: "string", enum: ["user", "assistant"] },
                                         content: { type: "string" },
+                                        contentAttachments: { type: "string" },
                                         createdAt: { type: "string", format: "date-time" },
                                         model: { type: "string" },
                                         inputTokens: { type: "number", minimum: 0},
@@ -147,6 +148,19 @@ export const settings = new Store({
                                         inputCost: { type: "number", minimum: 0 },
                                         outputCost: { type: "number", minimum: 0 },
                                         totalCost: { type: "number", minimum: 0 },
+                                        attachments: {
+                                            type: "array",
+                                            items: {
+                                                type: "object",
+                                                properties: {
+                                                    type: {type: "string"},
+                                                    path: {type: "string"},
+                                                    name: {type: "string"},
+                                                    category: {type: "string"},
+                                                },
+                                                additionalProperties: false
+                                            },
+                                        },
                                     },
                                     additionalProperties: false
                                 }

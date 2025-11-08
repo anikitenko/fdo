@@ -49,6 +49,7 @@ export const AiChatChannels = withPrefix('ai-chat', {
     SESSION_CREATE: 'session-create',
     SEND_MESSAGE: 'send-message',
     GET_CAPABILITIES: 'get-capabilities',
+    DETECT_ATTACHMENT_TYPE: 'detect-attachment-type',
     on_off: {
         STREAM_DELTA: 'stream-delta',
         STREAM_DONE: 'stream-done',
