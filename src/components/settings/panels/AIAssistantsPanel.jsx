@@ -111,7 +111,7 @@ export default function AIAssistantsPanel() {
         } catch (err) {
             AppToaster.show({ message: err.message, intent: "danger" });
         }
-    }
+    };
 
     const handleDelete = async (data) => {
         try {
