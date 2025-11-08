@@ -35,6 +35,28 @@ export const SettingsChannels = withPrefix('settings', {
         IMPORT: 'import',
         DELETE: 'delete',
         RENEW: 'renew'
+    },
+    ai_assistants: {
+        GET: 'get',
+        ADD: 'add',
+        REMOVE: 'remove',
+        SET_DEFAULT: 'set-default',
+    }
+})
+
+export const AiChatChannels = withPrefix('ai-chat', {
+    SESSIONS_GET: 'sessions-get',
+    SESSION_CREATE: 'session-create',
+    SEND_MESSAGE: 'send-message',
+    GET_CAPABILITIES: 'get-capabilities',
+    DETECT_ATTACHMENT_TYPE: 'detect-attachment-type',
+    on_off: {
+        STREAM_DELTA: 'stream-delta',
+        STREAM_DONE: 'stream-done',
+        STREAM_ERROR: 'stream-error',
+        STATS_UPDATE: 'stats-update',
+        COMPRESSION_START: 'compression-start',
+        COMPRESSION_DONE: 'compression-done',
     }
 })
 

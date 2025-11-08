@@ -1,0 +1,54 @@
+.sendMessageInput {
+    border-radius: 10px;
+    resize: none;
+    line-height: 1.4;
+    max-height: 200px; /* optional limit */
+    overflow-y: auto;
+}
+
+.bubble {
+    max-width: 70%;
+    padding: 8px 12px;
+    border-radius: 14px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.userBubble {
+    background: #252a31;
+    color: var(--bp6-text-color);
+    border: 1px solid var(--bp6-divider-color);
+}
+
+.assistantBubble {
+    background: var(--bp6-intent-primary, #2D72D2);
+    color: #000;
+    opacity: 1;
+}
+
+/* Ensure skeleton does not wash out the assistant bubble */
+.assistantBubble.bp6-skeleton {
+    background: var(--bp6-intent-primary, #2D72D2) !important;
+    color: #000 !important;
+    opacity: 1 !important;
+}
+
+.thinkingBlock {
+    background: rgba(255, 255, 255, 0.7);
+    color: rgba(0, 0, 0, 0.9);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    font-style: italic;
+}
+
+.thinkingHeader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    opacity: 0.85;
+    margin-bottom: 4px;
+}

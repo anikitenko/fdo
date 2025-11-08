@@ -1,5 +1,5 @@
 import {contextBridge, ipcRenderer} from 'electron'
-import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels} from "./ipc/channels";
+import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels} from "./ipc/channels";
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -24,6 +24,29 @@ contextBridge.exposeInMainWorld('electron', {
             updated: (callback) => ipcRenderer.removeListener(NotificationChannels.on_off.UPDATED, callback),
         }
     },
+    aiChat: {
+        getSessions: () => ipcRenderer.invoke(AiChatChannels.SESSIONS_GET),
+        createSession: (name) => ipcRenderer.invoke(AiChatChannels.SESSION_CREATE, name),
+        sendMessage: (data) => ipcRenderer.invoke(AiChatChannels.SEND_MESSAGE, data),
+        getCapabilities: (model, provider) => ipcRenderer.invoke(AiChatChannels.GET_CAPABILITIES, model, provider),
+        detectAttachmentType: (data) => ipcRenderer.invoke(AiChatChannels.DETECT_ATTACHMENT_TYPE, data),
+        on: {
+            streamDelta: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
+            streamDone: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_DONE, (_, data) => callback(data)),
+            streamError: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_ERROR, (_, data) => callback(data)),
+            statsUpdate: (cb) => ipcRenderer.on(AiChatChannels.on_off.STATS_UPDATE, (_, data) => cb(data)),
+            compressionStart: (cb) => ipcRenderer.on(AiChatChannels.on_off.COMPRESSION_START, (_, data) => cb(data)),
+            compressionDone: (cb) => ipcRenderer.on(AiChatChannels.on_off.COMPRESSION_DONE, (_, data) => cb(data)),
+        },
+        off: {
+            streamDelta: (callback) => ipcRenderer.removeListener(AiChatChannels.on_off.STREAM_DELTA, callback),
+            streamDone: (callback) => ipcRenderer.removeListener(AiChatChannels.on_off.STREAM_DONE, callback),
+            streamError: (callback) => ipcRenderer.removeListener(AiChatChannels.on_off.STREAM_ERROR, callback),
+            statsUpdate: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.STATS_UPDATE, cb),
+            compressionStart: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.COMPRESSION_START, cb),
+            compressionDone: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.COMPRESSION_DONE, cb),
+        }
+    },
     settings: {
         certificates: {
             getRoot: () => ipcRenderer.invoke(SettingsChannels.certificates.GET_ROOT),
@@ -33,12 +56,18 @@ contextBridge.exposeInMainWorld('electron', {
             import: (file) => ipcRenderer.invoke(SettingsChannels.certificates.IMPORT, file),
             delete: (file) => ipcRenderer.invoke(SettingsChannels.certificates.DELETE, file),
             renew: (label) => ipcRenderer.invoke(SettingsChannels.certificates.RENEW, label),
+        },
+        ai: {
+            getAssistants: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET),
+            addAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.ADD, data),
+            setDefaultAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_DEFAULT, data),
+            removeAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE, data),
         }
     },
     system:{
         openExternal: (url) => ipcRenderer.send(SystemChannels.OPEN_EXTERNAL_LINK, url),
         getPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke(SystemChannels.GET_PLUGIN_METRIC, id, fromTime, toTime),
-        openFileDialog: (params) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params),
+        openFileDialog: (params, multiple) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params, multiple),
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),

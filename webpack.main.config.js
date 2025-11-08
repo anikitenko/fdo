@@ -1,4 +1,5 @@
 const CopyWebpackPlugin = require("copy-webpack-plugin");
+const webpack = require("webpack");
 const path = require("path");
 module.exports = {
     /**
@@ -64,6 +65,12 @@ module.exports = {
                     }
                 },
             ],
-        })
+        }),
+        new webpack.IgnorePlugin({
+            resourceRegExp: /^@img\/sharp-libvips-dev/,
+        }),
+        new webpack.IgnorePlugin({
+            resourceRegExp: /^@img\/sharp-wasm32/,
+        }),
     ],
 };

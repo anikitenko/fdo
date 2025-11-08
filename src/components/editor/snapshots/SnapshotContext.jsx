@@ -1,7 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from "react";
 import {Button, Dialog, DialogBody, DialogFooter, InputGroup, HotkeysTarget, useHotkeys} from "@blueprintjs/core";
-import virtualFS from "../editor/utils/VirtualFS";
-import {AppToaster} from "../AppToaster.jsx";
+import virtualFS from "../utils/VirtualFS";
+import {AppToaster} from "../../AppToaster.jsx";
 import * as styles from "./snapshots.module.css";
 
 const SnapshotContext = createContext(null);
