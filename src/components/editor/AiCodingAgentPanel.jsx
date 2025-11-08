@@ -34,7 +34,22 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     const [assistants, setAssistants] = useState([]);
     const [selectedAssistant, setSelectedAssistant] = useState(null);
     const [loadingAssistants, setLoadingAssistants] = useState(true);
+    const [sdkTypes, setSdkTypes] = useState(null);
     const responseRef = useRef("");
+
+    // Load SDK types on mount
+    useEffect(() => {
+        async function loadSdkTypes() {
+            try {
+                const types = await window.electron.system.getFdoSdkTypes();
+                setSdkTypes(types);
+                console.log('[AI Coding Agent] SDK types loaded', { filesCount: types ? types.length : 0 });
+            } catch (err) {
+                console.error('[AI Coding Agent] Failed to load SDK types', err);
+            }
+        }
+        loadSdkTypes();
+    }, []);
 
     // Load available coding assistants
     useEffect(() => {
@@ -122,6 +137,64 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         return model.getValue();
     };
 
+    const getAllProjectFiles = () => {
+        try {
+            const models = virtualFS.listModels();
+            const files = models.map(model => {
+                const uri = model.uri.toString(true).replace("file://", "");
+                // Skip node_modules and dist
+                if (uri.includes("/node_modules/") || uri.includes("/dist/")) {
+                    return null;
+                }
+                return {
+                    path: uri,
+                    content: model.getValue()
+                };
+            }).filter(Boolean);
+            
+            return files;
+        } catch (err) {
+            console.error('[AI Coding Agent] Error getting project files', err);
+            return [];
+        }
+    };
+
+    const buildProjectContext = (selectedCode, language, currentFileContext) => {
+        const projectFiles = getAllProjectFiles();
+        let context = '';
+
+        // Add SDK types reference
+        if (sdkTypes && sdkTypes.length > 0) {
+            context += `FDO SDK Type Definitions (for reference):\n`;
+            sdkTypes.forEach(file => {
+                // Include full SDK types as they contain comprehensive documentation
+                context += `\nSDK File: ${file.name}\n\`\`\`typescript\n${file.content}\n\`\`\`\n`;
+            });
+            context += `\n---\n\n`;
+        }
+
+        if (currentFileContext) {
+            context += `Current file:\n\`\`\`${language}\n${currentFileContext}\n\`\`\`\n\n`;
+        }
+
+        if (selectedCode) {
+            context += `Selected code:\n\`\`\`${language}\n${selectedCode}\n\`\`\`\n\n`;
+        }
+
+        if (projectFiles.length > 0) {
+            context += `Project files (${projectFiles.length} files):\n`;
+            projectFiles.forEach(file => {
+                // Limit file content to first 500 chars to avoid token limits
+                const preview = file.content.length > 500 
+                    ? file.content.substring(0, 500) + '...'
+                    : file.content;
+                context += `\nFile: ${file.path}\n\`\`\`\n${preview}\n\`\`\`\n`;
+            });
+        }
+
+        return context;
+    };
+
     const createSnapshotBeforeApply = () => {
         try {
             const currentVersion = virtualFS.fs.version();
@@ -174,9 +247,19 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         try {
             const selectedCode = getSelectedCode();
             const language = getLanguage();
-            const context = action === "generate" || action === "smart" ? getContext() : "";
+            const currentFileContext = getContext();
+            
+            // Build comprehensive project context for smart mode
+            const enhancedContext = action === "smart" 
+                ? buildProjectContext(selectedCode, language, currentFileContext)
+                : (action === "generate" ? currentFileContext : "");
 
-            console.log('[AI Coding Agent] Preparing request', { action, hasCode: !!selectedCode, language });
+            console.log('[AI Coding Agent] Preparing request', { 
+                action, 
+                hasCode: !!selectedCode, 
+                language,
+                contextLength: enhancedContext.length
+            });
 
             let result;
             switch (action) {
@@ -185,7 +268,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         prompt,
                         code: selectedCode,
                         language,
-                        context,
+                        context: enhancedContext,
                         assistantId: selectedAssistant.id,
                     });
                     break;
@@ -193,7 +276,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     result = await window.electron.aiCodingAgent.generateCode({
                         prompt,
                         language,
-                        context,
+                        context: enhancedContext,
                         assistantId: selectedAssistant.id,
                     });
                     break;
