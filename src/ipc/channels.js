@@ -60,6 +60,18 @@ export const AiChatChannels = withPrefix('ai-chat', {
     }
 })
 
+export const AiCodingAgentChannels = withPrefix('ai-coding-agent', {
+    GENERATE_CODE: 'generate-code',
+    EDIT_CODE: 'edit-code',
+    EXPLAIN_CODE: 'explain-code',
+    FIX_CODE: 'fix-code',
+    on_off: {
+        STREAM_DELTA: 'stream-delta',
+        STREAM_DONE: 'stream-done',
+        STREAM_ERROR: 'stream-error',
+    }
+})
+
 export const SystemChannels = withPrefix('system', {
     OPEN_EXTERNAL_LINK: 'open-external-link',
     GET_PLUGIN_METRIC: 'get-plugin-metric',
