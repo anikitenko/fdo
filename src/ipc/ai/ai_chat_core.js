@@ -285,7 +285,7 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
         extended: true,
         tools: toolsToUse,
         max_tokens: maxTokens
-    }
+    };
 
     if (caps.supportsTemperature) {
         llmOptions.temperature = temperature;
