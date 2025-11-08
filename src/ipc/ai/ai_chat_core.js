@@ -489,7 +489,7 @@ export async function handleStreamingResponse(
     const messages = session.messages.map(({ role, content }) => ({ role, content }));
     const llmOptions = await buildLlmOptions(llm, true, useThink, caps, messages, withMessages);
 
-    llm.user(content)
+    llm.user(content);
     let resp;
     try {
         resp = await llm.chat({
