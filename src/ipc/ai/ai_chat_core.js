@@ -446,10 +446,6 @@ export async function compressSessionMessages(session, event, llm, assistantInfo
 }
 
 const buildLlmOptions = async (llm, useStream, useThink, caps, messages, withMessages) => {
-    const latest = messages.reduce((a, b) =>
-        new Date(a.createdAt) > new Date(b.createdAt) ? a : b
-    );
-
     // const cleanedMessages = messages.map(m =>
     //     m.id === latest.id
     //         ? m // keep the latest untouched
