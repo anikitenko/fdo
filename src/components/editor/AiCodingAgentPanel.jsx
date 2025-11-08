@@ -60,6 +60,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
 
     useEffect(() => {
         const handleStreamDelta = (data) => {
+            console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
             if (data.requestId === streamingRequestId && data.type === "content") {
                 responseRef.current += data.content;
                 setResponse(responseRef.current);
@@ -67,6 +68,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         };
 
         const handleStreamDone = (data) => {
+            console.log('[AI Coding Agent] Stream done', { requestId: data.requestId });
             if (data.requestId === streamingRequestId) {
                 setIsLoading(false);
                 setStreamingRequestId(null);
@@ -79,6 +81,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         };
 
         const handleStreamError = (data) => {
+            console.error('[AI Coding Agent] Stream error', data);
             if (data.requestId === streamingRequestId) {
                 setError(data.error);
                 setIsLoading(false);
@@ -152,15 +155,28 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             return;
         }
 
+        console.log('[AI Coding Agent] Submit started', { action, prompt: prompt.substring(0, 50) });
         setIsLoading(true);
         setError(null);
         setResponse("");
         responseRef.current = "";
 
+        // Set a safety timeout to prevent hanging forever
+        const timeoutId = setTimeout(() => {
+            if (isLoading) {
+                console.error('[AI Coding Agent] Request timeout after 60s');
+                setError("Request timed out. The AI service may be unavailable. Please try again.");
+                setIsLoading(false);
+                setStreamingRequestId(null);
+            }
+        }, 60000); // 60 second timeout
+
         try {
             const selectedCode = getSelectedCode();
             const language = getLanguage();
             const context = action === "generate" || action === "smart" ? getContext() : "";
+
+            console.log('[AI Coding Agent] Preparing request', { action, hasCode: !!selectedCode, language });
 
             let result;
             switch (action) {
@@ -185,6 +201,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     if (!selectedCode) {
                         setError("Please select code to edit");
                         setIsLoading(false);
+                        clearTimeout(timeoutId);
                         return;
                     }
                     result = await window.electron.aiCodingAgent.editCode({
@@ -198,6 +215,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     if (!selectedCode) {
                         setError("Please select code to explain");
                         setIsLoading(false);
+                        clearTimeout(timeoutId);
                         return;
                     }
                     result = await window.electron.aiCodingAgent.explainCode({
@@ -210,6 +228,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     if (!selectedCode) {
                         setError("Please select code to fix");
                         setIsLoading(false);
+                        clearTimeout(timeoutId);
                         return;
                     }
                     result = await window.electron.aiCodingAgent.fixCode({
@@ -223,15 +242,27 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     break;
             }
 
+            console.log('[AI Coding Agent] IPC result received', result);
+
             if (result && result.requestId) {
+                console.log('[AI Coding Agent] Streaming started', result.requestId);
                 setStreamingRequestId(result.requestId);
             } else if (result && result.error) {
+                console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
                 setIsLoading(false);
+                clearTimeout(timeoutId);
+            } else {
+                console.error('[AI Coding Agent] Invalid result', result);
+                setError("Invalid response from AI service. Please try again.");
+                setIsLoading(false);
+                clearTimeout(timeoutId);
             }
         } catch (err) {
+            console.error('[AI Coding Agent] Exception in handleSubmit', err);
             setError(err.message || "An error occurred");
             setIsLoading(false);
+            clearTimeout(timeoutId);
         }
     };
 
@@ -417,6 +448,17 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         <Tag intent="danger" fill>
                             {error}
                         </Tag>
+                    </div>
+                )}
+
+                {isLoading && !response && (
+                    <div className={styles["loading-indicator"]}>
+                        <Callout intent="primary" icon={<Spinner size={20} />}>
+                            <strong>Processing your request...</strong>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '12px' }}>
+                                The AI is analyzing your prompt and generating a response. This may take a few moments.
+                            </p>
+                        </Callout>
                     </div>
                 )}
 

@@ -38,6 +38,10 @@
     margin-top: 8px;
 }
 
+.loading-indicator {
+    margin-top: 12px;
+}
+
 .response-container {
     margin-top: 12px;
 }
