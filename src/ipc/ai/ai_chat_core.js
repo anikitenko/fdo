@@ -637,7 +637,7 @@ export async function handleNonStreamingResponse(
 ) {
     const messages = session.messages.map(({ role, content }) => ({ role, content }));
     const llmOptions = await buildLlmOptions(llm, false, useThink, caps, messages, withMessages);
-    llm.user(content)
+    llm.user(content);
     const resp = await llm.chat({
         ...llmOptions,
     });
