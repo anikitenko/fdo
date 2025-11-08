@@ -16,6 +16,7 @@ import Markdown from "markdown-to-jsx";
 import virtualFS from "./utils/VirtualFS";
 
 const AI_ACTIONS = [
+    { label: "Smart Mode (AI decides)", value: "smart" },
     { label: "Generate Code", value: "generate" },
     { label: "Edit Code", value: "edit" },
     { label: "Explain Code", value: "explain" },
@@ -23,7 +24,7 @@ const AI_ACTIONS = [
 ];
 
 export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
-    const [action, setAction] = useState("generate");
+    const [action, setAction] = useState("smart");
     const [prompt, setPrompt] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [response, setResponse] = useState("");
@@ -159,10 +160,19 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         try {
             const selectedCode = getSelectedCode();
             const language = getLanguage();
-            const context = action === "generate" ? getContext() : "";
+            const context = action === "generate" || action === "smart" ? getContext() : "";
 
             let result;
             switch (action) {
+                case "smart":
+                    result = await window.electron.aiCodingAgent.smartMode({
+                        prompt,
+                        code: selectedCode,
+                        language,
+                        context,
+                        assistantId: selectedAssistant.id,
+                    });
+                    break;
                 case "generate":
                     result = await window.electron.aiCodingAgent.generateCode({
                         prompt,
@@ -328,7 +338,9 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
 
                 <FormGroup
                     label={
-                        action === "generate"
+                        action === "smart"
+                            ? "Describe what you want to do"
+                            : action === "generate"
                             ? "Describe what you want to generate"
                             : action === "edit"
                             ? "Describe how to edit the selected code"
@@ -343,7 +355,9 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder={
-                            action === "generate"
+                            action === "smart"
+                                ? "e.g., Add error handling to this function, or Create a validation function, or Explain this algorithm"
+                                : action === "generate"
                                 ? "e.g., Create a function that validates email addresses"
                                 : action === "edit"
                                 ? "e.g., Add error handling and logging"

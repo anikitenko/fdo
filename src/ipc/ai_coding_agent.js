@@ -327,9 +327,77 @@ Provide the fixed code and a brief explanation of what was wrong and how you fix
     }
 }
 
+// Handle smart mode - AI determines the action
+async function handleSmartMode(event, data) {
+    const { prompt, code, language, context, assistantId } = data;
+    const requestId = crypto.randomUUID();
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        // Build context for the AI to understand what's available
+        let fullPrompt = `You are a coding assistant. Analyze the user's request and provide the appropriate response.
+
+User's request: ${prompt}
+
+`;
+
+        if (code) {
+            fullPrompt += `Selected code (${language || 'unknown language'}):\n\`\`\`\n${code}\n\`\`\`\n\n`;
+        }
+
+        if (context && !code) {
+            fullPrompt += `Current file context:\n\`\`\`\n${context}\n\`\`\`\n\n`;
+        }
+
+        fullPrompt += `Based on the request and available context, determine the appropriate action and provide your response:
+- If generating new code: Provide the code
+- If editing existing code: Provide the modified version
+- If explaining code: Provide a clear explanation
+- If fixing code: Provide the corrected code with explanation
+
+Provide ONLY the relevant output without meta-commentary about which action you chose.`;
+
+        llm.user(fullPrompt);
+        const resp = await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
 export function registerAiCodingAgentHandlers() {
     ipcMain.handle(AiCodingAgentChannels.GENERATE_CODE, handleGenerateCode);
     ipcMain.handle(AiCodingAgentChannels.EDIT_CODE, handleEditCode);
     ipcMain.handle(AiCodingAgentChannels.EXPLAIN_CODE, handleExplainCode);
     ipcMain.handle(AiCodingAgentChannels.FIX_CODE, handleFixCode);
+    ipcMain.handle(AiCodingAgentChannels.SMART_MODE, handleSmartMode);
 }
