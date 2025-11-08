@@ -65,6 +65,7 @@ export const AiCodingAgentChannels = withPrefix('ai-coding-agent', {
     EDIT_CODE: 'edit-code',
     EXPLAIN_CODE: 'explain-code',
     FIX_CODE: 'fix-code',
+    SMART_MODE: 'smart-mode',
     on_off: {
         STREAM_DELTA: 'stream-delta',
         STREAM_DONE: 'stream-done',
