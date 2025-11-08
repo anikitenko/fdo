@@ -2,7 +2,7 @@ import {Button, ButtonGroup, Callout, Drawer, DrawerSize, Icon, InputGroup, NonI
 import {formatDistanceToNow} from 'date-fns';
 
 import PropTypes from "prop-types";
-import {useEffect, useMemo, useState} from "react";
+import {useMemo, useState} from "react";
 
 import * as styles from "./css/NotificationsPanel.module.css";
 
@@ -26,17 +26,6 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
                 new Date(b.createdAt) - new Date(a.createdAt)
             );
     }, [notifications, searchTerm]);
-
-    useEffect(() => {
-        if (notificationsShow) {
-            const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
-            if (unreadIds.length > 0) {
-                unreadIds.forEach(id => {
-                    window.electron.notifications.markAsRead(id)
-                });
-            }
-        }
-    }, [notificationsShow]);
 
     return (
         <Drawer icon={"notifications"} isOpen={notificationsShow} onClose={() => setNotificationsShow(false)}
