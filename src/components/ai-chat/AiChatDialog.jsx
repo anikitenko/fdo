@@ -12,7 +12,7 @@ import {
     Tag,
     Switch,
     Popover,
-    Spinner, NonIdealState, Slider, MenuDivider, MenuItem, Menu, ContextMenu
+    Spinner, NonIdealState, Slider, MenuDivider, MenuItem, Menu
 } from "@blueprintjs/core";
 import {AppToaster} from "../AppToaster";
 import React, {useEffect, useMemo, useRef, useState} from "react";
