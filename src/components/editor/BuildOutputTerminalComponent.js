@@ -5,8 +5,9 @@ import {PropTypes} from 'prop-types';
 import * as styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
 import {v4 as uuidv4} from 'uuid';
+import AiCodingAgentPanel from "./AiCodingAgentPanel.jsx";
 
-const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
+const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor, editorModelPath}) => {
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers())
     const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status())
     const [buildOutput, setBuildOutput] = useState([])
@@ -70,17 +71,21 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
                         }
                     }/>
                     <Tab id="output" title="Output"/>
+                    <Tab id="ai-agent" title="AI Coding Agent"/>
                 </Tabs>
                 <Divider/>
             </div>
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
             {selectedTabId === "output" && (<OutputPanel buildOutputIntent={buildOutputIntent} buildOutput={buildOutput}/>)}
+            {selectedTabId === "ai-agent" && (<AiCodingAgentPanel codeEditor={codeEditor} editorModelPath={editorModelPath}/>)}
         </div>
     )
 }
 BuildOutputTerminalComponent.propTypes = {
     selectedTabId: PropTypes.string.isRequired,
-    setSelectedTabId: PropTypes.func.isRequired
+    setSelectedTabId: PropTypes.func.isRequired,
+    codeEditor: PropTypes.object,
+    editorModelPath: PropTypes.string
 }
 
 const ProblemsPanel = ({markers}) => {
