@@ -336,7 +336,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             });
             // Replace with authoritative session from main (removes skeleton)
             setSession(updated);
-            setAttachments([])
+            setAttachments([]);
         } catch (e) {
             AppToaster.show({message: e.message, intent: "danger"});
             // Replace skeleton with error text locally if call failed
