@@ -54,14 +54,14 @@ export function registerSettingsHandlers() {
             ...chat.map(a => ({...a, purpose: 'chat'})),
             ...coding.map(a => ({...a, purpose: 'coding'})),
         ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-    })
+    });
 
     ipcMain.handle(SettingsChannels.ai_assistants.ADD, async (_, data) => {
         const llm = new LLM({
             service: data.provider,        // LLM service provider
             apiKey: data.apiKey,          // apiKey
             model: data.model,          // Specific model
-        })
+        });
         const isConnected = await llm.verifyConnection();
         if (!isConnected) {
             throw new Error(`API Key verification failed for ${data.provider} and model ${data.model}. Please check your API key and model.`);
@@ -93,7 +93,7 @@ export function registerSettingsHandlers() {
         }
 
         settings.set(key, list);
-    })
+    });
 
     ipcMain.handle(SettingsChannels.ai_assistants.SET_DEFAULT, async (_, data) => {
         // Make exactly one assistant default by name (case-insensitive)
@@ -109,7 +109,7 @@ export function registerSettingsHandlers() {
             list[idx] = { ...list[idx], default: true, updatedAt: new Date().toISOString() };
         }
         settings.set(key, list);
-    })
+    });
 
     ipcMain.handle(SettingsChannels.ai_assistants.REMOVE, async (_, data) => {
         const key = `ai.${data.purpose}`;
@@ -203,5 +203,5 @@ export function registerSettingsHandlers() {
         }
 
         settings.set(key, list);
-    })
+    });
 }
