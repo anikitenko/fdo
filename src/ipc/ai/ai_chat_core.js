@@ -196,7 +196,7 @@ async function createAttachment(attachment) {
     }
 
     if (attachment.type === "local") {
-        const detectFileType = await detectAttachmentType(attachment.path)
+        const detectFileType = await detectAttachmentType(attachment.path);
         if (detectFileType.mimeType.startsWith("image/") && detectFileType.mimeType !== "image/svg+xml") {
             const compressed = await compressImage(attachment.path, { maxWidth: 1024, jpegQuality: 80 });
 
