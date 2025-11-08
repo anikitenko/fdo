@@ -1,4 +1,4 @@
-import {app, ipcMain} from "electron";
+import {ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
 import {settings} from "../../utils/store";
 import {
