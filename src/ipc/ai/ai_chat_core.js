@@ -88,7 +88,7 @@ export async function prepareSessionMessage(sessionId, content, attachments) {
 
     if (attachments) {
         const withoutMessages = [];
-        const sessionIDs = []
+        const sessionIDs = [];
         const attachmentsMap = await Promise.all(
             attachments.map(createAttachment)
         );
