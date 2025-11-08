@@ -1,58 +1,114 @@
 // src/main/ai/model_capabilities/static_map.js
 export const STATIC_MODEL_CAPABILITIES = {
     // --- OpenAI ---
+
+    // 🧩 GPT-5 (deterministic, no temperature)
     "gpt-5": {
         provider: "openai",
-        reasoning: true,
+        reasoning: false,
+        deterministic: true,
+        supportsTemperature: false,
+        supportsThinking: false,
+        api: "responses",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 128_000,
     },
+
+    // 💬 GPT-4.1 (standard chat)
     "gpt-4.1": {
         provider: "openai",
-        reasoning: true,
+        reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 128_000,
     },
+
+    // 💬 GPT-4.1-mini (standard chat)
     "gpt-4.1-mini": {
         provider: "openai",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 64_000,
     },
+
+    // 💬 GPT-4-turbo
     "gpt-4-turbo": {
         provider: "openai",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 128_000,
     },
+
+    // 💬 GPT-4o (supports temperature)
     "gpt-4o": {
         provider: "openai",
-        reasoning: true,
+        reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 128_000,
     },
+
+    // 💬 GPT-4o-mini
     "gpt-4o-mini": {
         provider: "openai",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 64_000,
     },
+
+    // 💬 GPT-3.5-turbo
     "gpt-3.5-turbo": {
         provider: "openai",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "chat.completions",
+        maxField: "max_tokens",
         streaming: true,
         tools: true,
         maxTokens: 16_000,
     },
+
+    // 🧠 Reasoning models (O-series)
     "o1-preview": {
         provider: "openai",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: false,
+        supportsThinking: true, // via reasoning.effort
+        api: "chat.completions",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 128_000,
@@ -60,6 +116,11 @@ export const STATIC_MODEL_CAPABILITIES = {
     "o1-mini": {
         provider: "openai",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: false,
+        supportsThinking: true,
+        api: "chat.completions",
+        maxField: "max_output_tokens",
         streaming: true,
         tools: true,
         maxTokens: 64_000,
@@ -69,6 +130,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-haiku-4-5-20251001": {
         provider: "anthropic",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
         streaming: true,
         tools: false,
         maxTokens: 100_000,
@@ -76,6 +141,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-sonnet-4-5-20250929": {
         provider: "anthropic",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: true,
+        api: "responses",
         streaming: true,
         tools: true,
         maxTokens: 200_000,
@@ -83,6 +152,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-opus-4-1-20250805": {
         provider: "anthropic",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: true,
+        api: "responses",
         streaming: true,
         tools: true,
         maxTokens: 200_000,
@@ -90,6 +163,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-opus-4-20250514": {
         provider: "anthropic",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: true,
+        api: "responses",
         streaming: true,
         tools: true,
         maxTokens: 200_000,
@@ -97,6 +174,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-sonnet-4-20250514": {
         provider: "anthropic",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: true,
+        api: "responses",
         streaming: true,
         tools: true,
         maxTokens: 200_000,
@@ -104,6 +185,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-3-7-sonnet-20250219": {
         provider: "anthropic",
         reasoning: true,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: true,
+        api: "responses",
         streaming: true,
         tools: true,
         maxTokens: 200_000,
@@ -111,6 +196,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-3-5-haiku-20241022": {
         provider: "anthropic",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
         streaming: true,
         tools: false,
         maxTokens: 100_000,
@@ -118,6 +207,10 @@ export const STATIC_MODEL_CAPABILITIES = {
     "claude-3-haiku-20240307": {
         provider: "anthropic",
         reasoning: false,
+        deterministic: false,
+        supportsTemperature: true,
+        supportsThinking: false,
+        api: "responses",
         streaming: true,
         tools: false,
         maxTokens: 100_000,

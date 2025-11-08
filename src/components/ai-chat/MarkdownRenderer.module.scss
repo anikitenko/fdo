@@ -112,3 +112,13 @@
 .markdown-body td {
   color: black;
 }
+
+.markdown-body img {
+  max-width: 400px;
+  height: auto;
+  border-radius: 8px;
+}
+
+.markdown-body pre>code {
+  white-space: pre-wrap !important;
+}

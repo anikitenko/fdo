@@ -4,10 +4,37 @@ import { settings } from "../../utils/store.js";
 import { AiChatChannels } from "../channels.js";
 import { getActiveTools, runToolCalls } from "./tools/index";
 import debounce from "lodash/debounce";
-import { getModelCapabilities, getCacheInfo } from "./model_capabilities/index";
+import { getCacheInfo } from "./model_capabilities/index";
+import fs from "fs";
+import {detectAttachmentType, getRemoteFileCategory} from "./utils/detectAttachmentType";
+
+import {Jimp} from "jimp";
+import * as os from "node:os";
+import path from "node:path";
+import crypto from "crypto";
 
 // --- Concurrency lock map ---
 const sessionLocks = new Map();
+
+function savePdfTemp(base64, prefix = "attachment") {
+    try {
+        // Generate a random suffix for the filename
+        const random = crypto.randomBytes(6).toString("hex"); // e.g. "a3b19c82e4f1"
+        const filename = `${prefix}-${random}.pdf`;
+
+        // Build full path in OS tmp dir
+        const filePath = path.join(os.tmpdir(), filename);
+
+        // Write file buffer
+        const buffer = Buffer.from(base64, "base64");
+        fs.writeFileSync(filePath, buffer);
+
+        // Return safe file:// URL
+        return `file://${filePath}`;
+    } catch (err) {
+        throw new Error(`[savePdfTemp] Failed to write PDF: ${err.message}`);
+    }
+}
 
 /**
  * Run a function with an exclusive lock per session.
@@ -49,7 +76,7 @@ export function saveSessionsDebounced(sessions, immediate = false) {
     }
 }
 
-export function prepareSessionMessage(sessionId, content) {
+export async function prepareSessionMessage(sessionId, content, attachments) {
     if (!content || !String(content).trim()) throw new Error("Message content is empty.");
 
     const sessions = (settings.get("ai.sessions", []) || []).slice();
@@ -57,12 +84,47 @@ export function prepareSessionMessage(sessionId, content) {
     if (idx === -1) throw new Error("Session not found.");
 
     const now = new Date().toISOString();
-    const userMsg = { id: crypto.randomUUID(), role: "user", content, createdAt: now };
-    const session = { ...sessions[idx], messages: [...sessions[idx].messages, userMsg], updatedAt: now };
+    let attachmentMarkdown = "";
+
+    if (attachments) {
+        const withoutMessages = [];
+        const sessionIDs = []
+        const attachmentsMap = await Promise.all(
+            attachments.map(createAttachment)
+        );
+
+        const filtered = attachmentsMap.filter(Boolean);
+        for (const item of filtered) {
+            if (!Array.isArray(item.messages)) {
+                withoutMessages.push(item);
+            } else {
+                sessionIDs.push(item.sessionID);
+            }
+        }
+        if (withoutMessages.length > 0) {
+            attachmentMarkdown = withoutMessages?.map(a => {
+                if (a.contentType === "url") {
+                    return `![Attachment](${a.data})`;
+                } else if (a.contentType === "application/pdf") {
+                    const pdfUrl = savePdfTemp(a.data);
+                    return `📎 [Open attached PDF](${pdfUrl})`;
+                } else if (a.contentType.startsWith("image/")) {}
+                    return `![Attachment](data:${a.contentType};base64,${a.data})`;
+                })
+                .join("\n");
+        }
+        if (sessionIDs.length > 0) {
+            attachmentMarkdown += "\n\n**Included messages from sessions:**\n" +
+                sessionIDs.map(id => `- \`${id}\``).join("\n");
+        }
+    }
+
+    const userMsg = {id: crypto.randomUUID(), role: "user", content: content, contentAttachments: attachmentMarkdown, createdAt: now};
+    const session = {...sessions[idx], messages: [...sessions[idx].messages, userMsg], updatedAt: now};
     sessions[idx] = session;
     saveSessionsDebounced(sessions, true);
 
-    return { session, sessions, idx };
+    return {session, sessions, idx};
 }
 
 export function selectAssistant(provider, model) {
@@ -84,9 +146,116 @@ export function selectAssistant(provider, model) {
     return assistantInfo;
 }
 
-export async function createLlmInstance(assistantInfo, content, think, stream, temperature) {
-    const caps = await getModelCapabilities(assistantInfo.model, assistantInfo);
+/**
+ * Compress an image (local file, URL, or Buffer) using Jimp v1+.
+ *  - Resizes to maxWidth (preserving aspect ratio)
+ *  - Encodes to JPEG (or PNG if transparency)
+ *  - Returns { base64, contentType }
+ */
+async function compressImage(source, {
+    maxWidth = 800,
+    jpegQuality = 60,
+    pngCompressionLevel = 9,
+    forceJpeg = false,
+} = {}) {
+    try {
+        const img = await Jimp.read(source);        // works with file path or URL
+        const { width } = img.bitmap;
 
+        // Resize while keeping aspect ratio
+        if (width > maxWidth) {
+            await img.resize({ w: maxWidth, h: Jimp.AUTO });
+        }
+
+        // Detect transparency (alpha channel)
+        const hasAlpha = typeof img.hasAlpha === "function" ? img.hasAlpha() : false;
+
+        const isLineArt = img.bitmap.width * img.bitmap.height < 2_000_000 && hasAlpha === false;
+        if (isLineArt) {
+            const buffer = await img.getBuffer("image/png", { compressionLevel: 5 });
+            return `data:image/png;base64,${buffer.toString("base64")}`;
+        }
+
+        if (!forceJpeg && hasAlpha) {
+            const buffer = await img.getBuffer("image/png", { compressionLevel: pngCompressionLevel });
+            return { base64: buffer.toString("base64"), contentType: "image/png" };
+        }
+
+        const buffer = await img.getBuffer("image/jpeg", { quality: jpegQuality });
+        return { base64: buffer.toString("base64"), contentType: "image/jpeg" };
+
+    } catch (err) {
+        throw new Error(`[compressImage] Failed to compress: ${err.message}`);
+    }
+}
+
+async function createAttachment(attachment) {
+    // Ensure object exists
+    if (!attachment?.path) {
+        return null;
+    }
+
+    if (attachment.type === "local") {
+        const detectFileType = await detectAttachmentType(attachment.path)
+        if (detectFileType.mimeType.startsWith("image/") && detectFileType.mimeType !== "image/svg+xml") {
+            const compressed = await compressImage(attachment.path, { maxWidth: 1024, jpegQuality: 80 });
+
+            if (compressed) {
+                const { base64, contentType } = compressed;
+
+                if (contentType === "image/png") {
+                    return LLM.Attachment.fromPNG(base64);
+                } else if (contentType === "image/jpeg") {
+                    return LLM.Attachment.fromJPEG(base64);
+                }
+            }
+        }
+        // fallback (non-image or compression failed)
+        const data = fs.readFileSync(attachment.path, "base64");
+        switch (detectFileType.category) {
+            case "fromGIF":  return LLM.Attachment.fromGIF(data);
+            case "fromJPEG": return LLM.Attachment.fromJPEG(data);
+            case "fromPDF":  return LLM.Attachment.fromPDF(data);
+            case "fromPNG":  return LLM.Attachment.fromPNG(data);
+            case "fromSVG":  return LLM.Attachment.fromSVG(data);
+            case "fromTIFF": return LLM.Attachment.fromTIFF(data);
+            case "fromWEBP": return LLM.Attachment.fromWEBP(data);
+            default:         return LLM.Attachment.fromBase64(data, "document", detectFileType.mimeType);
+        }
+    } else if (attachment.type === "url") {
+        const remoteType = await getRemoteFileCategory(attachment.path);
+        if (remoteType.category === "image") {
+            const compressed = await compressImage(attachment.path, { maxWidth: 1024, jpegQuality: 80 });
+
+            if (compressed) {
+                const { base64, contentType } = compressed;
+
+                if (contentType === "image/png") {
+                    return LLM.Attachment.fromPNG(base64);
+                } else if (contentType === "image/jpeg") {
+                    return LLM.Attachment.fromJPEG(base64);
+                }
+            }
+
+            // fallback to non-compressed version
+            return LLM.Attachment.fromImageURL(attachment.path);
+        } else if (remoteType.category === "document") {
+            if (remoteType.mimeType === "application/pdf") {
+                return LLM.Attachment.fromDocumentURL(attachment.path);
+            }
+        }
+    } else if (attachment.type === "session") {
+        const sessions = (settings.get("ai.sessions", []) || []).slice();
+        const idx = sessions.findIndex(s => s.id === attachment.path);
+        return {
+            messages: sessions[idx].messages.map(({ role, content }) => ({ role, content })),
+            sessionID: attachment.name
+        }
+    }
+}
+
+
+export async function createLlmInstance(assistantInfo, content, think, stream, caps, temperature, attachments) {
     // 🧩 Optional diagnostic
     const info = getCacheInfo();
     console.log(
@@ -106,20 +275,84 @@ export async function createLlmInstance(assistantInfo, content, think, stream, t
         ? activeTools.map(t => ({name: t.name, description: t.description, input_schema: t.input_schema}))
         : undefined;
 
-    const maxTokens = caps.maxTokens || 8192;
+    const maxTokens = Math.floor((caps.max_tokens || 8192) * 0.95);
 
-    const llm = new LLM({
+    const llmOptions = {
         service: assistantInfo.provider,
         apiKey: assistantInfo.apiKey,
         model: assistantInfo.model,
         stream: streaming,
         extended: true,
         tools: toolsToUse,
-        max_tokens: maxTokens,
-        temperature: temperature
+        max_tokens: maxTokens
+    }
+
+    if (caps.supportsTemperature) {
+        llmOptions.temperature = temperature;
+    }
+
+    const llm = new LLM({
+        ...llmOptions
     });
 
-    return {llm, streaming, toolsToUse, maxTokens};
+    llm.system(`
+You are **Junie**, a friendly and knowledgeable DevOps assistant integrated into the **FlexDevOps (FDO)** application.
+
+---
+
+### 🧠 About FDO
+FDO (FlexDevOps) is a modular, extensible platform that empowers engineers to automate, monitor, and reason about DevOps workflows through plugins, AI integrations, and secure sandboxed environments.
+
+You operate **within FDO’s conversational AI layer** — able to interpret messages, attachments, and user inputs.  
+You understand FDO’s architecture, SDK design, plugin model, and security concepts, but you don’t directly manipulate the system environment.  
+When the user provides files or attachments (images, PDFs, code, logs, etc.), you can read, analyze, and summarize them freely to assist in their DevOps tasks.
+
+---
+
+### 🎯 Your Role
+- Be a **DevOps-savvy technical companion**, combining conversational friendliness with deep engineering knowledge.
+- Help the user design, debug, and automate infrastructure using common DevOps tools (Kubernetes, Terraform, CI/CD, Docker, monitoring stacks, etc.).
+- Provide clear, production-grade examples (Go, TypeScript, YAML, Python, Bash) with concise explanations.
+- Understand and discuss FDO concepts such as plugin manifests, trust certificates, AI orchestration, and Electron/React UI components.
+- When the user shares attachments, analyze them constructively — e.g., summarize logs, describe images, or review configuration PDFs.
+
+---
+
+### 💡 Behavioral Principles
+1. Be practical, precise, and context-aware.  
+2. You may read and interpret attachments that the user provides.  
+3. You **don’t execute code or access system resources yourself**, but you can reason about how code or commands would behave in FDO.  
+4. Stay helpful and curious — never dismiss a user-provided file, even if it’s large or non-code.  
+5. Write responses suitable for professional engineers: concise yet technically complete.
+
+---
+
+In short:
+**You are the AI brain of FDO — a DevOps expert and analytical partner who understands both people and systems. You explain, generate, and reason — but never need direct control to be powerful.**
+`);
+
+    const withMessages = [];
+    if (attachments) {
+        const withoutMessages = [];
+        const attachmentsMap = await Promise.all(
+            attachments.map(createAttachment)
+        );
+
+        const filtered = attachmentsMap.filter(Boolean);
+        for (const item of filtered) {
+            if (Array.isArray(item.messages)) {
+                withMessages.push(item);
+            } else {
+                withoutMessages.push(item);
+            }
+        }
+        if (withoutMessages.length > 0) {
+            await llm.user("Attachments:", withoutMessages)
+        }
+    }
+
+
+    return {llm, streaming, toolsToUse, maxTokens, withMessages};
 }
 
 function estimateTokens(text = "") {
@@ -133,7 +366,7 @@ function recomputeModelUsageFromMessages(messagesForModel, maxTokens) {
 }
 
 
-export async function compressSessionMessages(session, event, llm, maxTokens, assistantInfo, sessions, idx) {
+export async function compressSessionMessages(session, event, llm, assistantInfo, sessions, idx) {
     const modelStats = session.stats?.models?.[assistantInfo.model];
     if (!modelStats) return
     event?.sender?.send(AiChatChannels.on_off.COMPRESSION_START, { sessionId: session.id, model: assistantInfo.model });
@@ -147,7 +380,7 @@ export async function compressSessionMessages(session, event, llm, maxTokens, as
     const textBlock = oldMessages.map(m => `${m.role}: ${m.content}`).join("\n");
 
     llm.system("Summarize the following conversation concisely, keeping important facts and context.")
-    const resp = await llm.chat(textBlock, {max_tokens: Math.floor((maxTokens || 8192) * 0.9),});
+    const resp = await llm.chat(textBlock);
     const summaryText = String(resp?.content ?? "");
 
     const summaryMsg = {
@@ -212,23 +445,69 @@ export async function compressSessionMessages(session, event, llm, maxTokens, as
     });
 }
 
+const buildLlmOptions = async (llm, useStream, useThink, caps, messages, withMessages) => {
+    const latest = messages.reduce((a, b) =>
+        new Date(a.createdAt) > new Date(b.createdAt) ? a : b
+    );
+
+    // const cleanedMessages = messages.map(m =>
+    //     m.id === latest.id
+    //         ? m // keep the latest untouched
+    //         : { ...m, content: m.content.replace(/!\[Attachment\]\([^)]+\)/g, "").trim() }
+    // );
+
+    const llmOptions = {
+        think: useThink,
+        stream: useStream,
+        messages: [...withMessages, ...messages]
+    }
+
+    switch (llm.service) {
+        case "openai":
+            if (caps.supportsThinking && !(caps.reasoning && caps.api === "chat.completions")) {
+                llmOptions.reasoning = {effort: useThink ? "high" : "medium"};
+            }
+            if (!(caps.reasoning && caps.api === "chat.completions")) {
+                llmOptions[caps.maxField] = Math.floor((caps.maxTokens ?? 8192) * 0.95);
+            }
+            break
+        default:
+            if (useThink) {
+                llmOptions.max_thinking_tokens = 2048
+            }
+    }
+    return llmOptions
+}
+
 export async function handleStreamingResponse(
     llm,
     event,
     { session, sessions, idx, sessionId },
     content,
     useThink,
-    maxTokens
+    maxTokens,
+    caps,
+    withMessages
 ) {
 
     const messages = session.messages.map(({ role, content }) => ({ role, content }));
-    const resp = await llm.chat(content, {
-        think: useThink,
-        stream: true,
-        max_tokens: Math.floor((maxTokens || 8192) * 0.95), // stay 5% under limit
-        max_thinking_tokens: useThink ? 2048 : undefined,
-        messages
-    });
+    const llmOptions = await buildLlmOptions(llm, true, useThink, caps, messages, withMessages);
+
+    llm.user(content)
+    let resp;
+    try {
+        resp = await llm.chat({
+            ...llmOptions,
+        });
+    } catch (err) {
+        if (err.message?.includes("invalidrequesterror")) {
+            const badField = err.message.match(/input\[\d+\]\.content\[\d+\]\.(\w+)/)?.[1];
+            const fieldInfo = badField ? ` (field: ${badField})` : "";
+
+            throw new Error(`This model cannot process one of your attachments${fieldInfo}. Only images and PDFs are supported right now.`)
+        }
+        throw new Error(err.message || "An unexpected error occurred.")
+    }
 
     let full = "";
     let streamedToolCalls = [];
@@ -356,15 +635,15 @@ export async function handleNonStreamingResponse(
     { session, sessions, idx },
     content,
     useThink,
-    maxTokens
+    maxTokens,
+    caps,
+    withMessages
 ) {
     const messages = session.messages.map(({ role, content }) => ({ role, content }));
-    const resp = await llm.chat(content, {
-        think: useThink,
-        stream: false,
-        max_tokens: Math.floor((maxTokens || 8192) * 0.9), // 10% margin
-        max_thinking_tokens: useThink ? 2048 : undefined,
-        messages
+    const llmOptions = await buildLlmOptions(llm, false, useThink, caps, messages, withMessages);
+    llm.user(content)
+    const resp = await llm.chat({
+        ...llmOptions,
     });
 
     let reply = "";

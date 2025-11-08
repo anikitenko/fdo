@@ -278,7 +278,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     useEffect(() => {
         document.addEventListener("click", (event) => {
             const target = event.target.closest("a");
-            if (target && target.href.startsWith("http")) {
+            if (target && (target.href.startsWith("http") || target.href.startsWith("file://"))) {
                 event.preventDefault();
                 window.electron.system.openExternal(target.href)
             }
@@ -306,7 +306,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     id: crypto.randomUUID?.() || `u-${Math.random().toString(36).slice(2)}`,
                     role: 'user',
                     content,
-                    createdAt: now
+                    createdAt: now,
+                    attachments,
                 },
                 {
                     id: tempAssistantId,
@@ -330,10 +331,12 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 stream: streaming || thinking,
                 provider,
                 model,
-                temperature
+                temperature,
+                attachments,
             });
             // Replace with authoritative session from main (removes skeleton)
             setSession(updated);
+            setAttachments([])
         } catch (e) {
             AppToaster.show({message: e.message, intent: "danger"});
             // Replace skeleton with error text locally if call failed
@@ -385,12 +388,14 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         }, true)
         if (!data) return;
         const newAttachments = []
+        const fileTypes = await window.electron.aiChat.detectAttachmentType(data)
         for (const file of data) {
             const basename = file.split(/[\\/]/).pop();
             newAttachments.push({
                 name: basename,
                 path: file,
                 type: 'local',
+                category: fileTypes.find(t => t.path === file)?.type,
             })
         }
         const newAttachmentsList = [...attachments, ...newAttachments];
@@ -417,6 +422,19 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             type: 'session',
         }];
         setAttachments(Array.from(new Map(newAttachmentsList.map(item => [item.path, item])).values()));
+    }
+
+    const attachmentIntentType = (type) => {
+        switch (type) {
+            case 'local':
+                return 'primary';
+            case 'url':
+                return 'success';
+            case 'session':
+                return 'warning';
+            default:
+                return 'none';
+        }
     }
 
     return (
@@ -472,7 +490,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                             </div>
                                         )}
                                         {m.role === 'user' ? (
-                                            <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role}/>
+                                            <MarkdownRenderer text={m.content} attachments={m.contentAttachments} skeleton={m.skeleton} role={m.role}/>
                                         ) : (
                                             <Tooltip content={costUsageTooltip(
                                                 m.inputTokens, m.outputTokens, m.local, m.totalTokens, m.inputCost, m.outputCost, m.totalCost
@@ -560,8 +578,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                 padding: 12,
                             }}>
                                 <Menu>
-                                    <MenuItem icon="clipboard-file" text="From local file/image" intent="primary" onClick={onOpenFromLocal}/>
-                                    <MenuItem icon="globe-network-add" text="From URL" intent="primary" onClick={() => setAttachFromUrlDialogOpen(true)}/>
+                                    <MenuItem icon="clipboard-file" text="From local PDF/image" intent="primary" onClick={onOpenFromLocal}/>
+                                    <MenuItem icon="globe-network-add" text="From image URL" intent="primary" onClick={() => setAttachFromUrlDialogOpen(true)}/>
                                     <MenuItem text="From session" icon="chat" intent="primary">
                                         {[...sessionList]
                                             .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).filter(s => s.id !== session.id).map(s => (
@@ -694,8 +712,11 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                 <Tag
                                     key={a.path}
                                     round
-                                    onRemove={() => setAttachments(as => as.filter(aa => aa.path !== a.path))}
-                                    intent="primary"
+                                    onRemove={() => {
+                                        if (sending) return;
+                                        setAttachments(as => as.filter(aa => aa.path !== a.path))
+                                    }}
+                                    intent={attachmentIntentType(a.type)}
                                     style={{ cursor: "default" }}
                                 >
                                     {a.name}
