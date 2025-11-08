@@ -5,35 +5,64 @@ let mainWindow;
 let editorWindow;
 
 test.beforeAll(async () => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  electronApp = await electron.launch({ args: ['.'] });
-  mainWindow = await electronApp.firstWindow();
-  
-  // Create a plugin and open the editor
-  await mainWindow.click('button:has-text("Plugins Activated")');
-  await mainWindow.click('text=Create plugin');
-  const randomName = 'test-ai-plugin-' + Math.random().toString(36).substring(2, 8);
-  await mainWindow.fill('#plugin-name', randomName);
-  
-  const [newEditorWindow] = await Promise.all([
-    electronApp.waitForEvent('window'),
-    mainWindow.click('text=Open editor')
-  ]);
-  editorWindow = newEditorWindow;
-  
-  // Wait for editor to be ready
-  await editorWindow.waitForTimeout(2000);
-}, 60000);
+  try {
+    electronApp = await electron.launch({ args: ['.'] });
+    mainWindow = await electronApp.firstWindow();
+    
+    // Attach dialog handler to avoid hangs
+    const acceptAllDialogs = async (dialog) => { 
+      try { 
+        await dialog.accept(); 
+      } catch (_) {} 
+    };
+    mainWindow.on('dialog', acceptAllDialogs);
+    electronApp.on('window', (page) => {
+      page.on('dialog', acceptAllDialogs);
+    });
+    
+    // Wait for the main window to be ready
+    await mainWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
+    
+    // Create a plugin and open the editor
+    await mainWindow.click('button:has-text("Plugins Activated")', { timeout: 10000 });
+    await mainWindow.click('text=Create plugin', { timeout: 5000 });
+    const randomName = 'test-ai-plugin-' + Math.random().toString(36).substring(2, 8);
+    await mainWindow.fill('#plugin-name', randomName, { timeout: 5000 });
+    
+    const [newEditorWindow] = await Promise.all([
+      electronApp.waitForEvent('window'),
+      mainWindow.click('text=Open editor', { timeout: 5000 })
+    ]);
+    editorWindow = newEditorWindow;
+    
+    // Set up dialog handler for editor window
+    editorWindow.on('dialog', acceptAllDialogs);
+    
+    // Wait for editor to be ready
+    await editorWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
+    await editorWindow.waitForTimeout(2000);
+  } catch (error) {
+    console.error('Error in beforeAll:', error);
+    throw error;
+  }
+}, 90000);
 
 test.afterAll(async () => {
-  for (const win of electronApp.windows()) {
+  if (electronApp) {
     try {
-      await win.close();
+      const windows = electronApp.windows();
+      for (const win of windows) {
+        try {
+          await win.close();
+        } catch (e) {
+          console.error('Error closing window:', e);
+        }
+      }
+      await electronApp.close();
     } catch (e) {
-      console.error('Error closing window:', e);
+      console.error('Error in afterAll:', e);
     }
   }
-  await electronApp.close();
 }, 60000);
 
 test.describe('AI Coding Agent Tab', () => {
