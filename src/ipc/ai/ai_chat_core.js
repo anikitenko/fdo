@@ -543,7 +543,7 @@ export async function handleStreamingResponse(
 
         const complete = await resp.complete();
         let reply = String((complete && "content" in complete ? complete.content : full) || "");
-        let toolCalls = [...(streamedToolCalls || []), ...(complete?.tool_calls || [])];
+        let toolCalls = [...streamedToolCalls, ...(complete?.tool_calls || [])];
 
         if (toolCalls.length > 0) {
             const follow = await toolFollowUp(llm, toolCalls);
