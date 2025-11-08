@@ -500,7 +500,7 @@ export async function handleStreamingResponse(
             const badField = err.message.match(/input\[\d+\]\.content\[\d+\]\.(\w+)/)?.[1];
             const fieldInfo = badField ? ` (field: ${badField})` : "";
 
-            throw new Error(`This model cannot process one of your attachments${fieldInfo}. Only images and PDFs are supported right now.`)
+            throw new Error(`This model cannot process one of your attachments${fieldInfo}. Only images and PDFs are supported right now.`);
         }
         throw new Error(err.message || "An unexpected error occurred.")
     }
