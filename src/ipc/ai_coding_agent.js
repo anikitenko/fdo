@@ -5,11 +5,19 @@ import { settings } from "../utils/store.js";
 import crypto from "crypto";
 
 // Select a coding assistant from settings
-function selectCodingAssistant() {
+function selectCodingAssistant(assistantId) {
     const list = settings.get("ai.coding", []) || [];
+    
+    // If assistantId is provided, find that specific assistant
+    if (assistantId) {
+        const assistant = list.find(a => a.id === assistantId);
+        if (assistant) return assistant;
+    }
+    
+    // Otherwise, fall back to default or first
     const assistantInfo = list.find(a => a.default) || list[0];
     if (!assistantInfo) {
-        throw new Error("No AI Coding assistant found. Please add one in Settings.");
+        throw new Error("No AI Coding assistant found. Please add one in Settings → AI Assistants.");
     }
     return assistantInfo;
 }
@@ -113,11 +121,11 @@ Remember: You are working within a code editor, so precision and correctness are
 
 // Handle code generation
 async function handleGenerateCode(event, data) {
-    const { prompt, language, context } = data;
+    const { prompt, language, context, assistantId } = data;
     const requestId = crypto.randomUUID();
 
     try {
-        const assistantInfo = selectCodingAssistant();
+        const assistantInfo = selectCodingAssistant(assistantId);
         const llm = await createCodingLlm(assistantInfo, true);
 
         let fullPrompt = `Generate ${language || "code"} for the following request:\n\n${prompt}`;
@@ -163,11 +171,11 @@ async function handleGenerateCode(event, data) {
 
 // Handle code editing
 async function handleEditCode(event, data) {
-    const { code, instruction, language } = data;
+    const { code, instruction, language, assistantId } = data;
     const requestId = crypto.randomUUID();
 
     try {
-        const assistantInfo = selectCodingAssistant();
+        const assistantInfo = selectCodingAssistant(assistantId);
         const llm = await createCodingLlm(assistantInfo, true);
 
         const prompt = `Edit the following ${language || ""} code according to this instruction: ${instruction}
@@ -216,11 +224,11 @@ Provide ONLY the modified code without additional explanations.`;
 
 // Handle code explanation
 async function handleExplainCode(event, data) {
-    const { code, language } = data;
+    const { code, language, assistantId } = data;
     const requestId = crypto.randomUUID();
 
     try {
-        const assistantInfo = selectCodingAssistant();
+        const assistantInfo = selectCodingAssistant(assistantId);
         const llm = await createCodingLlm(assistantInfo, true);
 
         const prompt = `Explain the following ${language || ""} code:
@@ -268,11 +276,11 @@ Provide a clear, concise explanation of what this code does, how it works, and a
 
 // Handle code fixing
 async function handleFixCode(event, data) {
-    const { code, error, language } = data;
+    const { code, error, language, assistantId } = data;
     const requestId = crypto.randomUUID();
 
     try {
-        const assistantInfo = selectCodingAssistant();
+        const assistantInfo = selectCodingAssistant(assistantId);
         const llm = await createCodingLlm(assistantInfo, true);
 
         const prompt = `Fix the following ${language || ""} code that has this error: ${error}

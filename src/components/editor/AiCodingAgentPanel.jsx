@@ -8,9 +8,12 @@ import {
     Tag,
     Spinner,
     NonIdealState,
+    Switch,
+    Callout,
 } from "@blueprintjs/core";
 import * as styles from "./AiCodingAgentPanel.module.css";
 import Markdown from "markdown-to-jsx";
+import virtualFS from "./utils/VirtualFS";
 
 const AI_ACTIONS = [
     { label: "Generate Code", value: "generate" },
@@ -26,7 +29,33 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     const [response, setResponse] = useState("");
     const [error, setError] = useState(null);
     const [streamingRequestId, setStreamingRequestId] = useState(null);
+    const [autoApply, setAutoApply] = useState(false);
+    const [assistants, setAssistants] = useState([]);
+    const [selectedAssistant, setSelectedAssistant] = useState(null);
+    const [loadingAssistants, setLoadingAssistants] = useState(true);
     const responseRef = useRef("");
+
+    // Load available coding assistants
+    useEffect(() => {
+        async function loadAssistants() {
+            try {
+                setLoadingAssistants(true);
+                const allAssistants = await window.electron.settings.ai.getAssistants();
+                const codingAssistants = allAssistants.filter(a => a.purpose === 'coding');
+                setAssistants(codingAssistants);
+                
+                // Select default or first assistant
+                const defaultAssistant = codingAssistants.find(a => a.default);
+                setSelectedAssistant(defaultAssistant || codingAssistants[0] || null);
+            } catch (err) {
+                console.error('Failed to load assistants:', err);
+                setError('Failed to load AI assistants. Please check your settings.');
+            } finally {
+                setLoadingAssistants(false);
+            }
+        }
+        loadAssistants();
+    }, []);
 
     useEffect(() => {
         const handleStreamDelta = (data) => {
@@ -40,6 +69,11 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             if (data.requestId === streamingRequestId) {
                 setIsLoading(false);
                 setStreamingRequestId(null);
+                
+                // Auto-apply if enabled
+                if (autoApply && responseRef.current) {
+                    autoInsertCodeIntoEditor();
+                }
             }
         };
 
@@ -60,7 +94,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             window.electron.aiCodingAgent.off.streamDone(handleStreamDone);
             window.electron.aiCodingAgent.off.streamError(handleStreamError);
         };
-    }, [streamingRequestId]);
+    }, [streamingRequestId, autoApply]);
 
     const getSelectedCode = () => {
         if (!codeEditor) return "";
@@ -84,8 +118,38 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         return model.getValue();
     };
 
+    const createSnapshotBeforeApply = () => {
+        try {
+            const currentVersion = virtualFS.fs.version();
+            const tabs = virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => ({id: t.id, active: t.active}));
+            const created = virtualFS.fs.create(currentVersion.version, tabs);
+            console.log(`Created snapshot ${created.version} before AI code application`);
+            return created;
+        } catch (err) {
+            console.error('Failed to create snapshot:', err);
+            return null;
+        }
+    };
+
+    const autoInsertCodeIntoEditor = () => {
+        // Create snapshot before applying changes
+        const snapshot = createSnapshotBeforeApply();
+        if (!snapshot && autoApply) {
+            setError('Failed to create snapshot before applying changes');
+            return;
+        }
+        
+        insertCodeIntoEditor();
+    };
+
     const handleSubmit = async () => {
         if (!prompt.trim()) return;
+        
+        // Validate assistant is selected
+        if (!selectedAssistant) {
+            setError("No coding assistant selected. Please select one from the dropdown or add one in Settings.");
+            return;
+        }
 
         setIsLoading(true);
         setError(null);
@@ -104,6 +168,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         prompt,
                         language,
                         context,
+                        assistantId: selectedAssistant.id,
                     });
                     break;
                 case "edit":
@@ -116,6 +181,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         code: selectedCode,
                         instruction: prompt,
                         language,
+                        assistantId: selectedAssistant.id,
                     });
                     break;
                 case "explain":
@@ -127,6 +193,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     result = await window.electron.aiCodingAgent.explainCode({
                         code: selectedCode,
                         language,
+                        assistantId: selectedAssistant.id,
                     });
                     break;
                 case "fix":
@@ -139,6 +206,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         code: selectedCode,
                         error: prompt,
                         language,
+                        assistantId: selectedAssistant.id,
                     });
                     break;
                 default:
@@ -184,6 +252,41 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         setError(null);
     };
 
+    // Show loading state while fetching assistants
+    if (loadingAssistants) {
+        return (
+            <div className={styles["ai-coding-agent-panel"]}>
+                <div className={styles["panel-content"]}>
+                    <NonIdealState
+                        icon={<Spinner size={40} />}
+                        title="Loading AI Assistants"
+                        description="Please wait..."
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    // Show message if no assistants available
+    if (assistants.length === 0) {
+        return (
+            <div className={styles["ai-coding-agent-panel"]}>
+                <div className={styles["panel-content"]}>
+                    <NonIdealState
+                        icon="warning-sign"
+                        title="No Coding Assistants Available"
+                        description={
+                            <div>
+                                <p>No AI coding assistants found.</p>
+                                <p>Please add a coding assistant in Settings → AI Assistants.</p>
+                            </div>
+                        }
+                    />
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={styles["ai-coding-agent-panel"]}>
             <div className={styles["panel-header"]}>
@@ -194,6 +297,25 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             </div>
 
             <div className={styles["panel-content"]}>
+                <FormGroup label="AI Assistant" labelFor="assistant-select">
+                    <HTMLSelect
+                        id="assistant-select"
+                        value={selectedAssistant?.id || ""}
+                        onChange={(e) => {
+                            const assistant = assistants.find(a => a.id === e.target.value);
+                            setSelectedAssistant(assistant);
+                        }}
+                        fill
+                    >
+                        {assistants.map(assistant => (
+                            <option key={assistant.id} value={assistant.id}>
+                                {assistant.name} ({assistant.provider} - {assistant.model})
+                                {assistant.default ? ' ★' : ''}
+                            </option>
+                        ))}
+                    </HTMLSelect>
+                </FormGroup>
+
                 <FormGroup label="Action" labelFor="action-select">
                     <HTMLSelect
                         id="action-select"
@@ -235,16 +357,30 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     />
                 </FormGroup>
 
+                <FormGroup>
+                    <Switch
+                        checked={autoApply}
+                        label="Auto-apply changes (creates snapshot first)"
+                        onChange={(e) => setAutoApply(e.target.checked)}
+                        disabled={isLoading}
+                    />
+                    {autoApply && (
+                        <Callout intent="primary" style={{ marginTop: '8px', fontSize: '12px' }}>
+                            Changes will be automatically applied after AI response. A snapshot will be created before each application.
+                        </Callout>
+                    )}
+                </FormGroup>
+
                 <div className={styles["action-buttons"]}>
                     <Button
                         intent="primary"
                         text={isLoading ? "Processing..." : "Submit"}
                         icon={isLoading ? <Spinner size={16} /> : "send-message"}
                         onClick={handleSubmit}
-                        disabled={isLoading || !prompt.trim()}
+                        disabled={isLoading || !prompt.trim() || !selectedAssistant}
                         fill
                     />
-                    {response && (
+                    {response && !autoApply && (
                         <Button
                             text="Insert into Editor"
                             icon="insert"
