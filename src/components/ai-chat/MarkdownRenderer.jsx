@@ -1,4 +1,4 @@
-import React, {useEffect} from "react";
+import React from "react";
 import Markdown from 'markdown-to-jsx'
 
 import * as styles from "./MarkdownRenderer.module.scss";
