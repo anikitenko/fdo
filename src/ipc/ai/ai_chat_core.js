@@ -347,7 +347,7 @@ In short:
             }
         }
         if (withoutMessages.length > 0) {
-            await llm.user("Attachments:", withoutMessages)
+            await llm.user("Attachments:", withoutMessages);
         }
     }
 
