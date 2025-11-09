@@ -96,8 +96,13 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         // Create handler functions
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
-            // Only process if requestId matches AND content exists and is non-empty
-            if (data.requestId === streamingRequestIdRef.current && data.content && data.content.trim()) {
+            // Robust validation: only process if requestId matches AND content is valid
+            if (data.requestId === streamingRequestIdRef.current && 
+                data.content && 
+                typeof data.content === 'string' &&
+                data.content.length > 0 &&
+                /\S/.test(data.content)) {  // Must contain at least one non-whitespace character
+                
                 responseRef.current += data.content;
                 setResponse(responseRef.current);
                 console.log('[AI Coding Agent] Response updated', { totalLength: responseRef.current.length });
@@ -107,18 +112,20 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         const handleStreamDone = (data) => {
             console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
             if (data.requestId === streamingRequestIdRef.current) {
-                // Check if already completed (backend sends multiple done events)
+                // ALWAYS clear timeout FIRST (critical to prevent timeout errors)
+                if (timeoutRef.current) {
+                    clearTimeout(timeoutRef.current);
+                    timeoutRef.current = null;
+                    console.log('[AI Coding Agent] Timeout cleared');
+                }
+                
+                // THEN check if already completed (backend sends multiple done events)
                 if (!isLoading) {
                     console.log('[AI Coding Agent] Already completed, skipping duplicate done event');
                     return;
                 }
                 
                 console.log('[AI Coding Agent] Completing stream');
-                // Clear timeout
-                if (timeoutRef.current) {
-                    clearTimeout(timeoutRef.current);
-                    timeoutRef.current = null;
-                }
                 setIsLoading(false);
                 
                 // DON'T clear streamingRequestIdRef here - let the IPC completion handler do it
@@ -467,24 +474,36 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             return;
         }
 
-        // Try to extract code from markdown code blocks
-        const codeBlockRegex = /```(?:\w+)?\n([\s\S]*?)```/g;
-        const matches = [...response.matchAll(codeBlockRegex)];
+        // Priority 1: Look for SOLUTION-marked code block (<!-- SOLUTION -->)
+        const solutionRegex = /```(?:\w+)?\s*\n\s*<!--\s*SOLUTION\s*-->\s*\n([\s\S]*?)```/g;
+        const solutionMatches = [...response.matchAll(solutionRegex)];
         
         let codeToInsert;
-        if (matches.length > 0) {
-            // Use the LAST code block (most likely the actual code, not an example in explanation)
-            codeToInsert = matches[matches.length - 1][1];
+        if (solutionMatches.length > 0) {
+            // Use the SOLUTION-marked code block (the actual code to insert)
+            codeToInsert = solutionMatches[0][1].trim();
+            console.log('[AI Coding Agent] Inserting SOLUTION-marked code block', { 
+                solutionBlocksFound: solutionMatches.length,
+                codeLength: codeToInsert.length 
+            });
         } else {
-            // No code blocks found - use entire response (trim whitespace)
-            codeToInsert = response.trim();
+            // Priority 2: Look for any code blocks
+            const anyCodeRegex = /```(?:\w+)?\n([\s\S]*?)```/g;
+            const anyMatches = [...response.matchAll(anyCodeRegex)];
+            
+            if (anyMatches.length > 0) {
+                // Use the LAST code block (most likely the actual code, not an example)
+                codeToInsert = anyMatches[anyMatches.length - 1][1].trim();
+                console.log('[AI Coding Agent] Inserting last code block', { 
+                    codeBlocksFound: anyMatches.length,
+                    codeLength: codeToInsert.length 
+                });
+            } else {
+                // Priority 3: No code blocks - use full response
+                codeToInsert = response.trim();
+                console.log('[AI Coding Agent] No code blocks found, inserting full response');
+            }
         }
-
-        console.log('[AI Coding Agent] Inserting code', { 
-            codeBlocksFound: matches.length,
-            codeLength: codeToInsert.length,
-            hasSelection: selection && !selection.isEmpty()
-        });
 
         const edit = {
             range: selection,
