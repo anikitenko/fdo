@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {
     Button,
+    Callout,
     Card,
-    TextArea,
     FormGroup,
     HTMLSelect,
-    Tag,
-    Spinner,
     NonIdealState,
+    Spinner,
     Switch,
-    Callout,
+    Tag,
+    TextArea,
 } from "@blueprintjs/core";
 import * as styles from "./AiCodingAgentPanel.module.css";
 import Markdown from "markdown-to-jsx";
@@ -23,13 +23,11 @@ const AI_ACTIONS = [
     { label: "Fix Code", value: "fix" },
 ];
 
-export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
+export default function AiCodingAgentPanel({ codeEditor, response, setResponse }) {
     const [action, setAction] = useState("smart");
     const [prompt, setPrompt] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [response, setResponse] = useState("");
     const [error, setError] = useState(null);
-    const [streamingRequestId, setStreamingRequestId] = useState(null);
     const [autoApply, setAutoApply] = useState(false);
     const [assistants, setAssistants] = useState([]);
     const [selectedAssistant, setSelectedAssistant] = useState(null);
@@ -92,7 +90,10 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         error: null
     });
 
+    let listenersRegistered = false;
     useEffect(() => {
+        if (listenersRegistered) return; // Prevent double-registration
+        listenersRegistered = true;
         // Create handler functions
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
@@ -102,7 +103,6 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 typeof data.content === 'string' &&
                 data.content.length > 0 &&
                 /\S/.test(data.content)) {  // Must contain at least one non-whitespace character
-                
                 responseRef.current += data.content;
                 setResponse(responseRef.current);
                 console.log('[AI Coding Agent] Response updated', { totalLength: responseRef.current.length });
@@ -110,33 +110,26 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         };
 
         const handleStreamDone = (data) => {
+            const match = !streamingRequestIdRef.current || data.requestId === streamingRequestIdRef.current;
+            if (!match) {
+                console.warn("[AI Coding Agent] Stream done mismatch", data.requestId);
+                return;
+            }
+            // ALWAYS clear timeout FIRST (critical to prevent timeout errors)
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+                console.log('[AI Coding Agent] Timeout cleared');
+            }
             console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
-            if (data.requestId === streamingRequestIdRef.current) {
-                // ALWAYS clear timeout FIRST (critical to prevent timeout errors)
-                if (timeoutRef.current) {
-                    clearTimeout(timeoutRef.current);
-                    timeoutRef.current = null;
-                    console.log('[AI Coding Agent] Timeout cleared');
-                }
-                
-                // THEN check if already completed (backend sends multiple done events)
-                if (!isLoading) {
-                    console.log('[AI Coding Agent] Already completed, skipping duplicate done event');
-                    return;
-                }
-                
-                console.log('[AI Coding Agent] Completing stream');
-                setIsLoading(false);
-                
-                // DON'T clear streamingRequestIdRef here - let the IPC completion handler do it
-                // This allows subsequent done events to still match
-                
-                // Auto-apply if enabled - use ref to get latest value
-                if (autoApplyRef.current && responseRef.current) {
-                    autoInsertCodeIntoEditor();
-                }
-            } else {
-                console.warn('[AI Coding Agent] Stream done but requestId mismatch', { received: data.requestId, expected: streamingRequestIdRef.current });
+
+            console.log('[AI Coding Agent] Completing stream');
+            setResponse(data.fullContent);
+            setIsLoading(false);
+
+            // Auto-apply if enabled - use ref to get latest value
+            if (autoApplyRef.current && responseRef.current) {
+                autoInsertCodeIntoEditor();
             }
         };
 
@@ -145,7 +138,6 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             if (data.requestId === streamingRequestIdRef.current) {
                 setError(data.error);
                 setIsLoading(false);
-                setStreamingRequestId(null);
                 streamingRequestIdRef.current = null;
                 
                 // Clear timeout
@@ -210,7 +202,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     const getAllProjectFiles = () => {
         try {
             const models = virtualFS.listModels();
-            const files = models.map(model => {
+            return models.map(model => {
                 const uri = model.uri.toString(true).replace("file://", "");
                 // Skip node_modules and dist
                 if (uri.includes("/node_modules/") || uri.includes("/dist/")) {
@@ -221,8 +213,6 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     content: model.getValue()
                 };
             }).filter(Boolean);
-            
-            return files;
         } catch (err) {
             console.error('[AI Coding Agent] Error getting project files', err);
             return [];
@@ -310,7 +300,6 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             console.error('[AI Coding Agent] Request timeout after 60s');
             setError("Request timed out. The AI service may be unavailable. Please try again.");
             setIsLoading(false);
-            setStreamingRequestId(null);
             timeoutRef.current = null;
         }, 60000); // 60 second timeout
 
@@ -334,7 +323,6 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             // Generate requestId upfront so we can track streaming events
             const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             streamingRequestIdRef.current = requestId;
-            setStreamingRequestId(requestId);
             console.log('[AI Coding Agent] Request ID set', requestId);
 
             let result;
@@ -428,13 +416,11 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 // Clear streamingRequestId now that IPC is complete
                 // This prevents any late/duplicate done events from matching
                 streamingRequestIdRef.current = null;
-                setStreamingRequestId(null);
             } else if (result && result.error) {
                 console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
                 setIsLoading(false);
                 streamingRequestIdRef.current = null;
-                setStreamingRequestId(null);
                 if (timeoutRef.current) {
                     clearTimeout(timeoutRef.current);
                     timeoutRef.current = null;
@@ -444,7 +430,6 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 setError("Invalid response from AI service. Please try again.");
                 setIsLoading(false);
                 streamingRequestIdRef.current = null;
-                setStreamingRequestId(null);
                 if (timeoutRef.current) {
                     clearTimeout(timeoutRef.current);
                     timeoutRef.current = null;
@@ -474,8 +459,8 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             return;
         }
 
-        // Priority 1: Look for SOLUTION-marked code block (<!-- SOLUTION -->)
-        const solutionRegex = /```(?:\w+)?\s*\n\s*<!--\s*SOLUTION\s*-->\s*\n([\s\S]*?)```/g;
+        // Priority 1: Look for SOLUTION-marked code block (// SOLUTION READY TO APPLY)
+        const solutionRegex = /```(?:\w+)?\s*\n(?:\s*\n)?\s*\/\/\s*SOLUTION(?:\s*READY\s*TO\s*APPLY)?\s*\n([\s\S]*?)```/g;
         const solutionMatches = [...response.matchAll(solutionRegex)];
         
         let codeToInsert;
@@ -696,7 +681,9 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     <div className={styles["response-container"]}>
                         <h4>Response:</h4>
                         <Card className={styles["response-card"]}>
-                            <Markdown>{response}</Markdown>
+                            <Markdown
+                                children={response}
+                            />
                         </Card>
                     </div>
                 )}

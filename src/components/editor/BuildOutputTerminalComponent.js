@@ -8,10 +8,11 @@ import {v4 as uuidv4} from 'uuid';
 import AiCodingAgentPanel from "./AiCodingAgentPanel.jsx";
 
 const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor, editorModelPath}) => {
-    const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers())
-    const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status())
-    const [buildOutput, setBuildOutput] = useState([])
-    const [buildOutputIntent, setBuildOutputIntent] = useState("primary")
+    const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers());
+    const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status());
+    const [buildOutput, setBuildOutput] = useState([]);
+    const [buildOutputIntent, setBuildOutputIntent] = useState("primary");
+    const [coddingAiResponse, setCoddingAiResponse] = useState("");
     const totalMarkers = markers.reduce((acc, marker) => {
         return acc + marker.markers.length
     }, 0)
@@ -79,7 +80,7 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
             {selectedTabId === "output" && (<OutputPanel buildOutputIntent={buildOutputIntent} buildOutput={buildOutput}/>)}
             {selectedTabId === "ai-agent" && (
                 <div className={styles["build-output-panel"]}>
-                    <AiCodingAgentPanel codeEditor={codeEditor} editorModelPath={editorModelPath}/>
+                    <AiCodingAgentPanel codeEditor={codeEditor} response={coddingAiResponse} setResponse={setCoddingAiResponse}/>
                 </div>
             )}
         </div>
