@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('electron', {
         explainCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.EXPLAIN_CODE, data),
         fixCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.FIX_CODE, data),
         smartMode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.SMART_MODE, data),
+        planCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.PLAN_CODE, data),
         on: {
             streamDelta: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
             streamDone: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DONE, (_, data) => callback(data)),

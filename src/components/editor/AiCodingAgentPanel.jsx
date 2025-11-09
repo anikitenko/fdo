@@ -27,6 +27,7 @@ const AI_ACTIONS = [
     { label: "Edit Code", value: "edit" },
     { label: "Explain Code", value: "explain" },
     { label: "Fix Code", value: "fix" },
+    { label: "Plan Code (Plugin Scaffold)", value: "plan" },
 ];
 
 export default function AiCodingAgentPanel({ codeEditor, response, setResponse }) {
@@ -40,10 +41,13 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
     const [loadingAssistants, setLoadingAssistants] = useState(true);
     const [sdkTypes, setSdkTypes] = useState(null);
     const [isRefining, setIsRefining] = useState(false);
+    const [uploadedImage, setUploadedImage] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
     const responseRef = useRef("");
     const timeoutRef = useRef(null);
     const streamingRequestIdRef = useRef(null);
     const autoApplyRef = useRef(autoApply);
+    const fileInputRef = useRef(null);
 
     // Load SDK types on mount
     useEffect(() => {
@@ -292,6 +296,53 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         setPrompt(''); // Clear for refinement instructions
     };
 
+    const handleImageUpload = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            setError('Please upload an image file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const base64Image = e.target.result;
+            setUploadedImage(base64Image);
+            setImagePreview(URL.createObjectURL(file));
+            console.log('[AI Coding Agent] Image uploaded', { size: file.size, type: file.type });
+        };
+        reader.onerror = () => {
+            setError('Failed to read image file');
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleRemoveImage = () => {
+        setUploadedImage(null);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+        setImagePreview(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+        console.log('[AI Coding Agent] Image removed');
+    };
+
+    const handleCopyPlan = () => {
+        if (!response) return;
+        navigator.clipboard.writeText(response);
+        console.log('[AI Coding Agent] Plan copied to clipboard');
+    };
+
+    const handleExecutePlan = async () => {
+        if (!response) return;
+        // TODO: Parse plan and generate files in VirtualFS
+        console.log('[AI Coding Agent] Executing plan...');
+        setError('Plan execution coming soon!');
+    };
+
     const handleSubmit = async () => {
         if (!prompt.trim()) return;
         
@@ -423,6 +474,14 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                         code: selectedCode,
                         error: prompt,
                         language,
+                        assistantId: selectedAssistant.id,
+                    });
+                    break;
+                case "plan":
+                    result = await window.electron.aiCodingAgent.planCode({
+                        requestId,
+                        prompt: finalPrompt,
+                        image: uploadedImage, // base64 image if uploaded
                         assistantId: selectedAssistant.id,
                     });
                     break;
@@ -609,6 +668,48 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                     />
                 </FormGroup>
 
+                {action === "plan" && (
+                    <FormGroup label="UI Mockup (Optional)" labelInfo="Upload an image for AI to analyze">
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageUpload}
+                            style={{ display: 'none' }}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                            <Button
+                                icon="camera"
+                                text="Upload Image"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isLoading}
+                            />
+                            {imagePreview && (
+                                <div style={{ flex: 1 }}>
+                                    <img 
+                                        src={imagePreview} 
+                                        alt="UI Mockup" 
+                                        style={{ 
+                                            maxWidth: '200px', 
+                                            maxHeight: '150px', 
+                                            borderRadius: '4px',
+                                            border: '1px solid #ccc'
+                                        }} 
+                                    />
+                                    <Button
+                                        icon="cross"
+                                        minimal
+                                        small
+                                        onClick={handleRemoveImage}
+                                        disabled={isLoading}
+                                        style={{ marginTop: '4px' }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </FormGroup>
+                )}
+
                 <FormGroup
                     label={
                         isRefining
@@ -621,6 +722,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                             ? "Describe how to edit the selected code"
                             : action === "explain"
                             ? "What would you like to know? (optional)"
+                            : action === "plan"
+                            ? "Describe the plugin or upload a UI mockup"
                             : "Describe the error (optional)"
                     }
                     labelFor="prompt-input"
@@ -640,6 +743,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                                 ? "e.g., Add error handling and logging"
                                 : action === "explain"
                                 ? "e.g., Focus on the algorithm used"
+                                : action === "plan"
+                                ? "e.g., Create a todo list plugin with drag and drop support, or Analyze the uploaded UI mockup"
                                 : "e.g., TypeError on line 42"
                         }
                         fill
@@ -671,7 +776,23 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                         disabled={isLoading || !prompt.trim() || !selectedAssistant}
                         fill
                     />
-                    {response && !autoApply && (
+                    {response && action === "plan" && (
+                        <>
+                            <Button
+                                text="Copy Plan"
+                                icon="clipboard"
+                                onClick={handleCopyPlan}
+                                disabled={isLoading}
+                            />
+                            <Button
+                                text="Execute Plan"
+                                icon="play"
+                                onClick={handleExecutePlan}
+                                disabled={isLoading}
+                            />
+                        </>
+                    )}
+                    {response && !autoApply && action !== "plan" && (
                         <Button
                             text="Insert into Editor"
                             icon="insert"
