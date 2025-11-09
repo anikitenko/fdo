@@ -85,7 +85,15 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         autoApplyRef.current = autoApply;
     }, [autoApply]);
 
+    // Store handlers in refs to ensure proper cleanup and prevent duplicates
+    const handlersRef = useRef({
+        delta: null,
+        done: null,
+        error: null
+    });
+
     useEffect(() => {
+        // Create handler functions
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
             if (data.requestId === streamingRequestIdRef.current && data.type === "content") {
@@ -133,14 +141,32 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             }
         };
 
+        // Store handlers in ref for cleanup
+        handlersRef.current = {
+            delta: handleStreamDelta,
+            done: handleStreamDone,
+            error: handleStreamError
+        };
+
+        // Register event handlers
         window.electron.aiCodingAgent.on.streamDelta(handleStreamDelta);
         window.electron.aiCodingAgent.on.streamDone(handleStreamDone);
         window.electron.aiCodingAgent.on.streamError(handleStreamError);
 
+        console.log('[AI Coding Agent] Event handlers registered');
+
         return () => {
-            window.electron.aiCodingAgent.off.streamDelta(handleStreamDelta);
-            window.electron.aiCodingAgent.off.streamDone(handleStreamDone);
-            window.electron.aiCodingAgent.off.streamError(handleStreamError);
+            // Use stored refs for cleanup to ensure we remove the exact same handlers
+            if (handlersRef.current.delta) {
+                window.electron.aiCodingAgent.off.streamDelta(handlersRef.current.delta);
+            }
+            if (handlersRef.current.done) {
+                window.electron.aiCodingAgent.off.streamDone(handlersRef.current.done);
+            }
+            if (handlersRef.current.error) {
+                window.electron.aiCodingAgent.off.streamError(handlersRef.current.error);
+            }
+            console.log('[AI Coding Agent] Event handlers cleaned up');
         };
     }, []); // Empty dependency array - only register once
 
@@ -376,9 +402,13 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
 
             console.log('[AI Coding Agent] IPC result received', result);
 
-            if (result && result.success) {
-                console.log('[AI Coding Agent] Request successful, streaming in progress');
+            if (result && result.success && result.requestId) {
+                console.log('[AI Coding Agent] Request successful, streaming in progress', { requestId: result.requestId });
                 // Request ID already set before IPC call, streaming events should be flowing
+                // Verify requestId matches
+                if (result.requestId !== requestId) {
+                    console.warn('[AI Coding Agent] RequestId mismatch in result', { expected: requestId, received: result.requestId });
+                }
             } else if (result && result.error) {
                 console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
@@ -390,7 +420,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     timeoutRef.current = null;
                 }
             } else {
-                console.error('[AI Coding Agent] Invalid result', result);
+                console.error('[AI Coding Agent] Invalid result - missing requestId or success flag', result);
                 setError("Invalid response from AI service. Please try again.");
                 setIsLoading(false);
                 streamingRequestIdRef.current = null;
