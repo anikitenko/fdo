@@ -137,6 +137,15 @@ async function handleGenerateCode(event, data) {
             fullPrompt += `\n\nContext:\n${context}`;
         }
 
+        fullPrompt += `\n\nIMPORTANT: When providing the code to insert, wrap it with a SOLUTION marker like this:
+
+\`\`\`${language || 'code'}
+<!-- SOLUTION -->
+your actual code here
+\`\`\`
+
+You may include other code blocks for examples or explanations, but ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor.`;
+
         llm.user(fullPrompt);
         console.log('[AI Coding Agent Backend] Sending to LLM');
         const resp = await llm.chat({ stream: true });
@@ -194,7 +203,16 @@ Original code:
 ${code}
 \`\`\`
 
-Provide the modified code followed by a brief explanation of what you changed and why.`;
+Provide the modified code followed by a brief explanation of what you changed and why.
+
+IMPORTANT: When providing the modified code, wrap it with a SOLUTION marker like this:
+
+\`\`\`${language || 'code'}
+<!-- SOLUTION -->
+modified code here
+\`\`\`
+
+You may include other code blocks for examples, but ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor.`;
 
         llm.user(prompt);
         const resp = await llm.chat({ stream: true });
@@ -301,7 +319,16 @@ Code with error:
 ${code}
 \`\`\`
 
-Provide the fixed code and a brief explanation of what was wrong and how you fixed it.`;
+Provide the fixed code and a brief explanation of what was wrong and how you fixed it.
+
+IMPORTANT: When providing the fixed code, wrap it with a SOLUTION marker like this:
+
+\`\`\`${language || 'code'}
+<!-- SOLUTION -->
+fixed code here
+\`\`\`
+
+You may include other code blocks for examples, but ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor.`;
 
         llm.user(prompt);
         const resp = await llm.chat({ stream: true });
@@ -363,11 +390,18 @@ async function handleSmartMode(event, data) {
 
         fullPrompt += `Provide the appropriate response based on the request.
 
-IMPORTANT: When modifying code:
+IMPORTANT: When providing code (for generation, editing, or fixing):
+- Wrap the ACTUAL CODE TO INSERT with a SOLUTION marker:
+
+\`\`\`${language || 'code'}
+<!-- SOLUTION -->
+your code here
+\`\`\`
+
+- You may include other code blocks for examples or explanations
+- ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor
 - Clearly explain what you changed and why
 - List each modification with before/after comparison if helpful
-- Explain the reasoning behind your changes
-- If fixing bugs, explain what was wrong and how the fix addresses it
 
 Return the code or explanation without meta-commentary about which action you chose.`;
 
