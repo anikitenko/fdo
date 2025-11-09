@@ -38,6 +38,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     const responseRef = useRef("");
     const timeoutRef = useRef(null);
     const streamingRequestIdRef = useRef(null);
+    const autoApplyRef = useRef(autoApply);
 
     // Load SDK types on mount
     useEffect(() => {
@@ -79,12 +80,18 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         loadAssistants();
     }, []);
 
+    // Keep autoApplyRef in sync with autoApply state
+    useEffect(() => {
+        autoApplyRef.current = autoApply;
+    }, [autoApply]);
+
     useEffect(() => {
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
             if (data.requestId === streamingRequestIdRef.current && data.type === "content") {
                 responseRef.current += data.content;
                 setResponse(responseRef.current);
+                console.log('[AI Coding Agent] Response updated', { totalLength: responseRef.current.length });
             }
         };
 
@@ -101,8 +108,8 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 setStreamingRequestId(null);
                 streamingRequestIdRef.current = null;
                 
-                // Auto-apply if enabled
-                if (autoApply && responseRef.current) {
+                // Auto-apply if enabled - use ref to get latest value
+                if (autoApplyRef.current && responseRef.current) {
                     autoInsertCodeIntoEditor();
                 }
             } else {
@@ -117,6 +124,12 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 setIsLoading(false);
                 setStreamingRequestId(null);
                 streamingRequestIdRef.current = null;
+                
+                // Clear timeout
+                if (timeoutRef.current) {
+                    clearTimeout(timeoutRef.current);
+                    timeoutRef.current = null;
+                }
             }
         };
 
@@ -129,7 +142,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             window.electron.aiCodingAgent.off.streamDone(handleStreamDone);
             window.electron.aiCodingAgent.off.streamError(handleStreamError);
         };
-    }, [autoApply]);
+    }, []); // Empty dependency array - only register once
 
     const getSelectedCode = () => {
         if (!codeEditor) return "";
