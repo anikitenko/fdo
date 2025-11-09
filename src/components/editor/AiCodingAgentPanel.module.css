@@ -40,6 +40,7 @@
 
 .loading-indicator {
     margin-top: 12px;
+    flex-shrink: 0;
 }
 
 .response-container {

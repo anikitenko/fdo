@@ -36,6 +36,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     const [loadingAssistants, setLoadingAssistants] = useState(true);
     const [sdkTypes, setSdkTypes] = useState(null);
     const responseRef = useRef("");
+    const timeoutRef = useRef(null);
 
     // Load SDK types on mount
     useEffect(() => {
@@ -87,8 +88,14 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         };
 
         const handleStreamDone = (data) => {
-            console.log('[AI Coding Agent] Stream done', { requestId: data.requestId });
+            console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId });
             if (data.requestId === streamingRequestId) {
+                console.log('[AI Coding Agent] Completing stream');
+                // Clear timeout
+                if (timeoutRef.current) {
+                    clearTimeout(timeoutRef.current);
+                    timeoutRef.current = null;
+                }
                 setIsLoading(false);
                 setStreamingRequestId(null);
                 
@@ -96,6 +103,8 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 if (autoApply && responseRef.current) {
                     autoInsertCodeIntoEditor();
                 }
+            } else {
+                console.warn('[AI Coding Agent] Stream done but requestId mismatch', { received: data.requestId, expected: streamingRequestId });
             }
         };
 
@@ -238,14 +247,18 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         setResponse("");
         responseRef.current = "";
 
+        // Clear any existing timeout
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+        }
+
         // Set a safety timeout to prevent hanging forever
-        const timeoutId = setTimeout(() => {
-            if (isLoading) {
-                console.error('[AI Coding Agent] Request timeout after 60s');
-                setError("Request timed out. The AI service may be unavailable. Please try again.");
-                setIsLoading(false);
-                setStreamingRequestId(null);
-            }
+        timeoutRef.current = setTimeout(() => {
+            console.error('[AI Coding Agent] Request timeout after 60s');
+            setError("Request timed out. The AI service may be unavailable. Please try again.");
+            setIsLoading(false);
+            setStreamingRequestId(null);
+            timeoutRef.current = null;
         }, 60000); // 60 second timeout
 
         try {
@@ -288,7 +301,10 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     if (!selectedCode) {
                         setError("Please select code to edit");
                         setIsLoading(false);
-                        clearTimeout(timeoutId);
+                        if (timeoutRef.current) {
+                            clearTimeout(timeoutRef.current);
+                            timeoutRef.current = null;
+                        }
                         return;
                     }
                     result = await window.electron.aiCodingAgent.editCode({
@@ -302,7 +318,10 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     if (!selectedCode) {
                         setError("Please select code to explain");
                         setIsLoading(false);
-                        clearTimeout(timeoutId);
+                        if (timeoutRef.current) {
+                            clearTimeout(timeoutRef.current);
+                            timeoutRef.current = null;
+                        }
                         return;
                     }
                     result = await window.electron.aiCodingAgent.explainCode({
@@ -315,7 +334,10 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     if (!selectedCode) {
                         setError("Please select code to fix");
                         setIsLoading(false);
-                        clearTimeout(timeoutId);
+                        if (timeoutRef.current) {
+                            clearTimeout(timeoutRef.current);
+                            timeoutRef.current = null;
+                        }
                         return;
                     }
                     result = await window.electron.aiCodingAgent.fixCode({
@@ -338,18 +360,27 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
                 setIsLoading(false);
-                clearTimeout(timeoutId);
+                if (timeoutRef.current) {
+                    clearTimeout(timeoutRef.current);
+                    timeoutRef.current = null;
+                }
             } else {
                 console.error('[AI Coding Agent] Invalid result', result);
                 setError("Invalid response from AI service. Please try again.");
                 setIsLoading(false);
-                clearTimeout(timeoutId);
+                if (timeoutRef.current) {
+                    clearTimeout(timeoutRef.current);
+                    timeoutRef.current = null;
+                }
             }
         } catch (err) {
             console.error('[AI Coding Agent] Exception in handleSubmit', err);
             setError(err.message || "An error occurred");
             setIsLoading(false);
-            clearTimeout(timeoutId);
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+            }
         }
     };
 
