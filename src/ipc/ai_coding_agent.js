@@ -341,39 +341,35 @@ async function handleSmartMode(event, data) {
     const { prompt, code, language, context, assistantId } = data;
     const requestId = crypto.randomUUID();
 
+    console.log('[AI Coding Agent Backend] Smart mode request', { requestId, language, promptLength: prompt?.length, hasCode: !!code, hasContext: !!context });
+
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
         const llm = await createCodingLlm(assistantInfo, true);
 
-        // Build context for the AI to understand what's available
-        let fullPrompt = `You are a coding assistant. Analyze the user's request and provide the appropriate response.
+        // Build a clear prompt for the AI
+        let fullPrompt = `User's request: ${prompt}\n\n`;
 
-User's request: ${prompt}
-
-`;
-
+        // If code is selected, show it prominently
         if (code) {
-            fullPrompt += `Selected code (${language || 'unknown language'}):\n\`\`\`\n${code}\n\`\`\`\n\n`;
+            fullPrompt += `Selected code in ${language || 'current file'}:\n\`\`\`${language || ''}\n${code}\n\`\`\`\n\n`;
         }
 
-        if (context && !code) {
-            fullPrompt += `Current file context:\n\`\`\`\n${context}\n\`\`\`\n\n`;
+        // Add context (SDK types, project files, current file) if available
+        if (context) {
+            fullPrompt += `Additional context:\n${context}\n\n`;
         }
 
-        fullPrompt += `Based on the request and available context, determine the appropriate action and provide your response:
-- If generating new code: Provide the code
-- If editing existing code: Provide the modified version
-- If explaining code: Provide a clear explanation
-- If fixing code: Provide the corrected code with explanation
-
-Provide ONLY the relevant output without meta-commentary about which action you chose.`;
+        fullPrompt += `Provide the appropriate response based on the request. Return ONLY the code, explanation, or fix without meta-commentary.`;
 
         llm.user(fullPrompt);
+        console.log('[AI Coding Agent Backend] Sending to LLM');
         const resp = await llm.chat({ stream: true });
 
         let fullContent = "";
 
         if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            console.log('[AI Coding Agent Backend] Streaming started');
             for await (const chunk of resp.stream) {
                 if (!chunk) continue;
                 const { type, content: piece } = chunk;
@@ -389,12 +385,14 @@ Provide ONLY the relevant output without meta-commentary about which action you 
             }
 
             await resp.complete();
+            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
             event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
             return { success: true, requestId, content: fullContent };
         }
 
         return { success: false, error: "Invalid response from LLM" };
     } catch (error) {
+        console.error('[AI Coding Agent Backend] Error in handleSmartMode', error);
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
