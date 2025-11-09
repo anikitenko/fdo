@@ -12,8 +12,14 @@ import {
     TextArea,
 } from "@blueprintjs/core";
 import * as styles from "./AiCodingAgentPanel.module.css";
+import * as styles2 from "../ai-chat/MarkdownRenderer.module.scss";
 import Markdown from "markdown-to-jsx";
 import virtualFS from "./utils/VirtualFS";
+
+import hljs from "../../assets/js/hljs/highlight.min"
+import "../../assets/css/hljs/xt256.min.css"
+
+import classnames from "classnames";
 
 const AI_ACTIONS = [
     { label: "Smart Mode (AI decides)", value: "smart" },
@@ -683,6 +689,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                         <Card className={styles["response-card"]}>
                             <Markdown
                                 children={response}
+                                options={{
+                                    overrides: {
+                                        code: SyntaxHighlightedCode,
+                                    },
+                                }}
+                                className={classnames(styles2["markdown-body"], "markdown-body")}
                             />
                         </Card>
                     </div>
@@ -699,3 +711,19 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         </div>
     );
 }
+
+function SyntaxHighlightedCode(props) {
+    const ref = React.useRef(null);
+
+    React.useEffect(() => {
+        if (ref.current && props.className?.includes('lang-') && typeof hljs !== "undefined") {
+            hljs.highlightElement(ref.current);
+
+            // hljs won't reprocess the element unless this attribute is removed
+            ref.current.removeAttribute('data-highlighted');
+        }
+    }, [props.className, props.children]);
+
+    return <code {...props} ref={ref}/>;
+}
+
