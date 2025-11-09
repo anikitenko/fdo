@@ -96,7 +96,8 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         // Create handler functions
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
-            if (data.requestId === streamingRequestIdRef.current && data.type === "content") {
+            // Only process if requestId matches AND content exists and is non-empty
+            if (data.requestId === streamingRequestIdRef.current && data.content && data.content.trim()) {
                 responseRef.current += data.content;
                 setResponse(responseRef.current);
                 console.log('[AI Coding Agent] Response updated', { totalLength: responseRef.current.length });
@@ -106,6 +107,12 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         const handleStreamDone = (data) => {
             console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
             if (data.requestId === streamingRequestIdRef.current) {
+                // Check if already completed (backend sends multiple done events)
+                if (!isLoading) {
+                    console.log('[AI Coding Agent] Already completed, skipping duplicate done event');
+                    return;
+                }
+                
                 console.log('[AI Coding Agent] Completing stream');
                 // Clear timeout
                 if (timeoutRef.current) {
@@ -113,8 +120,9 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     timeoutRef.current = null;
                 }
                 setIsLoading(false);
-                setStreamingRequestId(null);
-                streamingRequestIdRef.current = null;
+                
+                // DON'T clear streamingRequestIdRef here - let the IPC completion handler do it
+                // This allows subsequent done events to still match
                 
                 // Auto-apply if enabled - use ref to get latest value
                 if (autoApplyRef.current && responseRef.current) {
@@ -403,12 +411,17 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             console.log('[AI Coding Agent] IPC result received', result);
 
             if (result && result.success && result.requestId) {
-                console.log('[AI Coding Agent] Request successful, streaming in progress', { requestId: result.requestId });
-                // Request ID already set before IPC call, streaming events should be flowing
+                console.log('[AI Coding Agent] Request successful, streaming complete', { requestId: result.requestId });
+                // Request ID already set before IPC call, streaming events should have flowed
                 // Verify requestId matches
                 if (result.requestId !== requestId) {
                     console.warn('[AI Coding Agent] RequestId mismatch in result', { expected: requestId, received: result.requestId });
                 }
+                
+                // Clear streamingRequestId now that IPC is complete
+                // This prevents any late/duplicate done events from matching
+                streamingRequestIdRef.current = null;
+                setStreamingRequestId(null);
             } else if (result && result.error) {
                 console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
@@ -442,15 +455,36 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     };
 
     const insertCodeIntoEditor = () => {
-        if (!codeEditor || !response) return;
+        if (!codeEditor || !response) {
+            console.log('[AI Coding Agent] Cannot insert - no editor or response');
+            return;
+        }
 
         const selection = codeEditor.getSelection();
         const model = codeEditor.getModel();
-        if (!model) return;
+        if (!model) {
+            console.log('[AI Coding Agent] Cannot insert - no model');
+            return;
+        }
 
-        // Extract code from markdown code blocks if present
-        const codeBlockMatch = response.match(/```[\w]*\n([\s\S]*?)\n```/);
-        const codeToInsert = codeBlockMatch ? codeBlockMatch[1] : response;
+        // Try to extract code from markdown code blocks
+        const codeBlockRegex = /```(?:\w+)?\n([\s\S]*?)```/g;
+        const matches = [...response.matchAll(codeBlockRegex)];
+        
+        let codeToInsert;
+        if (matches.length > 0) {
+            // Use the LAST code block (most likely the actual code, not an example in explanation)
+            codeToInsert = matches[matches.length - 1][1];
+        } else {
+            // No code blocks found - use entire response (trim whitespace)
+            codeToInsert = response.trim();
+        }
+
+        console.log('[AI Coding Agent] Inserting code', { 
+            codeBlocksFound: matches.length,
+            codeLength: codeToInsert.length,
+            hasSelection: selection && !selection.isEmpty()
+        });
 
         const edit = {
             range: selection,
@@ -460,6 +494,8 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
 
         model.pushEditOperations([], [edit], () => null);
         codeEditor.focus();
+        
+        console.log('[AI Coding Agent] Code inserted successfully');
     };
 
     const clearResponse = () => {
