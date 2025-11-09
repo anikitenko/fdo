@@ -39,6 +39,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
     const [selectedAssistant, setSelectedAssistant] = useState(null);
     const [loadingAssistants, setLoadingAssistants] = useState(true);
     const [sdkTypes, setSdkTypes] = useState(null);
+    const [isRefining, setIsRefining] = useState(false);
     const responseRef = useRef("");
     const timeoutRef = useRef(null);
     const streamingRequestIdRef = useRef(null);
@@ -281,6 +282,16 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         insertCodeIntoEditor();
     };
 
+    const handleRefine = () => {
+        if (!response) {
+            console.log('[AI Coding Agent] Cannot refine - no response');
+            return;
+        }
+        console.log('[AI Coding Agent] Entering refinement mode');
+        setIsRefining(true);
+        setPrompt(''); // Clear for refinement instructions
+    };
+
     const handleSubmit = async () => {
         if (!prompt.trim()) return;
         
@@ -290,11 +301,21 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
             return;
         }
 
-        console.log('[AI Coding Agent] Submit started', { action, prompt: prompt.substring(0, 50) });
+        // Build final prompt - if refining, include previous response as context
+        let finalPrompt = prompt;
+        if (isRefining && response) {
+            finalPrompt = `Previous response:\n${response}\n\nRefinement request:\n${prompt}`;
+            console.log('[AI Coding Agent] Submitting refinement with context');
+        }
+
+        console.log('[AI Coding Agent] Submit started', { action, prompt: finalPrompt.substring(0, 50), isRefining });
         setIsLoading(true);
         setError(null);
         setResponse("");
         responseRef.current = "";
+        
+        // Reset refinement mode after submitting
+        setIsRefining(false);
 
         // Clear any existing timeout
         if (timeoutRef.current) {
@@ -336,7 +357,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                 case "smart":
                     result = await window.electron.aiCodingAgent.smartMode({
                         requestId,
-                        prompt,
+                        prompt: finalPrompt,
                         code: selectedCode,
                         language,
                         context: enhancedContext,
@@ -346,7 +367,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                 case "generate":
                     result = await window.electron.aiCodingAgent.generateCode({
                         requestId,
-                        prompt,
+                        prompt: finalPrompt,
                         language,
                         context: enhancedContext,
                         assistantId: selectedAssistant.id,
@@ -365,7 +386,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                     result = await window.electron.aiCodingAgent.editCode({
                         requestId,
                         code: selectedCode,
-                        instruction: prompt,
+                        instruction: finalPrompt,
                         language,
                         assistantId: selectedAssistant.id,
                     });
@@ -590,7 +611,9 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
 
                 <FormGroup
                     label={
-                        action === "smart"
+                        isRefining
+                            ? "Refinement instructions (optional)"
+                            : action === "smart"
                             ? "Describe what you want to do"
                             : action === "generate"
                             ? "Describe what you want to generate"
@@ -607,7 +630,9 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder={
-                            action === "smart"
+                            isRefining
+                                ? "e.g., Add error handling, or Make it more performant, or Support international domains"
+                                : action === "smart"
                                 ? "e.g., Add error handling to this function, or Create a validation function, or Explain this algorithm"
                                 : action === "generate"
                                 ? "e.g., Create a function that validates email addresses"
@@ -640,7 +665,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                 <div className={styles["action-buttons"]}>
                     <Button
                         intent="primary"
-                        text={isLoading ? "Processing..." : "Submit"}
+                        text={isLoading ? "Processing..." : isRefining ? "Submit Refinement" : "Submit"}
                         icon={isLoading ? <Spinner size={16} /> : "send-message"}
                         onClick={handleSubmit}
                         disabled={isLoading || !prompt.trim() || !selectedAssistant}
@@ -651,6 +676,18 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                             text="Insert into Editor"
                             icon="insert"
                             onClick={insertCodeIntoEditor}
+                            disabled={isLoading}
+                        />
+                    )}
+                    {response && (
+                        <Button
+                            text="Refine Response"
+                            icon="lightbulb"
+                            onClick={() => {
+                                console.log('[AI Coding Agent] Entering refinement mode');
+                                setIsRefining(true);
+                                setPrompt('');
+                            }}
                             disabled={isLoading}
                         />
                     )}
