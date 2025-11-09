@@ -37,6 +37,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     const [sdkTypes, setSdkTypes] = useState(null);
     const responseRef = useRef("");
     const timeoutRef = useRef(null);
+    const streamingRequestIdRef = useRef(null);
 
     // Load SDK types on mount
     useEffect(() => {
@@ -81,15 +82,15 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     useEffect(() => {
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
-            if (data.requestId === streamingRequestId && data.type === "content") {
+            if (data.requestId === streamingRequestIdRef.current && data.type === "content") {
                 responseRef.current += data.content;
                 setResponse(responseRef.current);
             }
         };
 
         const handleStreamDone = (data) => {
-            console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId });
-            if (data.requestId === streamingRequestId) {
+            console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
+            if (data.requestId === streamingRequestIdRef.current) {
                 console.log('[AI Coding Agent] Completing stream');
                 // Clear timeout
                 if (timeoutRef.current) {
@@ -98,22 +99,24 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 }
                 setIsLoading(false);
                 setStreamingRequestId(null);
+                streamingRequestIdRef.current = null;
                 
                 // Auto-apply if enabled
                 if (autoApply && responseRef.current) {
                     autoInsertCodeIntoEditor();
                 }
             } else {
-                console.warn('[AI Coding Agent] Stream done but requestId mismatch', { received: data.requestId, expected: streamingRequestId });
+                console.warn('[AI Coding Agent] Stream done but requestId mismatch', { received: data.requestId, expected: streamingRequestIdRef.current });
             }
         };
 
         const handleStreamError = (data) => {
             console.error('[AI Coding Agent] Stream error', data);
-            if (data.requestId === streamingRequestId) {
+            if (data.requestId === streamingRequestIdRef.current) {
                 setError(data.error);
                 setIsLoading(false);
                 setStreamingRequestId(null);
+                streamingRequestIdRef.current = null;
             }
         };
 
@@ -126,7 +129,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             window.electron.aiCodingAgent.off.streamDone(handleStreamDone);
             window.electron.aiCodingAgent.off.streamError(handleStreamError);
         };
-    }, [streamingRequestId, autoApply]);
+    }, [autoApply]);
 
     const getSelectedCode = () => {
         if (!codeEditor) return "";
@@ -355,6 +358,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
 
             if (result && result.requestId) {
                 console.log('[AI Coding Agent] Streaming started', result.requestId);
+                streamingRequestIdRef.current = result.requestId;
                 setStreamingRequestId(result.requestId);
             } else if (result && result.error) {
                 console.error('[AI Coding Agent] Error in result', result.error);
