@@ -77,7 +77,11 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
             </div>
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
             {selectedTabId === "output" && (<OutputPanel buildOutputIntent={buildOutputIntent} buildOutput={buildOutput}/>)}
-            {selectedTabId === "ai-agent" && (<AiCodingAgentPanel codeEditor={codeEditor} editorModelPath={editorModelPath}/>)}
+            {selectedTabId === "ai-agent" && (
+                <div className={styles["build-output-panel"]}>
+                    <AiCodingAgentPanel codeEditor={codeEditor} editorModelPath={editorModelPath}/>
+                </div>
+            )}
         </div>
     )
 }
