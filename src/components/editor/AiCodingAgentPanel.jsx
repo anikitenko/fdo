@@ -41,9 +41,13 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
     useEffect(() => {
         async function loadSdkTypes() {
             try {
-                const types = await window.electron.system.getFdoSdkTypes();
-                setSdkTypes(types);
-                console.log('[AI Coding Agent] SDK types loaded', { filesCount: types ? types.length : 0 });
+                const result = await window.electron.system.getFdoSdkTypes();
+                if (result && result.success && result.files) {
+                    setSdkTypes(result.files);
+                    console.log('[AI Coding Agent] SDK types loaded', { filesCount: result.files.length });
+                } else {
+                    console.error('[AI Coding Agent] Failed to load SDK types', result ? result.error : 'Unknown error');
+                }
             } catch (err) {
                 console.error('[AI Coding Agent] Failed to load SDK types', err);
             }
