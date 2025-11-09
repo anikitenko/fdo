@@ -121,8 +121,7 @@ Remember: You are working within a code editor, so precision and correctness are
 
 // Handle code generation
 async function handleGenerateCode(event, data) {
-    const { prompt, language, context, assistantId } = data;
-    const requestId = crypto.randomUUID();
+    const { requestId, prompt, language, context, assistantId } = data;
 
     console.log('[AI Coding Agent Backend] Generate code request', { requestId, language, promptLength: prompt?.length, assistantId });
 
@@ -180,8 +179,9 @@ async function handleGenerateCode(event, data) {
 
 // Handle code editing
 async function handleEditCode(event, data) {
-    const { code, instruction, language, assistantId } = data;
-    const requestId = crypto.randomUUID();
+    const { requestId, code, instruction, language, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Edit code request', { requestId, language, instructionLength: instruction?.length, assistantId });
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
@@ -194,7 +194,7 @@ Original code:
 ${code}
 \`\`\`
 
-Provide ONLY the modified code without additional explanations.`;
+Provide the modified code followed by a brief explanation of what you changed and why.`;
 
         llm.user(prompt);
         const resp = await llm.chat({ stream: true });
@@ -233,8 +233,9 @@ Provide ONLY the modified code without additional explanations.`;
 
 // Handle code explanation
 async function handleExplainCode(event, data) {
-    const { code, language, assistantId } = data;
-    const requestId = crypto.randomUUID();
+    const { requestId, code, language, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Explain code request', { requestId, language, codeLength: code?.length, assistantId });
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
@@ -285,8 +286,9 @@ Provide a clear, concise explanation of what this code does, how it works, and a
 
 // Handle code fixing
 async function handleFixCode(event, data) {
-    const { code, error, language, assistantId } = data;
-    const requestId = crypto.randomUUID();
+    const { requestId, code, error, language, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Fix code request', { requestId, language, codeLength: code?.length, assistantId });
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
@@ -338,8 +340,7 @@ Provide the fixed code and a brief explanation of what was wrong and how you fix
 
 // Handle smart mode - AI determines the action
 async function handleSmartMode(event, data) {
-    const { prompt, code, language, context, assistantId } = data;
-    const requestId = crypto.randomUUID();
+    const { requestId, prompt, code, language, context, assistantId } = data;
 
     console.log('[AI Coding Agent Backend] Smart mode request', { requestId, language, promptLength: prompt?.length, hasCode: !!code, hasContext: !!context });
 
@@ -360,7 +361,15 @@ async function handleSmartMode(event, data) {
             fullPrompt += `Additional context:\n${context}\n\n`;
         }
 
-        fullPrompt += `Provide the appropriate response based on the request. Return ONLY the code, explanation, or fix without meta-commentary.`;
+        fullPrompt += `Provide the appropriate response based on the request.
+
+IMPORTANT: When modifying code:
+- Clearly explain what you changed and why
+- List each modification with before/after comparison if helpful
+- Explain the reasoning behind your changes
+- If fixing bugs, explain what was wrong and how the fix addresses it
+
+Return the code or explanation without meta-commentary about which action you chose.`;
 
         llm.user(fullPrompt);
         console.log('[AI Coding Agent Backend] Sending to LLM');

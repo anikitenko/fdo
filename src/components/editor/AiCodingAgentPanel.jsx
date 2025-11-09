@@ -290,10 +290,17 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 contextLength: enhancedContext.length
             });
 
+            // Generate requestId upfront so we can track streaming events
+            const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            streamingRequestIdRef.current = requestId;
+            setStreamingRequestId(requestId);
+            console.log('[AI Coding Agent] Request ID set', requestId);
+
             let result;
             switch (action) {
                 case "smart":
                     result = await window.electron.aiCodingAgent.smartMode({
+                        requestId,
                         prompt,
                         code: selectedCode,
                         language,
@@ -303,6 +310,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                     break;
                 case "generate":
                     result = await window.electron.aiCodingAgent.generateCode({
+                        requestId,
                         prompt,
                         language,
                         context: enhancedContext,
@@ -320,6 +328,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         return;
                     }
                     result = await window.electron.aiCodingAgent.editCode({
+                        requestId,
                         code: selectedCode,
                         instruction: prompt,
                         language,
@@ -337,6 +346,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         return;
                     }
                     result = await window.electron.aiCodingAgent.explainCode({
+                        requestId,
                         code: selectedCode,
                         language,
                         assistantId: selectedAssistant.id,
@@ -353,6 +363,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                         return;
                     }
                     result = await window.electron.aiCodingAgent.fixCode({
+                        requestId,
                         code: selectedCode,
                         error: prompt,
                         language,
@@ -365,14 +376,15 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
 
             console.log('[AI Coding Agent] IPC result received', result);
 
-            if (result && result.requestId) {
-                console.log('[AI Coding Agent] Streaming started', result.requestId);
-                streamingRequestIdRef.current = result.requestId;
-                setStreamingRequestId(result.requestId);
+            if (result && result.success) {
+                console.log('[AI Coding Agent] Request successful, streaming in progress');
+                // Request ID already set before IPC call, streaming events should be flowing
             } else if (result && result.error) {
                 console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
                 setIsLoading(false);
+                streamingRequestIdRef.current = null;
+                setStreamingRequestId(null);
                 if (timeoutRef.current) {
                     clearTimeout(timeoutRef.current);
                     timeoutRef.current = null;
@@ -381,6 +393,8 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
                 console.error('[AI Coding Agent] Invalid result', result);
                 setError("Invalid response from AI service. Please try again.");
                 setIsLoading(false);
+                streamingRequestIdRef.current = null;
+                setStreamingRequestId(null);
                 if (timeoutRef.current) {
                     clearTimeout(timeoutRef.current);
                     timeoutRef.current = null;
