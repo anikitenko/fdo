@@ -188,7 +188,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         }
     };
 
-    const buildProjectContext = (selectedCode, language, currentFileContext) => {
+    const buildProjectContext = (currentFileContext) => {
         const projectFiles = getAllProjectFiles();
         let context = '';
 
@@ -203,11 +203,7 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
         }
 
         if (currentFileContext) {
-            context += `Current file:\n\`\`\`${language}\n${currentFileContext}\n\`\`\`\n\n`;
-        }
-
-        if (selectedCode) {
-            context += `Selected code:\n\`\`\`${language}\n${selectedCode}\n\`\`\`\n\n`;
+            context += `Current file content:\n${currentFileContext}\n\n`;
         }
 
         if (projectFiles.length > 0) {
@@ -282,10 +278,10 @@ export default function AiCodingAgentPanel({ codeEditor, editorModelPath }) {
             const language = getLanguage();
             const currentFileContext = getContext();
             
-            // Build comprehensive project context for smart mode
-            const enhancedContext = action === "smart" 
-                ? buildProjectContext(selectedCode, language, currentFileContext)
-                : (action === "generate" ? currentFileContext : "");
+            // Build comprehensive project context for smart mode and generate
+            const enhancedContext = (action === "smart" || action === "generate")
+                ? buildProjectContext(currentFileContext)
+                : "";
 
             console.log('[AI Coding Agent] Preparing request', { 
                 action, 
