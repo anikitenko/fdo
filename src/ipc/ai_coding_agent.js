@@ -137,14 +137,22 @@ async function handleGenerateCode(event, data) {
             fullPrompt += `\n\nContext:\n${context}`;
         }
 
-        fullPrompt += `\n\nIMPORTANT: When providing the code to insert, wrap it with a SOLUTION marker like this:
+        fullPrompt += `
+\n\nIMPORTANT: When providing the code to insert, wrap it with a SOLUTION marker like this:
 
 \`\`\`${language || 'code'}
-<!-- SOLUTION -->
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
 your actual code here
 \`\`\`
 
-You may include other code blocks for examples or explanations, but ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor.`;
+💡 You may include additional code blocks for examples, references, or explanations if helpful,
+but **ONLY the block marked with "// SOLUTION READY TO APPLY"** will be inserted into the editor.
+
+Make sure there is a blank line between the opening code fence and the SOLUTION marker.
+Do NOT literally include the text "<-- leave one empty line here -->" inside the code block.
+\n
+`;
 
         llm.user(fullPrompt);
         console.log('[AI Coding Agent Backend] Sending to LLM');
@@ -200,6 +208,7 @@ async function handleEditCode(event, data) {
 
 Original code:
 \`\`\`${language || ""}
+<-- leave one empty line here -->
 ${code}
 \`\`\`
 
@@ -208,11 +217,18 @@ Provide the modified code followed by a brief explanation of what you changed an
 IMPORTANT: When providing the modified code, wrap it with a SOLUTION marker like this:
 
 \`\`\`${language || 'code'}
-<!-- SOLUTION -->
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
 modified code here
 \`\`\`
 
-You may include other code blocks for examples, but ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor.`;
+💡 You may include other code blocks for examples, references, or explanations if helpful,
+but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
+
+Make sure there is a blank line between the opening code fence and the SOLUTION marker
+(or the first line of code in general).  
+Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
+`;
 
         llm.user(prompt);
         const resp = await llm.chat({ stream: true });
@@ -316,6 +332,7 @@ async function handleFixCode(event, data) {
 
 Code with error:
 \`\`\`${language || ""}
+<-- leave one empty line here -->
 ${code}
 \`\`\`
 
@@ -324,11 +341,18 @@ Provide the fixed code and a brief explanation of what was wrong and how you fix
 IMPORTANT: When providing the fixed code, wrap it with a SOLUTION marker like this:
 
 \`\`\`${language || 'code'}
-<!-- SOLUTION -->
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
 fixed code here
 \`\`\`
 
-You may include other code blocks for examples, but ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor.`;
+💡 You may include other code blocks for examples, references, or explanations if helpful,
+but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
+
+Make sure there is a blank line between the opening code fence and the SOLUTION marker
+(or the first line of code in general).  
+Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
+`;
 
         llm.user(prompt);
         const resp = await llm.chat({ stream: true });
@@ -391,19 +415,26 @@ async function handleSmartMode(event, data) {
         fullPrompt += `Provide the appropriate response based on the request.
 
 IMPORTANT: When providing code (for generation, editing, or fixing):
-- Wrap the ACTUAL CODE TO INSERT with a SOLUTION marker:
+
+- Wrap the **actual code to insert** with a SOLUTION marker, like this:
 
 \`\`\`${language || 'code'}
-<!-- SOLUTION -->
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
 your code here
 \`\`\`
 
-- You may include other code blocks for examples or explanations
-- ONLY the block marked with <!-- SOLUTION --> will be inserted into the editor
-- Clearly explain what you changed and why
-- List each modification with before/after comparison if helpful
+💡 You may include other code blocks for examples, references, or explanations if helpful,
+but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
 
-Return the code or explanation without meta-commentary about which action you chose.`;
+- Make sure there is a blank line between the opening code fence and the SOLUTION marker
+  (or the first line of code in general).  
+  Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
+- Clearly explain what you changed and why.
+- When applicable, list each modification with before/after comparison.
+
+Return the code or explanation directly — do **not** include meta-commentary about which action you chose.
+`;
 
         llm.user(fullPrompt);
         console.log('[AI Coding Agent Backend] Sending to LLM');
