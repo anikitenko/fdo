@@ -101,10 +101,10 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         error: null
     });
 
-    let listenersRegistered = false;
+    const listenersRegistered = useRef(false);
     useEffect(() => {
-        if (listenersRegistered) return; // Prevent double-registration
-        listenersRegistered = true;
+        if (listenersRegistered.current) return; // Prevent double-registration
+        listenersRegistered.current = true;
         // Create handler functions
         const handleStreamDelta = (data) => {
             console.log('[AI Coding Agent] Stream delta received', { requestId: data.requestId, contentLength: data.content ? data.content.length : 0 });
