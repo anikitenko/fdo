@@ -550,10 +550,12 @@ IMPORTANT:
 - Code blocks must specify the language (json, typescript, tsx, css, etc.)
 `;
 
-        // If image is provided, add it to the message
-        const messages = [];
+        console.log('[AI Coding Agent Backend] Sending plan request to LLM');
+        
+        let resp;
+        // If image is provided, use messages API with vision
         if (image) {
-            messages.push({
+            const messages = [{
                 role: 'user',
                 content: [
                     { type: 'text', text: fullPrompt },
@@ -562,15 +564,13 @@ IMPORTANT:
                         image_url: { url: image }
                     }
                 ]
-            });
+            }];
+            resp = await llm.chat({ messages, stream: true });
         } else {
+            // Otherwise use standard user prompt
             llm.user(fullPrompt);
+            resp = await llm.chat({ stream: true });
         }
-
-        console.log('[AI Coding Agent Backend] Sending plan request to LLM');
-        const resp = image 
-            ? await llm.chat({ messages, stream: true })
-            : await llm.chat({ stream: true });
 
         let fullContent = "";
 

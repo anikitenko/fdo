@@ -15,6 +15,7 @@ import * as styles from "./AiCodingAgentPanel.module.css";
 import * as styles2 from "../ai-chat/MarkdownRenderer.module.scss";
 import Markdown from "markdown-to-jsx";
 import virtualFS from "./utils/VirtualFS";
+import {createVirtualFile} from "./utils/createVirtualFile";
 
 import hljs from "../../assets/js/hljs/highlight.min"
 import "../../assets/css/hljs/xt256.min.css"
@@ -391,25 +392,9 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
             
             for (const file of files) {
                 try {
-                    const monaco = await import('monaco-editor');
-                    const uri = monaco.Uri.file(file.path);
-                    
-                    // Check if model already exists
-                    let model = monaco.editor.getModel(uri);
-                    
-                    if (!model) {
-                        // Create new model
-                        const language = getLanguageFromPath(file.path);
-                        model = monaco.editor.createModel(file.content, language, uri);
-                        console.log('[AI Coding Agent] Created new file:', file.path, 'with language:', language);
-                    } else {
-                        // Update existing model
-                        model.setValue(file.content);
-                        console.log('[AI Coding Agent] Updated existing file:', file.path);
-                    }
-                    
-                    // Register the file in VirtualFS
-                    virtualFS.createFile(file.path, model);
+                    // Use createVirtualFile which handles Monaco model creation properly
+                    createVirtualFile(file.path, file.content);
+                    console.log('[AI Coding Agent] Created file:', file.path);
                     successCount++;
                 } catch (err) {
                     console.error('[AI Coding Agent] Error creating file:', file.path, err);
@@ -428,12 +413,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                 setResponse(message);
                 responseRef.current = message;
                 
-                // Clear response and image after a delay
+                // Clear response and image after a delay (10 seconds to give users time to review)
                 setTimeout(() => {
                     setResponse('');
                     responseRef.current = '';
                     handleRemoveImage();
-                }, 3000);
+                }, 10000);
             } else {
                 setError(`Failed to create any files from the plan. Errors: ${errorDetails.join('; ')}`);
             }
@@ -450,7 +435,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         const files = [];
         
         // Match file sections: ### File: /path/to/file followed by code block
-        const filePattern = /###\s+File:\s+(\/[^\s\n]+)\s*\n\s*```(\w+)?\s*\n([\s\S]*?)```/g;
+        // Limit code block content to 50,000 characters to avoid catastrophic backtracking on malformed input
+        const filePattern = /###\s+File:\s+(\/[^\s\n]+)\s*\n\s*```(\w+)?\s*\n([^]{0,50000}?)```/g;
         
         let match;
         while ((match = filePattern.exec(response)) !== null) {
@@ -463,41 +449,6 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         }
         
         return files;
-    };
-    
-    // Helper function to determine language from file path
-    // Handles both extensions and common extensionless files (e.g., README, Dockerfile, Makefile)
-    const getLanguageFromPath = (path) => {
-        // Get the base filename (strip directory)
-        const base = path.split('/').pop();
-        // Map for common extensionless files
-        const extensionlessMap = {
-            'README': 'markdown',
-            'README.md': 'markdown',
-            'Dockerfile': 'dockerfile',
-            'Makefile': 'makefile',
-            'LICENSE': 'plaintext',
-            'Procfile': 'plaintext',
-        };
-        if (extensionlessMap[base]) {
-            return extensionlessMap[base];
-        }
-        // Otherwise, use extension
-        const ext = base.includes('.') ? base.split('.').pop().toLowerCase() : '';
-        const languageMap = {
-            'ts': 'typescript',
-            'tsx': 'typescript',
-            'js': 'javascript',
-            'jsx': 'javascript',
-            'json': 'json',
-            'css': 'css',
-            'scss': 'scss',
-            'html': 'html',
-            'md': 'markdown',
-            'yaml': 'yaml',
-            'yml': 'yaml',
-        };
-        return languageMap[ext] || 'plaintext';
     };
 
     const handleSubmit = async () => {
