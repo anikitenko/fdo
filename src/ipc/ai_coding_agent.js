@@ -1,0 +1,483 @@
+import {ipcMain} from "electron";
+import {AiCodingAgentChannels} from "./channels.js";
+import LLM from "@themaximalist/llm.js";
+import {settings} from "../utils/store.js";
+
+// Select a coding assistant from settings
+function selectCodingAssistant(assistantId) {
+    const list = settings.get("ai.coding", []) || [];
+    
+    // If assistantId is provided, find that specific assistant
+    if (assistantId) {
+        const assistant = list.find(a => a.id === assistantId);
+        if (assistant) return assistant;
+    }
+    
+    // Otherwise, fall back to default or first
+    const assistantInfo = list.find(a => a.default) || list[0];
+    if (!assistantInfo) {
+        throw new Error("No AI Coding assistant found. Please add one in Settings → AI Assistants.");
+    }
+    return assistantInfo;
+}
+
+// Create LLM instance for coding tasks
+async function createCodingLlm(assistantInfo, stream = false) {
+    const llm = new LLM({
+        service: assistantInfo.provider,
+        apiKey: assistantInfo.apiKey,
+        model: assistantInfo.model,
+        stream: stream,
+        extended: true,
+        max_tokens: 4096,
+    });
+
+    llm.system(`
+You are an expert coding assistant integrated into the FDO (FlexDevOps) code editor.
+
+Your role is to help developers with:
+- Code generation based on natural language descriptions
+- Code editing and refactoring
+- Code explanation and documentation
+- Bug fixing and error resolution
+
+### FDO Plugin Development Context
+
+When working with FDO plugins, be aware of:
+
+**FDO SDK (@anikitenko/fdo-sdk)**
+- Plugins extend the FDO_SDK base class and implement FDOInterface
+- Required metadata: name, version, author, description, icon
+- Lifecycle hooks: init() for initialization, render() for UI rendering
+- Communication: IPC message-based communication with main application
+- Storage: Multiple backends (in-memory, JSON file-based)
+- Logging: Built-in this.log() method
+
+**DOM Element Generation**
+The SDK provides specialized classes for creating HTML elements:
+- DOMTable: Tables with thead, tbody, tfoot, tr, th, td, caption
+- DOMMedia: Images with accessibility support
+- DOMSemantic: article, section, nav, header, footer, aside, main
+- DOMNested: Ordered lists (ol), definition lists (dl, dt, dd)
+- DOMInput: Form inputs, select dropdowns with options
+- DOMText: Headings, paragraphs, spans
+- DOMButton: Buttons with event handlers
+- DOMLink: Anchor elements
+- DOMMisc: Horizontal rules and other elements
+
+All DOM classes support:
+- Custom CSS styling via goober CSS-in-JS
+- Custom classes and inline styles
+- HTML attributes
+- Event handlers
+- Accessibility attributes
+
+**Example Plugin Structure:**
+\`\`\`typescript
+import { FDO_SDK, FDOInterface, PluginMetadata } from "@anikitenko/fdo-sdk";
+
+export default class MyPlugin extends FDO_SDK implements FDOInterface {
+    private readonly _metadata: PluginMetadata = {
+        name: "My Plugin",
+        version: "1.0.0",
+        author: "Your Name",
+        description: "Plugin description",
+        icon: "COG"
+    };
+
+    get metadata(): PluginMetadata {
+        return this._metadata;
+    }
+
+    init(): void {
+        this.log("Plugin initialized!");
+    }
+
+    render(): string {
+        return "<div>Hello World</div>";
+    }
+}
+\`\`\`
+
+### Guidelines:
+1. Provide clean, production-ready code that follows best practices
+2. When generating FDO plugins, use the SDK's DOM classes for better type safety
+3. When generating code, match the style and patterns of the surrounding code
+4. When editing code, make minimal changes to achieve the desired result
+5. When explaining code, be concise but thorough
+6. When fixing bugs, explain what was wrong and how you fixed it
+7. Always consider the context of the file being edited (language, framework, etc.)
+8. Format your responses appropriately:
+   - For code generation/editing: return ONLY the code without explanations unless asked
+   - For explanations: provide clear, structured explanations
+   - For fixes: include both the fix and a brief explanation
+
+Remember: You are working within a code editor, so precision and correctness are paramount.
+`);
+
+    return llm;
+}
+
+// Handle code generation
+async function handleGenerateCode(event, data) {
+    const { requestId, prompt, language, context, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Generate code request', { requestId, language, promptLength: prompt?.length, assistantId });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        console.log('[AI Coding Agent Backend] Assistant selected', { name: assistantInfo.name, provider: assistantInfo.provider, model: assistantInfo.model });
+        
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        let fullPrompt = `Generate ${language || "code"} for the following request:\n\n${prompt}`;
+        
+        if (context) {
+            fullPrompt += `\n\nContext:\n${context}`;
+        }
+
+        fullPrompt += `
+\n\nIMPORTANT: When providing the code to insert, wrap it with a SOLUTION marker like this:
+
+\`\`\`${language || 'code'}
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
+your actual code here
+\`\`\`
+
+💡 You may include additional code blocks for examples, references, or explanations if helpful,
+but **ONLY the block marked with "// SOLUTION READY TO APPLY"** will be inserted into the editor.
+
+Make sure there is a blank line between the opening code fence and the SOLUTION marker.
+Do NOT literally include the text "<-- leave one empty line here -->" inside the code block.
+\n
+`;
+
+        llm.user(fullPrompt);
+        console.log('[AI Coding Agent Backend] Sending to LLM');
+        const resp = await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            console.log('[AI Coding Agent Backend] Streaming started');
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        console.error('[AI Coding Agent Backend] Invalid LLM response');
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        console.error('[AI Coding Agent Backend] Error in handleGenerateCode', error);
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
+// Handle code editing
+async function handleEditCode(event, data) {
+    const { requestId, code, instruction, language, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Edit code request', { requestId, language, instructionLength: instruction?.length, assistantId });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        const prompt = `Edit the following ${language || ""} code according to this instruction: ${instruction}
+
+Original code:
+\`\`\`${language || ""}
+<-- leave one empty line here -->
+${code}
+\`\`\`
+
+Provide the modified code followed by a brief explanation of what you changed and why.
+
+IMPORTANT: When providing the modified code, wrap it with a SOLUTION marker like this:
+
+\`\`\`${language || 'code'}
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
+modified code here
+\`\`\`
+
+💡 You may include other code blocks for examples, references, or explanations if helpful,
+but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
+
+Make sure there is a blank line between the opening code fence and the SOLUTION marker
+(or the first line of code in general).  
+Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
+`;
+
+        llm.user(prompt);
+        const resp = await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
+// Handle code explanation
+async function handleExplainCode(event, data) {
+    const { requestId, code, language, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Explain code request', { requestId, language, codeLength: code?.length, assistantId });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        const prompt = `Explain the following ${language || ""} code:
+
+\`\`\`${language || ""}
+${code}
+\`\`\`
+
+Provide a clear, concise explanation of what this code does, how it works, and any notable patterns or practices used.`;
+
+        llm.user(prompt);
+        const resp = await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
+// Handle code fixing
+async function handleFixCode(event, data) {
+    const { requestId, code, error, language, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Fix code request', { requestId, language, codeLength: code?.length, assistantId });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        const prompt = `Fix the following ${language || ""} code that has this error: ${error}
+
+Code with error:
+\`\`\`${language || ""}
+<-- leave one empty line here -->
+${code}
+\`\`\`
+
+Provide the fixed code and a brief explanation of what was wrong and how you fixed it.
+
+IMPORTANT: When providing the fixed code, wrap it with a SOLUTION marker like this:
+
+\`\`\`${language || 'code'}
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
+fixed code here
+\`\`\`
+
+💡 You may include other code blocks for examples, references, or explanations if helpful,
+but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
+
+Make sure there is a blank line between the opening code fence and the SOLUTION marker
+(or the first line of code in general).  
+Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
+`;
+
+        llm.user(prompt);
+        const resp = await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
+// Handle smart mode - AI determines the action
+async function handleSmartMode(event, data) {
+    const { requestId, prompt, code, language, context, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Smart mode request', { requestId, language, promptLength: prompt?.length, hasCode: !!code, hasContext: !!context });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        // Build a clear prompt for the AI
+        let fullPrompt = `User's request: ${prompt}\n\n`;
+
+        // If code is selected, show it prominently
+        if (code) {
+            fullPrompt += `Selected code in ${language || 'current file'}:\n\`\`\`${language || ''}\n${code}\n\`\`\`\n\n`;
+        }
+
+        // Add context (SDK types, project files, current file) if available
+        if (context) {
+            fullPrompt += `Additional context:\n${context}\n\n`;
+        }
+
+        fullPrompt += `Provide the appropriate response based on the request.
+
+IMPORTANT: When providing code (for generation, editing, or fixing):
+
+- Wrap the **actual code to insert** with a SOLUTION marker, like this:
+
+\`\`\`${language || 'code'}
+<-- leave one empty line here -->
+// SOLUTION READY TO APPLY
+your code here
+\`\`\`
+
+💡 You may include other code blocks for examples, references, or explanations if helpful,
+but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
+
+- Make sure there is a blank line between the opening code fence and the SOLUTION marker
+  (or the first line of code in general).  
+  Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
+- Clearly explain what you changed and why.
+- When applicable, list each modification with before/after comparison.
+
+Return the code or explanation directly — do **not** include meta-commentary about which action you chose.
+`;
+
+        llm.user(fullPrompt);
+        console.log('[AI Coding Agent Backend] Sending to LLM');
+        const resp = await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            console.log('[AI Coding Agent Backend] Streaming started');
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        console.error('[AI Coding Agent Backend] Error in handleSmartMode', error);
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
+export function registerAiCodingAgentHandlers() {
+    ipcMain.handle(AiCodingAgentChannels.GENERATE_CODE, handleGenerateCode);
+    ipcMain.handle(AiCodingAgentChannels.EDIT_CODE, handleEditCode);
+    ipcMain.handle(AiCodingAgentChannels.EXPLAIN_CODE, handleExplainCode);
+    ipcMain.handle(AiCodingAgentChannels.FIX_CODE, handleFixCode);
+    ipcMain.handle(AiCodingAgentChannels.SMART_MODE, handleSmartMode);
+}

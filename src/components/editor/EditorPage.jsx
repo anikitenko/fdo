@@ -314,8 +314,12 @@ export const EditorPage = () => {
                                         className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>
                                     <div className={styles["terminal-output-console"]}>
                                         <div className={styles["build-output-terminal"]}>
-                                            <BuildOutputTerminalComponent selectedTabId={buildOutputSelectedTabId}
-                                                                          setSelectedTabId={setBuildOutputSelectedTabId}/>
+                                            <BuildOutputTerminalComponent 
+                                                selectedTabId={buildOutputSelectedTabId}
+                                                setSelectedTabId={setBuildOutputSelectedTabId}
+                                                codeEditor={codeEditor}
+                                                editorModelPath={editorModelPath}
+                                            />
                                         </div>
                                     </div>
                                 </div>
