@@ -7,12 +7,12 @@ import {AppToaster} from "../AppToaster.jsx";
 import {v4 as uuidv4} from 'uuid';
 import AiCodingAgentPanel from "./AiCodingAgentPanel.jsx";
 
-const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor, editorModelPath}) => {
+const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor}) => {
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers());
     const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status());
     const [buildOutput, setBuildOutput] = useState([]);
     const [buildOutputIntent, setBuildOutputIntent] = useState("primary");
-    const [coddingAiResponse, setCoddingAiResponse] = useState("");
+    const [codingAiResponse, setCodingAiResponse] = useState("");
     const totalMarkers = markers.reduce((acc, marker) => {
         return acc + marker.markers.length
     }, 0)
@@ -80,7 +80,8 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
             {selectedTabId === "output" && (<OutputPanel buildOutputIntent={buildOutputIntent} buildOutput={buildOutput}/>)}
             {selectedTabId === "ai-agent" && (
                 <div className={styles["build-output-panel"]}>
-                    <AiCodingAgentPanel codeEditor={codeEditor} response={coddingAiResponse} setResponse={setCoddingAiResponse}/>
+                    <AiCodingAgentPanel codeEditor={codeEditor} response={codingAiResponse}
+                                        setResponse={setCodingAiResponse}/>
                 </div>
             )}
         </div>
@@ -90,7 +91,6 @@ BuildOutputTerminalComponent.propTypes = {
     selectedTabId: PropTypes.string.isRequired,
     setSelectedTabId: PropTypes.func.isRequired,
     codeEditor: PropTypes.object,
-    editorModelPath: PropTypes.string
 }
 
 const ProblemsPanel = ({markers}) => {

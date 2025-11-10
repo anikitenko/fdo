@@ -1,8 +1,7 @@
-import { ipcMain } from "electron";
-import { AiCodingAgentChannels } from "./channels.js";
+import {ipcMain} from "electron";
+import {AiCodingAgentChannels} from "./channels.js";
 import LLM from "@themaximalist/llm.js";
-import { settings } from "../utils/store.js";
-import crypto from "crypto";
+import {settings} from "../utils/store.js";
 
 // Select a coding assistant from settings
 function selectCodingAssistant(assistantId) {
