@@ -422,9 +422,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
             
             if (successCount > 0) {
                 // Show success message
-                const message = errorCount > 0 
-                    ? `Plan partially executed: ${successCount} file(s) created, ${errorCount} failed`
-                    : `✓ Plan executed successfully: ${successCount} file(s) created`;
+                const message = `✓ Plan executed successfully: ${successCount} file(s) created${errorCount > 0 ? `, ${errorCount} failed` : ''}`;
                 
                 setError(null);
                 setResponse(message);
