@@ -387,6 +387,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
             // Create files
             let successCount = 0;
             let errorCount = 0;
+            const errorDetails = [];
             
             for (const file of files) {
                 try {
@@ -413,27 +414,30 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                 } catch (err) {
                     console.error('[AI Coding Agent] Error creating file:', file.path, err);
                     errorCount++;
+                    errorDetails.push(`${file.path}: ${err.message}`);
                 }
             }
             
             console.log('[AI Coding Agent] Plan execution complete', { successCount, errorCount });
             
             if (successCount > 0) {
-                setError(null);
                 // Show success message
                 const message = errorCount > 0 
-                    ? `Plan partially executed: ${successCount} files created, ${errorCount} failed`
-                    : `Plan executed successfully: ${successCount} files created`;
+                    ? `Plan partially executed: ${successCount} file(s) created, ${errorCount} failed`
+                    : `✓ Plan executed successfully: ${successCount} file(s) created`;
                 
-                // Clear response after successful execution
+                setError(null);
+                setResponse(message);
+                responseRef.current = message;
+                
+                // Clear response and image after a delay
                 setTimeout(() => {
                     setResponse('');
                     responseRef.current = '';
-                }, 2000);
-                
-                alert(message);
+                    handleRemoveImage();
+                }, 3000);
             } else {
-                setError('Failed to create any files from the plan');
+                setError(`Failed to create any files from the plan. Errors: ${errorDetails.join('; ')}`);
             }
         } catch (err) {
             console.error('[AI Coding Agent] Error executing plan:', err);

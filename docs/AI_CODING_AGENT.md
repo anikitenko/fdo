@@ -8,12 +8,14 @@ The AI assistant is **FDO SDK-aware** and can help with plugin development using
 
 ## Features
 
-The AI Coding Agent supports four main actions:
+The AI Coding Agent supports the following actions:
 
-1. **Generate Code** - Create new code based on natural language descriptions
-2. **Edit Code** - Modify selected code according to instructions
-3. **Explain Code** - Get explanations for selected code blocks
-4. **Fix Code** - Debug and fix code with error messages
+1. **Smart Mode** - AI automatically determines the best action based on context
+2. **Generate Code** - Create new code based on natural language descriptions
+3. **Edit Code** - Modify selected code according to instructions
+4. **Explain Code** - Get explanations for selected code blocks
+5. **Fix Code** - Debug and fix code with error messages
+6. **Plan Code (Plugin Scaffold)** - Generate complete plugin project structures with multiple files
 
 ## FDO SDK Integration
 
@@ -70,25 +72,30 @@ export default class MyPlugin extends FDO_SDK implements FDOInterface {
 
 ### IPC Channels (`src/ipc/channels.js`)
 - Added `AiCodingAgentChannels` with the following operations:
+  - `SMART_MODE`
   - `GENERATE_CODE`
   - `EDIT_CODE`
   - `EXPLAIN_CODE`
   - `FIX_CODE`
+  - `PLAN_CODE`
   - Streaming events: `STREAM_DELTA`, `STREAM_DONE`, `STREAM_ERROR`
 
 ### Main Process Handler (`src/ipc/ai_coding_agent.js`)
-- Implements handlers for all four AI operations
+- Implements handlers for all AI operations including Plan Code
 - Uses the existing coding assistant configuration from settings
 - Supports streaming responses for real-time feedback
 - Each operation creates a unique request ID for tracking
 - **System prompt includes FDO SDK knowledge**
+- **Plan Code handler supports vision models for UI mockup analysis**
 
 ### Preload API (`src/preload.js`)
 - Exposes `window.electron.aiCodingAgent` with methods:
+  - `smartMode(data)` - AI-determined action
   - `generateCode(data)` - Generate new code
   - `editCode(data)` - Edit existing code
   - `explainCode(data)` - Explain code functionality
   - `fixCode(data)` - Fix code errors
+  - `planCode(data)` - Generate plugin scaffold
   - Event listeners for streaming updates
 
 ### UI Component (`src/components/editor/AiCodingAgentPanel.jsx`)
@@ -156,6 +163,123 @@ Explain how this plugin uses the FDO_SDK base class and lifecycle hooks
 ```
 This plugin fails to render - TypeError: Cannot read property 'render' of undefined
 ```
+
+**Plan Code (Plugin Scaffold):**
+```
+Create a weather dashboard plugin that displays current weather and a 5-day forecast
+```
+
+Or upload a UI mockup image and describe:
+```
+Analyze the uploaded mockup and create a plugin matching this design
+```
+
+## Plan Code (Plugin Scaffold) Feature
+
+The **Plan Code** action is a powerful feature that generates complete plugin project structures with multiple files. This is ideal for quickly scaffolding new plugins or creating complex multi-file projects.
+
+### How It Works
+
+1. **Describe Your Plugin**: Provide a detailed description of what you want to build
+2. **Optional UI Mockup**: Upload an image of a UI mockup for the AI to analyze
+3. **AI Generates Plan**: The AI creates a comprehensive plan with file structure and content
+4. **Execute Plan**: Click "Execute Plan" to automatically create all files in the editor
+
+### Plan Format
+
+The AI generates plans in a structured markdown format:
+
+```markdown
+## Plan Overview
+Brief description of the plugin and its features.
+
+## File Structure
+```
+/package.json
+/tsconfig.json
+/index.ts
+/render.tsx
+/components/
+  /WeatherCard.tsx
+  /ForecastList.tsx
+```
+
+## Implementation
+
+### File: /package.json
+```json
+{
+  "name": "weather-plugin",
+  "version": "1.0.0",
+  ...
+}
+```
+
+### File: /index.ts
+```typescript
+import { FDO_SDK, FDOInterface, PluginMetadata } from "@anikitenko/fdo-sdk";
+...
+```
+
+### File: /components/WeatherCard.tsx
+```tsx
+import React from 'react';
+...
+```
+```
+
+### Features
+
+- **Multi-file Generation**: Creates entire project structures with one click
+- **Vision Support**: Analyzes UI mockups when using vision-capable models (GPT-4 Vision, Claude with vision)
+- **FDO SDK Integration**: Generated code follows FDO plugin patterns automatically
+- **Snapshot Before Apply**: Creates an automatic snapshot so you can undo if needed
+- **Smart Parsing**: Automatically extracts file paths and content from AI response
+- **Language Detection**: Determines file language from extension for proper syntax highlighting
+
+### Example Usage
+
+**Prompt:**
+```
+Create a todo list plugin with the following features:
+- Add, edit, and delete tasks
+- Mark tasks as complete
+- Filter by status (all, active, completed)
+- Persist tasks using FDO storage
+- Use DOMTable for displaying tasks
+```
+
+**With UI Mockup:**
+1. Upload a screenshot or design mockup
+2. Describe: "Create a plugin matching this UI design with full functionality"
+3. AI analyzes the image and generates matching code
+
+### Execution Process
+
+When you click "Execute Plan":
+1. Creates a snapshot of current workspace (for undo)
+2. Parses the AI response to extract files
+3. Creates folder structure
+4. Creates Monaco editor models for each file
+5. Registers files with VirtualFS
+6. Shows success message with file count
+
+### Troubleshooting
+
+**No files created:**
+- Ensure AI response contains file sections with format: `### File: /path/to/file`
+- Check that code blocks are properly formatted with triple backticks
+- Try regenerating the plan with more specific instructions
+
+**Partial execution:**
+- Check console for specific file errors
+- Some files may have been created successfully
+- Use the snapshot feature to undo and try again
+
+**Vision models not working:**
+- Ensure your selected AI assistant supports vision (GPT-4 Vision, Claude 3+)
+- Image must be in a supported format (PNG, JPEG, WebP)
+- Image size should be under 20MB
 
 ### Keyboard Shortcuts
 
