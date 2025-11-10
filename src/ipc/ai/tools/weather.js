@@ -15,10 +15,13 @@ export const getCurrentWeatherTool = {
         const q = String(prompt).toLowerCase();
         const kws = [
             "weather", "forecast", "temperature", "wind", "humidity", "snow",
-            "rain", "sunny", "cloud", "storm", "cold", "hot"
+            "rain", "sunny", "cloud", "storm", "cold", "hot",
+            "погода", "дощ", "сонце", "вітер", "температура", "сніг", "гроза", "вітрянно", "парасолю", "парасоля"
         ];
         if (kws.some(k => q.includes(k))) return true;
-        if (/in\s+[a-z\s,'-]+\b/.test(q)) return q.includes("weather") || q.includes("forecast");
+        if (/in\s+[a-z\s,'-]+\b/.test(q) || /\bв\s+[а-яіїєґ\s,'-]+\b/i.test(q)) {
+            return kws.some(k => q.includes(k));
+        }
         return false;
     },
 
@@ -28,7 +31,8 @@ export const getCurrentWeatherTool = {
             if (!city) return { name: "get_current_weather", error: "City is required" };
 
             const q = encodeURIComponent(city);
-            const geores = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=1&language=en&format=json`);
+            const lang = /[а-яіїєґ]/i.test(city) ? "uk" : "en";
+            const geores = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=1&language=${lang}&format=json`);
             const geo = await geores.json();
             const first = geo?.results?.[0];
             if (!first) return { name: "get_current_weather", error: `City not found: ${city}` };

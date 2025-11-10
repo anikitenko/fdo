@@ -1,5 +1,5 @@
 import {contextBridge, ipcRenderer} from 'electron'
-import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels} from "./ipc/channels";
+import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels} from "./ipc/channels";
 
 contextBridge.exposeInMainWorld('electron', {
     versions: {
@@ -45,6 +45,24 @@ contextBridge.exposeInMainWorld('electron', {
             statsUpdate: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.STATS_UPDATE, cb),
             compressionStart: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.COMPRESSION_START, cb),
             compressionDone: (cb) => ipcRenderer.removeListener(AiChatChannels.on_off.COMPRESSION_DONE, cb),
+        }
+    },
+    aiCodingAgent: {
+        generateCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.GENERATE_CODE, data),
+        editCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.EDIT_CODE, data),
+        explainCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.EXPLAIN_CODE, data),
+        fixCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.FIX_CODE, data),
+        smartMode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.SMART_MODE, data),
+        planCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.PLAN_CODE, data),
+        on: {
+            streamDelta: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
+            streamDone: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DONE, (_, data) => callback(data)),
+            streamError: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_ERROR, (_, data) => callback(data)),
+        },
+        off: {
+            streamDelta: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_DELTA, callback),
+            streamDone: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_DONE, callback),
+            streamError: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_ERROR, callback),
         }
     },
     settings: {

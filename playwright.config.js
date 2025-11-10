@@ -3,7 +3,7 @@
 const config = {
   testDir: 'tests/e2e',
   workers: 1, // Run tests sequentially
-  testMatch: ['tests/e2e/snapshots.e2e.spec.js'],
+  testMatch: ['tests/e2e/snapshots.e2e.spec.js', 'tests/e2e/ai-coding-agent.spec.js'],
 };
 
 module.exports = config;

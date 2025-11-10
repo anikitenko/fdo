@@ -5,12 +5,14 @@ import {PropTypes} from 'prop-types';
 import * as styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
 import {v4 as uuidv4} from 'uuid';
+import AiCodingAgentPanel from "./AiCodingAgentPanel.jsx";
 
-const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
-    const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers())
-    const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status())
-    const [buildOutput, setBuildOutput] = useState([])
-    const [buildOutputIntent, setBuildOutputIntent] = useState("primary")
+const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor}) => {
+    const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers());
+    const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status());
+    const [buildOutput, setBuildOutput] = useState([]);
+    const [buildOutputIntent, setBuildOutputIntent] = useState("primary");
+    const [codingAiResponse, setCodingAiResponse] = useState("");
     const totalMarkers = markers.reduce((acc, marker) => {
         return acc + marker.markers.length
     }, 0)
@@ -70,17 +72,25 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId}) => {
                         }
                     }/>
                     <Tab id="output" title="Output"/>
+                    <Tab id="ai-agent" title="AI Coding Agent"/>
                 </Tabs>
                 <Divider/>
             </div>
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
             {selectedTabId === "output" && (<OutputPanel buildOutputIntent={buildOutputIntent} buildOutput={buildOutput}/>)}
+            {selectedTabId === "ai-agent" && (
+                <div className={styles["build-output-panel"]}>
+                    <AiCodingAgentPanel codeEditor={codeEditor} response={codingAiResponse}
+                                        setResponse={setCodingAiResponse}/>
+                </div>
+            )}
         </div>
     )
 }
 BuildOutputTerminalComponent.propTypes = {
     selectedTabId: PropTypes.string.isRequired,
-    setSelectedTabId: PropTypes.func.isRequired
+    setSelectedTabId: PropTypes.func.isRequired,
+    codeEditor: PropTypes.object,
 }
 
 const ProblemsPanel = ({markers}) => {

@@ -1,0 +1,87 @@
+.ai-coding-agent-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: transparent;
+    padding: 8px;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.panel-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.panel-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.error-message {
+    margin-top: 8px;
+}
+
+.loading-indicator {
+    margin-top: 12px;
+    flex-shrink: 0;
+}
+
+.response-container {
+    margin-top: 12px;
+}
+
+.response-container h4 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.response-card {
+    padding: 12px;
+    background-color: var(--bp6-dark-gray-5);
+    border-radius: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.response-card pre {
+    background-color: var(--bp6-dark-gray-2);
+    padding: 8px;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.response-card code {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-size: 12px;
+}
+
+.response-card p {
+    margin: 6px 0;
+    font-size: 13px;
+}
+
+.response-card ul,
+.response-card ol {
+    margin: 6px 0;
+    padding-left: 20px;
+    font-size: 13px;
+}
