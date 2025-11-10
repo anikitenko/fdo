@@ -468,8 +468,24 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
     };
     
     // Helper function to determine language from file path
+    // Handles both extensions and common extensionless files (e.g., README, Dockerfile, Makefile)
     const getLanguageFromPath = (path) => {
-        const ext = path.split('.').pop().toLowerCase();
+        // Get the base filename (strip directory)
+        const base = path.split('/').pop();
+        // Map for common extensionless files
+        const extensionlessMap = {
+            'README': 'markdown',
+            'README.md': 'markdown',
+            'Dockerfile': 'dockerfile',
+            'Makefile': 'makefile',
+            'LICENSE': 'plaintext',
+            'Procfile': 'plaintext',
+        };
+        if (extensionlessMap[base]) {
+            return extensionlessMap[base];
+        }
+        // Otherwise, use extension
+        const ext = base.includes('.') ? base.split('.').pop().toLowerCase() : '';
         const languageMap = {
             'ts': 'typescript',
             'tsx': 'typescript',
