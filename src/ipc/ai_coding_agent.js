@@ -505,12 +505,7 @@ Brief description of what the plugin does and its main features.
 /package.json
 /tsconfig.json
 /index.ts
-/render.tsx
-/components/
-  /Component1.tsx
-  /Component2.tsx
-/styles/
-  /main.css
+/styles.ts (optional - for goober CSS-in-JS)
 \`\`\`
 
 ## Implementation
@@ -533,21 +528,47 @@ export default class MyPlugin extends FDO_SDK implements FDOInterface {
 }
 \`\`\`
 
-### File: /render.tsx
-\`\`\`tsx
-...complete file content...
-\`\`\`
-
 Continue this pattern for ALL files mentioned in the structure.
 
-IMPORTANT:
-- Use proper FDO SDK patterns (extend FDO_SDK, implement FDOInterface)
-- Include all necessary imports
-- Provide complete, working code for each file
-- Use TypeScript for .ts and .tsx files
+IMPORTANT CONSTRAINTS:
+- **NO React/JSX**: FDO plugins do NOT use React. The render() method must return plain HTML strings.
+- Use the FDO SDK DOM classes (DOMTable, DOMButton, DOMInput, DOMText, etc.) to generate HTML elements
+- Use goober CSS-in-JS library for styling (available globally via window.goober)
+- Plugins have access to these global functions in the plugin host environment:
+  * window.createBackendReq(type, data) - for IPC communication with main app
+  * window.executeInjectedScript(scriptContent) - to execute dynamic scripts
+  * window.waitForElement(selector, callback, timeout) - to wait for DOM elements
+  * window.addGlobalEventListener(eventType, callback) - to add event listeners
+  * window.removeGlobalEventListener(eventType, callback) - to remove event listeners
+  * window.applyClassToSelector(className, selector) - to apply CSS classes
+
+PLUGIN STRUCTURE REQUIREMENTS:
+- Extend FDO_SDK base class and implement FDOInterface
+- Required metadata: name, version, author, description, icon
+- Lifecycle: init() for initialization, render() returns HTML string
+- Use SDK DOM classes for type-safe HTML generation
+- Use TypeScript for .ts files
 - Follow the exact format shown above for each file
 - Each file section should start with "### File: /path/to/file"
-- Code blocks must specify the language (json, typescript, tsx, css, etc.)
+- Code blocks must specify the language (json, typescript, css, etc.)
+
+EXAMPLE render() METHOD:
+\`\`\`typescript
+render(): string {
+    const table = new DOMTable()
+        .addRow([new DOMText('Column 1'), new DOMText('Column 2')])
+        .build();
+    
+    const button = new DOMButton('Click Me')
+        .onClick(() => {
+            window.createBackendReq('myHandler', { action: 'test' })
+                .then(result => console.log(result));
+        })
+        .build();
+    
+    return \`<div>\${table}\${button}</div>\`;
+}
+\`\`\`
 `;
 
         console.log('[AI Coding Agent Backend] Sending plan request to LLM');
