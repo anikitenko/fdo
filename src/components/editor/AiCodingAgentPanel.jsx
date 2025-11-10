@@ -452,7 +452,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         const files = [];
         
         // Match file sections: ### File: /path/to/file followed by code block
-        const filePattern = /###\s+File:\s+(\/[^\n]+)\s*\n\s*```(\w+)?\s*\n([\s\S]*?)```/g;
+        const filePattern = /###\s+File:\s+(\/[^\s\n]+)\s*\n\s*```(\w+)?\s*\n([\s\S]*?)```/g;
         
         let match;
         while ((match = filePattern.exec(response)) !== null) {
