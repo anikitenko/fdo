@@ -912,11 +912,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                         <Button
                             text="Refine Response"
                             icon="lightbulb"
-                            onClick={() => {
-                                console.log('[AI Coding Agent] Entering refinement mode');
-                                setIsRefining(true);
-                                setPrompt('');
-                            }}
+                            onClick={handleRefine}
                             disabled={isLoading}
                         />
                     )}
