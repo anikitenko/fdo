@@ -338,9 +338,148 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
 
     const handleExecutePlan = async () => {
         if (!response) return;
-        // TODO: Parse plan and generate files in VirtualFS
+        
         console.log('[AI Coding Agent] Executing plan...');
-        setError('Plan execution coming soon!');
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            // Create snapshot before making changes
+            const snapshot = createSnapshotBeforeApply();
+            if (!snapshot) {
+                setError('Failed to create snapshot before applying plan');
+                setIsLoading(false);
+                return;
+            }
+            
+            // Parse the plan and extract files
+            const files = parsePlanResponse(response);
+            
+            if (files.length === 0) {
+                setError('No files found in the plan. Please ensure the AI response contains file sections with code blocks.');
+                setIsLoading(false);
+                return;
+            }
+            
+            console.log('[AI Coding Agent] Creating files from plan', { fileCount: files.length });
+            
+            // Create folders first (extract unique folder paths)
+            const folders = new Set();
+            files.forEach(file => {
+                const parts = file.path.split('/').filter(Boolean);
+                for (let i = 1; i < parts.length; i++) {
+                    const folderPath = '/' + parts.slice(0, i).join('/');
+                    folders.add(folderPath);
+                }
+            });
+            
+            // Create folders in order
+            const sortedFolders = Array.from(folders).sort();
+            for (const folder of sortedFolders) {
+                try {
+                    virtualFS.createFolder(folder);
+                    console.log('[AI Coding Agent] Created folder:', folder);
+                } catch (err) {
+                    console.warn('[AI Coding Agent] Folder may already exist:', folder, err);
+                }
+            }
+            
+            // Create files
+            let successCount = 0;
+            let errorCount = 0;
+            
+            for (const file of files) {
+                try {
+                    const monaco = await import('monaco-editor');
+                    const uri = monaco.Uri.file(file.path);
+                    
+                    // Check if model already exists
+                    let model = monaco.editor.getModel(uri);
+                    
+                    if (!model) {
+                        // Create new model
+                        const language = getLanguageFromPath(file.path);
+                        model = monaco.editor.createModel(file.content, language, uri);
+                        console.log('[AI Coding Agent] Created new file:', file.path, 'with language:', language);
+                    } else {
+                        // Update existing model
+                        model.setValue(file.content);
+                        console.log('[AI Coding Agent] Updated existing file:', file.path);
+                    }
+                    
+                    // Register the file in VirtualFS
+                    virtualFS.createFile(file.path, model);
+                    successCount++;
+                } catch (err) {
+                    console.error('[AI Coding Agent] Error creating file:', file.path, err);
+                    errorCount++;
+                }
+            }
+            
+            console.log('[AI Coding Agent] Plan execution complete', { successCount, errorCount });
+            
+            if (successCount > 0) {
+                setError(null);
+                // Show success message
+                const message = errorCount > 0 
+                    ? `Plan partially executed: ${successCount} files created, ${errorCount} failed`
+                    : `Plan executed successfully: ${successCount} files created`;
+                
+                // Clear response after successful execution
+                setTimeout(() => {
+                    setResponse('');
+                    responseRef.current = '';
+                }, 2000);
+                
+                alert(message);
+            } else {
+                setError('Failed to create any files from the plan');
+            }
+        } catch (err) {
+            console.error('[AI Coding Agent] Error executing plan:', err);
+            setError(`Failed to execute plan: ${err.message}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    // Helper function to parse plan response and extract files
+    const parsePlanResponse = (response) => {
+        const files = [];
+        
+        // Match file sections: ### File: /path/to/file followed by code block
+        const filePattern = /###\s+File:\s+(\/[^\n]+)\s*\n\s*```(\w+)?\s*\n([\s\S]*?)```/g;
+        
+        let match;
+        while ((match = filePattern.exec(response)) !== null) {
+            const [, path, language, content] = match;
+            files.push({
+                path: path.trim(),
+                language: language || '',
+                content: content.trim()
+            });
+        }
+        
+        return files;
+    };
+    
+    // Helper function to determine language from file path
+    const getLanguageFromPath = (path) => {
+        const ext = path.split('.').pop().toLowerCase();
+        const languageMap = {
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'js': 'javascript',
+            'jsx': 'javascript',
+            'json': 'json',
+            'css': 'css',
+            'scss': 'scss',
+            'html': 'html',
+            'md': 'markdown',
+            'yaml': 'yaml',
+            'yml': 'yaml',
+        };
+        return languageMap[ext] || 'plaintext';
     };
 
     const handleSubmit = async () => {

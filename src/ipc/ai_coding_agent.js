@@ -474,10 +474,144 @@ Return the code or explanation directly — do **not** include meta-commentary a
     }
 }
 
+// Handle code planning - Generate plugin scaffold
+async function handlePlanCode(event, data) {
+    const { requestId, prompt, image, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Plan code request', { requestId, promptLength: prompt?.length, hasImage: !!image, assistantId });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        let fullPrompt = `Create a detailed implementation plan for an FDO plugin based on the following description:
+
+${prompt}
+
+${image ? '\n[Note: An image mockup has been provided - analyze it and incorporate the UI design into the plan]\n' : ''}
+
+Generate a comprehensive plan that includes:
+
+1. **Project Structure**: List all files and folders needed
+2. **File Contents**: Provide the complete code for each file
+
+Format your response as a structured plan using the following format:
+
+## Plan Overview
+Brief description of what the plugin does and its main features.
+
+## File Structure
+\`\`\`
+/package.json
+/tsconfig.json
+/index.ts
+/render.tsx
+/components/
+  /Component1.tsx
+  /Component2.tsx
+/styles/
+  /main.css
+\`\`\`
+
+## Implementation
+
+### File: /package.json
+\`\`\`json
+{
+  "name": "plugin-name",
+  "version": "1.0.0",
+  ...complete file content...
+}
+\`\`\`
+
+### File: /index.ts
+\`\`\`typescript
+import { FDO_SDK, FDOInterface, PluginMetadata } from "@anikitenko/fdo-sdk";
+
+export default class MyPlugin extends FDO_SDK implements FDOInterface {
+    ...complete file content...
+}
+\`\`\`
+
+### File: /render.tsx
+\`\`\`tsx
+...complete file content...
+\`\`\`
+
+Continue this pattern for ALL files mentioned in the structure.
+
+IMPORTANT:
+- Use proper FDO SDK patterns (extend FDO_SDK, implement FDOInterface)
+- Include all necessary imports
+- Provide complete, working code for each file
+- Use TypeScript for .ts and .tsx files
+- Follow the exact format shown above for each file
+- Each file section should start with "### File: /path/to/file"
+- Code blocks must specify the language (json, typescript, tsx, css, etc.)
+`;
+
+        // If image is provided, add it to the message
+        const messages = [];
+        if (image) {
+            messages.push({
+                role: 'user',
+                content: [
+                    { type: 'text', text: fullPrompt },
+                    { 
+                        type: 'image_url', 
+                        image_url: { url: image }
+                    }
+                ]
+            });
+        } else {
+            llm.user(fullPrompt);
+        }
+
+        console.log('[AI Coding Agent Backend] Sending plan request to LLM');
+        const resp = image 
+            ? await llm.chat({ messages, stream: true })
+            : await llm.chat({ stream: true });
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            console.log('[AI Coding Agent Backend] Streaming started');
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        console.error('[AI Coding Agent Backend] Error in handlePlanCode', error);
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
 export function registerAiCodingAgentHandlers() {
     ipcMain.handle(AiCodingAgentChannels.GENERATE_CODE, handleGenerateCode);
     ipcMain.handle(AiCodingAgentChannels.EDIT_CODE, handleEditCode);
     ipcMain.handle(AiCodingAgentChannels.EXPLAIN_CODE, handleExplainCode);
     ipcMain.handle(AiCodingAgentChannels.FIX_CODE, handleFixCode);
     ipcMain.handle(AiCodingAgentChannels.SMART_MODE, handleSmartMode);
+    ipcMain.handle(AiCodingAgentChannels.PLAN_CODE, handlePlanCode);
 }
