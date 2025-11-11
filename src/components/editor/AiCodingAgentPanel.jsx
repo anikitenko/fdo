@@ -806,8 +806,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                                     />
                                     <Button
                                         icon="cross"
-                                        minimal
-                                        small
+                                        variant={"minimal"}
+                                        size={"small"}
                                         onClick={handleRemoveImage}
                                         disabled={isLoading}
                                         style={{ marginTop: '4px' }}
