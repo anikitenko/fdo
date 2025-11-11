@@ -474,10 +474,165 @@ Return the code or explanation directly — do **not** include meta-commentary a
     }
 }
 
+// Handle code planning - Generate plugin scaffold
+async function handlePlanCode(event, data) {
+    const { requestId, prompt, image, assistantId } = data;
+
+    console.log('[AI Coding Agent Backend] Plan code request', { requestId, promptLength: prompt?.length, hasImage: !!image, assistantId });
+
+    try {
+        const assistantInfo = selectCodingAssistant(assistantId);
+        const llm = await createCodingLlm(assistantInfo, true);
+
+        let fullPrompt = `Create a detailed implementation plan for an FDO plugin based on the following description:
+
+${prompt}
+
+${image ? '\n[Note: An image mockup has been provided - analyze it and incorporate the UI design into the plan]\n' : ''}
+
+Generate a comprehensive plan that includes:
+
+1. **Project Structure**: List all files and folders needed
+2. **File Contents**: Provide the complete code for each file
+
+Format your response as a structured plan using the following format:
+
+## Plan Overview
+Brief description of what the plugin does and its main features.
+
+## File Structure
+\`\`\`
+/package.json
+/tsconfig.json
+/index.ts
+/styles.ts (optional - for goober CSS-in-JS)
+\`\`\`
+
+## Implementation
+
+### File: /package.json
+\`\`\`json
+{
+  "name": "plugin-name",
+  "version": "1.0.0",
+  ...complete file content...
+}
+\`\`\`
+
+### File: /index.ts
+\`\`\`typescript
+import { FDO_SDK, FDOInterface, PluginMetadata } from "@anikitenko/fdo-sdk";
+
+export default class MyPlugin extends FDO_SDK implements FDOInterface {
+    ...complete file content...
+}
+\`\`\`
+
+Continue this pattern for ALL files mentioned in the structure.
+
+IMPORTANT CONSTRAINTS:
+- **NO React/JSX**: FDO plugins do NOT use React. The render() method must return plain HTML strings.
+- Use the FDO SDK DOM classes (DOMTable, DOMButton, DOMInput, DOMText, etc.) to generate HTML elements
+- Use goober CSS-in-JS library for styling (available globally via window.goober)
+- Plugins have access to these global functions in the plugin host environment:
+  * window.createBackendReq(type, data) - for IPC communication with main app
+  * window.executeInjectedScript(scriptContent) - to execute dynamic scripts
+  * window.waitForElement(selector, callback, timeout) - to wait for DOM elements
+  * window.addGlobalEventListener(eventType, callback) - to add event listeners
+  * window.removeGlobalEventListener(eventType, callback) - to remove event listeners
+  * window.applyClassToSelector(className, selector) - to apply CSS classes
+
+PLUGIN STRUCTURE REQUIREMENTS:
+- Extend FDO_SDK base class and implement FDOInterface
+- Required metadata: name, version, author, description, icon
+- Lifecycle: init() for initialization, render() returns HTML string
+- Use SDK DOM classes for type-safe HTML generation
+- Use TypeScript for .ts files
+- Follow the exact format shown above for each file
+- Each file section should start with "### File: /path/to/file"
+- Code blocks must specify the language (json, typescript, css, etc.)
+
+EXAMPLE render() METHOD:
+\`\`\`typescript
+render(): string {
+    const table = new DOMTable()
+        .addRow([new DOMText('Column 1'), new DOMText('Column 2')])
+        .build();
+    
+    const button = new DOMButton('Click Me')
+        .onClick(() => {
+            window.createBackendReq('myHandler', { action: 'test' })
+                .then(result => console.log(result));
+        })
+        .build();
+    
+    return \`<div>\${table}\${button}</div>\`;
+}
+\`\`\`
+`;
+
+        console.log('[AI Coding Agent Backend] Sending plan request to LLM');
+        
+        let resp;
+        // If image is provided, use messages API with vision
+        if (image) {
+            const messages = [{
+                role: 'user',
+                content: [
+                    { type: 'text', text: fullPrompt },
+                    { 
+                        type: 'image_url', 
+                        image_url: { url: image }
+                    }
+                ]
+            }];
+            resp = await llm.chat({ messages, stream: true });
+        } else {
+            // Otherwise use standard user prompt
+            llm.user(fullPrompt);
+            resp = await llm.chat({ stream: true });
+        }
+
+        let fullContent = "";
+
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            console.log('[AI Coding Agent Backend] Streaming started');
+            for await (const chunk of resp.stream) {
+                if (!chunk) continue;
+                const { type, content: piece } = chunk;
+
+                if (type === "content" && piece && typeof piece === "string") {
+                    fullContent += piece;
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                        requestId,
+                        type: "content",
+                        content: piece,
+                    });
+                }
+            }
+
+            await resp.complete();
+            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            return { success: true, requestId, content: fullContent };
+        }
+
+        return { success: false, error: "Invalid response from LLM" };
+    } catch (error) {
+        console.error('[AI Coding Agent Backend] Error in handlePlanCode', error);
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error.message,
+        });
+        return { success: false, error: error.message };
+    }
+}
+
 export function registerAiCodingAgentHandlers() {
     ipcMain.handle(AiCodingAgentChannels.GENERATE_CODE, handleGenerateCode);
     ipcMain.handle(AiCodingAgentChannels.EDIT_CODE, handleEditCode);
     ipcMain.handle(AiCodingAgentChannels.EXPLAIN_CODE, handleExplainCode);
     ipcMain.handle(AiCodingAgentChannels.FIX_CODE, handleFixCode);
     ipcMain.handle(AiCodingAgentChannels.SMART_MODE, handleSmartMode);
+    ipcMain.handle(AiCodingAgentChannels.PLAN_CODE, handlePlanCode);
 }
