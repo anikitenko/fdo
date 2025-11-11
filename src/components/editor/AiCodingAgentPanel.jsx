@@ -15,6 +15,7 @@ import * as styles from "./AiCodingAgentPanel.module.css";
 import * as styles2 from "../ai-chat/MarkdownRenderer.module.scss";
 import Markdown from "markdown-to-jsx";
 import virtualFS from "./utils/VirtualFS";
+import {createVirtualFile} from "./utils/createVirtualFile";
 
 import hljs from "../../assets/js/hljs/highlight.min"
 import "../../assets/css/hljs/xt256.min.css"
@@ -338,9 +339,116 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
 
     const handleExecutePlan = async () => {
         if (!response) return;
-        // TODO: Parse plan and generate files in VirtualFS
+        
         console.log('[AI Coding Agent] Executing plan...');
-        setError('Plan execution coming soon!');
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            // Create snapshot before making changes
+            const snapshot = createSnapshotBeforeApply();
+            if (!snapshot) {
+                setError('Failed to create snapshot before applying plan');
+                setIsLoading(false);
+                return;
+            }
+            
+            // Parse the plan and extract files
+            const files = parsePlanResponse(response);
+            
+            if (files.length === 0) {
+                setError('No files found in the plan. Please ensure the AI response contains file sections with code blocks.');
+                setIsLoading(false);
+                return;
+            }
+            
+            console.log('[AI Coding Agent] Creating files from plan', { fileCount: files.length });
+            
+            // Create folders first (extract unique folder paths)
+            const folders = new Set();
+            files.forEach(file => {
+                const parts = file.path.split('/').filter(Boolean);
+                for (let i = 1; i < parts.length; i++) {
+                    const folderPath = '/' + parts.slice(0, i).join('/');
+                    folders.add(folderPath);
+                }
+            });
+            
+            // Create folders in order
+            const sortedFolders = Array.from(folders).sort();
+            for (const folder of sortedFolders) {
+                try {
+                    virtualFS.createFolder(folder);
+                    console.log('[AI Coding Agent] Created folder:', folder);
+                } catch (err) {
+                    console.warn('[AI Coding Agent] Folder may already exist:', folder, err);
+                }
+            }
+            
+            // Create files
+            let successCount = 0;
+            let errorCount = 0;
+            const errorDetails = [];
+            
+            for (const file of files) {
+                try {
+                    // Use createVirtualFile which handles Monaco model creation properly
+                    createVirtualFile(file.path, file.content);
+                    console.log('[AI Coding Agent] Created file:', file.path);
+                    successCount++;
+                } catch (err) {
+                    console.error('[AI Coding Agent] Error creating file:', file.path, err);
+                    errorCount++;
+                    errorDetails.push(`${file.path}: ${err.message}`);
+                }
+            }
+            
+            console.log('[AI Coding Agent] Plan execution complete', { successCount, errorCount });
+            
+            if (successCount > 0) {
+                // Show success message
+                const message = `✓ Plan executed successfully: ${successCount} file(s) created${errorCount > 0 ? `, ${errorCount} failed` : ''}`;
+                
+                setError(null);
+                setResponse(message);
+                responseRef.current = message;
+                
+                // Clear response and image after a delay (10 seconds to give users time to review)
+                setTimeout(() => {
+                    setResponse('');
+                    responseRef.current = '';
+                    handleRemoveImage();
+                }, 10000);
+            } else {
+                setError(`Failed to create any files from the plan. Errors: ${errorDetails.join('; ')}`);
+            }
+        } catch (err) {
+            console.error('[AI Coding Agent] Error executing plan:', err);
+            setError(`Failed to execute plan: ${err.message}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    // Helper function to parse plan response and extract files
+    const parsePlanResponse = (response) => {
+        const files = [];
+        
+        // Match file sections: ### File: /path/to/file followed by code block
+        // Limit code block content to 50,000 characters to avoid catastrophic backtracking on malformed input
+        const filePattern = /###\s+File:\s+(\/[^\s\n]+)\s*\n\s*```(\w+)?\s*\n([^]{0,50000}?)```/g;
+        
+        let match;
+        while ((match = filePattern.exec(response)) !== null) {
+            const [, path, language, content] = match;
+            files.push({
+                path: path.trim(),
+                language: language || '',
+                content: content.trim()
+            });
+        }
+        
+        return files;
     };
 
     const handleSubmit = async () => {
@@ -804,11 +912,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
                         <Button
                             text="Refine Response"
                             icon="lightbulb"
-                            onClick={() => {
-                                console.log('[AI Coding Agent] Entering refinement mode');
-                                setIsRefining(true);
-                                setPrompt('');
-                            }}
+                            onClick={handleRefine}
                             disabled={isLoading}
                         />
                     )}
