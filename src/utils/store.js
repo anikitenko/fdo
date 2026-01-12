@@ -179,7 +179,7 @@ export const settings = new Store({
                                                 estimatedUsed: { type: "number", minimum: 0 },
                                                 totalMessages: { type: "number", minimum: 0 },
                                                 maxTokens: { type: "number", minimum: 1 },
-                                                percentUsed: { type: "number", minimum: 0, maximum: 100 },
+                                                percentUsed: { type: "number", minimum: 0 },
                                                 updatedAt: { type: "string", format: "date-time" },
                                             },
                                         },
