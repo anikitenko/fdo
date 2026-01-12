@@ -41,6 +41,27 @@ const costUsageTooltip = (
     )
 }
 
+export function cleanFullMessage(text) {
+    if (!text) return text;
+
+    let out = text;
+
+    // Remove repeated doubled words: "Chat Chat" → "Chat"
+    out = out.replace(/\b(\w+)\b(?:\s+\1\b)+/gi, "$1");
+
+    // Remove repeated fragments like "ocketsockets" → "ockets"
+    out = out.replace(/(\w{3,6})(\1)+/gi, "$1");
+
+    // Remove repeated syllables: "abilityability" → "ability"
+    out = out.replace(/([a-z]{3,5})(\1)+/gi, "$1");
+
+    // Remove repeated hyphenated fragments: "time-time" → "time"
+    out = out.replace(/(\w+)([-–—]\1)+/gi, "$1");
+
+    return out;
+}
+
+
 export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const [session, setSession] = useState(null);
     const [sessionList, setSessionList] = useState([]);
@@ -136,6 +157,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     useEffect(() => {
         if (!showAiChatDialog || !session?.id) return;
         const onDelta = (data) => {
+            console.log("RAW STREAM DELTA:", JSON.stringify(data));
             if (!data || data.sessionId !== session?.id) return;
             setSession(prev => {
                 if (!prev) return prev;
@@ -155,7 +177,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 }
                 const m = {...msgs[idx]};
                 if (data.type === 'content') {
-                    m.content = (m.content || '') + String(data.content || '');
+                    const chunk = String(data.content || '');
+                    const newContent = (m.content || "") + chunk;
+                    m.content = cleanFullMessage(newContent);
                     m.skeleton = false;
                 } else if (data.type === 'thinking') {
                     m.thinking = (m.thinking || '') + String(data.content || '');

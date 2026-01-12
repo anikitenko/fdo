@@ -58,6 +58,16 @@ export async function buildUsingEsbuild(virtualData) {
         plugins: [
             EsbuildVirtualFsPlugin(virtualData)
         ],
+        tsconfigRaw: {
+            compilerOptions: {
+                target: "ES2022",
+                module: "CommonJS",
+                experimentalDecorators: true,
+                emitDecoratorMetadata: true,
+                useDefineForClassFields: false,
+                strict: true
+            }
+        }
     });
 }
 

@@ -98,7 +98,7 @@
   "license": "MIT",
   "dependencies": {
     "@anikitenko/bp5-rjsf-theme": "^1.0.11",
-    "@anikitenko/fdo-sdk": "^1.0.18",
+    "@anikitenko/fdo-sdk": "^1.0.19",
     "@babel/standalone": "^7.28.5",
     "@blueprintjs/core": "^6.3.2",
     "@blueprintjs/icons": "^6.2.0",
