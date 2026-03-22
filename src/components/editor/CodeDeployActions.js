@@ -1,4 +1,3 @@
-import {Select} from "@blueprintjs/select";
 import {Alert, Button, ButtonGroup, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 import SidebarSection from "../common/SidebarSection.jsx";

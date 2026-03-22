@@ -1,4 +1,4 @@
-export async function fetchOpenAICapabilities(apiKey) {
+export async function fetchOpenAICapabilities(apiKey, context = {}) {
     const headers = { Authorization: `Bearer ${apiKey}` };
 
     try {
@@ -33,7 +33,10 @@ export async function fetchOpenAICapabilities(apiKey) {
             };
         });
     } catch (err) {
-        console.warn("[capabilities] OpenAI fetch failed:", err.message);
+        console.warn("[capabilities] OpenAI fetch failed:", {
+            error: err.message,
+            context,
+        });
         return [];
     }
 }

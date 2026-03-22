@@ -237,12 +237,15 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
 
         // Add SDK types reference
         if (sdkTypes && sdkTypes.length > 0) {
+            const validSdkTypes = sdkTypes.filter((file) => file && file.name && typeof file.content === "string");
+            if (validSdkTypes.length > 0) {
             context += `FDO SDK Type Definitions (for reference):\n`;
-            sdkTypes.forEach(file => {
+            validSdkTypes.forEach(file => {
                 // Include full SDK types as they contain comprehensive documentation
                 context += `\nSDK File: ${file.name}\n\`\`\`typescript\n${file.content}\n\`\`\`\n`;
             });
             context += `\n---\n\n`;
+            }
         }
 
         if (currentFileContext) {
@@ -988,4 +991,3 @@ function SyntaxHighlightedCode(props) {
 
     return <code {...props} ref={ref}/>;
 }
-

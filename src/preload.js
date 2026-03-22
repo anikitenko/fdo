@@ -27,8 +27,11 @@ contextBridge.exposeInMainWorld('electron', {
     aiChat: {
         getSessions: () => ipcRenderer.invoke(AiChatChannels.SESSIONS_GET),
         createSession: (name) => ipcRenderer.invoke(AiChatChannels.SESSION_CREATE, name),
+        renameSession: (id, name) => ipcRenderer.invoke(AiChatChannels.SESSION_RENAME, id, name),
         sendMessage: (data) => ipcRenderer.invoke(AiChatChannels.SEND_MESSAGE, data),
-        getCapabilities: (model, provider) => ipcRenderer.invoke(AiChatChannels.GET_CAPABILITIES, model, provider),
+        getCapabilities: (model, provider, assistantId) => ipcRenderer.invoke(AiChatChannels.GET_CAPABILITIES, model, provider, assistantId),
+        getPreferences: () => ipcRenderer.invoke(AiChatChannels.GET_PREFERENCES),
+        savePreferences: (data) => ipcRenderer.invoke(AiChatChannels.SAVE_PREFERENCES, data),
         detectAttachmentType: (data) => ipcRenderer.invoke(AiChatChannels.DETECT_ATTACHMENT_TYPE, data),
         on: {
             streamDelta: (callback) => ipcRenderer.on(AiChatChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
@@ -80,6 +83,11 @@ contextBridge.exposeInMainWorld('electron', {
             addAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.ADD, data),
             setDefaultAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_DEFAULT, data),
             removeAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE, data),
+            getAvailableModels: (provider, apiKey) => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, provider, apiKey),
+            getCodexAuthStatus: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_STATUS, assistantId),
+            startCodexLogin: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, assistantId),
+            codexLogout: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, assistantId),
+            cancelCodexAuth: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_CANCEL, assistantId),
         }
     },
     system:{

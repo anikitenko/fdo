@@ -1,8 +1,165 @@
-import {ipcMain} from "electron";
+import {ipcMain, utilityProcess} from "electron";
 import {SettingsChannels} from "./channels";
 import {settings} from "../utils/store";
 import {Certs} from "../utils/certs";
 import LLM from "@themaximalist/llm.js"
+import { fetchOpenAICapabilities } from "./ai/model_capabilities/fetchers/openai_fetcher";
+import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout } from "../utils/codexCli.js";
+import path from "node:path";
+
+const STATIC_ANTHROPIC_MODELS = [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-5-20250929",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-5-haiku-20241022",
+    "claude-3-haiku-20240307",
+];
+
+const activeCodexAuthProcesses = new Map();
+const CODEX_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+
+function updateCodexAssistantState(assistantId, patch = {}) {
+    const list = settings.get("ai.coding", []) || [];
+    const index = list.findIndex((item) => item.id === assistantId);
+    if (index === -1) return null;
+    list[index] = {
+        ...list[index],
+        ...patch,
+        updatedAt: new Date().toISOString(),
+    };
+    settings.set("ai.coding", list);
+    return list[index];
+}
+
+function getCodexAuthWorkerPath() {
+    return path.join(__dirname, "workers", "codexAuthWorker.js");
+}
+
+function stopCodexAuthProcess(assistantId, { status = "cancelled", message = "Codex authentication was cancelled." } = {}) {
+    const active = activeCodexAuthProcesses.get(assistantId);
+    if (!active) {
+        updateCodexAssistantState(assistantId, {
+            codexAuth: {
+                status,
+                message,
+                checkedAt: new Date().toISOString(),
+            },
+        });
+        return false;
+    }
+
+    if (active.timeoutId) {
+        clearTimeout(active.timeoutId);
+    }
+    activeCodexAuthProcesses.delete(assistantId);
+    try {
+        active.child?.kill?.();
+    } catch {
+        // ignore
+    }
+    updateCodexAssistantState(assistantId, {
+        codexAuth: {
+            status,
+            message,
+            checkedAt: new Date().toISOString(),
+        },
+    });
+    return true;
+}
+
+export function interruptAllCodexAuthProcesses(reason = "Codex authentication was interrupted because FDO is shutting down.") {
+    const assistantIds = Array.from(activeCodexAuthProcesses.keys());
+    for (const assistantId of assistantIds) {
+        stopCodexAuthProcess(assistantId, {
+            status: "interrupted",
+            message: reason,
+        });
+    }
+}
+
+function launchCodexLoginUtilityProcess(assistant, invocation) {
+    if (activeCodexAuthProcesses.has(assistant.id)) {
+        return { started: true, mode: "utilityProcess", alreadyRunning: true };
+    }
+
+    const child = utilityProcess.fork(getCodexAuthWorkerPath(), [
+        invocation.command,
+        "login",
+        JSON.stringify(invocation.args || []),
+        JSON.stringify(invocation.env || {}),
+    ], {
+        serviceName: `codex-auth-${assistant.id}`,
+        env: {
+            ...process.env,
+            ...(invocation.env || {}),
+        },
+    });
+    const timeoutId = setTimeout(() => {
+        stopCodexAuthProcess(assistant.id, {
+            status: "timeout",
+            message: "Codex authentication timed out. You can retry Sign in when ready.",
+        });
+    }, CODEX_AUTH_TIMEOUT_MS);
+    activeCodexAuthProcesses.set(assistant.id, { child, timeoutId });
+
+    child.on("message", async (message) => {
+        if (!message) return;
+        if (message.type === "exit") {
+            const active = activeCodexAuthProcesses.get(assistant.id);
+            if (active?.timeoutId) clearTimeout(active.timeoutId);
+            activeCodexAuthProcesses.delete(assistant.id);
+            const authStatus = await readCodexAuthStatus(invocation);
+            updateCodexAssistantState(assistant.id, {
+                codexAuth: {
+                    status: authStatus.status,
+                    message: authStatus.message || null,
+                    checkedAt: new Date().toISOString(),
+                },
+            });
+        }
+        if (message.type === "error") {
+            updateCodexAssistantState(assistant.id, {
+                codexAuth: {
+                    status: "error",
+                    message: message.error,
+                    checkedAt: new Date().toISOString(),
+                },
+            });
+        }
+    });
+
+    child.on("exit", async () => {
+        const active = activeCodexAuthProcesses.get(assistant.id);
+        if (active?.timeoutId) clearTimeout(active.timeoutId);
+        activeCodexAuthProcesses.delete(assistant.id);
+        const authStatus = await readCodexAuthStatus(invocation);
+        updateCodexAssistantState(assistant.id, {
+            codexAuth: {
+                status: authStatus.status,
+                message: authStatus.message || null,
+                checkedAt: new Date().toISOString(),
+            },
+        });
+    });
+
+    child.on("error", (error) => {
+        const active = activeCodexAuthProcesses.get(assistant.id);
+        if (active?.timeoutId) clearTimeout(active.timeoutId);
+        activeCodexAuthProcesses.delete(assistant.id);
+        updateCodexAssistantState(assistant.id, {
+            codexAuth: {
+                status: "error",
+                message: error.message,
+                checkedAt: new Date().toISOString(),
+            },
+        });
+    });
+
+    return { started: true, mode: "utilityProcess", alreadyRunning: false };
+}
 
 export function registerSettingsHandlers() {
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
@@ -56,15 +213,88 @@ export function registerSettingsHandlers() {
         ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
     });
 
+    ipcMain.handle(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, async (_, provider, apiKey) => {
+        if (provider === "anthropic") {
+            return STATIC_ANTHROPIC_MODELS
+                .map((modelId) => ({
+                    label: modelId,
+                    value: modelId,
+                    provider: "anthropic",
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label));
+        }
+
+        if (provider === "codex-cli") {
+            return [
+                {
+                    label: "Codex CLI",
+                    value: "codex-cli",
+                    provider: "codex-cli",
+                }
+            ];
+        }
+
+        if (!apiKey || !String(apiKey).trim()) {
+            return [];
+        }
+
+        let models = [];
+        const trimmedApiKey = String(apiKey).trim();
+
+        if (provider === "openai") {
+            models = await fetchOpenAICapabilities(trimmedApiKey);
+        } else {
+            return [];
+        }
+
+        return models
+            .map((model) => ({
+                label: model.id,
+                value: model.id,
+                provider,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    });
+
     ipcMain.handle(SettingsChannels.ai_assistants.ADD, async (_, data) => {
-        const llm = new LLM({
-            service: data.provider,        // LLM service provider
-            apiKey: data.apiKey,          // apiKey
-            model: data.model,          // Specific model
-        });
-        const isConnected = await llm.verifyConnection();
-        if (!isConnected) {
-            throw new Error(`API Key verification failed for ${data.provider} and model ${data.model}. Please check your API key and model.`);
+        let resolvedInvocation = null;
+        if (data.provider === "codex-cli") {
+            if (data.purpose !== "coding") {
+                throw new Error("Codex CLI is supported only for Coding Assistant purpose.");
+            }
+            try {
+                const invocation = await resolveCodexCliInvocation({
+                    configuredPath: data.executablePath,
+                    preferBundled: true,
+                });
+                resolvedInvocation = invocation;
+                data.executablePath = invocation.entrypoint || invocation.command;
+                data.codexRuntime = {
+                    source: invocation.source,
+                    version: invocation.version || "",
+                    bundled: !!invocation.bundled,
+                };
+                const authStatus = await readCodexAuthStatus(invocation);
+                data.codexAuth = {
+                    status: authStatus.status,
+                    message: authStatus.message || null,
+                    checkedAt: new Date().toISOString(),
+                };
+            } catch (error) {
+                throw new Error(`Codex CLI verification failed. ${error?.message || error}`);
+            }
+            data.apiKey = "";
+            data.model = data.model || "codex-cli";
+        } else {
+            const llm = new LLM({
+                service: data.provider,
+                apiKey: data.apiKey,
+                model: data.model,
+            });
+            const isConnected = await llm.verifyConnection();
+            if (!isConnected) {
+                throw new Error(`API Key verification failed for ${data.provider} and model ${data.model}. Please check your API key and model.`);
+            }
         }
         // Upsert assistant WITHOUT touching `default`
 // (unless it's a brand-new item, and you want the very first one to be default)
@@ -80,6 +310,17 @@ export function registerSettingsHandlers() {
         const {purpose, ...cleanData} = data;
 
         if (i >= 0) {
+            const previous = list[i];
+            if (previous?.provider === "codex-cli" && data.provider === "codex-cli") {
+                const executableChanged = String(previous.executablePath || "") !== String(cleanData.executablePath || "");
+                const runtimeChanged = String(previous.codexRuntime?.version || "") !== String(cleanData.codexRuntime?.version || "");
+                if (executableChanged || runtimeChanged) {
+                    stopCodexAuthProcess(previous.id, {
+                        status: "interrupted",
+                        message: "Codex authentication was reset because the executable or runtime changed.",
+                    });
+                }
+            }
             list[i] = { ...list[i], ...cleanData, updatedAt: now };
         } else {
             list.push({
@@ -93,6 +334,108 @@ export function registerSettingsHandlers() {
         }
 
         settings.set(key, list);
+
+        if (data.provider === "codex-cli") {
+            const storedAssistant = list.find((item) => norm(item.name) === target);
+            if (storedAssistant?.codexAuth?.status !== "authorized") {
+                const invocation = resolvedInvocation || await resolveCodexCliInvocation({
+                    configuredPath: storedAssistant?.executablePath,
+                    preferBundled: true,
+                });
+                launchCodexLoginUtilityProcess(storedAssistant, invocation);
+                updateCodexAssistantState(storedAssistant.id, {
+                    codexAuth: {
+                        status: "pending",
+                        message: "Codex login started automatically. Finish the login flow, then auth state will sync back into FDO.",
+                        checkedAt: new Date().toISOString(),
+                    },
+                });
+            }
+        }
+    });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_STATUS, async (_, assistantId) => {
+        const list = settings.get("ai.coding", []) || [];
+        const assistant = list.find((item) => item.id === assistantId);
+        if (!assistant || assistant.provider !== "codex-cli") {
+            throw new Error("Codex assistant not found.");
+        }
+        const invocation = await resolveCodexCliInvocation({
+            configuredPath: assistant.executablePath,
+            preferBundled: true,
+        });
+        const authStatus = await readCodexAuthStatus(invocation);
+        const updated = {
+            status: authStatus.status,
+            message: authStatus.message || null,
+            checkedAt: new Date().toISOString(),
+        };
+        const nextList = list.map((item) => item.id === assistant.id ? { ...item, codexAuth: updated } : item);
+        settings.set("ai.coding", nextList);
+        return updated;
+    });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, async (_, assistantId) => {
+        const list = settings.get("ai.coding", []) || [];
+        const assistant = list.find((item) => item.id === assistantId);
+        if (!assistant || assistant.provider !== "codex-cli") {
+            throw new Error("Codex assistant not found.");
+        }
+        const invocation = await resolveCodexCliInvocation({
+            configuredPath: assistant.executablePath,
+            preferBundled: true,
+        });
+        const result = launchCodexLoginUtilityProcess(assistant, invocation);
+        const updated = {
+            status: "pending",
+            message: "Codex login was started in a background utility process. Finish the login flow, then auth state will sync back into FDO.",
+            checkedAt: new Date().toISOString(),
+        };
+        const nextList = list.map((item) => item.id === assistant.id ? { ...item, codexAuth: updated } : item);
+        settings.set("ai.coding", nextList);
+        return { ...result, auth: updated };
+    });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, async (_, assistantId) => {
+        const list = settings.get("ai.coding", []) || [];
+        const assistant = list.find((item) => item.id === assistantId);
+        if (!assistant || assistant.provider !== "codex-cli") {
+            throw new Error("Codex assistant not found.");
+        }
+        stopCodexAuthProcess(assistant.id, {
+            status: "cancelled",
+            message: "Codex authentication was cancelled before sign out.",
+        });
+        const invocation = await resolveCodexCliInvocation({
+            configuredPath: assistant.executablePath,
+            preferBundled: true,
+        });
+        const authStatus = await runCodexLogout(invocation);
+        const updated = {
+            status: authStatus.status,
+            message: authStatus.message || null,
+            checkedAt: new Date().toISOString(),
+        };
+        const nextList = list.map((item) => item.id === assistant.id ? { ...item, codexAuth: updated } : item);
+        settings.set("ai.coding", nextList);
+        return updated;
+    });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_CANCEL, async (_, assistantId) => {
+        const list = settings.get("ai.coding", []) || [];
+        const assistant = list.find((item) => item.id === assistantId);
+        if (!assistant || assistant.provider !== "codex-cli") {
+            throw new Error("Codex assistant not found.");
+        }
+        stopCodexAuthProcess(assistant.id, {
+            status: "cancelled",
+            message: "Codex authentication was cancelled.",
+        });
+        return {
+            status: "cancelled",
+            message: "Codex authentication was cancelled.",
+            checkedAt: new Date().toISOString(),
+        };
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.SET_DEFAULT, async (_, data) => {
@@ -140,6 +483,13 @@ export function registerSettingsHandlers() {
         }
 
         const [removed] = list.splice(idx, 1);
+
+        if (data.purpose === "coding" && removed?.provider === "codex-cli") {
+            stopCodexAuthProcess(removed.id, {
+                status: "cancelled",
+                message: "Codex authentication was cancelled because the assistant was removed.",
+            });
+        }
 
         // If nothing left, just save empty
         if (list.length === 0) {

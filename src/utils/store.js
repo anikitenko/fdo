@@ -76,6 +76,29 @@ export const settings = new Store({
                             provider: {type: "string"},
                             model: {type: "string"},
                             apiKey: {type: "string", nullable: true},
+                            executablePath: {type: "string", nullable: true},
+                            codexRuntime: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                    source: { type: "string" },
+                                    version: { type: "string", nullable: true },
+                                    bundled: { type: "boolean", default: false },
+                                },
+                                required: ["source", "bundled"],
+                                additionalProperties: false,
+                            },
+                            codexAuth: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                    status: { type: "string" },
+                                    message: { type: "string", nullable: true },
+                                    checkedAt: { type: "string", format: "date-time" },
+                                },
+                                required: ["status", "checkedAt"],
+                                additionalProperties: false,
+                            },
                             default: {type: "boolean", default: false},
                             createdAt: {type: "string", format: "date-time"},
                             updatedAt: {type: "string", format: "date-time"},
@@ -103,6 +126,29 @@ export const settings = new Store({
                             provider: {type: "string"},
                             model: {type: "string"},
                             apiKey: {type: "string", nullable: true},
+                            executablePath: {type: "string", nullable: true},
+                            codexRuntime: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                    source: { type: "string" },
+                                    version: { type: "string", nullable: true },
+                                    bundled: { type: "boolean", default: false },
+                                },
+                                required: ["source", "bundled"],
+                                additionalProperties: false,
+                            },
+                            codexAuth: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                    status: { type: "string" },
+                                    message: { type: "string", nullable: true },
+                                    checkedAt: { type: "string", format: "date-time" },
+                                },
+                                required: ["status", "checkedAt"],
+                                additionalProperties: false,
+                            },
                             default: {type: "boolean", default: false},
                             createdAt: {type: "string", format: "date-time"},
                             updatedAt: {type: "string", format: "date-time"},
@@ -139,6 +185,17 @@ export const settings = new Store({
                                         role: { type: "string", enum: ["user", "assistant"] },
                                         content: { type: "string" },
                                         contentAttachments: { type: "string" },
+                                        replyContext: { type: "string" },
+                                        replyTo: {
+                                            type: "object",
+                                            properties: {
+                                                id: { type: "string" },
+                                                role: { type: "string", enum: ["user", "assistant"] },
+                                                content: { type: "string" },
+                                            },
+                                            required: ["id", "role", "content"],
+                                            additionalProperties: false,
+                                        },
                                         createdAt: { type: "string", format: "date-time" },
                                         model: { type: "string" },
                                         inputTokens: { type: "number", minimum: 0},
@@ -148,6 +205,46 @@ export const settings = new Store({
                                         inputCost: { type: "number", minimum: 0 },
                                         outputCost: { type: "number", minimum: 0 },
                                         totalCost: { type: "number", minimum: 0 },
+                                        clarification: { type: "boolean", default: false },
+                                        grounded: { type: "boolean", default: false },
+                                        noSourceMatches: { type: "boolean", default: false },
+                                        sources: {
+                                            type: "array",
+                                            items: { type: "string" },
+                                        },
+                                        sourceDetails: {
+                                            type: "array",
+                                            items: {
+                                                type: "object",
+                                                properties: {
+                                                    source: { type: "string" },
+                                                    rawSource: { type: "string", nullable: true },
+                                                    why: { type: "string", nullable: true },
+                                                    sourceType: { type: "string", nullable: true },
+                                                    snippet: { type: "string", nullable: true },
+                                                },
+                                                required: ["source"],
+                                                additionalProperties: false,
+                                            },
+                                        },
+                                        retrievalConfidence: { type: "number", minimum: 0, maximum: 1 },
+                                        retrievalConflict: { type: "boolean", default: false },
+                                        toolsUsed: {
+                                            type: "array",
+                                            items: { type: "string" },
+                                        },
+                                        toolErrors: {
+                                            type: "array",
+                                            items: {
+                                                type: "object",
+                                                properties: {
+                                                    name: { type: "string" },
+                                                    error: { type: "string" },
+                                                },
+                                                required: ["name", "error"],
+                                                additionalProperties: false,
+                                            },
+                                        },
                                         attachments: {
                                             type: "array",
                                             items: {
@@ -197,6 +294,48 @@ export const settings = new Store({
                                 },
                                 additionalProperties: false,
                             },
+                            routing: {
+                                type: "object",
+                                properties: {
+                                    activeRoute: { type: "string" },
+                                    activeTool: { type: "string", nullable: true },
+                                    activeTaskShape: { type: "string" },
+                                    activeScope: { type: "string" },
+                                    routeConfidence: { type: "number", minimum: 0, maximum: 1 },
+                                    lastToolUsedAt: { type: "string", format: "date-time", nullable: true },
+                                    lastRouteChangeAt: { type: "string", format: "date-time", nullable: true },
+                                    recentToolHistory: {
+                                        type: "array",
+                                        items: { type: "string" },
+                                    },
+                                    lastTopicalUserPrompt: { type: "string", nullable: true },
+                                    lastTopicalAssistantReply: { type: "string", nullable: true },
+                                },
+                                additionalProperties: false,
+                            },
+                            memory: {
+                                type: "object",
+                                properties: {
+                                    preferences: {
+                                        type: "object",
+                                        properties: {
+                                            preferredLanguage: { type: "string", nullable: true },
+                                            responseStyle: { type: "string", nullable: true },
+                                        },
+                                        additionalProperties: false,
+                                    },
+                                    summary: {
+                                        type: "object",
+                                        properties: {
+                                            content: { type: "string", nullable: true },
+                                            model: { type: "string", nullable: true },
+                                            updatedAt: { type: "string", format: "date-time", nullable: true },
+                                        },
+                                        additionalProperties: false,
+                                    },
+                                },
+                                additionalProperties: false,
+                            },
                         },
                         additionalProperties: false
                     }
@@ -204,9 +343,128 @@ export const settings = new Store({
                 options: {
                     type: "object",
                     properties: {
-                        chatStreamingDefault: { type: "boolean", default: false }
+                        chatStreamingDefault: { type: "boolean", default: false },
+                        chatDialog: {
+                            type: "object",
+                            properties: {
+                                provider: { type: "string", nullable: true },
+                                model: { type: "string", nullable: true },
+                                assistantId: { type: "string", nullable: true },
+                                streaming: { type: "boolean", default: false },
+                                thinking: { type: "boolean", default: false },
+                                temperature: { type: "number", minimum: 0, maximum: 2, default: 0.7 },
+                                showDebugDetails: { type: "boolean", default: false },
+                                enableComposerCompletion: { type: "boolean", default: true }
+                            },
+                            additionalProperties: false,
+                            default: {
+                                provider: "",
+                                model: "",
+                                assistantId: "",
+                                streaming: false,
+                                thinking: false,
+                                temperature: 0.7,
+                                showDebugDetails: false,
+                                enableComposerCompletion: true
+                            }
+                        }
                     },
                     additionalProperties: false
+                },
+                metrics: {
+                    type: "object",
+                    properties: {
+                        retrieval: {
+                            type: "object",
+                            properties: {
+                                totalQueries: { type: "number", minimum: 0, default: 0 },
+                                hits: { type: "number", minimum: 0, default: 0 },
+                                misses: { type: "number", minimum: 0, default: 0 },
+                                lowConfidence: { type: "number", minimum: 0, default: 0 },
+                                conflicts: { type: "number", minimum: 0, default: 0 },
+                                totalCandidateCount: { type: "number", minimum: 0, default: 0 },
+                                totalSelectedCount: { type: "number", minimum: 0, default: 0 },
+                                totalDroppedCount: { type: "number", minimum: 0, default: 0 },
+                                totalRetrievalTimeMs: { type: "number", minimum: 0, default: 0 },
+                                confidenceSum: { type: "number", minimum: 0, default: 0 },
+                                missNoResults: { type: "number", minimum: 0, default: 0 },
+                                missLowConfidence: { type: "number", minimum: 0, default: 0 },
+                                missErrors: { type: "number", minimum: 0, default: 0 },
+                                recentMisses: {
+                                    type: "array",
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            ts: { type: "string", format: "date-time" },
+                                            tool: { type: "string" },
+                                            query: { type: "string" },
+                                            scope: { type: "string" },
+                                            reason: { type: "string" },
+                                            confidence: { type: "number", minimum: 0, maximum: 1, nullable: true },
+                                        },
+                                        required: ["ts", "tool", "query", "scope", "reason"],
+                                        additionalProperties: false,
+                                    },
+                                },
+                            },
+                            additionalProperties: false,
+                        },
+                        tools: {
+                            type: "object",
+                            properties: {
+                                totalCalls: { type: "number", minimum: 0, default: 0 },
+                                countsByTool: {
+                                    type: "object",
+                                    additionalProperties: { type: "number", minimum: 0 },
+                                },
+                            },
+                            additionalProperties: false,
+                        },
+                        answers: {
+                            type: "object",
+                            properties: {
+                                totalReplies: { type: "number", minimum: 0, default: 0 },
+                                groundedReplies: { type: "number", minimum: 0, default: 0 },
+                                ungroundedReplies: { type: "number", minimum: 0, default: 0 },
+                                noSourceMatches: { type: "number", minimum: 0, default: 0 },
+                                clarificationReplies: { type: "number", minimum: 0, default: 0 },
+                            },
+                            additionalProperties: false,
+                        },
+                        tokens: {
+                            type: "object",
+                            properties: {
+                                requests: { type: "number", minimum: 0, default: 0 },
+                                streamRequests: { type: "number", minimum: 0, default: 0 },
+                                nonStreamRequests: { type: "number", minimum: 0, default: 0 },
+                                toolFollowUpRequests: { type: "number", minimum: 0, default: 0 },
+                                promptTokens: { type: "number", minimum: 0, default: 0 },
+                                retrievalTokens: { type: "number", minimum: 0, default: 0 },
+                                outputTokens: { type: "number", minimum: 0, default: 0 },
+                                totalTokens: { type: "number", minimum: 0, default: 0 },
+                            },
+                            additionalProperties: false,
+                        },
+                    },
+                    additionalProperties: false,
+                },
+                observability: {
+                    type: "object",
+                    properties: {
+                        langfuse: {
+                            type: "object",
+                            properties: {
+                                enabled: { type: "boolean", default: false },
+                                host: { type: "string", nullable: true },
+                                publicKey: { type: "string", nullable: true },
+                                secretKey: { type: "string", nullable: true },
+                                environment: { type: "string", default: "production" },
+                                release: { type: "string", nullable: true },
+                            },
+                            additionalProperties: false,
+                        },
+                    },
+                    additionalProperties: false,
                 }
             },
             additionalProperties: false,
@@ -214,9 +472,68 @@ export const settings = new Store({
                 chat: [],
                 coding: [],
                 sessions: [],
-                options: { chatStreamingDefault: false }
+                options: {
+                    chatStreamingDefault: false,
+                    chatDialog: {
+                        provider: "",
+                        model: "",
+                        assistantId: "",
+                        streaming: false,
+                        thinking: false,
+                        temperature: 0.7,
+                        showDebugDetails: false
+                    }
+                },
+                metrics: {
+                    retrieval: {
+                        totalQueries: 0,
+                        hits: 0,
+                        misses: 0,
+                        lowConfidence: 0,
+                        conflicts: 0,
+                        totalCandidateCount: 0,
+                        totalSelectedCount: 0,
+                        totalDroppedCount: 0,
+                        totalRetrievalTimeMs: 0,
+                        confidenceSum: 0,
+                        missNoResults: 0,
+                        missLowConfidence: 0,
+                        missErrors: 0,
+                        recentMisses: []
+                    },
+                    tools: {
+                        totalCalls: 0,
+                        countsByTool: {}
+                    },
+                    answers: {
+                        totalReplies: 0,
+                        groundedReplies: 0,
+                        ungroundedReplies: 0,
+                        noSourceMatches: 0,
+                        clarificationReplies: 0
+                    },
+                    tokens: {
+                        requests: 0,
+                        streamRequests: 0,
+                        nonStreamRequests: 0,
+                        toolFollowUpRequests: 0,
+                        promptTokens: 0,
+                        retrievalTokens: 0,
+                        outputTokens: 0,
+                        totalTokens: 0
+                    }
+                },
+                observability: {
+                    langfuse: {
+                        enabled: false,
+                        host: null,
+                        publicKey: null,
+                        secretKey: null,
+                        environment: "production",
+                        release: null,
+                    },
+                }
             },
         }
     }
 });
-

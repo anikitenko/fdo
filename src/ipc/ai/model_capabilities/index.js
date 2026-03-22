@@ -12,6 +12,19 @@ const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 let cache = {};
 let lastUpdated = 0;
 
+function summarizeAssistantForLogs(assistantInfo) {
+    if (!assistantInfo) return null;
+
+    return {
+        id: assistantInfo.id,
+        name: assistantInfo.name,
+        provider: assistantInfo.provider,
+        model: assistantInfo.model,
+        purpose: assistantInfo.purpose,
+        hasApiKey: Boolean(assistantInfo.apiKey),
+    };
+}
+
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
@@ -69,15 +82,20 @@ async function refreshCapabilities(assistantInfo) {
 
     try {
         if (assistantInfo?.provider === "openai" && assistantInfo.apiKey) {
+            console.log("[capabilities] Refreshing OpenAI capabilities for assistant", summarizeAssistantForLogs(assistantInfo));
             const models = await fetchOpenAICapabilities(assistantInfo.apiKey);
             for (const m of models) all[m.id] = m;
         }
         if (assistantInfo?.provider === "anthropic" && assistantInfo.apiKey) {
+            console.log("[capabilities] Refreshing Anthropic capabilities for assistant", summarizeAssistantForLogs(assistantInfo));
             const models = await fetchAnthropicCapabilities(assistantInfo.apiKey);
             for (const m of models) all[m.id] = m;
         }
     } catch (err) {
-        console.warn("[capabilities] Live fetch failed:", err.message);
+        console.warn("[capabilities] Live fetch failed:", {
+            error: err.message,
+            assistant: summarizeAssistantForLogs(assistantInfo),
+        });
     }
 
     cache = all;

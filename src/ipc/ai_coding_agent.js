@@ -2,6 +2,8 @@ import {ipcMain} from "electron";
 import {AiCodingAgentChannels} from "./channels.js";
 import LLM from "@themaximalist/llm.js";
 import {settings} from "../utils/store.js";
+import {spawn} from "node:child_process";
+import { resolveCodexCliInvocation } from "../utils/codexCli.js";
 
 // Select a coding assistant from settings
 function selectCodingAssistant(assistantId) {
@@ -19,6 +21,19 @@ function selectCodingAssistant(assistantId) {
         throw new Error("No AI Coding assistant found. Please add one in Settings → AI Assistants.");
     }
     return assistantInfo;
+}
+
+function updateCodexAssistantState(assistantInfo, patch = {}) {
+    if (!assistantInfo?.id) return;
+    const list = settings.get("ai.coding", []) || [];
+    const index = list.findIndex((item) => item.id === assistantInfo.id);
+    if (index === -1) return;
+    list[index] = {
+        ...list[index],
+        ...patch,
+        updatedAt: new Date().toISOString(),
+    };
+    settings.set("ai.coding", list);
 }
 
 // Create LLM instance for coding tasks
@@ -118,6 +133,198 @@ Remember: You are working within a code editor, so precision and correctness are
     return llm;
 }
 
+async function resolveCodexExecutable(assistantInfo) {
+    return await resolveCodexCliInvocation({
+        configuredPath: assistantInfo?.executablePath,
+        preferBundled: true,
+    });
+}
+
+function stripAnsi(text = "") {
+    return String(text || "").replace(/\x1B\[[0-9;]*[A-Za-z]/g, "");
+}
+
+function sanitizeCodexStdout(text = "") {
+    const value = stripAnsi(text);
+    if (!value) return "";
+    const cleaned = value
+        .split("\n")
+        .filter((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return true;
+            if (/^\[\d{4}-\d{2}-\d{2}T/.test(trimmed) && /OpenAI Codex|workdir:|model:|provider:|approval:|sandbox:|reasoning effort:|reasoning summaries:/i.test(trimmed)) {
+                return false;
+            }
+            return true;
+        })
+        .join("\n");
+    return cleaned;
+}
+
+function classifyCodexCliError(stderr = "") {
+    const normalized = stripAnsi(stderr);
+    if (/401 Unauthorized/i.test(normalized)) {
+        return "Codex CLI authentication failed. Your ChatGPT/Codex login is missing, expired, or not authorized. Please sign in again in Codex CLI and retry.";
+    }
+    return normalized.trim();
+}
+
+async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
+    const invocation = await resolveCodexExecutable(assistantInfo);
+    const execArgs = [
+        ...(invocation.args || []),
+        "exec",
+    ];
+
+    if (invocation.execCapabilities?.supportsAskForApproval) {
+        execArgs.push("--ask-for-approval", "never");
+    }
+    if (invocation.execCapabilities?.supportsSandbox) {
+        execArgs.push("--sandbox", "read-only");
+    }
+    execArgs.push(prompt);
+
+    return await new Promise((resolve, reject) => {
+        const child = spawn(
+            invocation.command,
+            execArgs,
+            {
+                env: { ...process.env, ...(invocation.env || {}) },
+                stdio: ["ignore", "pipe", "pipe"],
+            }
+        );
+
+        let fullContent = "";
+        let stderr = "";
+
+        child.stdout.on("data", (chunk) => {
+            const piece = sanitizeCodexStdout(chunk.toString("utf8"));
+            if (!piece) return;
+            fullContent += piece;
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                requestId,
+                type: "content",
+                content: piece,
+            });
+        });
+
+        child.stderr.on("data", (chunk) => {
+            stderr += stripAnsi(chunk.toString("utf8"));
+        });
+
+        child.on("error", (error) => {
+            updateCodexAssistantState(assistantInfo, {
+                codexAuth: {
+                    status: "error",
+                    message: error.message,
+                    checkedAt: new Date().toISOString(),
+                },
+            });
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+                requestId,
+                error: error.message,
+            });
+            reject(error);
+        });
+
+        child.on("close", (code) => {
+            if (code !== 0) {
+                const message = classifyCodexCliError(stderr) || `Codex CLI exited with code ${code}`;
+                updateCodexAssistantState(assistantInfo, {
+                    codexAuth: {
+                        status: /authentication failed|401 unauthorized/i.test(message) ? "unauthorized" : "error",
+                        message,
+                        checkedAt: new Date().toISOString(),
+                    },
+                });
+                console.warn("[AI Coding Agent Backend] Codex CLI invocation failed", {
+                    command: invocation.command,
+                    source: invocation.source,
+                    version: invocation.version,
+                    execCapabilities: invocation.execCapabilities,
+                    execArgs,
+                });
+                event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+                    requestId,
+                    error: message,
+                });
+                reject(new Error(message));
+                return;
+            }
+
+            updateCodexAssistantState(assistantInfo, {
+                codexAuth: {
+                    status: "authorized",
+                    message: invocation.source === "bundled"
+                        ? `Bundled Codex ${invocation.version || ""} executed successfully.`
+                        : `Codex CLI ${invocation.version || ""} executed successfully.`,
+                    checkedAt: new Date().toISOString(),
+                },
+                codexRuntime: {
+                    source: invocation.source,
+                    version: invocation.version || "",
+                    bundled: !!invocation.bundled,
+                },
+            });
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            resolve({ success: true, requestId, content: fullContent });
+        });
+    });
+}
+
+async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null } = {}) {
+    if (assistantInfo.provider === "codex-cli") {
+        if (image) {
+            throw new Error("Codex CLI does not support image mockups in this integration yet.");
+        }
+        return await runCodexCliStream(event, requestId, assistantInfo, prompt);
+    }
+
+    const llm = await createCodingLlm(assistantInfo, true);
+    let resp;
+
+    if (image) {
+        const messages = [{
+            role: "user",
+            content: [
+                { type: "text", text: prompt },
+                {
+                    type: "image_url",
+                    image_url: { url: image }
+                }
+            ]
+        }];
+        resp = await llm.chat({ messages, stream: true });
+    } else {
+        llm.user(prompt);
+        resp = await llm.chat({ stream: true });
+    }
+
+    let fullContent = "";
+
+    if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+        for await (const chunk of resp.stream) {
+            if (!chunk) continue;
+            const { type, content: piece } = chunk;
+
+            if (type === "content" && piece && typeof piece === "string") {
+                fullContent += piece;
+                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                    requestId,
+                    type: "content",
+                    content: piece,
+                });
+            }
+        }
+
+        await resp.complete();
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+        return { success: true, requestId, content: fullContent };
+    }
+
+    throw new Error("Invalid response from assistant backend");
+}
+
 // Handle code generation
 async function handleGenerateCode(event, data) {
     const { requestId, prompt, language, context, assistantId } = data;
@@ -127,8 +334,6 @@ async function handleGenerateCode(event, data) {
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
         console.log('[AI Coding Agent Backend] Assistant selected', { name: assistantInfo.name, provider: assistantInfo.provider, model: assistantInfo.model });
-        
-        const llm = await createCodingLlm(assistantInfo, true);
 
         let fullPrompt = `Generate ${language || "code"} for the following request:\n\n${prompt}`;
         
@@ -150,39 +355,10 @@ but **ONLY the block marked with "// SOLUTION READY TO APPLY"** will be inserted
 
 Make sure there is a blank line between the opening code fence and the SOLUTION marker.
 Do NOT literally include the text "<-- leave one empty line here -->" inside the code block.
-\n
-`;
+\n`;
 
-        llm.user(fullPrompt);
-        console.log('[AI Coding Agent Backend] Sending to LLM');
-        const resp = await llm.chat({ stream: true });
-
-        let fullContent = "";
-
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            console.log('[AI Coding Agent Backend] Streaming started');
-            for await (const chunk of resp.stream) {
-                if (!chunk) continue;
-                const { type, content: piece } = chunk;
-
-                if (type === "content" && piece && typeof piece === "string") {
-                    fullContent += piece;
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                        requestId,
-                        type: "content",
-                        content: piece,
-                    });
-                }
-            }
-
-            await resp.complete();
-            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
-        }
-
-        console.error('[AI Coding Agent Backend] Invalid LLM response');
-        return { success: false, error: "Invalid response from LLM" };
+        console.log('[AI Coding Agent Backend] Sending to coding backend');
+        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt);
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handleGenerateCode', error);
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
@@ -201,7 +377,6 @@ async function handleEditCode(event, data) {
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        const llm = await createCodingLlm(assistantInfo, true);
 
         const prompt = `Edit the following ${language || ""} code according to this instruction: ${instruction}
 
@@ -228,33 +403,7 @@ Make sure there is a blank line between the opening code fence and the SOLUTION 
 (or the first line of code in general).  
 Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
 `;
-
-        llm.user(prompt);
-        const resp = await llm.chat({ stream: true });
-
-        let fullContent = "";
-
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            for await (const chunk of resp.stream) {
-                if (!chunk) continue;
-                const { type, content: piece } = chunk;
-
-                if (type === "content" && piece && typeof piece === "string") {
-                    fullContent += piece;
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                        requestId,
-                        type: "content",
-                        content: piece,
-                    });
-                }
-            }
-
-            await resp.complete();
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
-        }
-
-        return { success: false, error: "Invalid response from LLM" };
+        return await runCodingPrompt(event, requestId, assistantInfo, prompt);
     } catch (error) {
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
@@ -272,7 +421,6 @@ async function handleExplainCode(event, data) {
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        const llm = await createCodingLlm(assistantInfo, true);
 
         const prompt = `Explain the following ${language || ""} code:
 
@@ -281,33 +429,7 @@ ${code}
 \`\`\`
 
 Provide a clear, concise explanation of what this code does, how it works, and any notable patterns or practices used.`;
-
-        llm.user(prompt);
-        const resp = await llm.chat({ stream: true });
-
-        let fullContent = "";
-
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            for await (const chunk of resp.stream) {
-                if (!chunk) continue;
-                const { type, content: piece } = chunk;
-
-                if (type === "content" && piece && typeof piece === "string") {
-                    fullContent += piece;
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                        requestId,
-                        type: "content",
-                        content: piece,
-                    });
-                }
-            }
-
-            await resp.complete();
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
-        }
-
-        return { success: false, error: "Invalid response from LLM" };
+        return await runCodingPrompt(event, requestId, assistantInfo, prompt);
     } catch (error) {
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
@@ -325,7 +447,6 @@ async function handleFixCode(event, data) {
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        const llm = await createCodingLlm(assistantInfo, true);
 
         const prompt = `Fix the following ${language || ""} code that has this error: ${error}
 
@@ -352,33 +473,7 @@ Make sure there is a blank line between the opening code fence and the SOLUTION 
 (or the first line of code in general).  
 Do **NOT** literally include the text "<-- leave one empty line here -->" inside any code block.
 `;
-
-        llm.user(prompt);
-        const resp = await llm.chat({ stream: true });
-
-        let fullContent = "";
-
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            for await (const chunk of resp.stream) {
-                if (!chunk) continue;
-                const { type, content: piece } = chunk;
-
-                if (type === "content" && piece && typeof piece === "string") {
-                    fullContent += piece;
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                        requestId,
-                        type: "content",
-                        content: piece,
-                    });
-                }
-            }
-
-            await resp.complete();
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
-        }
-
-        return { success: false, error: "Invalid response from LLM" };
+        return await runCodingPrompt(event, requestId, assistantInfo, prompt);
     } catch (error) {
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
@@ -396,7 +491,6 @@ async function handleSmartMode(event, data) {
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        const llm = await createCodingLlm(assistantInfo, true);
 
         // Build a clear prompt for the AI
         let fullPrompt = `User's request: ${prompt}\n\n`;
@@ -434,36 +528,8 @@ but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted
 
 Return the code or explanation directly — do **not** include meta-commentary about which action you chose.
 `;
-
-        llm.user(fullPrompt);
-        console.log('[AI Coding Agent Backend] Sending to LLM');
-        const resp = await llm.chat({ stream: true });
-
-        let fullContent = "";
-
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            console.log('[AI Coding Agent Backend] Streaming started');
-            for await (const chunk of resp.stream) {
-                if (!chunk) continue;
-                const { type, content: piece } = chunk;
-
-                if (type === "content" && piece && typeof piece === "string") {
-                    fullContent += piece;
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                        requestId,
-                        type: "content",
-                        content: piece,
-                    });
-                }
-            }
-
-            await resp.complete();
-            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
-        }
-
-        return { success: false, error: "Invalid response from LLM" };
+        console.log('[AI Coding Agent Backend] Sending to coding backend');
+        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt);
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handleSmartMode', error);
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
@@ -482,7 +548,6 @@ async function handlePlanCode(event, data) {
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        const llm = await createCodingLlm(assistantInfo, true);
 
         let fullPrompt = `Create a detailed implementation plan for an FDO plugin based on the following description:
 
@@ -572,52 +637,7 @@ render(): string {
 `;
 
         console.log('[AI Coding Agent Backend] Sending plan request to LLM');
-        
-        let resp;
-        // If image is provided, use messages API with vision
-        if (image) {
-            const messages = [{
-                role: 'user',
-                content: [
-                    { type: 'text', text: fullPrompt },
-                    { 
-                        type: 'image_url', 
-                        image_url: { url: image }
-                    }
-                ]
-            }];
-            resp = await llm.chat({ messages, stream: true });
-        } else {
-            // Otherwise use standard user prompt
-            llm.user(fullPrompt);
-            resp = await llm.chat({ stream: true });
-        }
-
-        let fullContent = "";
-
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            console.log('[AI Coding Agent Backend] Streaming started');
-            for await (const chunk of resp.stream) {
-                if (!chunk) continue;
-                const { type, content: piece } = chunk;
-
-                if (type === "content" && piece && typeof piece === "string") {
-                    fullContent += piece;
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                        requestId,
-                        type: "content",
-                        content: piece,
-                    });
-                }
-            }
-
-            await resp.complete();
-            console.log('[AI Coding Agent Backend] Streaming complete', { requestId, contentLength: fullContent.length });
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
-        }
-
-        return { success: false, error: "Invalid response from LLM" };
+        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt, { image });
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handlePlanCode', error);
         event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
