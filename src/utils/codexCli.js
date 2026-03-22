@@ -230,6 +230,7 @@ async function detectExecCapabilities(command = "", baseArgs = []) {
     return {
         supportsAskForApproval: /--ask-for-approval\b/.test(helpText),
         supportsSandbox: /--sandbox\b/.test(helpText),
+        supportsSkipGitRepoCheck: /--skip-git-repo-check\b/.test(helpText),
     };
 }
 

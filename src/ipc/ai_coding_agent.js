@@ -182,6 +182,9 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
     if (invocation.execCapabilities?.supportsSandbox) {
         execArgs.push("--sandbox", "read-only");
     }
+    if (invocation.execCapabilities?.supportsSkipGitRepoCheck) {
+        execArgs.push("--skip-git-repo-check");
+    }
     execArgs.push(prompt);
 
     return await new Promise((resolve, reject) => {
