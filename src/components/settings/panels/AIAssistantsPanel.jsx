@@ -319,6 +319,16 @@ export default function AIAssistantsPanel() {
         return `Last checked ${new Date(checkedAt).toLocaleString()}`;
     };
 
+    const formatCodexAuthCardMessage = (assistant) => {
+        const status = assistant?.codexAuth?.status || "unknown";
+        const message = String(assistant?.codexAuth?.message || "").trim();
+        if (message) return message;
+        if (status === "authorized") return "Codex authentication is active.";
+        if (status === "pending") return "Codex login is in progress.";
+        if (status === "unauthorized") return "Sign in is required.";
+        return "Auth state has not been checked yet.";
+    };
+
     const codexAuthStatus = codexAuthDialog.assistant?.codexAuth?.status || "unknown";
     const codexAuthIntent =
         codexAuthStatus === "authorized" ? "success" :
@@ -381,35 +391,53 @@ export default function AIAssistantsPanel() {
                             </p>
                             {a.provider === "codex-cli" && a.executablePath ? (
                                 <>
-                                    <p>
-                                        <b>Executable:</b> {a.executablePath}
-                                    </p>
-                                    {a.codexRuntime ? (
-                                        <p>
-                                            <b>Runtime:</b> {a.codexRuntime.source}
-                                            {a.codexRuntime.version ? ` (${a.codexRuntime.version})` : ""}
-                                            {a.codexRuntime.bundled ? " [bundled]" : ""}
-                                        </p>
-                                    ) : null}
-                                    {a.codexAuth ? (
-                                        <p>
-                                            <b>Auth:</b> {a.codexAuth.status}
-                                            {a.codexAuth.message ? ` — ${a.codexAuth.message}` : ""}
-                                        </p>
-                                    ) : (
-                                        <p>
-                                            <b>Auth:</b> unknown — run one Codex request to verify login state
-                                        </p>
-                                    )}
-                                    <Button
-                                        small
-                                        text="Manage Auth"
-                                        icon="key"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            openCodexAuthDialog(a);
-                                        }}
-                                    />
+                                    <div className={styles["assistant-meta-row"]}>
+                                        <div className={styles["assistant-meta-label"]}>Executable:</div>
+                                        <div className={styles["assistant-meta-value"]}>
+                                            <span className={styles["dialog-code-value"]}>{a.executablePath}</span>
+                                        </div>
+                                        {a.codexRuntime ? (
+                                            <>
+                                                <div className={styles["assistant-meta-label"]}>Runtime:</div>
+                                                <div className={styles["assistant-meta-value"]}>
+                                                    <span className={styles["dialog-code-value"]}>
+                                                        {a.codexRuntime.source}
+                                                        {a.codexRuntime.version ? ` (${a.codexRuntime.version})` : ""}
+                                                        {a.codexRuntime.bundled ? " [bundled]" : ""}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        ) : null}
+                                        <div className={styles["assistant-meta-label"]}>Auth:</div>
+                                        <div className={styles["assistant-meta-value"]}>
+                                            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                                <Tag intent={
+                                                    (a.codexAuth?.status || "unknown") === "authorized" ? "success" :
+                                                        (a.codexAuth?.status || "unknown") === "pending" ? "warning" :
+                                                            (a.codexAuth?.status || "unknown") === "unauthorized" ? "danger" : "none"
+                                                }>
+                                                    {formatCodexAuthLabel(a.codexAuth?.status || "unknown")}
+                                                </Tag>
+                                                {a.codexAuth?.checkedAt ? (
+                                                    <span style={{ color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: 12 }}>
+                                                        {formatCheckedAt(a.codexAuth.checkedAt)}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            <span className={styles["dialog-code-value"]}>{formatCodexAuthCardMessage(a)}</span>
+                                        </div>
+                                    </div>
+                                    <div className={styles["assistant-card-actions"]}>
+                                        <Button
+                                            small
+                                            text="Manage Auth"
+                                            icon="key"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openCodexAuthDialog(a);
+                                            }}
+                                        />
+                                    </div>
                                 </>
                             ) : null}
                         </Card>
@@ -552,11 +580,15 @@ export default function AIAssistantsPanel() {
                                 <div className={styles["dialog-metadata-label"]}>Assistant:</div>
                                 <div className={styles["dialog-metadata-value"]}>{codexAuthDialog.assistant.name}</div>
                                 <div className={styles["dialog-metadata-label"]}>Executable:</div>
-                                <div className={styles["dialog-metadata-value"]}>{codexAuthDialog.assistant.executablePath || "Auto-detected"}</div>
+                                <div className={styles["dialog-metadata-value"]}>
+                                    <span className={styles["dialog-code-value"]}>{codexAuthDialog.assistant.executablePath || "Auto-detected"}</span>
+                                </div>
                                 <div className={styles["dialog-metadata-label"]}>Runtime:</div>
                                 <div className={styles["dialog-metadata-value"]}>
-                                    {codexAuthDialog.assistant.codexRuntime?.source || "unknown"}
-                                    {codexAuthDialog.assistant.codexRuntime?.version ? ` (${codexAuthDialog.assistant.codexRuntime.version})` : ""}
+                                    <span className={styles["dialog-code-value"]}>
+                                        {codexAuthDialog.assistant.codexRuntime?.source || "unknown"}
+                                        {codexAuthDialog.assistant.codexRuntime?.version ? ` (${codexAuthDialog.assistant.codexRuntime.version})` : ""}
+                                    </span>
                                 </div>
                             </div>
                             <p className={styles["dialog-wrap-text"]} style={{ color: "var(--bp6-text-color-muted, #5f6b7c)" }}>

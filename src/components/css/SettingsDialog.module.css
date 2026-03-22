@@ -87,6 +87,50 @@
     max-width: 100%;
 }
 
+.dialog-code-value {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.06);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    box-sizing: border-box;
+}
+
+.assistant-meta-row {
+    display: grid;
+    grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+    gap: 6px 12px;
+    align-items: start;
+    margin: 8px 0;
+}
+
+.assistant-meta-label {
+    font-weight: 700;
+}
+
+.assistant-meta-value {
+    min-width: 0;
+}
+
+.assistant-card-actions {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 10px;
+}
+
+@media (max-width: 760px) {
+    .assistant-meta-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px 0;
+    }
+}
+
 .dialog-status-row {
     display: flex;
     flex-wrap: wrap;
