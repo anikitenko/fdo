@@ -64,6 +64,18 @@ module.exports = {
                         ignore: ["node_modules/@anikitenko/fdo-sdk/node_modules/**"] // Exclude only nested node_modules
                     }
                 },
+                {
+                    from: path.resolve(__dirname, "node_modules/@openai"),
+                    to: "node_modules/@openai",
+                    noErrorOnMissing: true,
+                    globOptions: {
+                        ignore: ["node_modules/@openai/**/node_modules/**"],
+                    },
+                },
+                {
+                    from: path.resolve(__dirname, "src/workers/codexAuthWorker.js"),
+                    to: "workers/codexAuthWorker.js",
+                },
             ],
         }),
         new webpack.IgnorePlugin({

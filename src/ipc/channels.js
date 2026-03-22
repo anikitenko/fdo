@@ -41,14 +41,22 @@ export const SettingsChannels = withPrefix('settings', {
         ADD: 'add',
         REMOVE: 'remove',
         SET_DEFAULT: 'set-default',
+        GET_AVAILABLE_MODELS: 'get-available-models',
+        CODEX_AUTH_STATUS: 'codex-auth-status',
+        CODEX_AUTH_LOGIN: 'codex-auth-login',
+        CODEX_AUTH_LOGOUT: 'codex-auth-logout',
+        CODEX_AUTH_CANCEL: 'codex-auth-cancel',
     }
 })
 
 export const AiChatChannels = withPrefix('ai-chat', {
     SESSIONS_GET: 'sessions-get',
     SESSION_CREATE: 'session-create',
+    SESSION_RENAME: 'session-rename',
     SEND_MESSAGE: 'send-message',
     GET_CAPABILITIES: 'get-capabilities',
+    GET_PREFERENCES: 'get-preferences',
+    SAVE_PREFERENCES: 'save-preferences',
     DETECT_ATTACHMENT_TYPE: 'detect-attachment-type',
     on_off: {
         STREAM_DELTA: 'stream-delta',

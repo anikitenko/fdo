@@ -14,7 +14,7 @@ import {Certs} from "./utils/certs";
 import {registerNotificationHandlers} from "./ipc/notifications";
 import {registerSystemHandlers} from "./ipc/system";
 import {buildUsingEsbuild, registerPluginHandlers} from "./ipc/plugin";
-import {registerSettingsHandlers} from "./ipc/settings";
+import {interruptAllCodexAuthProcesses, registerSettingsHandlers} from "./ipc/settings";
 import {NotificationCenter} from "./utils/NotificationCenter";
 import {readFile} from "node:fs/promises";
 
@@ -438,6 +438,13 @@ const createWindow = async () => {
     mainWindow.webContents.on('did-finish-load', () => {
         debugLog('[MAIN] did-finish-load fired');
         logMetric('renderer-loaded');
+        setTimeout(() => {
+            if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+                debugLog('[MAIN] did-finish-load fallback show fired');
+                logMetric('window-visible-fallback');
+                mainWindow.show();
+            }
+        }, 150);
     });
 
     // Capture renderer console errors
@@ -711,4 +718,8 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
     }
+});
+
+app.on('before-quit', () => {
+    interruptAllCodexAuthProcesses();
 });

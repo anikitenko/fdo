@@ -40,3 +40,72 @@
 .text-red {
     color: #E76A6E;
 }
+
+.dialog-actions-nowrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    width: 100%;
+}
+
+.dialog-actions-nowrap :global(.bp6-button) {
+    flex: 0 0 auto;
+}
+
+.dialog-wrap-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.dialog-body-scroll {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.dialog-metadata-row {
+    display: grid;
+    grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+    gap: 8px 12px;
+    align-items: start;
+    max-width: 100%;
+}
+
+.dialog-metadata-label {
+    font-weight: 600;
+}
+
+.dialog-metadata-value {
+    white-space: normal;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    max-width: 100%;
+}
+
+.dialog-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+@media (max-width: 760px) {
+    .dialog-metadata-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px 0;
+    }
+
+    .dialog-actions-nowrap {
+        justify-content: stretch;
+    }
+
+    .dialog-actions-nowrap :global(.bp6-button) {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+}
