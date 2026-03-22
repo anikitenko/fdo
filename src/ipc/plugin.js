@@ -1,6 +1,6 @@
 import {app, ipcMain} from "electron";
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
-import {rmSync, chmodSync} from "node:fs";
+import {rmSync, chmodSync, existsSync, statSync} from "node:fs";
 import { readFile } from 'node:fs/promises';
 import Module from 'node:module';
 import PluginORM from "../utils/PluginORM";
@@ -35,8 +35,17 @@ export async function buildUsingEsbuild(virtualData) {
     
     const esbuildBinary = path.join(nodePath, "@esbuild", process.platform + "-" + process.arch, "bin", "esbuild");
     
-    // Set permissions
-    chmodSync(esbuildBinary, 0o755)
+    // Packaged installs under locations like /opt may be root-owned, so chmod must stay best-effort.
+    try {
+        if (existsSync(esbuildBinary)) {
+            const mode = statSync(esbuildBinary).mode & 0o777;
+            if ((mode & 0o111) !== 0o111) {
+                chmodSync(esbuildBinary, 0o755);
+            }
+        }
+    } catch {
+        // Packaging should have already fixed executable permissions.
+    }
 
     // Ensure esbuild uses the correct binary
     process.env.ESBUILD_BINARY_PATH = esbuildBinary;

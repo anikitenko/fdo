@@ -70,9 +70,38 @@ function fixCodexPermissions(resourcesDir) {
     return updated;
 }
 
+function fixEsbuildPermissions(resourcesDir) {
+    const unpackedRoot = path.join(resourcesDir, "app.asar.unpacked", "dist", "main", "node_modules", "@esbuild");
+    if (!fs.existsSync(unpackedRoot)) {
+        return [];
+    }
+
+    const updated = [];
+    const platformPackages = fs.readdirSync(unpackedRoot);
+
+    for (const platformPackage of platformPackages) {
+        const platformRoot = path.join(unpackedRoot, platformPackage);
+        if (!fs.statSync(platformRoot).isDirectory()) {
+            continue;
+        }
+
+        for (const binaryName of ["esbuild", "esbuild.exe"]) {
+            const esbuildBinary = path.join(platformRoot, "bin", binaryName);
+            if (chmodIfPresent(esbuildBinary)) {
+                updated.push(esbuildBinary);
+            }
+        }
+    }
+
+    return updated;
+}
+
 module.exports = async function afterPack(context) {
     const resourcesDir = getResourcesDir(context.appOutDir);
-    const updated = fixCodexPermissions(resourcesDir);
+    const updated = [
+        ...fixCodexPermissions(resourcesDir),
+        ...fixEsbuildPermissions(resourcesDir),
+    ];
 
     if (updated.length > 0) {
         console.log("[afterPack] Repaired bundled executable permissions:");
