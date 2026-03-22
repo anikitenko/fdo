@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 /**
  * CLI Commands Configuration
  * 
@@ -104,6 +106,33 @@ export function hasGuiCommand(args) {
  * @returns {string[]} Cleaned arguments
  */
 export function getCleanCliArgs(argv) {
-    return argv.slice(2).filter(arg => !arg.startsWith('-psn'));
-}
+    const args = Array.isArray(argv) ? argv : [];
+    if (args.length <= 1) {
+        return [];
+    }
 
+    const secondArg = args[1];
+    let offset = 1;
+
+    if (typeof secondArg === "string" && secondArg.length > 0 && !secondArg.startsWith("-")) {
+        const looksLikePackagedUserArg = CLI_COMMANDS.includes(secondArg);
+        let looksLikeElectronAppEntry = false;
+
+        if (!looksLikePackagedUserArg) {
+            try {
+                if (fs.existsSync(secondArg)) {
+                    const stat = fs.statSync(secondArg);
+                    looksLikeElectronAppEntry = stat.isDirectory() || stat.isFile();
+                }
+            } catch {
+                looksLikeElectronAppEntry = false;
+            }
+        }
+
+        if (looksLikeElectronAppEntry) {
+            offset = 2;
+        }
+    }
+
+    return args.slice(offset).filter(arg => !arg.startsWith('-psn'));
+}

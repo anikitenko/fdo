@@ -311,6 +311,7 @@
     "rpm": {
       "vendor": "AleXvWaN",
       "category": "Utility"
-    }
+    },
+    "afterPack": "./scripts/fix-bundled-binary-permissions.js"
   }
 }
