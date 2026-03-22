@@ -360,16 +360,7 @@ if (hasCommand && (isTerminalLaunch || app.isPackaged)) {
     // In packaged apps, process.argv includes the .asar path which commander
     // interprets as a command. We need to construct proper argv for commander.
     // Format: [executable, 'fdo', ...actualArgs]
-    let commanderArgv;
-    if (app.isPackaged) {
-        // Packaged: process.argv = [executable, app.asar, ...args]
-        // Commander needs: [executable, 'fdo', ...args]
-        commanderArgv = [process.argv[0], 'fdo', ...process.argv.slice(2)];
-    } else {
-        // Dev: process.argv = [electron, app-path, ...args]
-        // Commander can use default or we construct: [electron, 'fdo', ...args]
-        commanderArgv = [process.argv[0], 'fdo', ...process.argv.slice(2)];
-    }
+    const commanderArgv = [process.argv[0], 'fdo', ...cliArgs];
     
     debugLog(`[MAIN] Commander argv: ${JSON.stringify(commanderArgv)}`);
     await program.parseAsync(commanderArgv);
