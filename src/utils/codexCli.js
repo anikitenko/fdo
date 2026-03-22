@@ -106,6 +106,30 @@ function getBundledPlatformPackageName() {
     return "";
 }
 
+function getBundledNativeRuntime(rootPackagePath = "") {
+    if (!rootPackagePath) return null;
+    const openaiDir = path.dirname(path.dirname(rootPackagePath));
+    const platformPackageName = getBundledPlatformPackageName();
+    if (!platformPackageName) return null;
+    const platformDir = path.join(openaiDir, platformPackageName);
+    const vendorRoot = path.join(platformDir, "vendor");
+    if (!fs.existsSync(vendorRoot)) return null;
+
+    try {
+        const triples = fs.readdirSync(vendorRoot);
+        for (const triple of triples) {
+            const binary = path.join(vendorRoot, triple, "codex", process.platform === "win32" ? "codex.exe" : "codex");
+            const pathDir = path.join(vendorRoot, triple, "path");
+            if (fs.existsSync(binary)) {
+                return { binary, pathDir: fs.existsSync(pathDir) ? pathDir : "" };
+            }
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
 function repairBundledCodexPermissions(rootPackagePath = "") {
     if (!rootPackagePath || process.platform === "win32") return;
     const openaiDir = path.dirname(path.dirname(rootPackagePath));
@@ -124,6 +148,14 @@ function repairBundledCodexPermissions(rootPackagePath = "") {
     } catch {
         // Best-effort only.
     }
+}
+
+function prependToPath(currentPath = "", nextDir = "") {
+    if (!nextDir) return currentPath;
+    const separator = process.platform === "win32" ? ";" : ":";
+    const parts = String(currentPath || "").split(separator).filter(Boolean);
+    if (parts.includes(nextDir)) return [nextDir, ...parts.filter((part) => part !== nextDir)].join(separator);
+    return [nextDir, ...parts].join(separator);
 }
 
 function findNearestPackageJson(executablePath = "") {
@@ -145,6 +177,23 @@ function findNearestPackageJson(executablePath = "") {
         current = parent;
     }
     return null;
+}
+
+function buildBundledNativeInvocation(entrypoint = "", rootPackagePath = "") {
+    const nativeRuntime = getBundledNativeRuntime(rootPackagePath);
+    if (!nativeRuntime?.binary) return null;
+    ensureExecutablePermissions(nativeRuntime.binary);
+    if (nativeRuntime.pathDir) {
+        ensureExecutablePermissions(path.join(nativeRuntime.pathDir, process.platform === "win32" ? "rg.exe" : "rg"));
+    }
+    return {
+        command: nativeRuntime.binary,
+        args: [],
+        entrypoint,
+        env: nativeRuntime.pathDir
+            ? { PATH: prependToPath(process.env.PATH || "", nativeRuntime.pathDir) }
+            : {},
+    };
 }
 
 async function readExecutableVersion(command = "", baseArgs = []) {
@@ -186,21 +235,28 @@ async function detectExecCapabilities(command = "", baseArgs = []) {
 
 function normalizeCodexAuthState(output = "", error = "", code = 0) {
     const text = `${output || ""}\n${error || ""}`.trim();
+    const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean) || "";
+    if (/EACCES/i.test(text)) {
+        return {
+            status: "error",
+            message: "Bundled Codex runtime is present but not executable. FDO needs to repair file permissions for the packaged Codex binary.",
+        };
+    }
     if (/401 Unauthorized|not logged in|login required|sign in/i.test(text)) {
         return {
             status: "unauthorized",
-            message: text || "Codex CLI is not authenticated.",
+            message: firstLine || "Codex CLI is not authenticated.",
         };
     }
     if (code === 0 && /logged in|chatgpt|api key|authenticated|subscription/i.test(text)) {
         return {
             status: "authorized",
-            message: text || "Codex CLI is authenticated.",
+            message: firstLine || "Codex CLI is authenticated.",
         };
     }
     return {
         status: "unknown",
-        message: text || "Unable to determine Codex authentication state.",
+        message: firstLine || "Unable to determine Codex authentication state.",
     };
 }
 
@@ -273,8 +329,11 @@ function assertSafeBundledVersion(version = "", details = {}) {
 export async function resolveCodexCliInvocation({ configuredPath = "", preferBundled = true } = {}) {
     const configured = String(configuredPath || "").trim();
     if (configured) {
-        const invocation = buildInvocation(configured);
+        const packageInfo = findNearestPackageJson(configured);
+        const bundledNativeInvocation = packageInfo?.path ? buildBundledNativeInvocation(configured, packageInfo.path) : null;
+        const invocation = bundledNativeInvocation || buildInvocation(configured);
         ensureExecutablePermissions(configured);
+        repairBundledCodexPermissions(packageInfo?.path || "");
         const version = await readExecutableVersion(configured);
         const execCapabilities = await detectExecCapabilities(configured);
         return {
@@ -282,17 +341,18 @@ export async function resolveCodexCliInvocation({ configuredPath = "", preferBun
             args: invocation.args,
             entrypoint: invocation.entrypoint,
             env: invocation.env,
-            source: "configured",
+            source: bundledNativeInvocation ? "bundled" : "configured",
             version,
-            bundled: false,
+            bundled: !!bundledNativeInvocation,
+            packagePath: packageInfo?.path || null,
             execCapabilities,
         };
     }
 
     if (preferBundled) {
         for (const candidate of getBundledCodexCandidates()) {
-            const invocation = buildInvocation(candidate);
             const packageInfo = findNearestPackageJson(candidate);
+            const invocation = buildBundledNativeInvocation(candidate, packageInfo?.path || "") || buildInvocation(candidate);
             ensureExecutablePermissions(candidate);
             repairBundledCodexPermissions(packageInfo?.path || "");
             const version = packageInfo?.version || await readExecutableVersion(candidate);
