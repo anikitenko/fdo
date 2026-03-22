@@ -185,6 +185,9 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
     if (invocation.execCapabilities?.supportsSkipGitRepoCheck) {
         execArgs.push("--skip-git-repo-check");
     }
+    if (invocation.execCapabilities?.supportsModel && assistantInfo?.model) {
+        execArgs.push("--model", assistantInfo.model);
+    }
     execArgs.push(prompt);
 
     return await new Promise((resolve, reject) => {

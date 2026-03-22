@@ -61,11 +61,38 @@ export default function AIAssistantsPanel() {
         }
 
         if (form.provider === "codex-cli") {
-            setProviderModels([{ label: "Codex CLI", value: "codex-cli" }]);
-            setIsLoadingModels(false);
-            setModelsError("");
-            setForm((prev) => ({ ...prev, model: prev.model || "codex-cli", purpose: "coding" }));
-            return;
+            let cancelled = false;
+
+            (async () => {
+                try {
+                    setIsLoadingModels(true);
+                    setModelsError("");
+                    const models = await window.electron.settings.ai.getAvailableModels("codex-cli", "");
+                    if (cancelled) return;
+                    setProviderModels(models);
+                    setForm((prev) => {
+                        const hasCurrentModel = models.some((model) => model.value === prev.model);
+                        return {
+                            ...prev,
+                            model: hasCurrentModel ? prev.model : (models[0]?.value || "gpt-5.3-codex"),
+                            purpose: "coding",
+                        };
+                    });
+                } catch (err) {
+                    if (cancelled) return;
+                    setProviderModels([]);
+                    setModelsError(err.message || "Failed to load Codex models.");
+                    setForm((prev) => ({ ...prev, purpose: "coding" }));
+                } finally {
+                    if (!cancelled) {
+                        setIsLoadingModels(false);
+                    }
+                }
+            })();
+
+            return () => {
+                cancelled = true;
+            };
         }
 
         const apiKey = form.apiKey.trim();
@@ -155,7 +182,7 @@ export default function AIAssistantsPanel() {
                 ...form,
                 default: true,
                 apiKey: form.provider === "codex-cli" ? "" : form.apiKey,
-                model: form.provider === "codex-cli" ? "codex-cli" : form.model,
+                model: form.provider === "codex-cli" ? (form.model || "gpt-5") : form.model,
                 purpose: form.provider === "codex-cli" ? "coding" : form.purpose,
             };
             await window.electron.settings.ai.addAssistant(nextForm);
@@ -479,7 +506,7 @@ export default function AIAssistantsPanel() {
                         />
                     </FormGroup>
 
-                    <FormGroup label="Model" labelFor="ai-model">
+                    <FormGroup label={form.provider === "codex-cli" ? "Codex Model" : "Model"} labelFor="ai-model">
                         <HTMLSelect
                             id="ai-model"
                             options={
@@ -487,10 +514,10 @@ export default function AIAssistantsPanel() {
                                     ? [{ label: `Loading ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models...`, value: "" }]
                                     : filteredModels.length > 0
                                         ? filteredModels
-                                        : [{ label: form.provider === "codex-cli" ? "Codex CLI" : (form.apiKey.trim() ? `No ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models available` : `Enter API key to load ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models`), value: "" }]
+                                        : [{ label: form.provider === "codex-cli" ? "No Codex models available" : (form.apiKey.trim() ? `No ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models available` : `Enter API key to load ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models`), value: "" }]
                             }
                             value={form.model}
-                            disabled={form.provider === "codex-cli" || isLoadingModels || filteredModels.length === 0}
+                            disabled={isLoadingModels || filteredModels.length === 0}
                             onChange={(e) =>
                                 setForm({ ...form, model: e.target.value })
                             }
@@ -498,6 +525,11 @@ export default function AIAssistantsPanel() {
                         {modelsError ? (
                             <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
                                 {modelsError}
+                            </div>
+                        ) : null}
+                        {form.provider === "codex-cli" ? (
+                            <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
+                                Codex model options are loaded dynamically. If Codex is already authenticated, the selected model is verified before the assistant is saved.
                             </div>
                         ) : null}
                     </FormGroup>
