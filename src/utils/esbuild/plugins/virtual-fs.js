@@ -4,6 +4,23 @@ import {extractCssStyles} from "../../../components/editor/utils/extractCssStyle
 import {resolveCssImports} from "../../../components/editor/utils/resolveCssImports";
 
 export function EsbuildVirtualFsPlugin(latestContent) {
+    const normalizeVirtualPath = (targetPath = "", {preserveRelative = false} = {}) => {
+        const normalized = String(targetPath || "")
+            .replace(/^virtual:/, "")
+            .replace(/\\/g, "/")
+            .replace(/\/+/g, "/");
+
+        if (!normalized) {
+            return normalized;
+        }
+
+        if (preserveRelative && (normalized.startsWith("./") || normalized.startsWith("../"))) {
+            return normalized;
+        }
+
+        return normalized.startsWith("/") ? normalized : `/${normalized}`;
+    };
+
     return {
         name: "virtual-fs",
         setup(build) {
@@ -56,33 +73,38 @@ export function EsbuildVirtualFsPlugin(latestContent) {
             });
 
             const resolveFile = (basePath, importerPath) => {
+                let normalizedBasePath = normalizeVirtualPath(basePath, {preserveRelative: true});
+                const normalizedImporterPath = normalizeVirtualPath(importerPath);
+
                 // Normalize relative paths based on the importer
-                if (basePath.startsWith("./") || basePath.startsWith("../")) {
-                    if (importerPath) {
-                        const importerDir = path.dirname(importerPath);
-                        basePath = path.join(importerDir, basePath);
+                if (normalizedBasePath.startsWith("./") || normalizedBasePath.startsWith("../")) {
+                    if (normalizedImporterPath) {
+                        const importerDir = path.posix.dirname(normalizedImporterPath);
+                        normalizedBasePath = path.posix.join(importerDir, normalizedBasePath);
                     }
                 }
 
+                normalizedBasePath = normalizeVirtualPath(normalizedBasePath);
+
                 // Possible file resolutions
                 const possibleFiles = [
-                    basePath,
-                    `${basePath}.js`,
-                    `${basePath}.jsx`,
-                    `${basePath}.mjs`,
-                    `${basePath}.cjs`,
-                    `${basePath}.ts`,
-                    `${basePath}.tsx`,
-                    `${basePath}.mts`,
-                    `${basePath}.cts`,
-                    `${basePath}/index.js`,
-                    `${basePath}/index.jsx`,
-                    `${basePath}/index.mjs`,
-                    `${basePath}/index.cjs`,
-                    `${basePath}/index.ts`,
-                    `${basePath}/index.tsx`,
-                    `${basePath}/index.mts`,
-                    `${basePath}/index.cts`,
+                    normalizedBasePath,
+                    `${normalizedBasePath}.js`,
+                    `${normalizedBasePath}.jsx`,
+                    `${normalizedBasePath}.mjs`,
+                    `${normalizedBasePath}.cjs`,
+                    `${normalizedBasePath}.ts`,
+                    `${normalizedBasePath}.tsx`,
+                    `${normalizedBasePath}.mts`,
+                    `${normalizedBasePath}.cts`,
+                    `${normalizedBasePath}/index.js`,
+                    `${normalizedBasePath}/index.jsx`,
+                    `${normalizedBasePath}/index.mjs`,
+                    `${normalizedBasePath}/index.cjs`,
+                    `${normalizedBasePath}/index.ts`,
+                    `${normalizedBasePath}/index.tsx`,
+                    `${normalizedBasePath}/index.mts`,
+                    `${normalizedBasePath}/index.cts`,
                 ];
                 return possibleFiles.find(p => latestContent[p]) || null;
             };
