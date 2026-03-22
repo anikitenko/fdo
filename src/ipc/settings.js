@@ -4,7 +4,7 @@ import {settings} from "../utils/store";
 import {Certs} from "../utils/certs";
 import LLM from "@themaximalist/llm.js"
 import { fetchOpenAICapabilities } from "./ai/model_capabilities/fetchers/openai_fetcher";
-import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout } from "../utils/codexCli.js";
+import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout, verifyCodexModelAccess } from "../utils/codexCli.js";
 import path from "node:path";
 
 const STATIC_ANTHROPIC_MODELS = [
@@ -17,6 +17,40 @@ const STATIC_ANTHROPIC_MODELS = [
     "claude-3-5-haiku-20241022",
     "claude-3-haiku-20240307",
 ];
+
+async function fetchCodexCliModels() {
+    const response = await fetch("https://developers.openai.com/api/docs/models/all", {
+        headers: {
+            "User-Agent": "FDO/1.0 Codex Model Loader",
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`OpenAI model catalog request failed with status ${response.status}.`);
+    }
+
+    const html = await response.text();
+    const matches = html.match(/\b(?:gpt-[\w.-]*codex(?:-max|-mini)?|gpt-5(?:\.\d+)?(?:-pro|-mini|-nano)?|codex-mini-latest)\b/gi) || [];
+    const unique = Array.from(new Set(matches.map((model) => model.trim().toLowerCase())));
+    const models = unique
+        .filter((model) => model.startsWith("gpt-5") || /codex/i.test(model))
+        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" }));
+
+    if (models.length === 0) {
+        throw new Error("No coding-capable OpenAI models were found in the official catalog.");
+    }
+
+    const recommendedModel =
+        models.find((modelId) => modelId === "gpt-5-codex") ||
+        models.find((modelId) => modelId === "gpt-5.4") ||
+        models[0];
+
+    return models.map((modelId) => ({
+        label: modelId === recommendedModel ? `${modelId} (Recommended)` : modelId,
+        value: modelId,
+        provider: "codex-cli",
+    }));
+}
 
 const activeCodexAuthProcesses = new Map();
 const CODEX_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
@@ -225,13 +259,7 @@ export function registerSettingsHandlers() {
         }
 
         if (provider === "codex-cli") {
-            return [
-                {
-                    label: "Codex CLI",
-                    value: "codex-cli",
-                    provider: "codex-cli",
-                }
-            ];
+            return await fetchCodexCliModels();
         }
 
         if (!apiKey || !String(apiKey).trim()) {
@@ -280,11 +308,17 @@ export function registerSettingsHandlers() {
                     message: authStatus.message || null,
                     checkedAt: new Date().toISOString(),
                 };
+                if (authStatus.status === "authorized") {
+                    const modelVerification = await verifyCodexModelAccess(invocation, data.model);
+                    if (!modelVerification.ok) {
+                        throw new Error(modelVerification.message);
+                    }
+                }
             } catch (error) {
                 throw new Error(`Codex CLI verification failed. ${error?.message || error}`);
             }
             data.apiKey = "";
-            data.model = data.model || "codex-cli";
+            data.model = data.model || "gpt-5-codex";
         } else {
             const llm = new LLM({
                 service: data.provider,

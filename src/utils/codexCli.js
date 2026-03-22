@@ -231,6 +231,7 @@ async function detectExecCapabilities(command = "", baseArgs = []) {
         supportsAskForApproval: /--ask-for-approval\b/.test(helpText),
         supportsSandbox: /--sandbox\b/.test(helpText),
         supportsSkipGitRepoCheck: /--skip-git-repo-check\b/.test(helpText),
+        supportsModel: /--model\b/.test(helpText),
     };
 }
 
@@ -315,6 +316,63 @@ export async function runCodexLogout(invocation) {
     } catch (error) {
         const message = `${error?.stdout || ""}\n${error?.stderr || ""}\n${error?.message || ""}`.trim();
         throw new Error(message || "Codex logout failed.");
+    }
+}
+
+export async function verifyCodexModelAccess(invocation, model = "") {
+    const trimmedModel = String(model || "").trim();
+    if (!trimmedModel) {
+        return { ok: false, message: "Codex model is required." };
+    }
+
+    const args = [...(invocation.args || []), "exec"];
+    if (invocation.execCapabilities?.supportsAskForApproval) {
+        args.push("--ask-for-approval", "never");
+    }
+    if (invocation.execCapabilities?.supportsSandbox) {
+        args.push("--sandbox", "read-only");
+    }
+    if (invocation.execCapabilities?.supportsSkipGitRepoCheck) {
+        args.push("--skip-git-repo-check");
+    }
+    if (invocation.execCapabilities?.supportsModel) {
+        args.push("--model", trimmedModel);
+    }
+    args.push("Reply with exactly OK.");
+
+    try {
+        await execFileAsync(invocation.command, args, {
+            env: { ...process.env, ...(invocation.env || {}) },
+            timeout: 20_000,
+            maxBuffer: 1024 * 1024,
+        });
+        return { ok: true, message: `Codex model ${trimmedModel} verified.` };
+    } catch (error) {
+        const stderr = `${error?.stdout || ""}\n${error?.stderr || ""}\n${error?.message || ""}`.trim();
+        const normalized = normalizeCodexAuthState(error?.stdout || "", stderr, error?.code ?? 1);
+        if (normalized.status === "unauthorized") {
+            return {
+                ok: false,
+                authRelated: true,
+                message: "Codex authentication is required before model verification can complete.",
+            };
+        }
+        if (/model/i.test(stderr) || /unknown/i.test(stderr) || /unsupported/i.test(stderr) || /not found/i.test(stderr)) {
+            return {
+                ok: false,
+                message: `Codex could not use model ${trimmedModel}. Check the selected model and your account access.`,
+            };
+        }
+        if (/timed out/i.test(stderr) || error?.killed) {
+            return {
+                ok: false,
+                message: `Timed out while verifying Codex model ${trimmedModel}. Try again after authentication finishes.`,
+            };
+        }
+        return {
+            ok: false,
+            message: `Codex model verification failed for ${trimmedModel}. ${stderr.split("\n").map((line) => line.trim()).find(Boolean) || ""}`.trim(),
+        };
     }
 }
 
