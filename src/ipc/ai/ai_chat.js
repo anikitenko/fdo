@@ -133,8 +133,15 @@ export function registerAiChatHandlers() {
         return next;
     })
 
-    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, assistantId, temperature, attachments, replyTo }) => {
+    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, assistantId, temperature, uiLanguage, attachments, replyTo }) => {
         return await withSessionLock(sessionId, async () => {
+            if (uiLanguage) {
+                const previous = settings.get("ai.options.chatDialog", {}) || {};
+                settings.set("ai.options.chatDialog", {
+                    ...previous,
+                    uiLanguage,
+                });
+            }
             const { session, sessions, idx, currentReplyContext } = await prepareSessionMessage(sessionId, content, attachments, replyTo);
             const trace = createAiObservabilityTrace({
                 name: "ai-chat-turn",

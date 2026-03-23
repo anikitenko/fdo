@@ -6,7 +6,9 @@ module.exports = {
   testEnvironment: "jsdom",
   moduleNameMapper: {
     "^.+\\.module\\.css$": "identity-obj-proxy",
+    "^.+\\.module\\.scss$": "identity-obj-proxy",
     "\\.css$": "identity-obj-proxy",
+    "\\.scss$": "identity-obj-proxy",
     "^monaco-editor$": "<rootDir>/tests/__mocks__/monaco-editor.js",
     "^@playwright/test$": "playwright",
     "^.*AppToaster\\.jsx$": "<rootDir>/tests/__mocks__/AppToaster.jsx",

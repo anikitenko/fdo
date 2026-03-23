@@ -11,6 +11,8 @@ import {
     routeFromToolName,
     runToolCalls,
     shouldUseSemanticRouter,
+    looksLikeReactionOnlyTurn,
+    getClarificationScopes,
     SUPPORTED_ROUTES,
     SUPPORTED_SCOPES,
     SUPPORTED_TASK_SHAPES
@@ -24,6 +26,13 @@ import Jimp from "jimp";
 import * as os from "node:os";
 import path from "node:path";
 import crypto from "crypto";
+import { normalizeAsciiEmoticons } from "../../utils/emoticons.js";
+import { getAiChatText, normalizeAiChatUiLanguage } from "../../utils/aiChatI18n.js";
+import {
+    applyCompressedUsageCap,
+    computeModelUsageStats,
+    estimateTokenCount,
+} from "../../utils/aiChatStats.js";
 
 const BASE_SYSTEM_PROMPT = `You are Junie, the AI assistant inside FlexDevOps (FDO).
 
@@ -49,6 +58,10 @@ const BASE_SYSTEM_PROMPT_TOKENS = Math.ceil(BASE_SYSTEM_PROMPT.length / 4);
 const sessionLocks = new Map();
 const MAX_RECENT_TOOL_HISTORY = 6;
 const SEMANTIC_ROUTER_THRESHOLD = 0.72;
+
+function getCurrentChatUiLanguage() {
+    return normalizeAiChatUiLanguage(settings.get("ai.options.chatDialog.uiLanguage", "en"));
+}
 
 function getDefaultSessionRouting() {
     return {
@@ -173,9 +186,166 @@ function normalizeLanguageLabel(value) {
     return label || null;
 }
 
+function inferHeuristicMessageLanguage(text = "") {
+    const value = String(text || "").trim();
+    if (!value) return null;
+    if (/[\u4E00-\u9FFF]/.test(value)) return "zh";
+    if (/[іїєґ]/i.test(value)) return "uk";
+    if (/[ёыэъ]/i.test(value)) return "ru";
+    if (/[А-Яа-яЁёІіЇїЄєҐґ]/.test(value)) {
+        const lower = value.toLowerCase();
+        const ukMarkers = ["що", "це", "якщо", "сьогодні", "зараз", "ще", "хочеш", "можу", "повернутися", "підказати"];
+        const ruMarkers = ["что", "это", "если", "сегодня", "сейчас", "ещё", "хочешь", "могу", "вернуться", "подсказать"];
+        const score = (markers) => markers.reduce((sum, marker) => (
+            sum + (new RegExp(`\\b${marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(lower) ? 1 : 0)
+        ), 0);
+        const ukScore = score(ukMarkers);
+        const ruScore = score(ruMarkers);
+        if (ukScore > ruScore && ukScore > 0) return "uk";
+        if (ruScore > ukScore && ruScore > 0) return "ru";
+    }
+    if (/[ąćęłńóśźż]/i.test(value)) return "pl";
+    if (/[äöüß]/i.test(value)) return "de";
+    if (/[éèàùçêîôûëïü]/i.test(value)) return "fr";
+    if (/[a-z]/i.test(value) && !/[А-Яа-яЁёІіЇїЄєҐґ]/.test(value)) return "en";
+    return null;
+}
+
+function looksLikeShortAcknowledgement(text = "") {
+    const normalized = String(text || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[`~*_>#.,!?'"()\[\]{}:;\/\\|+\-=]+/g, "")
+        .trim();
+    if (!normalized || normalized.length > 16) return false;
+    return new Set([
+        "ok", "okay", "okey", "sure", "fine", "got it",
+        "ок", "окей", "ага", "добре", "ясно", "зрозуміло",
+    ]).has(normalized);
+}
+
+function inferReplyLanguageFromConversation(currentTurn = "", historyMessages = [], sessionMemory = null) {
+    const storedPreference = normalizeSessionMemory(sessionMemory).preferences?.preferredLanguage;
+    if (storedPreference) return storedPreference;
+
+    const currentLanguage = inferHeuristicMessageLanguage(currentTurn);
+    if (currentLanguage) return currentLanguage;
+
+    const recentUserMessages = [...(historyMessages || [])]
+        .filter((message) => message?.role === "user")
+        .slice(-6)
+        .reverse();
+
+    for (const message of recentUserMessages) {
+        const detected = inferHeuristicMessageLanguage(message?.content || "");
+        if (detected) {
+            return detected;
+        }
+    }
+
+    const recentAssistantMessages = [...(historyMessages || [])]
+        .filter((message) => message?.role === "assistant")
+        .slice(-4)
+        .reverse();
+
+    for (const message of recentAssistantMessages) {
+        const detected = inferHeuristicMessageLanguage(message?.content || "");
+        if (detected) {
+            return detected;
+        }
+    }
+
+    if (
+        looksLikeShortAcknowledgement(currentTurn)
+        && /[А-Яа-яЁёІіЇїЄєҐґ]/.test(String(currentTurn || ""))
+        && getCurrentChatUiLanguage() === "uk"
+    ) {
+        return "uk";
+    }
+
+    return null;
+}
+
+function resolveAssistantCopyLanguage(preferredReplyLanguage = null, prompt = "", historyMessages = [], sessionMemory = null) {
+    const explicit = normalizeLanguageLabel(preferredReplyLanguage);
+    if (explicit === "uk") return "uk";
+    if (explicit === "en") return "en";
+
+    const inferred = inferReplyLanguageFromConversation(prompt, historyMessages, sessionMemory);
+    if (inferred === "uk") return "uk";
+    if (inferred === "en") return "en";
+
+    return normalizeAiChatUiLanguage(getCurrentChatUiLanguage());
+}
+
+export function coerceReactionFollowUpIntent(routingPrompt = "", sessionRouting = null, deterministicIntent = null) {
+    if (
+        !looksLikeReactionOnlyTurn(routingPrompt)
+        || !sessionRouting?.activeRoute
+        || sessionRouting.activeRoute === "general"
+    ) {
+        return deterministicIntent;
+    }
+
+    return {
+        ...(deterministicIntent || {}),
+        route: sessionRouting.activeRoute,
+        routeReason: "session-route",
+        routeCandidates: [sessionRouting.activeRoute],
+        scope: sessionRouting.activeScope || deterministicIntent?.scope || "general",
+        scopeReason: "session-scope",
+        taskShape: sessionRouting.activeTaskShape || deterministicIntent?.taskShape || "general_chat",
+        taskShapeReason: "session-task-shape",
+        confidence: Math.max(
+            deterministicIntent?.confidence || 0,
+            sessionRouting?.routeConfidence || 0,
+            0.85
+        ),
+    };
+}
+
+export function shouldLockReactionFollowUpToSessionRoute(
+    routingPrompt = "",
+    sessionRouting = null,
+    deterministicIntent = null,
+    effectiveIntent = null
+) {
+    if (!looksLikeReactionOnlyTurn(routingPrompt)) {
+        return false;
+    }
+
+    if (!sessionRouting?.activeRoute || sessionRouting.activeRoute === "general") {
+        return false;
+    }
+
+    if (effectiveIntent?.route === sessionRouting.activeRoute && effectiveIntent?.routeReason === "session-route") {
+        return true;
+    }
+
+    return deterministicIntent?.route !== "general" && deterministicIntent?.routeReason === "session-route";
+}
+
+export function buildRoutingPromptForIntentAnalysis(content = "", currentReplyContext = "") {
+    const routingPrompt = String(content || "").trim();
+    if (!looksLikeReactionOnlyTurn(routingPrompt)) {
+        return routingPrompt;
+    }
+
+    const replyContext = String(currentReplyContext || "").trim();
+    if (!replyContext) {
+        return routingPrompt;
+    }
+
+    return [routingPrompt, replyContext].filter(Boolean).join("\n\n");
+}
+
 async function classifyLanguageWithModel({ service, apiKey, model }, text = "", { allowNull = true } = {}) {
     const value = String(text || "").trim();
     if (!value) return null;
+    const heuristicLanguage = inferHeuristicMessageLanguage(value);
+    if (heuristicLanguage) {
+        return heuristicLanguage;
+    }
 
     const classifier = new LLM({
         service,
@@ -294,9 +464,11 @@ async function repairReplyLanguage(llm, reply = "") {
 
 function buildReplyLanguageDirective(targetLanguage = null) {
     const replyLanguage = normalizeLanguageLabel(targetLanguage);
-    return replyLanguage
-        ? `Final answer language for this turn: ${replyLanguage}. You must answer in ${replyLanguage}.`
-        : "";
+    if (!replyLanguage) return "";
+    if (replyLanguage === "uk") {
+        return "Final answer language for this turn: uk. You must answer fully in Ukrainian. Do not answer in Russian.";
+    }
+    return `Final answer language for this turn: ${replyLanguage}. You must answer in ${replyLanguage}.`;
 }
 
 function shouldPreferCompactReply(prompt = "", intent = null) {
@@ -409,31 +581,43 @@ function mergeSessionMemory(baseMemory = null, updates = {}) {
     };
 }
 
-function buildClarificationMessage(intent, originalPrompt = "") {
+function buildClarificationMessage(intent, originalPrompt = "", assistantCopyLanguage = "en") {
     const routeCandidates = Array.isArray(intent?.routeCandidates)
         ? intent.routeCandidates.filter((candidate) => candidate && candidate !== "general" && candidate !== "multi")
         : [];
 
     if (routeCandidates.length > 1) {
-        return `I can help with that, but I need one clarification first: do you want ${routeCandidates.join(", ")} help, or a general answer?`;
+        return getAiChatText(assistantCopyLanguage, "clarificationRouteChoice", {
+            candidates: routeCandidates.join(", "),
+        });
     }
 
     if (intent?.route === "general" && (intent?.confidence || 0) < SEMANTIC_ROUTER_THRESHOLD) {
-        return `I’m not fully sure whether you want a domain-specific lookup or a general reply here. Do you want me to use a tool for this, or answer conversationally?`;
+        return getAiChatText(assistantCopyLanguage, "clarificationToolOrGeneral");
     }
 
     if (intent?.route === "fdo" && (intent?.scope || "general") === "general") {
-        return `I can help with that, but I need one clarification first: do you mean FDO UI, settings, plugins, trust/certificates, SDK, or implementation details?`;
+        const scopes = getClarificationScopes("fdo", assistantCopyLanguage);
+        const candidates = scopes.map((item) => item.label).join(", ");
+        return getAiChatText(assistantCopyLanguage, "clarificationFdoScope", {
+            candidates,
+        });
     }
 
-    return `I’m not fully sure what kind of help you want for this turn. Can you clarify what you want me to do?`;
+    return getAiChatText(assistantCopyLanguage, "clarificationGeneric");
 }
 
 export function persistClarificationResponse(session, sessions, idx, clarificationText, intent, resolvedMemory = null) {
     const now = new Date().toISOString();
+    const assistantCopyLanguage = resolveAssistantCopyLanguage(
+        normalizeSessionMemory(resolvedMemory).preferences?.preferredLanguage || null,
+        session?.messages?.at?.(-1)?.content || "",
+        session?.messages || [],
+        resolvedMemory
+    );
     const safeClarificationText = String(
-        clarificationText || buildClarificationMessage(intent, session?.messages?.at?.(-1)?.content || "")
-    ).trim() || "I need one clarification before I answer. Can you narrow down what you mean?";
+        clarificationText || buildClarificationMessage(intent, session?.messages?.at?.(-1)?.content || "", assistantCopyLanguage)
+    ).trim() || getAiChatText(assistantCopyLanguage, "clarificationFallback");
     const assistantMsg = {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -808,12 +992,13 @@ export function saveSessionsDebounced(sessions, immediate = false) {
 }
 
 function deriveSessionNameFromPrompt(content = "") {
+    const uiLanguage = getCurrentChatUiLanguage();
     const normalized = String(content || "")
         .replace(/\s+/g, " ")
         .replace(/^[\s"'`({\[]+|[\s"'`)}\]]+$/g, "")
         .trim();
 
-    if (!normalized) return "New Chat";
+    if (!normalized) return getAiChatText(uiLanguage, "newChat");
 
     const simplified = normalized.replace(/^(please|can you|could you|would you|hey|hi)\s+/i, "").trim() || normalized;
     const words = simplified.split(" ").filter(Boolean);
@@ -821,7 +1006,7 @@ function deriveSessionNameFromPrompt(content = "") {
     const clipped = short.length > 60 ? short.slice(0, 57).trimEnd() : short;
     const cleaned = clipped.replace(/[.,:;!?-]+$/g, "").trim();
 
-    if (!cleaned) return "New Chat";
+    if (!cleaned) return getAiChatText(uiLanguage, "newChat");
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
@@ -833,12 +1018,13 @@ function buildReplyContext(replyTarget) {
 }
 
 export async function prepareSessionMessage(sessionId, content, attachments, replyTo = null) {
+    const uiLanguage = getCurrentChatUiLanguage();
     const normalizedContent = String(content || "").trim();
-    if (!normalizedContent && !replyTo?.id) throw new Error("Message content is empty.");
+    if (!normalizedContent && !replyTo?.id) throw new Error(getAiChatText(uiLanguage, "messageContentEmpty"));
 
     const sessions = (settings.get("ai.sessions", []) || []).slice();
     const idx = sessions.findIndex(s => s.id === sessionId);
-    if (idx === -1) throw new Error("Session not found.");
+    if (idx === -1) throw new Error(getAiChatText(uiLanguage, "sessionNotFound"));
 
     const now = new Date().toISOString();
     let attachmentMarkdown = "";
@@ -864,14 +1050,14 @@ export async function prepareSessionMessage(sessionId, content, attachments, rep
                     return `![Attachment](${a.data})`;
                 } else if (a.contentType === "application/pdf") {
                     const pdfUrl = savePdfTemp(a.data);
-                    return `📎 [Open attached PDF](${pdfUrl})`;
+                    return `📎 [${getAiChatText(uiLanguage, "openAttachedPdf")}](${pdfUrl})`;
                 } else if (a.contentType.startsWith("image/")) {}
                     return `![Attachment](data:${a.contentType};base64,${a.data})`;
                 })
                 .join("\n");
         }
         if (sessionIDs.length > 0) {
-            attachmentMarkdown += "\n\n**Included messages from sessions:**\n" +
+            attachmentMarkdown += `\n\n**${getAiChatText(getCurrentChatUiLanguage(), "includedMessagesFromSessions")}**\n` +
                 sessionIDs.map(id => `- \`${id}\``).join("\n");
         }
     }
@@ -943,7 +1129,7 @@ export function selectAssistant(assistantId, provider, model) {
         const all = settings.get("ai.chat", []);
         assistantInfo = all.find(a => a.default) || all[0];
     }
-    if (!assistantInfo) throw new Error("No AI Chat assistant found. Please add one in Settings.");
+    if (!assistantInfo) throw new Error(getAiChatText(getCurrentChatUiLanguage(), "noChatAssistantFound"));
     return assistantInfo;
 }
 
@@ -1115,6 +1301,7 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
     const resolvedSessionMemory = mergeSessionMemory(sessionMemory, preferenceUpdate);
     const targetReplyLanguage = normalizeLanguageLabel(preferenceUpdate?.turnLanguage)
         || normalizeSessionMemory(resolvedSessionMemory).preferences?.preferredLanguage
+        || inferReplyLanguageFromConversation(content, historyMessages, resolvedSessionMemory)
         || null;
     const lastTopicalContext = [
         sessionRouting?.lastTopicalUserPrompt ? `Last real user topic: ${sessionRouting.lastTopicalUserPrompt}` : "",
@@ -1129,14 +1316,30 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
             lastTopicalContext,
         ].filter(Boolean).join("\n\n")
         : effectiveContent;
-    const deterministicToolPolicy = resolveToolPolicy(contentForModel, historyMessages, sessionRouting);
-    const deterministicIntent = deterministicToolPolicy.intent || resolveTurnIntent(contentForModel, historyMessages, sessionRouting);
-    let intent = deterministicIntent;
-    let toolPolicy = deterministicToolPolicy;
+    const routingPrompt = String(content || "").trim();
+    const routingAnalysisPrompt = buildRoutingPromptForIntentAnalysis(routingPrompt, currentReplyContext);
+    const deterministicToolPolicy = resolveToolPolicy(routingAnalysisPrompt, historyMessages, sessionRouting);
+    const deterministicIntent = deterministicToolPolicy.intent || resolveTurnIntent(routingAnalysisPrompt, historyMessages, sessionRouting);
+    let intent = coerceReactionFollowUpIntent(routingPrompt, sessionRouting, deterministicIntent);
+    let toolPolicy = intent === deterministicIntent
+        ? deterministicToolPolicy
+        : resolveToolPolicyFromIntent(intent, routingAnalysisPrompt);
+    const assistantCopyLanguage = resolveAssistantCopyLanguage(
+        targetReplyLanguage,
+        content,
+        historyMessages,
+        resolvedSessionMemory
+    );
     let clarificationNeeded = false;
     let clarificationMessage = "";
 
-    const forceWebContinuation = shouldForceSessionWebContinuation(contentForModel, sessionRouting, deterministicIntent);
+    const forceWebContinuation = shouldForceSessionWebContinuation(routingPrompt, sessionRouting, deterministicIntent);
+    const lockReactionFollowUpToDeterministicRoute = shouldLockReactionFollowUpToSessionRoute(
+        routingPrompt,
+        sessionRouting,
+        deterministicIntent,
+        intent
+    );
 
     if (forceWebContinuation) {
         intent = {
@@ -1148,13 +1351,13 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
             scopeReason: "session-scope",
             confidence: Math.max(deterministicIntent?.confidence || 0, 0.88),
         };
-        toolPolicy = resolveToolPolicyFromIntent(intent, content);
+        toolPolicy = resolveToolPolicyFromIntent(intent, routingAnalysisPrompt);
     }
 
-    if (!forceWebContinuation && shouldUseSemanticRouter(deterministicIntent, sessionRouting)) {
+    if (!forceWebContinuation && !lockReactionFollowUpToDeterministicRoute && shouldUseSemanticRouter(deterministicIntent, sessionRouting)) {
         const semanticIntent = await resolveSemanticIntent(
             assistantInfo,
-            contentForModel,
+            routingAnalysisPrompt,
             historyMessages,
             sessionRouting,
             deterministicIntent
@@ -1166,7 +1369,7 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
             (semanticIntent.confidence || 0) >= SEMANTIC_ROUTER_THRESHOLD
         ) {
             intent = semanticIntent;
-            toolPolicy = resolveToolPolicyFromIntent(semanticIntent, content);
+            toolPolicy = resolveToolPolicyFromIntent(semanticIntent, routingAnalysisPrompt);
         } else if (semanticIntent) {
             console.log("[AI Chat] Semantic router declined override", {
                 semanticIntent,
@@ -1179,7 +1382,7 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
             ) {
                 clarificationNeeded = true;
                 intent = semanticIntent;
-                clarificationMessage = buildClarificationMessage(semanticIntent, content);
+                clarificationMessage = buildClarificationMessage(semanticIntent, content, assistantCopyLanguage);
             }
         }
     }
@@ -1195,16 +1398,16 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
             taskShape: sessionRouting?.activeTaskShape || intent.taskShape,
             taskShapeReason: "preference-only",
         };
-        toolPolicy = resolveToolPolicyFromIntent(intent, content);
+        toolPolicy = resolveToolPolicyFromIntent(intent, routingAnalysisPrompt);
     }
 
-    if (!clarificationNeeded && intent.route === "fdo" && (intent.scope || "general") === "general" && content.trim().length < 120) {
+    if (!clarificationNeeded && intent.route === "fdo" && (intent.scope || "general") === "general" && routingPrompt.length < 120) {
         clarificationNeeded = true;
-        clarificationMessage = buildClarificationMessage(intent, effectiveContent);
+        clarificationMessage = buildClarificationMessage(intent, effectiveContent, assistantCopyLanguage);
     }
 
     if (clarificationNeeded && !String(clarificationMessage || "").trim()) {
-        clarificationMessage = buildClarificationMessage(intent, effectiveContent);
+        clarificationMessage = buildClarificationMessage(intent, effectiveContent, assistantCopyLanguage);
     }
 
     console.log(
@@ -1340,28 +1543,17 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
     };
 }
 
-function estimateTokens(text = "") {
-    return Math.ceil(String(text).length / 4); // heuristic
-}
-
 function estimateContextTokensForMessage(message = {}) {
-    const parts = [
+    return estimateTokenCount([
         message.role || "",
         message.content || "",
         message.replyContext || "",
         message.contentAttachments || "",
-    ].filter(Boolean);
-
-    return estimateTokens(parts.join("\n"));
+    ].filter(Boolean).join("\n"));
 }
 
 function recomputeModelUsageFromMessages(messagesForModel, maxTokens) {
-    const messageTokens = messagesForModel.reduce((sum, message) => (
-        sum + estimateContextTokensForMessage(message)
-    ), 0);
-    const used = messageTokens + (messagesForModel.length > 0 ? BASE_SYSTEM_PROMPT_TOKENS : 0);
-    const percent = maxTokens ? Number(((used / maxTokens) * 100).toFixed(1)) : 0;
-    return { estimatedUsed: used, percentUsed: percent };
+    return computeModelUsageStats(messagesForModel, maxTokens, BASE_SYSTEM_PROMPT_TOKENS);
 }
 
 function getContextMessagesForModel(messages = [], modelName) {
@@ -1376,14 +1568,18 @@ function getContextMessagesForModel(messages = [], modelName) {
 }
 
 function stripRetrievalMetadata(text = "") {
-    return String(text || "")
-        .replace(/^Grounded with FDO knowledge retrieval\.\s*/i, "")
+    let value = String(text || "");
+    for (const locale of ["en", "uk"]) {
+        const prefix = getAiChatText(locale, "groundedFdoPrefix").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        value = value.replace(new RegExp(`^${prefix}\\s*`, "i"), "");
+    }
+    return value
         .replace(/(?:\n|\r|^|\s)*sources used:?\s*[\s\S]*$/i, "")
         .trim();
 }
 
 function sanitizeAssistantText(text = "") {
-    return String(text || "")
+    return normalizeAsciiEmoticons(String(text || ""))
         .replace(/\n#{1,6}\s*$/g, "")
         .replace(/\n+\s*#\s*$/g, "")
         .trim();
@@ -1670,6 +1866,7 @@ function stripSnippetFormatting(text = "") {
 }
 
 function buildFdoKnowledgeFallback(results = []) {
+    const uiLanguage = getCurrentChatUiLanguage();
     const fdoResults = results.filter((result) => ["search_fdo_help", "search_fdo_code"].includes(result?.name));
     const snippets = [];
     const sources = [];
@@ -1712,33 +1909,33 @@ function buildFdoKnowledgeFallback(results = []) {
         const bullets = [];
 
         if (primaryScope === "plugins" || pluginRelated) {
-            bullets.push("FDO appears to have a dedicated plugin-management flow rather than treating plugins as hidden internal features.");
-            bullets.push("The current sources point to plugin management UI, plugin lifecycle/loading logic, and plugin creation flows.");
+            bullets.push(getAiChatText(uiLanguage, "fdoPluginFlow1"));
+            bullets.push(getAiChatText(uiLanguage, "fdoPluginFlow2"));
         } else if (primaryScope === "settings" || settingsRelated) {
-            bullets.push("The current FDO sources point to dedicated settings flows rather than one generic configuration surface.");
+            bullets.push(getAiChatText(uiLanguage, "fdoSettingsFlow"));
         } else if (primaryScope === "ui" || uiRelated) {
-            bullets.push("The current sources point to explicit UI/dialog flows for this area of FDO.");
+            bullets.push(getAiChatText(uiLanguage, "fdoUiFlow"));
         } else if (chatRelated) {
-            bullets.push("The current sources point to dedicated AI chat UI and backend logic for this capability.");
+            bullets.push(getAiChatText(uiLanguage, "fdoChatFlow"));
         }
 
         if (docsRelated) {
-            bullets.push("There is also documentation coverage for this area, so the behavior is not inferred only from code.");
+            bullets.push(getAiChatText(uiLanguage, "fdoDocsCoverage"));
         }
 
         if (bullets.length === 0 && uniqueSources.length > 0) {
-            bullets.push("I found relevant FDO product sources for this area, but the model did not return a concise synthesis from them.");
+            bullets.push(getAiChatText(uiLanguage, "fdoModelNoSynthesis"));
         }
 
         if (uniqueSources.length === 0) {
             return null;
         }
 
-        bullets.push("If you want, I can narrow this to UI behavior, settings, plugin management, or implementation details.");
+        bullets.push(getAiChatText(uiLanguage, "fdoNarrowFollowUp"));
 
         return {
             content: [
-                "Grounded with FDO knowledge retrieval.",
+                getAiChatText(uiLanguage, "groundedFdoPrefix"),
                 "",
                 ...bullets.map((bullet) => `- ${bullet}`),
             ].join("\n"),
@@ -1755,9 +1952,9 @@ function buildFdoKnowledgeFallback(results = []) {
     const bulletPoints = uniqueSnippets.map((snippet) => `- ${snippet}`);
     return {
         content: [
-            "Grounded with FDO knowledge retrieval.",
+            getAiChatText(uiLanguage, "groundedFdoPrefix"),
             "",
-            "Here is what the current FDO sources suggest:",
+            getAiChatText(uiLanguage, "fdoSourceSuggests"),
             ...bulletPoints,
         ].join("\n"),
         sources: uniqueSources,
@@ -1793,6 +1990,7 @@ function buildWebKnowledgeFallback(results = []) {
 }
 
 function buildWebNoResultsFallback(results = [], originalPrompt = "") {
+    const uiLanguage = getCurrentChatUiLanguage();
     const webResults = results.filter((result) => result?.name === "search_web");
     if (webResults.length === 0) {
         return null;
@@ -1806,8 +2004,8 @@ function buildWebNoResultsFallback(results = [], originalPrompt = "") {
 
     const query = String(webResults[0]?.query || extractNaturalWebQuery(originalPrompt) || originalPrompt || "").trim();
     const text = query
-        ? `I couldn’t find useful web results for "${query}" just now, so I can’t verify current details from search.`
-        : `I couldn’t find useful web results just now, so I can’t verify current details from search.`;
+        ? getAiChatText(uiLanguage, "webNoResults", { query })
+        : getAiChatText(uiLanguage, "webNoResultsGeneric");
 
     return {
         content: sanitizeAssistantText(text),
@@ -1900,7 +2098,7 @@ function ensureAssistantReplyText(reply, intent = null) {
     }
 
     if (intent?.route === "fdo" && (intent?.scope || "general") === "general") {
-        return buildClarificationMessage(intent, "");
+        return buildClarificationMessage(intent, "", resolveAssistantCopyLanguage(null, "", [], null));
     }
 
     return "I couldn’t produce a complete answer for that turn. Please try again or narrow the request a bit.";
@@ -2214,9 +2412,10 @@ Return markdown with these sections when applicable:
     // model context for future messages. That means we cap the
     // reported usage at 80% of maxTokens even if the raw estimate
     // is higher.
-    const maxUsedAfterCompression = Math.floor(modelStats.maxTokens * 0.8);
-    const adjustedUsed = Math.min(estimatedUsed, maxUsedAfterCompression);
-    const adjustedPercent = Number(((adjustedUsed / modelStats.maxTokens) * 100).toFixed(1));
+    const {
+        estimatedUsed: adjustedUsed,
+        percentUsed: adjustedPercent,
+    } = applyCompressedUsageCap(estimatedUsed, modelStats.maxTokens, 0.2);
 
     const newModelStats = {
         ...modelStats,
@@ -2757,6 +2956,7 @@ async function toolFollowUp(llm, toolCalls) {
         reply = resp.messages.find(m => m.role === "assistant" && m.content)?.content || "";
 
     if (usedFdoKnowledge && fdoMetadata.retrievalConfidence > 0 && fdoMetadata.retrievalConfidence < 0.55) {
+        const uiLanguage = getCurrentChatUiLanguage();
         const uniqueSources = Array.from(new Set(
             sources
                 .map((sourceInfo) => sourceInfo?.source)
@@ -2764,7 +2964,7 @@ async function toolFollowUp(llm, toolCalls) {
         ));
         const lowConfidenceResult = {
             content: sanitizeAssistantText(
-                `Grounded with FDO knowledge retrieval.\n\nI found some potentially relevant FDO sources, but confidence is low, so I do not want to overstate the answer.\n\nCan you narrow this down a bit, for example whether you mean UI behavior, plugin internals, settings, or implementation details?`
+                `${getAiChatText(uiLanguage, "groundedFdoPrefix")}\n\n${getAiChatText(uiLanguage, "groundedLowConfidence")}\n\n${getAiChatText(uiLanguage, "groundedLowConfidenceFollowUp")}`
             ),
             sources: uniqueSources,
             sourceDetails: fdoSourceDetails,
@@ -2870,13 +3070,14 @@ async function toolFollowUp(llm, toolCalls) {
             const body = result.text || JSON.stringify(result.results || [], null, 2);
             return `- ${result.name}: ${body}`;
         });
-        reply = `I used the available tool results directly because the follow-up synthesis step returned no text.\n\n${fallbackSections.join("\n\n")}`;
+        reply = `${getAiChatText(getCurrentChatUiLanguage(), "toolSynthesisFallback")}\n\n${fallbackSections.join("\n\n")}`;
     }
 
     if (usedFdoKnowledge) {
+        const uiLanguage = getCurrentChatUiLanguage();
         const conflictPrefix = fdoMetadata.hasConflict
-            ? `Grounded with FDO knowledge retrieval.\n\nThe retrieved sources are somewhat mixed, so treat this as a best-effort answer:\n\n`
-            : `Grounded with FDO knowledge retrieval.\n\n`;
+            ? `${getAiChatText(uiLanguage, "groundedFdoPrefix")}\n\n${getAiChatText(uiLanguage, "groundedMixedSources")}\n\n`
+            : `${getAiChatText(uiLanguage, "groundedFdoPrefix")}\n\n`;
         reply = `${conflictPrefix}${reply.trim()}`;
     }
 

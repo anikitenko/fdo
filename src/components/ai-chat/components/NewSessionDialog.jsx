@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Dialog, InputGroup, Button, Classes } from "@blueprintjs/core";
 
-export default function NewSessionDialog({ isOpen, setIsOpen, onSubmit }) {
+export default function NewSessionDialog({ isOpen, setIsOpen, onSubmit, t = (key) => key }) {
     const [name, setName] = useState("");
 
     const handleSubmit = () => {
@@ -16,12 +16,12 @@ export default function NewSessionDialog({ isOpen, setIsOpen, onSubmit }) {
         <Dialog
             isOpen={isOpen}
             onClose={() => setIsOpen(false)}
-            title="Create New Session"
+            title={t("createNewSession")}
             className="bp6-dark"
         >
             <div className={Classes.DIALOG_BODY}>
                 <InputGroup
-                    placeholder="Enter session name..."
+                    placeholder={t("enterSessionName")}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     autoFocus
@@ -30,9 +30,9 @@ export default function NewSessionDialog({ isOpen, setIsOpen, onSubmit }) {
 
             <div className={Classes.DIALOG_FOOTER}>
                 <div className={Classes.DIALOG_FOOTER_ACTIONS}>
-                    <Button onClick={() => setIsOpen(false)}>Cancel</Button>
+                    <Button onClick={() => setIsOpen(false)}>{t("cancel")}</Button>
                     <Button intent="primary" onClick={handleSubmit}>
-                        Create
+                        {t("create")}
                     </Button>
                 </div>
             </div>

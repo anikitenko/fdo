@@ -100,6 +100,7 @@ export const settings = new Store({
                                 additionalProperties: false,
                             },
                             default: {type: "boolean", default: false},
+                            defaultThinkingMode: { type: "string", nullable: true },
                             createdAt: {type: "string", format: "date-time"},
                             updatedAt: {type: "string", format: "date-time"},
                             usage: {
@@ -150,6 +151,7 @@ export const settings = new Store({
                                 additionalProperties: false,
                             },
                             default: {type: "boolean", default: false},
+                            defaultThinkingMode: { type: "string", nullable: true },
                             createdAt: {type: "string", format: "date-time"},
                             updatedAt: {type: "string", format: "date-time"},
                             usage: {
@@ -352,9 +354,33 @@ export const settings = new Store({
                                 assistantId: { type: "string", nullable: true },
                                 streaming: { type: "boolean", default: false },
                                 thinking: { type: "boolean", default: false },
+                                thinkingModeSource: { type: "string", nullable: true },
                                 temperature: { type: "number", minimum: 0, maximum: 2, default: 0.7 },
                                 showDebugDetails: { type: "boolean", default: false },
-                                enableComposerCompletion: { type: "boolean", default: true }
+                                enableComposerCompletion: { type: "boolean", default: true },
+                                uiLanguage: { type: "string", nullable: true },
+                                drafts: {
+                                    type: "array",
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            sessionId: { type: "string" },
+                                            input: { type: "string", default: "" },
+                                            replyTo: {
+                                                type: "object",
+                                                nullable: true,
+                                                properties: {
+                                                    id: { type: "string" },
+                                                    role: { type: "string" },
+                                                    content: { type: "string", nullable: true },
+                                                },
+                                                additionalProperties: false,
+                                            },
+                                        },
+                                        additionalProperties: false,
+                                    },
+                                    default: [],
+                                },
                             },
                             additionalProperties: false,
                             default: {
@@ -363,9 +389,11 @@ export const settings = new Store({
                                 assistantId: "",
                                 streaming: false,
                                 thinking: false,
+                                thinkingModeSource: "assistant",
                                 temperature: 0.7,
                                 showDebugDetails: false,
-                                enableComposerCompletion: true
+                                enableComposerCompletion: true,
+                                drafts: [],
                             }
                         }
                     },
@@ -481,7 +509,10 @@ export const settings = new Store({
                         streaming: false,
                         thinking: false,
                         temperature: 0.7,
-                        showDebugDetails: false
+                        showDebugDetails: false,
+                        enableComposerCompletion: true,
+                        uiLanguage: null,
+                        drafts: [],
                     }
                 },
                 metrics: {

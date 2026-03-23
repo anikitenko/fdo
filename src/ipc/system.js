@@ -100,7 +100,8 @@ export function registerSystemHandlers() {
     // Listen for external link requests
     ipcMain.on(SystemChannels.OPEN_EXTERNAL_LINK, (event, url) => {
         if (typeof url === "string" && (url.startsWith("http") || url.startsWith("file:"))) {
-            shell.openExternal(url).then(() => {
+            shell.openExternal(url).catch((error) => {
+                console.error("[System] Failed to open external URL", { url, error: error?.message || error });
             });
         }
     });

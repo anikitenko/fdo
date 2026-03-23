@@ -2,6 +2,8 @@ import { getFdoIndexDocuments } from "./fdo_index.js";
 import { buildQuerySemanticEmbedding, cosineSimilarity } from "./fdo_semantic.js";
 
 const MAX_RESULTS = 6;
+const MAX_RETRIEVAL_CHARS = 3200;
+const MAX_SNIPPET_CHARS = 520;
 const STOP_TERMS = new Set([
     "a", "an", "and", "are", "as", "at", "be", "by", "do", "does", "for", "from", "how",
     "i", "in", "is", "it", "of", "on", "or", "so", "that", "the", "to", "what", "when",
@@ -193,6 +195,15 @@ function overlapRatio(a = [], b = []) {
         if (right.has(value)) overlap += 1;
     }
     return overlap / Math.max(left.size, right.size);
+}
+
+function snippetFingerprint(value = "") {
+    return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 240);
 }
 
 function computeSecondSignal(doc = {}, { rewrittenQuery = "", query = "", scope = "general", mode = "help" } = {}) {
@@ -442,6 +453,113 @@ function buildSnippet(content, matchedTerms, query, mode = "help") {
     return snippet.length > 0 ? snippet : content.slice(0, 320).replace(/\s+/g, " ").trim();
 }
 
+function estimateCharsForResult(result = {}) {
+    const source = String(result.displaySource || result.source || "");
+    const sourceType = String(result.sourceType || "");
+    const why = String(result.why || "");
+    const snippet = String(result.snippet || "");
+    return `${source}${sourceType}${why}${snippet}`.length + 32;
+}
+
+function trimSnippetToBudget(snippet = "", budget = 0) {
+    const normalized = String(snippet || "").trim();
+    if (!normalized || budget <= 0) return "";
+    if (normalized.length <= budget) return normalized;
+    if (budget <= 12) return normalized.slice(0, Math.max(0, budget)).trim();
+    return `${normalized.slice(0, Math.max(0, budget - 1)).trim()}…`;
+}
+
+function applyContextBudget(results = [], maxChars = MAX_RETRIEVAL_CHARS) {
+    const kept = [];
+    const dropped = [];
+    let usedChars = 0;
+
+    for (const result of results) {
+        const next = { ...result };
+        next.snippet = String(next.snippet || "").slice(0, MAX_SNIPPET_CHARS).trim();
+        const estimated = estimateCharsForResult(next);
+
+        if (usedChars + estimated <= maxChars) {
+            kept.push(next);
+            usedChars += estimated;
+            continue;
+        }
+
+        const remaining = maxChars - usedChars;
+        if (remaining > 140) {
+            const fixedOverhead = estimateCharsForResult({ ...next, snippet: "" });
+            const snippetBudget = Math.max(0, remaining - fixedOverhead);
+            const trimmedSnippet = trimSnippetToBudget(next.snippet, Math.min(MAX_SNIPPET_CHARS, snippetBudget));
+            if (trimmedSnippet) {
+                next.snippet = trimmedSnippet;
+                kept.push(next);
+                usedChars += estimateCharsForResult(next);
+                dropped.push({
+                    source: result.source,
+                    sourceType: result.sourceType,
+                    score: result.score,
+                    reason: "trimmed-to-fit-budget",
+                });
+                continue;
+            }
+        }
+
+        dropped.push({
+            source: result.source,
+            sourceType: result.sourceType,
+            score: result.score,
+            reason: "dropped-by-budget",
+        });
+    }
+
+    return {
+        results: kept,
+        usedChars,
+        maxChars,
+        dropped,
+    };
+}
+
+function assembleContextPack(results = []) {
+    const selected = [];
+    const dropped = [];
+    const seenFingerprints = new Set();
+    const sourceUseCount = new Map();
+
+    for (const result of results) {
+        const fingerprint = snippetFingerprint(result.snippet);
+        if (fingerprint && seenFingerprints.has(fingerprint)) {
+            dropped.push({
+                source: result.source,
+                sourceType: result.sourceType,
+                score: result.score,
+                reason: "deduplicated-near-identical-snippet",
+            });
+            continue;
+        }
+
+        const sameSourceCount = sourceUseCount.get(result.source) || 0;
+        if (sameSourceCount >= 2) {
+            dropped.push({
+                source: result.source,
+                sourceType: result.sourceType,
+                score: result.score,
+                reason: "reduced-source-overconcentration",
+            });
+            continue;
+        }
+
+        selected.push(result);
+        if (fingerprint) seenFingerprints.add(fingerprint);
+        sourceUseCount.set(result.source, sameSourceCount + 1);
+    }
+
+    return {
+        results: selected,
+        dropped,
+    };
+}
+
 function isLowValueHelpSource(source = "", content = "") {
     const lowerSource = String(source || "").toLowerCase();
     const lowerContent = String(content || "").toLowerCase();
@@ -686,33 +804,42 @@ export function buildFdoSearchResult(name, query, results, mode, scope = "genera
         ...result,
         displaySource: mode === "help" ? toUserFacingSourceLabel(result.source) : result.source,
     }));
+    const assembled = assembleContextPack(displayResults);
+    const budgeted = applyContextBudget(assembled.results, MAX_RETRIEVAL_CHARS);
+    const finalResults = budgeted.results;
 
     const lines = [
         `FDO ${mode} results for "${query}":`,
-        ...displayResults.map((result, index) => (
+        ...finalResults.map((result, index) => (
             `${index + 1}. [${result.displaySource}] (${result.sourceType}) ${result.why}\n${result.snippet}`
         )),
     ];
-    const { confidence, hasConflict } = computeRetrievalConfidence(displayResults);
+    const { confidence, hasConflict } = computeRetrievalConfidence(finalResults);
 
     return {
         name,
         ok: true,
         query,
         text: lines.join("\n\n"),
-        results: displayResults,
+        results: finalResults,
         data: {
-            results: displayResults,
+            results: finalResults,
             metadata: {
                 mode,
                 scope,
                 retrievalConfidence: confidence,
                 hasConflict,
                 sourcePriority: ["docs", "schema", "config", "code", "other"],
+                contextBudgetChars: budgeted.maxChars,
+                contextUsedChars: budgeted.usedChars,
+                budgetDroppedCount: budgeted.dropped.length,
+                budgetDroppedCandidates: budgeted.dropped,
+                assemblyDroppedCount: assembled.dropped.length,
+                assemblyDroppedCandidates: assembled.dropped,
                 ...(diagnostics || {}),
             },
         },
-        sources: displayResults.map(({ source, displaySource, why, sourceType, snippet }) => ({
+        sources: finalResults.map(({ source, displaySource, why, sourceType, snippet }) => ({
             source: displaySource || source,
             rawSource: source,
             why,

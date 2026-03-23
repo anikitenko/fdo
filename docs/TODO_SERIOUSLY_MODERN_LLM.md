@@ -9,21 +9,21 @@ Goal:
 
 ## Phase 1: Build A Real Knowledge Corpus
 
-- [ ] Define source categories:
+- [x] Define source categories:
   - docs
   - code
   - JSON schemas
   - plugin manifests
   - settings/config definitions
   - prompts/tool definitions
-- [ ] Exclude low-value noise:
+- [x] Exclude low-value noise:
   - `dist/`
   - generated files
   - minified content
   - lockfiles
   - vendored dependencies
-- [ ] Add a corpus builder step that produces normalized source documents.
-- [ ] Store metadata for every document:
+- [x] Add a corpus builder step that produces normalized source documents.
+- [x] Store metadata for every document:
   - path
   - source type
   - title
@@ -36,52 +36,52 @@ Definition of done:
 
 ## Phase 2: Chunking
 
-- [ ] Add chunking by source type:
+- [x] Add chunking by source type:
   - markdown/doc sections
   - code by symbol or logical block
   - schemas by object/definition block
   - manifests by top-level section
-- [ ] Preserve provenance per chunk:
+- [x] Preserve provenance per chunk:
   - file path
   - heading/symbol
   - line metadata if available
-- [ ] Avoid chunks that are too small or too large.
-- [ ] Add overlap only where it materially improves retrieval.
+- [x] Avoid chunks that are too small or too large.
+- [x] Add overlap only where it materially improves retrieval.
 
 Definition of done:
 - knowledge is retrieved as focused chunks rather than giant files
 
 ## Phase 3: Ranking
 
-- [ ] Implement first-pass retrieval:
+- [x] Implement first-pass retrieval:
   - lexical/BM25-style or equivalent
-- [ ] Implement second-pass reranking:
+- [x] Implement second-pass reranking:
   - cheap heuristic scoring first
   - optional model-based reranker later
-- [ ] Rank using:
+- [x] Rank using:
   - exact keyword hits
   - file/source type
   - heading relevance
   - symbol proximity
   - assistant domain hints
-- [ ] Return top-N chunks with score explanations.
+- [x] Return top-N chunks with score explanations.
 
 Definition of done:
 - retrieval results are ordered by likely usefulness, not raw grep order
 
 ## Phase 4: Retrieval Assembly
 
-- [ ] Build a retrieval orchestrator:
+- [x] Build a retrieval orchestrator:
   - query normalization
   - source filtering
   - candidate retrieval
   - reranking
   - context budget trimming
-- [ ] Add context assembly rules:
+- [x] Add context assembly rules:
   - diverse but relevant chunks
   - deduplicate near-identical snippets
   - prefer authoritative sources
-- [ ] Keep a hard token budget for retrieved context.
+- [x] Keep a hard token budget for retrieved context.
 
 Definition of done:
 - the model sees a compact, high-signal, budgeted context pack
@@ -97,6 +97,10 @@ Definition of done:
 - [x] Keep a top-level meta-tool or router if useful.
 - [x] Bias to the most authoritative tool for the question type.
 - [x] Keep source-code retrieval out of general user-facing FDO help unless the user is explicitly asking about implementation, development, debugging, or improvement work.
+- [x] Keep general FDO product-help and FDO developer-help as distinct answer modes:
+  - broad FDO questions should default to docs/settings/schema authority
+  - implementation/debugging/improvement questions should default to code/developer retrieval
+  - ambiguous turns should ask whether the user wants product behavior or implementation detail
 
 Definition of done:
 - tooling is domain-specific and easier for the model to use correctly
@@ -129,6 +133,17 @@ Definition of done:
 - [x] If sources conflict, instruct the assistant to say so.
 - [x] If retrieval confidence is low, require a follow-up question or a qualified answer.
 - [x] Add confidence metadata to retrieval output.
+- [x] Define and preserve canonical source-of-truth policy for FDO answers:
+  - user-facing product behavior should prefer explicit product docs
+  - supported configuration should prefer settings/config/schema sources
+  - implementation behavior should use code as authority only in developer/debug mode or when docs do not define the behavior
+  - the assistant should avoid mixing product guidance and implementation detail unless the user explicitly asks for both
+- [x] Add regression checks for ambiguous routing vocabulary so low-precision keywords do not silently force the wrong mode:
+  - `human body component` should not route to coding help
+  - `React component` should route to coding help
+  - `certificate of birth` should not route to FDO trust/certificates
+  - `trust certificate in FDO` should route to FDO help
+  - `give me Golang snippet` should answer directly without clarification
 
 Definition of done:
 - the assistant behaves conservatively when knowledge is weak or conflicting
@@ -263,10 +278,10 @@ Definition of done:
 
 ## Phase 12: Safe Bundled Codex Upgrade
 
-- [ ] Upgrade `@openai/codex` only to a non-vulnerable version that fixes the known sandbox-bypass advisory.
-- [ ] Rework the current Codex provider to support bundled runtime only after that safe upgrade is verified.
+- [x] Upgrade `@openai/codex` only to a non-vulnerable version that fixes the known sandbox-bypass advisory.
+- [x] Rework the current Codex provider to support bundled runtime only after that safe upgrade is verified.
 - [x] Keep `Codex CLI (ChatGPT)` provider architecture separate from generic chat assistants.
-- [ ] Verify packaged runtime behavior on:
+- [x] Verify packaged runtime behavior on:
   - `DMG`
   - `RPM`
   - `DEB`
@@ -380,32 +395,59 @@ Definition of done:
   - no corruption in streaming or markdown rendering
   - preserve emoji through persistence/reload
 - [x] Make emoji behavior multilingual-safe and compatible with reply/pre-completion flows.
+- [x] Replace the minimal hand-written emoticon mapping with a maintained emoji/emoticon library integration:
+  - prefer a maintained dataset/parser over ad hoc regex growth
+  - support common ASCII emoticons like `:)`, `:D`, `;)`, `<3`, `:/`, `:|`, `:'(` and text reactions like `(facepalm)`
+  - keep strict exclusions for fenced code, inline code, logs, and literal examples
+  - ensure custom composer input and markdown rendering use the same normalization rules
 - [x] Add manual regression checks for:
   - ghost text acceptance/rejection
   - emoji persistence after restart
   - emoji display during streaming replies
+- [x] Add high-value selection-aware composer actions:
+  - `Reply` from selected text
+  - `Quote` from selected text
+  - `Code Block` from selected text when the selection is code-like
+- [x] Prefill reply/quote actions with the exact selected text and keep multiline formatting intact.
+- [x] Detect code-like selected content and prefer fenced code blocks over plain quote formatting when appropriate.
+- [x] Support grounded follow-up drafting from retrieved snippets:
+  - quote a cited snippet into the composer
+  - preserve the source label or citation context when helpful
+- [x] Add lightweight draft resilience:
+  - autosave unsent composer drafts per chat/session
+  - restore drafts after restart without corrupting markdown
+- [x] Keep markdown insertion deterministic and reversible:
+  - no duplicate insertion on repeated action
+  - no corruption of existing draft text
+  - preserve indentation for quoted code/log output
+- [x] Add manual regression checks for:
+  - quote insertion from selected text
+  - reply prefill from selected text
+  - fenced code block insertion from selected code
+  - multiline quote formatting correctness
+  - draft restore after restart
 
 Definition of done:
-- the composer supports modern low-friction drafting with safe pre-completion and stable emoji handling
+- the composer supports modern low-friction drafting with safe pre-completion, stable emoji handling, selection-aware markdown insertion, and reliable draft recovery without adding unnecessary UI overhead
 
 ## Phase 19: AI Chat Localization And Ukrainian UX
 
-- [ ] Add first-class Ukrainian support across the AI chat UI, not only model replies:
+- [x] Add first-class Ukrainian support across the AI chat UI, not only model replies:
   - composer labels
   - grounded/retrieval labels
   - clarification labels
   - reply/session actions
   - options/tooling text
-- [ ] Introduce proper i18n for AI chat UI strings instead of ad hoc hardcoded English labels.
-- [ ] Make reply-language state and UI language work together cleanly:
+- [x] Introduce proper i18n for AI chat UI strings instead of ad hoc hardcoded English labels.
+- [x] Make reply-language state and UI language work together cleanly:
   - Ukrainian UI can coexist with English/Polish/German/Chinese model replies
   - system labels should not randomly switch language mid-chat
-- [ ] Ensure localized labels also work in:
+- [x] Ensure localized labels also work in:
   - grounded answer metadata
   - tool error/fallback messages
   - composer smart-completion affordances
   - reply-from-selection / new-chat-from-selection flows
-- [ ] Add regression checks for:
+- [x] Add regression checks for:
   - Ukrainian UI labels
   - mixed UI language + model response language
   - restart persistence of selected UI language

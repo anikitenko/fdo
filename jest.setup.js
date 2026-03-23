@@ -1,10 +1,19 @@
 const path = require('path');
+const { TextDecoder, TextEncoder } = require('util');
 
 // Ensure the working directory is set to the project root
 process.chdir(path.resolve(__dirname));
 
 // Mock environment variables if needed
 process.env.NODE_ENV = 'test';
+
+// Some transitive Node dependencies expect the util implementations explicitly.
+if (typeof globalThis.TextEncoder !== 'function') {
+  globalThis.TextEncoder = TextEncoder;
+}
+if (typeof globalThis.TextDecoder !== 'function') {
+  globalThis.TextDecoder = TextDecoder;
+}
 
 // Setup jsdom-like globals for component tests
 if (typeof window === 'undefined') {
@@ -46,6 +55,7 @@ global.window.electron = {
       confirmEditorClose: jest.fn(),
       confirmEditorReload: jest.fn(),
     },
+    openExternal: jest.fn(),
     confirmEditorCloseApproved: jest.fn(),
     confirmEditorReloadApproved: jest.fn(),
     getModuleFiles: jest.fn().mockResolvedValue({ files: [] }),
@@ -64,7 +74,14 @@ global.window.electron = {
 
 // Mock Electron module for Node context
 jest.mock('electron', () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    getPath: jest.fn((name) => {
+      if (name === 'userData') return '/tmp/fdo-jest-user-data';
+      if (name === 'sessionData') return '/tmp/fdo-jest-session-data';
+      return '/tmp';
+    }),
+  },
   BrowserWindow: jest.fn(),
   dialog: {},
   nativeTheme: {},
@@ -72,6 +89,53 @@ jest.mock('electron', () => ({
   protocol: {},
   session: {},
 }));
+
+jest.mock('electron-store', () => {
+  return class MockElectronStore {
+    constructor(options = {}) {
+      this.store = { ...(options.defaults || {}) };
+    }
+
+    get(key, defaultValue = undefined) {
+      if (!key) return this.store;
+      return key.split('.').reduce((acc, part) => (
+        acc && Object.prototype.hasOwnProperty.call(acc, part) ? acc[part] : defaultValue
+      ), this.store);
+    }
+
+    set(key, value) {
+      const parts = String(key).split('.');
+      let cursor = this.store;
+      while (parts.length > 1) {
+        const part = parts.shift();
+        if (!cursor[part] || typeof cursor[part] !== 'object') {
+          cursor[part] = {};
+        }
+        cursor = cursor[part];
+      }
+      cursor[parts[0]] = value;
+    }
+
+    delete(key) {
+      const parts = String(key).split('.');
+      let cursor = this.store;
+      while (parts.length > 1 && cursor) {
+        cursor = cursor[parts.shift()];
+      }
+      if (cursor) {
+        delete cursor[parts[0]];
+      }
+    }
+
+    clear() {
+      this.store = {};
+    }
+  };
+});
+
+jest.mock('file-type', () => ({
+  fileTypeFromFile: jest.fn().mockResolvedValue(null),
+}), { virtual: true });
 
 // Silence console noise during tests
 const origError = console.error;
