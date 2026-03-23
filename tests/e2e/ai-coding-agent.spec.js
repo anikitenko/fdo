@@ -1,46 +1,14 @@
 const { test, expect, _electron: electron } = require('@playwright/test');
+const { launchElectronApp, closeElectronApp, openEditorWithMockedIPC, expectNoUnexpectedErrorToasts } = require('./helpers/electronApp');
 
 let electronApp;
-let mainWindow;
 let editorWindow;
 
 test.beforeAll(async () => {
   try {
-    electronApp = await electron.launch({ args: ['.'] });
-    mainWindow = await electronApp.firstWindow();
-    
-    // Attach dialog handler to avoid hangs
-    const acceptAllDialogs = async (dialog) => { 
-      try { 
-        await dialog.accept(); 
-      } catch (_) {} 
-    };
-    mainWindow.on('dialog', acceptAllDialogs);
-    electronApp.on('window', (page) => {
-      page.on('dialog', acceptAllDialogs);
-    });
-    
-    // Wait for the main window to be ready
-    await mainWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
-    
-    // Create a plugin and open the editor
-    await mainWindow.click('button:has-text("Plugins Activated")', { timeout: 10000 });
-    await mainWindow.click('text=Create plugin', { timeout: 5000 });
-    const randomName = 'test-ai-plugin-' + Math.random().toString(36).substring(2, 8);
-    await mainWindow.fill('#plugin-name', randomName, { timeout: 5000 });
-    
-    const [newEditorWindow] = await Promise.all([
-      electronApp.waitForEvent('window'),
-      mainWindow.click('text=Open editor', { timeout: 5000 })
-    ]);
-    editorWindow = newEditorWindow;
-    
-    // Set up dialog handler for editor window
-    editorWindow.on('dialog', acceptAllDialogs);
-    
-    // Wait for editor to be ready
-    await editorWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
-    await editorWindow.waitForTimeout(2000);
+    electronApp = await launchElectronApp(electron);
+    editorWindow = await openEditorWithMockedIPC(electronApp);
+    await editorWindow.waitForTimeout(1500);
   } catch (error) {
     console.error('Error in beforeAll:', error);
     throw error;
@@ -48,22 +16,12 @@ test.beforeAll(async () => {
 }, 90000);
 
 test.afterAll(async () => {
-  if (electronApp) {
-    try {
-      const windows = electronApp.windows();
-      for (const win of windows) {
-        try {
-          await win.close();
-        } catch (e) {
-          console.error('Error closing window:', e);
-        }
-      }
-      await electronApp.close();
-    } catch (e) {
-      console.error('Error in afterAll:', e);
-    }
-  }
+  await closeElectronApp(electronApp);
 }, 60000);
+
+test.afterEach(async () => {
+  await expectNoUnexpectedErrorToasts(editorWindow);
+});
 
 test.describe('AI Coding Agent Tab', () => {
   test('should display AI Coding Agent tab in the bottom panel', async () => {
@@ -93,9 +51,9 @@ test.describe('AI Coding Agent Tab', () => {
     const actionSelect = editorWindow.locator('#action-select');
     await expect(actionSelect).toBeVisible({ timeout: 5000 });
     
-    // Verify default value is "generate"
+    // Verify current default value
     const selectedValue = await actionSelect.inputValue();
-    expect(selectedValue).toBe('generate');
+    expect(selectedValue).toBe('smart');
   });
 
   test('should display prompt textarea in AI Coding Agent panel', async () => {

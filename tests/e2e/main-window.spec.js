@@ -1,20 +1,19 @@
 const { test, expect, _electron: electron } = require('@playwright/test');
+const { launchElectronApp, closeElectronApp } = require('./helpers/electronApp');
 
 let electronApp;
 
 test.beforeAll(async () => {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  electronApp = await electron.launch({ args: ['.'] });
+  electronApp = await launchElectronApp(electron);
 });
 
 test.afterAll(async () => {
-  await electronApp.close();
+  await closeElectronApp(electronApp);
 });
 
 test('Main window should load with correct title', async () => {
   const window = await electronApp.firstWindow();
   const title = await window.title();
   expect(title).toBe('FlexDevOps (FDO)');
-  const isVisible = await window.isVisible('body');
-  expect(isVisible).toBeTruthy();
+  await expect(window.locator('body')).toBeVisible();
 });

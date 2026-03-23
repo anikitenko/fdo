@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from "react";
-import {Button, ButtonGroup, Menu, MenuDivider, MenuItem, Popover, InputGroup, Tag, Callout} from "@blueprintjs/core";
+import {Button, ButtonGroup, Menu, MenuDivider, MenuItem, Popover, InputGroup, Tag, Spinner} from "@blueprintjs/core";
 import {useSnapshots} from "./SnapshotContext.jsx";
 import * as styles from "./snapshots.module.css";
 
@@ -47,7 +47,7 @@ const RecentMenu = ({versions, onSwitch, onRename, onDelete, openPanel}) => {
 
 export const SnapshotToolbarActions = () => {
   const {
-    versions, creating, loading, createSnapshot, requestSwitch, renameSnapshot, deleteSnapshot, openPanel,
+    versions, creating, loading, restoreLoading, switching, createSnapshot, requestSwitch, renameSnapshot, deleteSnapshot, openPanel,
     hasUnsavedChanges, confirmSwitchTarget, confirmSwitchCancel, confirmSwitchProceed, confirmSwitchCreateAndSwitch
   } = useSnapshots();
 
@@ -56,24 +56,23 @@ export const SnapshotToolbarActions = () => {
 
   return (
     <div className={styles["toolbar"]}>
-      <ButtonGroup variant={"minimal"}>
-        <Button icon="camera" text="Snapshot" intent={hasUnsavedChanges ? "warning" : "success"} loading={creating || loading} onClick={()=>createSnapshot()} />
-        <Popover content={<RecentMenu versions={recent} onSwitch={requestSwitch} onRename={renameSnapshot} onDelete={deleteSnapshot} openPanel={openPanel} />} placement="bottom-start" usePortal={false} isOpen={open} onInteraction={(next)=>setOpen(next)}>
-          <Button endIcon={hasUnsavedChanges ? "warning-sign" : "caret-down"} intent={hasUnsavedChanges ? "warning" : "primary"} icon="time" text="Recent" onClick={()=>setOpen(!open)} />
-        </Popover>
-        <Button icon="history" onClick={openPanel} intent="primary" text="Timeline" />
-      </ButtonGroup>
-      {confirmSwitchTarget && (
-        <div className={styles["inline-banner"]} role="region" aria-live="polite">
-          <Callout intent="warning" icon="warning-sign" title="You have changes since your last snapshot.">
-            <div className={styles["banner-actions"]}>
-              <Button size={"small"} intent="success" onClick={confirmSwitchCreateAndSwitch} icon="camera">Create & Switch</Button>
-              <Button size={"small"} intent="warning" onClick={confirmSwitchProceed} icon="swap-vertical">Switch Anyway</Button>
-              <Button size={"small"} variant={"minimal"} onClick={confirmSwitchCancel}>Dismiss</Button>
-            </div>
-          </Callout>
-        </div>
-      )}
+      <div className={styles["toolbarPrimaryRow"]}>
+        <ButtonGroup variant={"minimal"}>
+          <Button icon="camera" text="Snapshot" intent={hasUnsavedChanges ? "warning" : "success"} loading={creating} disabled={switching} onClick={()=>createSnapshot()} />
+          <Popover content={<RecentMenu versions={recent} onSwitch={requestSwitch} onRename={renameSnapshot} onDelete={deleteSnapshot} openPanel={openPanel} />} placement="bottom-start" usePortal={false} isOpen={open} onInteraction={(next)=>setOpen(next)}>
+            <Button endIcon={hasUnsavedChanges ? "warning-sign" : "caret-down"} intent={hasUnsavedChanges ? "warning" : "primary"} icon="time" text="Recent" disabled={switching} onClick={()=>setOpen(!open)} />
+          </Popover>
+          <Button icon="history" onClick={openPanel} intent="primary" text="Timeline" disabled={switching} />
+        </ButtonGroup>
+        {(creating || switching || restoreLoading || (loading && versions.length === 0)) && (
+          <div className={styles["statusPill"]} role="status" aria-live="polite">
+            <Spinner size={14} />
+            <span>
+              {creating ? "Saving snapshot…" : (switching || restoreLoading) ? "Switching snapshot…" : "Loading snapshots…"}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

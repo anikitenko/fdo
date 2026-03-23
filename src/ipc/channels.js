@@ -109,6 +109,7 @@ export const PluginChannels = withPrefix('plugin', {
     REMOVE: 'remove',
     GET_ALL: 'get-all',
     GET: 'get',
+    GET_RUNTIME_STATUS: 'get-runtime-status',
     ACTIVATE: 'activate',
     DEACTIVATE: 'deactivate',
     DEACTIVATE_USERS: 'deactivate-users',

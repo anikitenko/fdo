@@ -109,6 +109,10 @@ contextBridge.exposeInMainWorld('electron', {
             confirmEditorClose: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_CLOSE, callback),
             confirmEditorReload: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_RELOAD, callback),
         },
+        off: {
+            confirmEditorClose: (callback) => ipcRenderer.removeListener(SystemChannels.on_off.CONFIRM_CLOSE, callback),
+            confirmEditorReload: (callback) => ipcRenderer.removeListener(SystemChannels.on_off.CONFIRM_RELOAD, callback),
+        },
     },
     plugin: {
         getData: (filePath) => ipcRenderer.invoke(PluginChannels.GET_DATA, filePath),
@@ -116,6 +120,7 @@ contextBridge.exposeInMainWorld('electron', {
         remove: (id) => ipcRenderer.invoke(PluginChannels.REMOVE, id),
         getAll: () => ipcRenderer.invoke(PluginChannels.GET_ALL),
         get: (data) => ipcRenderer.invoke(PluginChannels.GET, data),
+        getRuntimeStatus: (ids) => ipcRenderer.invoke(PluginChannels.GET_RUNTIME_STATUS, ids),
         getActivated: () => ipcRenderer.invoke(PluginChannels.GET_ACTIVATED),
         activate: (id) => ipcRenderer.invoke(PluginChannels.ACTIVATE, id),
         deactivate: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE, id),

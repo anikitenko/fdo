@@ -270,7 +270,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse }
         try {
             const currentVersion = virtualFS.fs.version();
             const tabs = virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => ({id: t.id, active: t.active}));
-            const created = virtualFS.fs.create(currentVersion.version, tabs);
+            const created = virtualFS.fs.create(currentVersion.version, tabs, { quiet: true });
             console.log(`Created snapshot ${created.version} before AI code application`);
             return created;
         } catch (err) {

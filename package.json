@@ -34,6 +34,11 @@
     "test": "jest --detectOpenHandles",
     "test:unit": "jest --detectOpenHandles",
     "test:e2e": "playwright test",
+    "test:e2e:full": "playwright test --grep-invert \"quota exceeded surfaces danger toast\"",
+    "test:e2e:smoke": "playwright test tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js --grep-invert \"quota exceeded surfaces danger toast\"",
+    "test:e2e:faults": "playwright test --grep \"quota exceeded surfaces danger toast\"",
+    "test:editor:unit": "jest tests/unit/editor-snapshot-state.test.js tests/components/editor/EditorPage.test.jsx tests/components/editor/EditorChromeStatus.test.jsx tests/components/snapshots/SnapshotToolbarActions.test.jsx tests/components/snapshots/SnapshotPanel.test.jsx --runInBand",
+    "test:editor:e2e": "playwright test tests/e2e/snapshots.e2e.spec.js",
     "test:router": "jest tests/router-regression.test.js --runInBand",
     "test:fdo-benchmark": "jest tests/fdo-retrieval-benchmark.test.js --runInBand"
   },

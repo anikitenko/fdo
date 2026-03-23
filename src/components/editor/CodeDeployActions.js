@@ -72,7 +72,8 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
                     id: t.id,
                     active: t.active
                 }
-            })
+            }),
+            { quiet: true }
         )
         handleSwitchFsVersion(newVersion)
     }

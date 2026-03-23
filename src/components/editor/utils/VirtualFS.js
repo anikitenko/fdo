@@ -11,15 +11,17 @@ import {createVirtualFile} from "./createVirtualFile";
 import {extractMetadata} from "../../../utils/extractMetadata";
 import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
 
-const defaultTreeObject = {
-    id: "/",
-    label: "/",
-    type: "folder",
-    isExpanded: true,
-    icon: undefined,
-    hasCaret: true,
-    className: styles["mouse-pointer"],
-    childNodes: [],
+function createDefaultTreeObject() {
+    return {
+        id: "/",
+        label: "/",
+        type: "folder",
+        isExpanded: true,
+        icon: undefined,
+        hasCaret: true,
+        className: styles["mouse-pointer"],
+        childNodes: [],
+    };
 }
 
 const virtualFS = {
@@ -33,7 +35,7 @@ const virtualFS = {
     pluginName: "",
     sandboxName: "",
     quickInputWidgetTop: false,
-    treeObject: [defaultTreeObject],
+    treeObject: [createDefaultTreeObject()],
     notifications: {
         queue: [],
         processing: false,
@@ -180,10 +182,19 @@ const virtualFS = {
         version_latest: 0,
         version_current: 0,
         tsCounter: 0,
+        nodeModulesPromise: null,
         parent: Object,
         loading: false,
+        nodeModulesLoading: false,
+        restoreLoading: false,
         getLoading() {
             return this.loading
+        },
+        getNodeModulesLoading() {
+            return this.nodeModulesLoading
+        },
+        getRestoreLoading() {
+            return this.restoreLoading
         },
         setLoading() {
             this.loading = true
@@ -193,8 +204,31 @@ const virtualFS = {
             this.loading = false
             this.parent.notifications.addToQueue("treeLoading", false)
         },
-        create(prevVersion = "", tabs = []) {
-            this.setLoading();
+        setNodeModulesLoading() {
+            this.nodeModulesLoading = true
+            this.parent.notifications.addToQueue("nodeModulesLoading", true)
+        },
+        stopNodeModulesLoading() {
+            this.nodeModulesLoading = false
+            this.parent.notifications.addToQueue("nodeModulesLoading", false)
+        },
+        setRestoreLoading() {
+            this.restoreLoading = true
+            this.parent.notifications.addToQueue("restoreLoading", true)
+        },
+        stopRestoreLoading() {
+            this.restoreLoading = false
+            this.parent.notifications.addToQueue("restoreLoading", false)
+            this.parent.notifications.addToQueue("restorePhase", "idle")
+        },
+        setRestorePhase(phase) {
+            this.parent.notifications.addToQueue("restorePhase", phase)
+        },
+        create(prevVersion = "", tabs = [], options = {}) {
+            const { quiet = false } = options;
+            if (!quiet) {
+                this.setLoading();
+            }
 
             // Generate a human-readable version name
             const latest = uniqueNamesGenerator({ dictionaries: [adjectives, colors], separator: '-', length: 2 });
@@ -233,7 +267,9 @@ const virtualFS = {
                 const e = new Error('QuotaExceededError');
                 this.parent.notifications.addToQueue("snapshotError", { message: "Failed to persist snapshot. Storage may be full.", error: String(e) });
                 this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list());
-                this.stopLoading();
+                if (!quiet) {
+                    this.stopLoading();
+                }
                 return { version: latest, date: date, prev: prevVersion, error: 'quota' };
             }
 
@@ -264,11 +300,14 @@ const virtualFS = {
             }
             this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list());
 
-            this.stopLoading();
+            if (!quiet) {
+                this.stopLoading();
+            }
             return { version: latest, date: date, prev: prevVersion, error: persistError };
         },
         set(version) {
-            this.setLoading()
+            this.setRestoreLoading()
+            this.setRestorePhase("clearing-models")
             for (const key of Object.keys(this.parent.files)) {
                 monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`))
@@ -280,12 +319,16 @@ const virtualFS = {
                     monaco.editor.setModelMarkers(model, "typescript", [])
                 }
                 delete this.parent.files[key]
-                this.parent.notifications.addToQueue("fileRemoved", key)
             }
 
-            this.parent.treeObject = [defaultTreeObject]
-            this.parent.setTreeObjectItemRoot(this.parent.pluginName)
+            this.parent.treeObject = [createDefaultTreeObject()]
+            this.parent.treeObject[0].id = "/";
+            this.parent.treeObject[0].label = this.parent.pluginName;
+            this.parent.treeObject[0].icon =
+                <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForOpenFolder(this.parent.pluginName)}
+                     width="20" height="20" alt="icon"/>;
 
+            this.setRestorePhase("restoring-models")
             for (const file of this.versions[version].content) {
                 const uri = monaco.Uri.file(`${file.id}`)
                 const fileContent = file.content
@@ -301,10 +344,15 @@ const virtualFS = {
                     model: model,
                     state: file.state
                 }
-                this.parent.createFile(file.id, model)
+                this.parent.createFile(file.id, model, {
+                    suppressTreeUpdate: true,
+                    suppressFileSelected: true,
+                    suppressDefaultSelection: true
+                })
             }
 
-            this.setupNodeModules()
+            const nodeModulesPromise = this.setupNodeModules()
+            this.setRestorePhase("restoring-selection")
             monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
                 ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
             });
@@ -320,47 +368,105 @@ const virtualFS = {
             } catch (e) {
                 this.parent.notifications.addToQueue("snapshotError", { message: "Failed to persist current version.", error: String(e) });
             }
+            const savedTabs = this.versions[version].tabs || [];
+            const activeSavedTabId =
+                savedTabs.find((tab) => tab?.active)?.id ||
+                savedTabs[0]?.id ||
+                this.parent.DEFAULT_FILE_MAIN;
+
+            const activeTreeItem =
+                this.parent.getTreeObjectItemById(activeSavedTabId) ||
+                this.parent.getTreeObjectItemById(this.parent.DEFAULT_FILE_MAIN) ||
+                this.parent.getTreeObjectSortedAsc()?.[0];
+
+            if (activeTreeItem?.id) {
+                this.parent.__setTreeObjectItemBool(this.parent.treeObject, activeTreeItem.id, "isSelected");
+            }
+
             this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc())
-            this.parent.notifications.addToQueue("fileSelected", this.parent.getTreeObjectItemSelected())
+            this.parent.notifications.addToQueue("fileSelected", activeTreeItem || this.parent.getTreeObjectItemSelected())
             this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list())
 
-            this.stopLoading()
+            const finalizeRestore = () => {
+                this.setRestorePhase("restore-complete");
+                this.stopRestoreLoading();
+            };
+
+            if (nodeModulesPromise?.finally) {
+                nodeModulesPromise.finally(finalizeRestore);
+            } else {
+                finalizeRestore();
+            }
             return {
-                tabs: this.versions[version].tabs,
+                tabs: savedTabs,
+                nodeModulesPromise,
             }
         },
-        setupNodeModules() {
+        async setupNodeModules() {
+            if (this.nodeModulesPromise) {
+                return this.nodeModulesPromise;
+            }
+
             const cssType = 'declare module "*.css" {\n' +
                 '    const styles: { [className: string]: Record<string, string> };\n'+
                 '    export default styles;\n' +
                 '}'
             monaco.languages.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
-            createVirtualFile(`/node_modules/@types/css.d.ts`, cssType)
-            window.electron.system.getModuleFiles().then((resultFiles) => {
-                this.parent.notifications.addToQueue("treeLoading", true)
-                for (const file of resultFiles.files) {
-                    let plaintext = false
-                    if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
-                        continue
-                    }
-
-                    monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`)
-
-                    if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
-                        plaintext = true
-                    }
-                    createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext)
-                }
-                this.parent.notifications.addToQueue("treeLoading", false)
+            createVirtualFile(`/node_modules/@types/css.d.ts`, cssType, undefined, false, false, undefined, {
+                suppressTreeUpdate: true,
+                suppressFileSelected: true,
+                suppressDefaultSelection: true
             })
-            window.electron.system.getFdoSdkTypes().then((resultFiles) => {
-                this.parent.notifications.addToQueue("treeLoading", true)
-                for (const file of resultFiles.files) {
-                    monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`)
-                    createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content)
+            this.setNodeModulesLoading();
+            this.parent.notifications.addToQueue("restorePhase", "loading-node-modules");
+
+            this.nodeModulesPromise = Promise.allSettled([
+                window.electron.system.getModuleFiles(),
+                window.electron.system.getFdoSdkTypes(),
+            ]).then((results) => {
+                const [moduleFilesResult, sdkTypesResult] = results;
+
+                if (moduleFilesResult.status === "fulfilled") {
+                    for (const file of moduleFilesResult.value.files) {
+                        let plaintext = false;
+                        if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
+                            continue;
+                        }
+
+                        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`);
+
+                        if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
+                            plaintext = true;
+                        }
+                        createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext, undefined, {
+                            suppressTreeUpdate: true,
+                            suppressFileSelected: true,
+                            suppressDefaultSelection: true
+                        });
+                    }
                 }
-                this.parent.notifications.addToQueue("treeLoading", false)
-            })
+
+                if (sdkTypesResult.status === "fulfilled") {
+                    for (const file of sdkTypesResult.value.files) {
+                        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`);
+                        createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content, undefined, false, false, undefined, {
+                            suppressTreeUpdate: true,
+                            suppressFileSelected: true,
+                            suppressDefaultSelection: true
+                        });
+                    }
+                }
+
+                this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc());
+            }).finally(() => {
+                this.stopNodeModulesLoading();
+                if (this.restoreLoading) {
+                    this.parent.notifications.addToQueue("restorePhase", "node-modules-complete");
+                }
+                this.nodeModulesPromise = null;
+            });
+
+            return this.nodeModulesPromise;
         },
         __list() {
             const versions = []
@@ -601,7 +707,6 @@ const virtualFS = {
         this.sandboxName = sandbox
         this.initWorkspace = true
         this.setTreeObjectItemRoot(name)
-        this.fs.setupNodeModules()
     },
     restoreSandbox() {
         const sandboxData = JSON.parse(LZString.decompress(localStorage.getItem(this.sandboxName)));
@@ -762,11 +867,18 @@ const virtualFS = {
     },
 
     // Method to create or update a file
-    createFile(fileName, model) {
+    createFile(fileName, model, options = {}) {
+        const {
+            suppressTreeUpdate = false,
+            suppressFileSelected = false,
+            suppressDefaultSelection = false
+        } = options;
         this.updateModel(fileName, model)
-        if (this.__createTreeObjectItem(fileName))
-            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
-        if (fileName === this.DEFAULT_FILE_MAIN) {
+        if (this.__createTreeObjectItem(fileName, false, { suppressDefaultSelection }))
+            if (!suppressTreeUpdate) {
+                this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
+            }
+        if (fileName === this.DEFAULT_FILE_MAIN && !suppressFileSelected) {
             this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(fileName))
         }
     },
@@ -789,10 +901,13 @@ const virtualFS = {
         return this.__createTreeObjectItemChild("Untitled", "Untitled", "file")
     },
 
-    __createTreeObjectItemChild(id, name, type) {
+    __createTreeObjectItemChild(id, name, type, options = {}) {
+        const {
+            suppressDefaultSelection = false
+        } = options;
         let isSelected = false;
         let className = ""
-        if (id === this.DEFAULT_FILE_MAIN) {
+        if (!suppressDefaultSelection && id === this.DEFAULT_FILE_MAIN) {
             isSelected = true;
         }
         if (type === "folder") {
@@ -816,7 +931,7 @@ const virtualFS = {
             childNodes: type === "folder" ? [] : undefined
         }
     },
-    __createTreeObjectItem(name, isFolder = false) {
+    __createTreeObjectItem(name, isFolder = false, options = {}) {
         const itemsSplit = name.split("/").filter(Boolean);
         let currentNode = this.treeObject[0];
         let currentPath = "";
@@ -834,7 +949,7 @@ const virtualFS = {
             let existingChild = currentNode.childNodes?.find(child => child.label === itemSplit);
 
             if (!existingChild) {
-                existingChild = this.__createTreeObjectItemChild(currentPath, itemSplit, type);
+                existingChild = this.__createTreeObjectItemChild(currentPath, itemSplit, type, options);
 
                 // Ensure `childNodes` exists for folder types
                 if (!currentNode.childNodes) {

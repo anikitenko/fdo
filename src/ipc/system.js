@@ -12,6 +12,7 @@ import {exec} from "child_process";
 import {promisify} from "util";
 import {installFDOCLI, removeFDOCLI} from "../utils/installFDOCLI";
 import {lookpath} from "lookpath";
+import {createEditorWindowConfirmState} from "./system_confirm_state";
 
 const execAsync = promisify(exec);
 
@@ -61,10 +62,15 @@ function systemOpenEditorWindow(data) {
 
     const encodedData = encodeURIComponent(JSON.stringify(data));
     const editorWindowInstance = editorWindow.createWindow()
+    const confirmState = createEditorWindowConfirmState();
     editorWindowInstance.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`).then(() => {
     });
 
     editorWindowInstance.on('close', (event) => {
+        if (confirmState.closeApprovedOnce) {
+            confirmState.closeApprovedOnce = false;
+            return;
+        }
         event.preventDefault();
         editorWindowInstance.webContents.send(SystemChannels.on_off.CONFIRM_CLOSE); // Send event to React
     });
@@ -90,10 +96,16 @@ function systemOpenEditorWindow(data) {
 
     editorWindowInstance.webContents.on('before-input-event', (event, input) => {
         if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
+            if (confirmState.reloadApprovedOnce) {
+                confirmState.reloadApprovedOnce = false;
+                return;
+            }
             event.preventDefault();
             editorWindowInstance.webContents.send(SystemChannels.on_off.CONFIRM_RELOAD);
         }
     });
+
+    editorWindowInstance.__confirmState = confirmState;
 }
 
 export function registerSystemHandlers() {
@@ -277,6 +289,9 @@ export function registerSystemHandlers() {
         
         // Attempt normal window destruction
         try {
+            if (editorWindowInstance.__confirmState) {
+                editorWindowInstance.__confirmState.closeApprovedOnce = true;
+            }
             editorWindowInstance.destroy();
             console.info('[Editor Close] Window destroy initiated');
         } catch (error) {
@@ -303,6 +318,9 @@ export function registerSystemHandlers() {
         
         // Attempt window reload
         try {
+            if (editorWindowInstance.__confirmState) {
+                editorWindowInstance.__confirmState.reloadApprovedOnce = true;
+            }
             editorWindowInstance.reload();
             console.info('[Editor Reload] Window reload initiated');
         } catch (error) {

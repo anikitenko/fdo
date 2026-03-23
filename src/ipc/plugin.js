@@ -83,6 +83,35 @@ export async function buildUsingEsbuild(virtualData) {
 export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.GET_DATA, async (event, pluginPath) => {
         try {
+            if (process.env.FDO_E2E === "1" && typeof pluginPath === "string" && pluginPath.startsWith("/tmp/e2e-")) {
+                const fixtureName = path.basename(pluginPath);
+                const content = [
+                    {
+                        path: "/index.ts",
+                        content: `export const hello = "${fixtureName}";\n`,
+                    },
+                    {
+                        path: "/render.tsx",
+                        content: "export const render = () => null;\n",
+                    },
+                    {
+                        path: "/package.json",
+                        content: JSON.stringify({
+                            name: fixtureName,
+                            version: "1.0.0",
+                            source: "index.ts",
+                            main: "dist/index.cjs",
+                        }, null, 2),
+                    },
+                ];
+                return {
+                    success: true,
+                    content,
+                    metadata: null,
+                    entryPoint: "dist/index.cjs",
+                };
+            }
+
             const ig = await getIgnoreInstance(pluginPath, []);
 
             const existingFiles = await getAllFilesWithIgnorance(pluginPath, (relativePath) => {
@@ -190,6 +219,21 @@ export function registerPluginHandlers() {
             return {success: true, plugin: plugin};
         } catch (error) {
             return {success: false, error: error.message};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_RUNTIME_STATUS, async (event, ids = []) => {
+        try {
+            const requestedIds = Array.isArray(ids) ? ids : [];
+            const statuses = requestedIds.map((id) => ({
+                id,
+                loading: !!PluginManager.loadingPlugins?.[id],
+                loaded: !!PluginManager.getLoadedPlugin(id),
+                ready: !!PluginManager.getLoadedPluginReady(id),
+            }));
+            return { success: true, statuses };
+        } catch (error) {
+            return { success: false, error: error.message, statuses: [] };
         }
     });
 

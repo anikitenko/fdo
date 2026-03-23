@@ -1,61 +1,12 @@
 // Playwright E2E tests for snapshot system
 // Launches Electron app and drives the renderer
 const { test, expect, _electron: electron } = require('@playwright/test');
+const { dismissBlueprintOverlays, launchElectronApp, closeElectronApp, openEditorWithMockedIPC, expectNoUnexpectedErrorToasts } = require('./helpers/electronApp');
 
-// Utility: aggressively dismiss Blueprint overlays/dialogs that might remain open
-async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const anyOverlay = await page.$('.bp6-dialog, .bp6-alert, .bp6-overlay-open');
-    if (!anyOverlay) break;
-    // Try to click a primary/affirmative button first
-    const primary = page.locator('.bp6-dialog .bp6-button.bp6-intent-primary, .bp6-alert .bp6-button.bp6-intent-primary');
-    if (await primary.count()) {
-      await primary.first().click({ trial: false }).catch(() => {});
-      await page.waitForTimeout(50);
-      continue;
-    }
-    // Try common button labels
-    const labels = ['OK', 'Confirm', 'Switch', 'Close', 'Dismiss'];
-    let clicked = false;
-    for (const label of labels) {
-      const btn = page.locator(`.bp6-dialog button:has-text("${label}"), .bp6-alert button:has-text("${label}")`).first();
-      if (await btn.count()) {
-        await btn.click().catch(() => {});
-        clicked = true;
-        await page.waitForTimeout(50);
-        break;
-      }
-    }
-    if (!clicked) {
-      // Fallback to Escape
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(50);
-    }
-  }
+function workspaceTreeIdsFrom(state) {
+  const raw = state.workspaceTreeIds || state.treeIds || [];
+  return raw.filter((id) => typeof id === 'string' && !id.startsWith('/node_modules') && !id.startsWith('/dist'));
 }
-
-const openEditorWithMockedIPC = async (app) => {
-  const window = await app.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
-  // Inject IPC mocks before editor initializes
-  await window.evaluate(() => {
-    // Mark E2E environment and enable snapshots feature flag for tests
-    window.__E2E__ = true;
-    window.__SNAPSHOTS_ENABLED = true;
-    // Provide minimal stubs for preload bridge APIs used by the editor
-    window.electron = window.electron || {};
-    window.electron.system = window.electron.system || {};
-    window.electron.system.getModuleFiles = () => Promise.resolve({ files: [] });
-    window.electron.system.getFdoSdkTypes = () => Promise.resolve({ files: [] });
-    window.electron.settings = { certificates: { getRoot: async () => [] } };
-  });
-  // Navigate directly to Editor route with minimal data
-  const pluginData = encodeURIComponent(JSON.stringify({ name: 'E2E Plugin', template: 'basic', dir: '/tmp' }));
-  await window.evaluate((pd) => { window.location.hash = `#/editor?data=${pd}`; }, pluginData);
-  await window.waitForFunction(() => location.hash.startsWith('#/editor'));
-  return window;
-};
 
 // These tests require the app to be built: npm run build
 // Then run with: npx playwright test
@@ -64,43 +15,22 @@ test.describe('Snapshots E2E', () => {
   let app;
 
   test.beforeAll(async () => {
-    app = await electron.launch({ args: ['.'] });
-    // Attach a centralized native dialog handler to avoid protocol errors and hangs
-    const first = await app.firstWindow();
-    const acceptAllDialogs = async (dialog) => { try { await dialog.accept(); } catch (_) {} };
-    first.on('dialog', acceptAllDialogs);
-    // Also attach to any subsequently created windows
-    app.on('window', (page) => {
-      page.on('dialog', acceptAllDialogs);
-    });
+    app = await launchElectronApp(electron);
   });
 
   test.afterEach(async () => {
     // Ensure no stray overlays remain between tests
     const win = await app.firstWindow();
     await dismissBlueprintOverlays(win).catch(() => {});
+    const testTitle = test.info().title;
+    const allow = /quota exceeded surfaces danger toast/i.test(testTitle)
+      ? [/Failed to persist snapshot/i]
+      : [];
+    await expectNoUnexpectedErrorToasts(win, { allow });
   });
 
   test.afterAll(async () => {
-    try {
-      const windows = app.windows();
-      for (const w of windows) {
-        try {
-          await w.evaluate(() => {
-            try { window.onbeforeunload = null; } catch (_) {}
-            try { window.alert = () => {}; } catch (_) {}
-            try { window.confirm = () => true; } catch (_) {}
-            try { window.prompt = () => ''; } catch (_) {}
-          });
-        } catch (_) {}
-        try {
-          await w.close({ runBeforeUnload: false });
-        } catch (_) {}
-      }
-    } catch (_) {}
-    try {
-      await app.close();
-    } catch (_) {}
+    await closeElectronApp(app);
   });
 
   test('Recent menu renders quickly (<100ms)', async () => {
@@ -181,6 +111,9 @@ test.describe('Snapshots E2E', () => {
     const win = await openEditorWithMockedIPC(app);
     // Monkey-patch localStorage to throw
     await win.evaluate(() => {
+      if (!window.__e2eOriginalLocalStorageSetItem) {
+        window.__e2eOriginalLocalStorageSetItem = window.localStorage.setItem.bind(window.localStorage);
+      }
       window.localStorage.setItem = function(k, v) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; };
     });
 
@@ -188,15 +121,24 @@ test.describe('Snapshots E2E', () => {
     await snapshotBtn.click();
 
     // Expect error toast
-    await win.getByText(/Failed to persist snapshot/i).waitFor({ timeout: 5000 });
+    await win.getByText(/Failed to persist snapshot/i).first().waitFor({ timeout: 5000 });
+    await win.evaluate(() => {
+      if (window.__e2eOriginalLocalStorageSetItem) {
+        window.localStorage.setItem = window.__e2eOriginalLocalStorageSetItem;
+      }
+    });
   });
   
-  test('Editor file tree uses correct icon asset paths', async () => {
+  test('Editor file tree loads icon assets successfully', async () => {
     const win = await openEditorWithMockedIPC(app);
-    // Wait for file browser to render at least one icon image
     const img = await win.waitForSelector('img[src^="static://assets/icons/vscode/"]', { timeout: 15000 });
     const src = await img.getAttribute('src');
     expect(src).toMatch(/^static:\/\/assets\/icons\/vscode\//);
+
+    await win.waitForFunction(() => {
+      const icon = document.querySelector('img[src^="static://assets/icons/vscode/"]');
+      return Boolean(icon && icon.complete && icon.naturalWidth > 0 && icon.naturalHeight > 0);
+    }, { timeout: 15000 });
   });
 
   test('Legacy CodeDeploy control opens Snapshot Timeline Drawer', async () => {
@@ -217,6 +159,57 @@ test.describe('Snapshots E2E', () => {
     }
     await win.waitForSelector('.bp6-drawer', { state: 'detached', timeout: 3000 }).catch(()=>{});
   });
+
+  test('Snapshot switch restores exact file structure and open tabs', async () => {
+    const win = await openEditorWithMockedIPC(app);
+    await win.waitForFunction(() => typeof window.__editorTestApi?.getState === 'function');
+
+    const baseline = await win.evaluate(async () => {
+      const api = window.__editorTestApi;
+      const state = api.getState();
+      const defaultTabs = [];
+      const workspaceTreeIds = (state.workspaceTreeIds || state.treeIds || []).filter((id) => typeof id === 'string' && !id.startsWith('/node_modules') && !id.startsWith('/dist'));
+      if (workspaceTreeIds.includes('/index.ts')) defaultTabs.push({ id: '/index.ts', active: true });
+      if (workspaceTreeIds.includes('/render.tsx')) defaultTabs.push({ id: '/render.tsx', active: false });
+      api.openTabs(defaultTabs);
+      const created = api.createSnapshot();
+      return {
+        version: created.version,
+        state: api.getState(),
+      };
+    });
+
+    const modified = await win.evaluate(async () => {
+      const api = window.__editorTestApi;
+      api.createFile('/features/alpha.ts', 'export const alpha = 1;');
+      api.createFile('/utils/math.ts', 'export const sum = (a, b) => a + b;');
+      api.openTabs([
+        { id: '/features/alpha.ts', active: true },
+        { id: '/utils/math.ts', active: false },
+      ]);
+      const created = api.createSnapshot();
+      return {
+        version: created.version,
+        state: api.getState(),
+      };
+    });
+
+    expect(workspaceTreeIdsFrom(modified.state)).toContain('/features/alpha.ts');
+    expect(workspaceTreeIdsFrom(modified.state)).toContain('/utils/math.ts');
+    expect(modified.state.activeTabId).toBe('/features/alpha.ts');
+
+    const restored = await win.evaluate(async (versionId) => {
+      return await window.__editorTestApi.switchSnapshot(versionId);
+    }, baseline.version);
+
+    expect(restored.currentVersion).toBe(baseline.version);
+    expect(workspaceTreeIdsFrom(restored)).toEqual(workspaceTreeIdsFrom(baseline.state));
+    expect(restored.tabs).toEqual(baseline.state.tabs);
+    expect(restored.activeTabId).toBe(baseline.state.activeTabId);
+    expect(restored.selectedId).toBe(baseline.state.selectedId);
+    expect(workspaceTreeIdsFrom(restored)).not.toContain('/features/alpha.ts');
+    expect(workspaceTreeIdsFrom(restored)).not.toContain('/utils/math.ts');
+  });
 });
 
 
@@ -227,11 +220,7 @@ dialogTest.describe('Snapshots E2E - Dialog/Popup Stability', () => {
   let app;
 
   dialogTest.beforeAll(async () => {
-    app = await electron.launch({ args: ['.'] });
-    const first = await app.firstWindow();
-    const acceptAllDialogs = async (dialog) => { try { await dialog.accept(); } catch (_) {} };
-    first.on('dialog', acceptAllDialogs);
-    app.on('window', (page) => page.on('dialog', acceptAllDialogs));
+    app = await launchElectronApp(electron);
   });
 
   dialogTest.afterAll(async () => {
@@ -250,6 +239,11 @@ dialogTest.describe('Snapshots E2E - Dialog/Popup Stability', () => {
       }
     } catch (_) {}
     try { await app.close(); } catch (_) {}
+  });
+
+  dialogTest.afterEach(async () => {
+    const win = await app.firstWindow();
+    await expectNoUnexpectedErrorToasts(win);
   });
 
   dialogTest('Native dialogs (alert/confirm/prompt) are handled without hanging', async () => {

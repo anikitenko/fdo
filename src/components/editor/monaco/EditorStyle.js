@@ -1,20 +1,20 @@
-import virtualFS from "../utils/VirtualFS";
-
-const stylesTopFixed = `
+export const QUICK_INPUT_POSITION_STYLES = `
 .quick-input-widget {
     box-shadow: 0 5px 10px rgba(0,0,0,0), 0 0 0 100vw rgba(0,0,0,0.15) !important;
-    top: 80px !important;
     position: fixed !important;
-    top: 0 !important;
-  }
+    top: 76px !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: min(680px, calc(100vw - 32px)) !important;
+    max-width: calc(100vw - 32px) !important;
+    margin-left: 0 !important;
+    z-index: 40 !important;
+}
+.quick-input-widget .quick-input-box {
+    width: 100% !important;
+}
 `
-
-const stylesTop = `
-  .quick-input-widget {
-    box-shadow: 0 5px 10px rgba(0,0,0,0), 0 0 0 100vw rgba(0,0,0,0.15) !important;
-    top: 80px !important;
-  }
-  `
 const stylesRest = `
   .quick-input-widget .monaco-inputbox {
     padding: 10px !important;
@@ -52,8 +52,11 @@ const stylesRest = `
 
 let styleElement;
 function EditorStyle() {
+    if (styleElement?.isConnected) {
+        return;
+    }
     styleElement = document.createElement("style");
-    styleElement.textContent = stylesTop+stylesRest;
+    styleElement.textContent = QUICK_INPUT_POSITION_STYLES + stylesRest;
     document.head.appendChild(styleElement);
 
     let menuExist = false;
@@ -84,12 +87,7 @@ function EditorStyle() {
     }
 
     const resize = () => {
-        const isTop = virtualFS.getQuickInputWidgetTop()
-        if (isTop) {
-            styleElement.textContent = stylesTopFixed+stylesRest;
-        } else {
-            styleElement.textContent = stylesTop+stylesRest;
-        }
+        styleElement.textContent = QUICK_INPUT_POSITION_STYLES + stylesRest;
         const monacoListRows =
             quickInputListNode.querySelector(".monaco-list-rows");
         const rows = quickInputListNode.querySelectorAll(
@@ -163,10 +161,6 @@ function EditorStyle() {
                     });
                 }
             }
-        }
-        const targetElement = document.querySelector(".quick-input-widget.show-file-icons")
-        if (targetElement && window.getComputedStyle(targetElement).display === "none") {
-            virtualFS.setQuickInputWidgetTop(false)
         }
     })
 
