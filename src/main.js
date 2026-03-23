@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, nativeTheme, net, protocol, session} from 'electron';
+import {app, BrowserWindow, dialog, nativeTheme, protocol} from 'electron';
 import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
@@ -37,6 +37,29 @@ import {ipcMain} from 'electron';
 import {StartupChannels} from "./ipc/channels";
 import {registerAiChatHandlers} from "./ipc/ai/ai_chat";
 import {registerAiCodingAgentHandlers} from "./ipc/ai_coding_agent";
+
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: 'static',
+        privileges: {
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+            stream: true,
+        },
+    },
+    {
+        scheme: 'plugin',
+        privileges: {
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+            stream: true,
+        },
+    },
+]);
 
 // Debug logging to file (works even in packaged mode)
 const debugLog = (msg) => {
@@ -474,6 +497,28 @@ const createWindow = async () => {
 
 app.whenReady().then(async () => {
     debugLog('[MAIN] app.whenReady() fired!');
+
+    protocol.handle("static", async (req) => {
+        try {
+            const reqURL = new URL(req.url);
+            const relativePath = decodeURIComponent(reqURL.pathname.replace(/^\/+/, ''));
+            const assetsPath = isDev
+                ? nodePath.join(__dirname, '..', '..', 'dist', 'renderer', 'assets', relativePath)
+                : nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', relativePath);
+            const data = await readFile(assetsPath);
+            const mimeType = mime.getType(assetsPath) || 'application/octet-stream';
+
+            return new Response(data, {
+                headers: {
+                    'Content-Type': mimeType,
+                    'Cache-Control': 'public, max-age=31536000, immutable',
+                },
+            });
+        } catch (err) {
+            console.error('[STATIC PROTOCOL] Error:', err?.message, 'for URL:', req.url);
+            return new Response('File not found', { status: 404 });
+        }
+    })
     
     // Initialize paths that require app.getPath('userData')
     initializePaths();
@@ -581,14 +626,6 @@ app.whenReady().then(async () => {
 
     app.on('open-url', (event, url) => {
         dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
-    })
-
-    session.defaultSession.protocol.handle("static", (req) => {
-        const reqURL = new URL(req.url)
-        const assetsPath = isDev
-            ? nodePath.join(__dirname, '..', '..', 'dist', 'renderer', 'assets', reqURL.pathname)
-            : nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', reqURL.pathname);
-        return net.fetch(nodeUrl.pathToFileURL(assetsPath).toString())
     })
 
     protocol.handle('plugin', async (request) => {

@@ -20,7 +20,7 @@ const Footer = ({creating, onCreate}) => (
 );
 
 const SnapshotPanel = () => {
-  const {panelOpen, closePanel, versions, current, loading, creating, createSnapshot, requestSwitch, renameSnapshot, deleteSnapshot} = useSnapshots();
+  const {panelOpen, closePanel, versions, current, loading, restoreLoading, creating, switching, createSnapshot, requestSwitch, renameSnapshot, deleteSnapshot} = useSnapshots();
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -37,8 +37,14 @@ const SnapshotPanel = () => {
         <div className={styles["search-row"]}>
           <InputGroup leftIcon="search" placeholder="Search snapshots…" value={query} onChange={(e)=>setQuery(e.target.value)} />
         </div>
+        {(switching || restoreLoading) && (
+          <div className={styles["panelStatusRow"]} role="status" aria-live="polite">
+            <Spinner size={16} />
+            <span>Switching snapshot and restoring editor state…</span>
+          </div>
+        )}
         <div className={styles["timeline-container"]}>
-          {loading ? (
+          {loading && filtered.length === 0 ? (
             <div className={styles["loading-box"]}><Spinner /></div>
           ) : filtered.length === 0 ? (
             <NonIdealState title="No snapshots" description="Create your first snapshot to get started." icon="camera" />

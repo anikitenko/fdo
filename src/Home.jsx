@@ -66,6 +66,12 @@ export const Home = () => {
 
             return newReadiness;
         });
+        setState(prevState => ({
+            ...prevState,
+            activePlugins: prevState.activePlugins.map(plugin =>
+                plugin.id === pluginID ? {...plugin, loading: false} : plugin
+            )
+        }));
     };
 
     const markPluginInitComplete = (pluginID) => {
@@ -319,6 +325,27 @@ export const Home = () => {
         });
     };
 
+    const syncActivePluginLoadingState = async (activePlugins = []) => {
+        const ids = (activePlugins || []).map((item) => item.id).filter(Boolean);
+        if (ids.length === 0) return;
+
+        const result = await window.electron.plugin.getRuntimeStatus(ids);
+        if (!result?.success || !Array.isArray(result.statuses)) return;
+
+        const statusById = new Map(result.statuses.map((item) => [item.id, item]));
+        setState(prevState => ({
+            ...prevState,
+            activePlugins: prevState.activePlugins.map((plugin) => {
+                const runtimeStatus = statusById.get(plugin.id);
+                if (!runtimeStatus) return plugin;
+                return {
+                    ...plugin,
+                    loading: !!runtimeStatus.loading || (!runtimeStatus.loaded && !runtimeStatus.ready),
+                };
+            })
+        }));
+    };
+
     const pluginsInitialLoad = useRef(false);
     useEffect(() => {
         if (pluginsInitialLoad.current) return;
@@ -340,6 +367,10 @@ export const Home = () => {
         })
 
     }, []);
+
+    useEffect(() => {
+        syncActivePluginLoadingState(state.activePlugins);
+    }, [state.activePlugins.length]);
 
     const isProcessingPluginFromEditor = useRef(false);
     const isUnloading = useRef(false);

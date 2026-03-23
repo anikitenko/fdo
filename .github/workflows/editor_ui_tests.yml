@@ -1,0 +1,187 @@
+name: App UI Tests
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ui-smoke:
+    name: App UI Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers and dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright browsers
+        if: runner.os != 'Linux'
+        run: npx playwright install chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run editor unit/component tests
+        run: npm run test:editor:unit
+
+      - name: Run app smoke Electron UI tests
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:e2e:smoke
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-${{ matrix.os }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  ui-full-linux:
+    name: App UI Full Clean (ubuntu-latest)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers and dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run editor unit/component tests
+        run: npm run test:editor:unit
+
+      - name: Run full clean Electron UI regression suite
+        run: xvfb-run -a npm run test:e2e:full
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-full-linux
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  ui-fault-injection:
+    name: App UI Fault Injection (ubuntu-latest)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers and dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run fault-injection Electron UI tests
+        run: xvfb-run -a npm run test:e2e:faults
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-fault-injection
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  ui-tests-cross-platform:
+    name: App UI Tests (${{ matrix.os }}) Manual
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run editor unit/component tests
+        run: npm run test:editor:unit
+
+      - name: Run app smoke Electron UI tests
+        run: npm run test:e2e:smoke
+
+      - name: Run clean Electron UI regression suite
+        run: npm run test:e2e:full
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-${{ matrix.os }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore

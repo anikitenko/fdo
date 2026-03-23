@@ -2,6 +2,7 @@ import {Breadcrumbs, Button, ButtonGroup, Tooltip} from "@blueprintjs/core";
 import PropTypes from 'prop-types';
 import virtualFS from "./utils/VirtualFS";
 import * as styles from './EditorPage.module.css'
+import React from "react";
 import {useEffect, useRef, useState} from "react";
 import classnames from "classnames";
 import {getIconForFile, getIconForOpenFolder} from "vscode-icons-js";
@@ -9,18 +10,25 @@ import {getIconForFile, getIconForOpenFolder} from "vscode-icons-js";
 const FileTabs = ({closeTab}) => {
     const [tabs, setTabs] = useState(virtualFS.tabs.get())
     const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
+    const [restoreLoading, setRestoreLoading] = useState(virtualFS.fs.getRestoreLoading())
+    const [nodeModulesLoading, setNodeModulesLoading] = useState(virtualFS.fs.getNodeModulesLoading())
     const topScrollRef = useRef(null);
     const contentScrollRef = useRef(null);
     const mirrorRef = useRef(null);
+    const interactionsBlocked = restoreLoading || nodeModulesLoading;
 
     useEffect(() => {
         const unsubscribeFileTabs = virtualFS.notifications.subscribe("fileTabs", setTabs);
         const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", () => setTabs(virtualFS.tabs.get()));
         const unsubscribeLoading = virtualFS.notifications.subscribe("treeLoading", setTreeLoading);
+        const unsubscribeRestoreLoading = virtualFS.notifications.subscribe("restoreLoading", setRestoreLoading);
+        const unsubscribeNodeModulesLoading = virtualFS.notifications.subscribe("nodeModulesLoading", setNodeModulesLoading);
 
         // Ensure initial state is in sync even if no events fire immediately
         setTabs(virtualFS.tabs.get());
         setTreeLoading(virtualFS.fs.getLoading());
+        setRestoreLoading(virtualFS.fs.getRestoreLoading());
+        setNodeModulesLoading(virtualFS.fs.getNodeModulesLoading());
 
         const top = topScrollRef.current;
         const content = contentScrollRef.current;
@@ -49,6 +57,8 @@ const FileTabs = ({closeTab}) => {
                 unsubscribeFileTabs();
                 unsubscribeTabSwitched();
                 unsubscribeLoading();
+                unsubscribeRestoreLoading();
+                unsubscribeNodeModulesLoading();
 
                 top.removeEventListener("scroll", syncBottom);
                 content.removeEventListener("scroll", syncTop);
@@ -61,17 +71,41 @@ const FileTabs = ({closeTab}) => {
             unsubscribeFileTabs();
             unsubscribeTabSwitched();
             unsubscribeLoading();
+            unsubscribeRestoreLoading();
+            unsubscribeNodeModulesLoading();
             if (resizeObserver) resizeObserver.disconnect();
         };
     }, []);
 
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        if (window.localStorage?.getItem("editor.restoreDebug") !== "true") return;
+        window.dispatchEvent(new CustomEvent("editor-render-debug", {
+            detail: {
+                component: "tabs"
+            }
+        }));
+    });
+
     return (
         <div className={classnames(styles["file-tabs-wrapper"])}>
-            <div className={classnames(styles["file-tabs-mirror"], treeLoading ? "bp6-skeleton" : "")}
+            {(treeLoading || restoreLoading || nodeModulesLoading) && (
+                <div className={styles["editorSubtleStatus"]} role="status" aria-live="polite">
+                    <span className={styles["editorSubtleStatusDot"]}></span>
+                    <span>
+                        {treeLoading
+                            ? "Refreshing files…"
+                            : restoreLoading
+                                ? "Restoring tabs and editor state…"
+                                : "Loading project types…"}
+                    </span>
+                </div>
+            )}
+            <div className={classnames(styles["file-tabs-mirror"], (restoreLoading || nodeModulesLoading) && styles["subtleBusySurface"])}
                  ref={topScrollRef}>
                 <div ref={mirrorRef} style={{height: "1px"}}></div>
             </div>
-            <div className={classnames(styles["file-tabs"], treeLoading ? "bp6-skeleton" : "")} style={{height: "39px"}}
+            <div className={classnames(styles["file-tabs"], (restoreLoading || nodeModulesLoading) && styles["subtleBusySurface"])} style={{height: "39px"}}
                  ref={contentScrollRef}>
                 {tabs.map((tab) => (
                     <ButtonGroup key={tab.id}>
@@ -87,7 +121,9 @@ const FileTabs = ({closeTab}) => {
                         ${tab.markers?.length > 0 ? styles["file-tab-marker"] : ""}
                         ${tab.active ? styles["active"] : ""} 
                         `}
+                                    disabled={interactionsBlocked}
                                     onClick={() => {
+                                        if (interactionsBlocked) return;
                                         virtualFS.tabs.setActiveTab(tab)
                                     }} text={tab.label}
                             />
@@ -98,8 +134,10 @@ const FileTabs = ({closeTab}) => {
                     ${styles["file-tab"]} 
                     ${tab.active ? styles["active"] : ""} 
                     `}
+                                disabled={interactionsBlocked}
                                 onClick={(e) => {
                                     e.stopPropagation();
+                                    if (interactionsBlocked) return;
                                     closeTab(tab.id)
                                 }}
                         >

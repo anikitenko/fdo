@@ -1,0 +1,246 @@
+async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const anyOverlay = await page.$('.bp6-dialog, .bp6-alert, .bp6-overlay-open');
+    if (!anyOverlay) break;
+
+    const primary = page.locator('.bp6-dialog .bp6-button.bp6-intent-primary, .bp6-alert .bp6-button.bp6-intent-primary');
+    if (await primary.count()) {
+      await primary.first().click({ trial: false }).catch(() => {});
+      await page.waitForTimeout(50);
+      continue;
+    }
+
+    const labels = ['OK', 'Confirm', 'Switch', 'Close', 'Dismiss'];
+    let clicked = false;
+    for (const label of labels) {
+      const btn = page.locator(`.bp6-dialog button:has-text("${label}"), .bp6-alert button:has-text("${label}")`).first();
+      if (await btn.count()) {
+        await btn.click().catch(() => {});
+        clicked = true;
+        await page.waitForTimeout(50);
+        break;
+      }
+    }
+
+    if (!clicked) {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(50);
+    }
+  }
+}
+
+async function launchElectronApp(electron) {
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      FDO_E2E: '1',
+    },
+  });
+  const firstWindow = await app.firstWindow();
+  const acceptAllDialogs = async (dialog) => {
+    try {
+      await dialog.accept();
+    } catch (_) {}
+  };
+
+  firstWindow.on('dialog', acceptAllDialogs);
+  app.on('window', (page) => {
+    page.on('dialog', acceptAllDialogs);
+  });
+
+  await firstWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
+  await installToastObserver(firstWindow);
+  app.on('window', (page) => {
+    installToastObserver(page).catch(() => {});
+  });
+  return app;
+}
+
+async function installToastObserver(page) {
+  await page.evaluate(() => {
+    window.__e2eToastLog = window.__e2eToastLog || [];
+    if (window.__e2eToastObserverInstalled) {
+      return;
+    }
+
+    const recordToast = (node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const text = node.innerText?.trim();
+      if (!text) return;
+      window.__e2eToastLog.push({
+        text,
+        className: node.className || "",
+        ts: Date.now(),
+      });
+    };
+
+    document.querySelectorAll?.('.bp6-toast').forEach(recordToast);
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (node.matches?.('.bp6-toast')) {
+            recordToast(node);
+          }
+          node.querySelectorAll?.('.bp6-toast').forEach(recordToast);
+        });
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.__e2eToastObserverInstalled = true;
+  });
+}
+
+async function installConfirmObserver(page) {
+  await page.evaluate(() => {
+    if (window.__e2eConfirmObserverInstalled) {
+      return;
+    }
+    window.__e2eConfirmLog = [];
+    const originalConfirm = typeof window.confirm === 'function' ? window.confirm.bind(window) : (() => true);
+    window.confirm = (message) => {
+      window.__e2eConfirmLog.push({
+        message: String(message || ''),
+        ts: Date.now(),
+      });
+      return true;
+    };
+    window.__e2eOriginalConfirm = originalConfirm;
+    window.__e2eConfirmObserverInstalled = true;
+  });
+}
+
+async function clearToastLog(page) {
+  await page.evaluate(() => {
+    window.__e2eToastLog = [];
+  });
+}
+
+async function clearConfirmLog(page) {
+  await page.evaluate(() => {
+    window.__e2eConfirmLog = [];
+  });
+}
+
+async function closeElectronApp(app) {
+  if (!app) return;
+  try {
+    const windows = app.windows();
+    for (const win of windows) {
+      try {
+        await win.evaluate(() => {
+          try { window.onbeforeunload = null; } catch (_) {}
+          try { window.alert = () => {}; } catch (_) {}
+          try { window.confirm = () => true; } catch (_) {}
+          try { window.prompt = () => ''; } catch (_) {}
+        });
+      } catch (_) {}
+      try {
+        await win.close({ runBeforeUnload: false });
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  try {
+    await app.close();
+  } catch (_) {}
+}
+
+async function openEditorWithMockedIPC(app, overrides = {}) {
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  const fixtureId = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const pluginDisplayName = `E2E Plugin ${fixtureId}`;
+  const pluginDir = `/tmp/${fixtureId}`;
+  const sandboxName = `sandbox_${pluginDisplayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+)|(-+$)/g, '')}`;
+
+  await window.evaluate(({ extra, pluginDisplayName, pluginDir, sandboxName }) => {
+    window.__E2E__ = true;
+    window.__SNAPSHOTS_ENABLED = true;
+    window.electron = window.electron || {};
+    window.electron.system = window.electron.system || {};
+    try {
+      window.localStorage.removeItem(sandboxName);
+    } catch (_) {}
+    window.electron.system.getModuleFiles = () => Promise.resolve({ files: [] });
+    window.electron.system.getFdoSdkTypes = () => Promise.resolve({ files: [] });
+    window.electron.settings = { certificates: { getRoot: async () => [] } };
+
+    if (extra && typeof extra === 'object') {
+      Object.assign(window, extra.window || {});
+    }
+  }, { extra: overrides, pluginDisplayName, pluginDir, sandboxName });
+  await clearToastLog(window);
+
+  const pluginData = encodeURIComponent(JSON.stringify({
+    name: pluginDisplayName,
+    template: 'basic',
+    dir: pluginDir,
+  }));
+
+  await window.evaluate((pd) => {
+    window.location.hash = `#/editor?data=${pd}`;
+  }, pluginData);
+  await window.waitForFunction(() => location.hash.startsWith('#/editor'));
+  await installConfirmObserver(window);
+  await clearConfirmLog(window);
+  return window;
+}
+
+async function getToastLog(page) {
+  return await page.evaluate(() => window.__e2eToastLog || []);
+}
+
+async function getConfirmLog(page) {
+  return await page.evaluate(() => window.__e2eConfirmLog || []);
+}
+
+async function expectNoToastContaining(page, pattern) {
+  const raw = await getToastLog(page);
+  const rx = pattern instanceof RegExp ? pattern : new RegExp(String(pattern), 'i');
+  const match = raw.find((entry) => rx.test(entry?.text || ""));
+  if (match) {
+    throw new Error(`Unexpected toast matched ${rx}: ${match.text}`);
+  }
+}
+
+async function expectNoUnexpectedErrorToasts(page, options = {}) {
+  const {
+    allow = [],
+  } = options;
+  const raw = await getToastLog(page);
+  const allowList = allow.map((entry) => (
+    entry instanceof RegExp ? entry : new RegExp(String(entry), 'i')
+  ));
+  const suspect = raw.filter((entry) => {
+    const text = entry?.text || "";
+    if (!text) return false;
+    const className = entry?.className || "";
+    const looksDanger = /intent-danger|bp6-toast-message/i.test(className) || /(error|failed|exception|denied|not found)/i.test(text);
+    if (!looksDanger) return false;
+    return !allowList.some((rx) => rx.test(text));
+  });
+  if (suspect.length) {
+    throw new Error(`Unexpected error toasts: ${suspect.map((entry) => entry.text).join(" | ")}`);
+  }
+}
+
+module.exports = {
+  dismissBlueprintOverlays,
+  launchElectronApp,
+  closeElectronApp,
+  openEditorWithMockedIPC,
+  clearToastLog,
+  clearConfirmLog,
+  getToastLog,
+  getConfirmLog,
+  expectNoToastContaining,
+  expectNoUnexpectedErrorToasts,
+  installConfirmObserver,
+};

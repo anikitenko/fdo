@@ -1,17 +1,70 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from "react";
-import {Button, Dialog, DialogBody, DialogFooter, InputGroup, HotkeysTarget, useHotkeys} from "@blueprintjs/core";
+import {Button, Callout, Dialog, DialogBody, DialogFooter, InputGroup, HotkeysTarget, useHotkeys} from "@blueprintjs/core";
 import virtualFS from "../utils/VirtualFS";
 import {AppToaster} from "../../AppToaster.jsx";
 import * as styles from "./snapshots.module.css";
 
 const SnapshotContext = createContext(null);
+const MIN_OPERATION_INDICATOR_MS = 180;
+
+async function ensureMinimumIndicator(startedAt, minDurationMs = MIN_OPERATION_INDICATOR_MS) {
+  const elapsed = Date.now() - startedAt;
+  if (elapsed < minDurationMs) {
+    await new Promise((resolve) => setTimeout(resolve, minDurationMs - elapsed));
+  }
+}
+
+async function waitForNextPaint() {
+  await new Promise((resolve) => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(resolve);
+      });
+      return;
+    }
+    setTimeout(resolve, 16);
+  });
+}
 
 export const useSnapshots = () => useContext(SnapshotContext);
+
+export const SnapshotSwitchConfirmDialog = ({ isOpen, switching, onCancel, onSwitchAnyway, onCreateAndSwitch }) => (
+  <Dialog
+    isOpen={isOpen}
+    onClose={onCancel}
+    title="Unsaved Snapshot Changes"
+    canEscapeKeyClose
+    canOutsideClickClose={!switching}
+  >
+    <DialogBody>
+      <Callout intent="warning" icon="warning-sign">
+        <div className={styles["switchConfirmTitle"]}>You have changes since your last snapshot.</div>
+        <div className={styles["switchConfirmCopy"]}>
+          Create a new snapshot before switching if you want to keep your current file changes and open tabs.
+        </div>
+      </Callout>
+    </DialogBody>
+    <DialogFooter
+      actions={
+        <>
+          <Button onClick={onCancel} disabled={switching}>Cancel</Button>
+          <Button intent="warning" onClick={onSwitchAnyway} disabled={switching} icon="swap-vertical">
+            Switch Anyway
+          </Button>
+          <Button intent="success" onClick={onCreateAndSwitch} disabled={switching} icon="camera">
+            Create Snapshot & Switch
+          </Button>
+        </>
+      }
+    />
+  </Dialog>
+);
 
 export const SnapshotProvider = ({children}) => {
   const [versions, setVersions] = useState(virtualFS.fs.list());
   const [current, setCurrent] = useState(virtualFS.fs.version());
   const [loading, setLoading] = useState(virtualFS.fs.getLoading());
+  const [restoreLoading, setRestoreLoading] = useState(virtualFS.fs.getRestoreLoading());
   const [creating, setCreating] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -33,6 +86,7 @@ export const SnapshotProvider = ({children}) => {
   useEffect(() => {
     const unsubA = virtualFS.notifications.subscribe("treeVersionsUpdate", (v) => setVersions(v));
     const unsubB = virtualFS.notifications.subscribe("treeLoading", (l) => setLoading(l));
+    const unsubRestore = virtualFS.notifications.subscribe("restoreLoading", (l) => setRestoreLoading(l));
     const unsubC = virtualFS.notifications.subscribe("snapshotError", async (payload) => {
       (await AppToaster).show({message: payload?.message || "Snapshot error", intent: "danger"});
       console.error("snapshotError", payload);
@@ -48,6 +102,7 @@ export const SnapshotProvider = ({children}) => {
     return () => {
       unsubA();
       unsubB();
+      unsubRestore();
       unsubC();
       unsubD();
       unsubE();
@@ -112,11 +167,13 @@ export const SnapshotProvider = ({children}) => {
 
   const createSnapshot = useCallback(async () => {
     if (creating) return null;
+    const startedAt = Date.now();
     try {
       setCreating(true);
+      await Promise.resolve();
       const currentVersion = virtualFS.fs.version();
       const tabs = virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => ({id: t.id, active: t.active}));
-      const created = virtualFS.fs.create(currentVersion.version, tabs);
+      const created = virtualFS.fs.create(currentVersion.version, tabs, { quiet: true });
       pendingVersionRef.current = created.version;
       resetUnsaved();
       // Enhanced toast with the Rename quick action
@@ -133,9 +190,11 @@ export const SnapshotProvider = ({children}) => {
         </div>
       );
       (await AppToaster).show({ message, intent: "success" });
+      await ensureMinimumIndicator(startedAt);
       setCreating(false);
       return created;
     } catch (e) {
+      await ensureMinimumIndicator(startedAt);
       setCreating(false);
       (await AppToaster).show({message: `Failed to create snapshot: ${e.message}`, intent: "danger"});
       return null;
@@ -145,16 +204,25 @@ export const SnapshotProvider = ({children}) => {
   const switchTo = useCallback(async (versionId) => {
     if (!versionId) return;
     if (switching) return;
+    const startedAt = Date.now();
     try {
       setSwitching(true);
+      virtualFS.fs.setRestorePhase("overlay-mounted");
+      await waitForNextPaint();
+      virtualFS.fs.setRestorePhase("restore-start");
       const data = virtualFS.fs.set(versionId);
       // Restore tabs atomically, filtering missing files and setting the correct active tab
       virtualFS.tabs.replaceFromSaved(data?.tabs || []);
+      virtualFS.fs.setRestorePhase("tabs-restored");
+      if (data?.nodeModulesPromise?.then) {
+        await data.nodeModulesPromise;
+      }
       resetUnsaved();
       (await AppToaster).show({message: `Switched to ${versionId}`, intent: "primary"});
     } catch (e) {
       (await AppToaster).show({message: `Failed to switch: ${e.message}`, intent: "danger"});
     } finally {
+      await ensureMinimumIndicator(startedAt);
       setSwitching(false);
       pendingVersionRef.current = null;
     }
@@ -219,12 +287,12 @@ export const SnapshotProvider = ({children}) => {
   const {handleKeyDown, handleKeyUp} = useHotkeys(hotkeys);
 
   const value = useMemo(() => ({
-    versions, current, loading, creating, switching, panelOpen,
+    versions, current, loading, restoreLoading, creating, switching, panelOpen,
     createSnapshot, switchTo, requestSwitch, renameSnapshot, deleteSnapshot,
     openPanel, closePanel,
     hasUnsavedChanges, confirmSwitchTarget,
     confirmSwitchCancel, confirmSwitchProceed, confirmSwitchCreateAndSwitch
-  }), [versions, current, loading, creating, switching, panelOpen, createSnapshot, switchTo, requestSwitch, renameSnapshot, deleteSnapshot, openPanel, closePanel, hasUnsavedChanges, confirmSwitchTarget, confirmSwitchCancel, confirmSwitchProceed, confirmSwitchCreateAndSwitch]);
+  }), [versions, current, loading, restoreLoading, creating, switching, panelOpen, createSnapshot, switchTo, requestSwitch, renameSnapshot, deleteSnapshot, openPanel, closePanel, hasUnsavedChanges, confirmSwitchTarget, confirmSwitchCancel, confirmSwitchProceed, confirmSwitchCreateAndSwitch]);
 
   return (
     <HotkeysTarget hotkeys={hotkeys}>
@@ -271,6 +339,13 @@ export const SnapshotProvider = ({children}) => {
                 }
               />
             </Dialog>
+            <SnapshotSwitchConfirmDialog
+              isOpen={!!confirmSwitchTarget}
+              switching={switching}
+              onCancel={confirmSwitchCancel}
+              onSwitchAnyway={confirmSwitchProceed}
+              onCreateAndSwitch={confirmSwitchCreateAndSwitch}
+            />
           </SnapshotContext.Provider>
         </div>
       )}

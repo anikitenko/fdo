@@ -55,6 +55,10 @@ global.window.electron = {
       confirmEditorClose: jest.fn(),
       confirmEditorReload: jest.fn(),
     },
+    off: {
+      confirmEditorClose: jest.fn(),
+      confirmEditorReload: jest.fn(),
+    },
     openExternal: jest.fn(),
     confirmEditorCloseApproved: jest.fn(),
     confirmEditorReloadApproved: jest.fn(),

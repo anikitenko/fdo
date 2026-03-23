@@ -1,9 +1,20 @@
-// Playwright configuration to only run e2e tests in tests/e2e/
+const isCI = !!process.env.CI;
+
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
 const config = {
   testDir: 'tests/e2e',
-  workers: 1, // Run tests sequentially
-  testMatch: ['tests/e2e/snapshots.e2e.spec.js', 'tests/e2e/ai-coding-agent.spec.js'],
+  workers: 1,
+  retries: isCI ? 1 : 0,
+  timeout: 60_000,
+  reporter: isCI
+    ? [['github'], ['html', { open: 'never' }]]
+    : 'list',
+  testMatch: ['**/*.spec.js'],
+  use: {
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
 };
 
 module.exports = config;

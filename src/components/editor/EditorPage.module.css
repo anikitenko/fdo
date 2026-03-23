@@ -13,6 +13,104 @@
     overflow: hidden;
 }
 
+.editorLoadingState {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: calc(100vh - 42px);
+    background: #1e1e1e;
+}
+
+.editorLoadingCard {
+    min-width: 320px;
+    max-width: 520px;
+    padding: 20px 24px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(37, 42, 49, 0.9);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
+}
+
+.editorLoadingTitle {
+    color: #f8fafc;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.editorLoadingSubtitle {
+    color: rgba(226, 232, 240, 0.8);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.editorWorkspaceShell {
+    position: relative;
+    height: calc(100vh - 42px);
+}
+
+.editorRestoreOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(17, 22, 29, 0.34);
+    backdrop-filter: blur(2px);
+    pointer-events: all;
+}
+
+.editorRestoreCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 320px;
+    max-width: 520px;
+    padding: 20px 24px;
+    border-radius: 14px;
+    border: 1px solid rgba(126, 160, 214, 0.22);
+    background: rgba(27, 36, 47, 0.94);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.24);
+    text-align: center;
+}
+
+.editorRestoreTitle {
+    color: #f8fafc;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.editorRestoreSubtitle {
+    color: rgba(226, 232, 240, 0.82);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.editorRestoreDebugHud {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 30;
+    min-width: 220px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(9, 14, 20, 0.92);
+    border: 1px solid rgba(91, 123, 176, 0.28);
+    color: #dbe6f6;
+    font-size: 11px;
+    line-height: 1.5;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+
+.editorRestoreDebugTitle {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #f8fafc;
+}
+
 .mouse-pointer {
     cursor: pointer;
 }
@@ -54,6 +152,48 @@
     flex-direction: column;
     background: #1e1e1e;
     padding-top: 1px;
+}
+
+.editorSubtleStatus {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    align-self: flex-start;
+    margin: 6px 10px 0;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(92, 114, 148, 0.16);
+    border: 1px solid rgba(120, 149, 190, 0.24);
+    color: #b9c8dc;
+    font-size: 11px;
+    letter-spacing: 0.01em;
+}
+
+.editorSubtleStatusDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #6aa9ff;
+    box-shadow: 0 0 0 3px rgba(80, 143, 255, 0.16);
+    animation: editor-status-pulse 1.6s ease-in-out infinite;
+}
+
+.subtleBusySurface {
+    position: relative;
+    opacity: 0.94;
+}
+
+.subtleBusySurface::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(122, 162, 255, 0.06) 50%, rgba(255,255,255,0) 100%);
+}
+
+@keyframes editor-status-pulse {
+    0%, 100% { transform: scale(0.95); opacity: 0.75; }
+    50% { transform: scale(1.05); opacity: 1; }
 }
 
 .file-tabs-mirror {
@@ -208,8 +348,11 @@
 }
 
 .editor-header-right {
-    text-align: right;
-    padding-left: 10px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 6px 10px 6px 10px;
     color: #ccc;
     font-size: 14px;
 }
