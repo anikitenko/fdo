@@ -18,9 +18,19 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import AttachFromUrlDialog from "./components/AttachFromUrlDialog";
 import {shortenUrl} from "./utils/shortenUrl";
+import { getEmojiCompletionSuggestion, getQuickEmojiPalette, normalizeAsciiEmoticons, searchEmojiPalette } from "../../utils/emoticons.js";
+import { formatUsagePercentDisplay } from "../../utils/aiChatStats.js";
+import {
+    detectPreferredAiChatUiLanguage,
+    getAiChatRoleLabel,
+    getAiChatSourceTypeLabel,
+    getAiChatText,
+    getAiChatUiLanguageOptions,
+    normalizeAiChatUiLanguage,
+} from "../../utils/aiChatI18n.js";
 
 const costUsageTooltip = (
-    inputTokens, outputTokens, local, totalTokens, inputCost, outputCost, totalCost
+    t, inputTokens, outputTokens, local, totalTokens, inputCost, outputCost, totalCost
 ) => {
     const formatCost = (value) => `$${value.toFixed(5)}`;
     const formatTokens = (num) =>
@@ -28,13 +38,13 @@ const costUsageTooltip = (
     if (!inputTokens && !outputTokens && !local && !totalTokens && !inputCost && !outputCost && !totalCost) return null
     return (
         <div>
-            <div>Input tokens: {formatTokens(inputCost)}</div>
-            <div>Output tokens: {formatTokens(outputCost)}</div>
-            <div>Local: {local ? "yes" : "no"}</div>
-            <div>Total tokens: {formatTokens(totalTokens)}</div>
-            <div>Input cost: {formatCost(inputCost)}</div>
-            <div>Output cost: {formatCost(outputCost)}</div>
-            <div>Total cost: {formatCost(totalCost)}</div>
+            <div>{t("inputTokens")}: {formatTokens(inputCost)}</div>
+            <div>{t("outputTokens")}: {formatTokens(outputCost)}</div>
+            <div>{t("local")}: {local ? t("yes") : t("no")}</div>
+            <div>{t("totalTokens")}: {formatTokens(totalTokens)}</div>
+            <div>{t("inputCost")}: {formatCost(inputCost)}</div>
+            <div>{t("outputCost")}: {formatCost(outputCost)}</div>
+            <div>{t("totalCost")}: {formatCost(totalCost)}</div>
         </div>
     )
 }
@@ -59,6 +69,34 @@ export function cleanFullMessage(text) {
     return out;
 }
 
+function normalizeThinkingModeSource(value = "") {
+    return value === "manual" ? "manual" : "assistant";
+}
+
+function normalizeAssistantThinkingMode(value = "") {
+    const normalized = String(value || "").toLowerCase();
+    return ["auto", "on", "off"].includes(normalized) ? normalized : "auto";
+}
+
+function getThinkingModeLabelKey(mode = "auto") {
+    switch (normalizeAssistantThinkingMode(mode)) {
+        case "on":
+            return "thinkingDefaultOn";
+        case "off":
+            return "thinkingDefaultOff";
+        default:
+            return "thinkingDefaultAuto";
+    }
+}
+
+function resolveAssistantThinkingEnabled(assistant = null, capabilities = null) {
+    const mode = normalizeAssistantThinkingMode(assistant?.defaultThinkingMode);
+    const canThink = !!(capabilities?.supportsThinking ?? capabilities?.reasoning);
+    if (mode === "off") return false;
+    if (mode === "on") return canThink;
+    return canThink;
+}
+
 function mergeStreamChunk(existing, incoming) {
     const current = String(existing || "");
     const chunk = String(incoming || "");
@@ -78,24 +116,13 @@ function mergeStreamChunk(existing, incoming) {
     return current + chunk;
 }
 
-function formatConfidenceLabel(value) {
+function formatConfidenceLabel(value, t) {
     if (!Number.isFinite(value)) return "";
-    return `${Math.round(value * 100)}% confidence`;
+    return t("confidenceLabel", { percent: Math.round(value * 100) });
 }
 
-function sourceTypeLabel(type = "") {
-    switch (type) {
-        case "docs":
-            return "Docs";
-        case "schema":
-            return "Schema";
-        case "config":
-            return "Config";
-        case "code":
-            return "Code";
-        default:
-            return "Other";
-    }
+function sourceTypeLabel(uiLanguage = "en", type = "") {
+    return getAiChatSourceTypeLabel(uiLanguage, type);
 }
 
 function groundedTagStyle(kind = "default") {
@@ -146,6 +173,13 @@ function isClickableUrl(value = "") {
     return /^https?:\/\//i.test(String(value || "").trim());
 }
 
+function selectionBelongsToContainer(selection, container) {
+    if (!selection || !container) return false;
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    return !!anchorNode && !!focusNode && container.contains(anchorNode) && container.contains(focusNode);
+}
+
 function openExternalUrl(event, url) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -153,25 +187,68 @@ function openExternalUrl(event, url) {
     window.electron.system.openExternal(url);
 }
 
-function getSelectedTextInDialog() {
-    const selection = window.getSelection?.();
-    const text = selection?.toString?.() || "";
-    return text.replace(/\s+/g, " ").trim();
+function normalizeSelectedText(text = "", { preserveLines = true } = {}) {
+    const normalized = String(text || "").replace(/\r\n?/g, "\n");
+    if (!preserveLines) {
+        return normalized.replace(/\s+/g, " ").trim();
+    }
+
+    const lines = normalized.split("\n").map((line) => line.replace(/[ \t]+$/g, ""));
+    while (lines.length > 0 && !lines[0].trim()) lines.shift();
+    while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
+    return lines.join("\n");
 }
 
-function formatSelectionReplySnippet(text = "") {
-    const normalized = String(text || "").replace(/\s+/g, " ").trim();
+function detectCodeLikeSelection(text = "") {
+    const value = normalizeSelectedText(text);
+    if (!value) return false;
+    if (looksCodeHeavySnippet(value)) return true;
+    if (/^\s{2,}\S/m.test(value)) return true;
+    if (/^\$ |\b(ERROR|WARN|INFO|DEBUG)\b/m.test(value)) return true;
+    if (/^ {0,3}[`~]{3,}/m.test(value)) return true;
+    return false;
+}
+
+function formatMarkdownQuote(text = "", sourceLabel = "", uiLanguage = "en") {
+    const normalized = normalizeSelectedText(text);
     if (!normalized) return "";
-    return `> ${normalized}\n\n`;
+    const lines = normalized.split("\n");
+    const quoted = lines.map((line) => line ? `> ${line}` : ">").join("\n");
+    const sourceLine = sourceLabel ? `> ${getAiChatText(uiLanguage, "sourceLabel")}: ${sourceLabel}\n` : "";
+    return `${sourceLine}${quoted}\n\n`;
 }
 
-function deriveSessionTitleFromText(text = "") {
+function formatMarkdownCodeBlock(text = "", sourceLabel = "", uiLanguage = "en") {
+    const normalized = normalizeSelectedText(text);
+    if (!normalized) return "";
+    const fenceLabel = sourceLabel ? `# ${getAiChatText(uiLanguage, "sourceLabel")}: ${sourceLabel}\n` : "";
+    return `\`\`\`\n${fenceLabel}${normalized}\n\`\`\`\n\n`;
+}
+
+function formatSelectionForComposer(text = "", { forceCodeBlock = false, sourceLabel = "", uiLanguage = "en" } = {}) {
+    const normalized = normalizeSelectedText(text);
+    if (!normalized) return "";
+    if (forceCodeBlock || detectCodeLikeSelection(normalized)) {
+        return formatMarkdownCodeBlock(normalized, sourceLabel, uiLanguage);
+    }
+    return formatMarkdownQuote(normalized, sourceLabel, uiLanguage);
+}
+
+function getSelectedTextInDialog(container = null) {
+    const selection = window.getSelection?.();
+    if (!selectionBelongsToContainer(selection, container)) {
+        return "";
+    }
+    return normalizeSelectedText(selection?.toString?.() || "");
+}
+
+function deriveSessionTitleFromText(text = "", uiLanguage = "en") {
     const normalized = String(text || "")
         .replace(/\s+/g, " ")
         .replace(/^[\s"'`({\[]+|[\s"'`)}\]]+$/g, "")
         .trim();
 
-    if (!normalized) return "New Chat";
+    if (!normalized) return getAiChatText(uiLanguage, "newChat");
 
     const simplified = normalized.replace(/^(please|can you|could you|would you|hey|hi)\s+/i, "").trim() || normalized;
     const words = simplified.split(" ").filter(Boolean);
@@ -179,7 +256,7 @@ function deriveSessionTitleFromText(text = "") {
     const clipped = short.length > 60 ? short.slice(0, 57).trimEnd() : short;
     const cleaned = clipped.replace(/[.,:;!?-]+$/g, "").trim();
 
-    if (!cleaned) return "New Chat";
+    if (!cleaned) return getAiChatText(uiLanguage, "newChat");
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
@@ -197,9 +274,9 @@ function upsertSessionListItem(list = [], session = {}) {
     return [nextItem, ...(list || []).filter((item) => item.id !== session.id)];
 }
 
-function getSelectionRectInViewport() {
+function getSelectionRectInViewport(container = null) {
     const selection = window.getSelection?.();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !selectionBelongsToContainer(selection, container)) {
         return null;
     }
 
@@ -213,6 +290,50 @@ function getSelectionRectInViewport() {
     } catch {
         return null;
     }
+}
+
+function findSelectedMessageContext(messages = [], container = null) {
+    const selection = window.getSelection?.();
+    if (!selectionBelongsToContainer(selection, container)) {
+        return null;
+    }
+
+    const findMessageNode = (node) => node?.nodeType === Node.ELEMENT_NODE
+        ? node.closest?.("[data-ai-message-id]")
+        : node?.parentElement?.closest?.("[data-ai-message-id]");
+
+    const anchor = findMessageNode(selection?.anchorNode);
+    const focus = findMessageNode(selection?.focusNode);
+    if (!anchor || !focus || anchor.dataset.aiMessageId !== focus.dataset.aiMessageId) {
+        return null;
+    }
+
+    const messageId = anchor.dataset.aiMessageId;
+    const message = (messages || []).find((item) => item.id === messageId);
+    if (!message) return null;
+    return {
+        id: message.id,
+        role: message.role,
+        content: String(message.content || ""),
+    };
+}
+
+function resolveDraftReplyTarget(session = null, draftReplyTo = null) {
+    if (!draftReplyTo?.id) return null;
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    const liveTarget = messages.find((message) => message.id === draftReplyTo.id);
+    if (liveTarget) {
+        return {
+            id: liveTarget.id,
+            role: liveTarget.role,
+            content: String(liveTarget.content || ""),
+        };
+    }
+    return {
+        id: draftReplyTo.id,
+        role: draftReplyTo.role || "assistant",
+        content: String(draftReplyTo.content || ""),
+    };
 }
 
 function normalizeComposerTopic(text = "") {
@@ -451,7 +572,14 @@ function getComposerCompletionCandidates(session = null, replyTo = null) {
 function buildComposerSuggestion(input = "", session = null, replyTo = null) {
     const raw = String(input || "");
     const trimmed = raw.trim();
-    if (!trimmed || raw.includes("\n") || /[.!?…:]$/.test(trimmed)) return null;
+    if (!trimmed || raw.includes("\n")) return null;
+
+    const emojiSuggestion = getEmojiCompletionSuggestion(raw);
+    if (emojiSuggestion) {
+        return emojiSuggestion;
+    }
+
+    if (/[.!?…:]$/.test(trimmed)) return null;
 
     const candidates = getComposerCompletionCandidates(session, replyTo);
     const rawTarget = stripComposerLeadPreserveTail(raw);
@@ -553,9 +681,27 @@ function buildComposerSuggestion(input = "", session = null, replyTo = null) {
     return null;
 }
 
-const QUICK_EMOJIS = [
-    "🙂", "😉", "🤔", "🔥", "✅", "👍", "👀", "🚀", "✨", "💡", "🎯", "🛠️", "🐛", "📎", "📌", "⚠️",
-];
+const QUICK_EMOJIS = getQuickEmojiPalette();
+
+const CHAT_DRAFT_STORAGE_KEY = "fdo-ai-chat-drafts-v1";
+
+function readStoredChatDrafts() {
+    try {
+        const raw = window.localStorage?.getItem(CHAT_DRAFT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeStoredChatDrafts(drafts = []) {
+    try {
+        window.localStorage?.setItem(CHAT_DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+    } catch {
+        // Best-effort only. Draft resilience should never block the chat UI.
+    }
+}
 
 
 export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
@@ -583,49 +729,129 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const [attachments, setAttachments] = useState([]);
     const [replyTo, setReplyTo] = useState(null);
     const [showDebugDetails, setShowDebugDetails] = useState(false);
+    const [uiLanguage, setUiLanguage] = useState(() => detectPreferredAiChatUiLanguage());
     const [selectedQuoteText, setSelectedQuoteText] = useState("");
     const [selectedQuoteRect, setSelectedQuoteRect] = useState(null);
     const [emojiOpen, setEmojiOpen] = useState(false);
+    const [emojiSearch, setEmojiSearch] = useState("");
     const [enableComposerCompletion, setEnableComposerCompletion] = useState(true);
     const [composerFocused, setComposerFocused] = useState(false);
+    const [thinkingModeSource, setThinkingModeSource] = useState("assistant");
+    const [restoredDraftNotice, setRestoredDraftNotice] = useState(null);
+    const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+    const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const initialScrollDoneRef = useRef(false);
     const preferencesHydratedRef = useRef(false);
     const composerRef = useRef(null);
+    const chatContentRef = useRef(null);
+    const draftCacheRef = useRef([]);
+    const draftAppliedSessionIdRef = useRef(null);
+    const lastComposerInsertionRef = useRef(null);
+    const highlightTimeoutRef = useRef(null);
+    const autoScrollTimeoutRef = useRef(null);
 
     const messages = session?.messages || [];
+    const selectionLooksCode = useMemo(() => detectCodeLikeSelection(selectedQuoteText), [selectedQuoteText]);
+    const draftSessionIds = useMemo(
+        () => new Set((Array.isArray(draftCacheRef.current) ? draftCacheRef.current : []).map((item) => item.sessionId).filter(Boolean)),
+        [input, replyTo, session?.id, showAiChatDialog]
+    );
     const composerSuggestion = useMemo(
         () => enableComposerCompletion ? buildComposerSuggestion(input, session, replyTo) : null,
         [enableComposerCompletion, input, session, replyTo]
     );
+    const emojiResults = useMemo(
+        () => searchEmojiPalette(emojiSearch, { limit: emojiSearch.trim() ? 72 : QUICK_EMOJIS.length }),
+        [emojiSearch]
+    );
+    const t = (key, vars = {}) => getAiChatText(uiLanguage, key, vars);
+    const uiLanguageOptions = useMemo(() => getAiChatUiLanguageOptions(uiLanguage), [uiLanguage]);
+
+    useEffect(() => () => {
+        if (highlightTimeoutRef.current) {
+            clearTimeout(highlightTimeoutRef.current);
+            highlightTimeoutRef.current = null;
+        }
+        if (autoScrollTimeoutRef.current) {
+            clearTimeout(autoScrollTimeoutRef.current);
+            autoScrollTimeoutRef.current = null;
+        }
+    }, []);
 
     const scrollToBottom = (behavior = "smooth") => {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 messagesEndRef.current?.scrollIntoView({behavior, block: "end"});
+                setShowJumpToBottom(false);
             });
         });
     };
 
+    const updateJumpToBottomVisibility = () => {
+        const container = chatContentRef.current;
+        if (!container) {
+            setShowJumpToBottom(false);
+            return;
+        }
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        setShowJumpToBottom(distanceFromBottom > 96);
+    };
+
+    const scheduleScrollToBottom = (behavior = "smooth", attempts = 1) => {
+        if (autoScrollTimeoutRef.current) {
+            clearTimeout(autoScrollTimeoutRef.current);
+            autoScrollTimeoutRef.current = null;
+        }
+
+        const run = (remaining) => {
+            scrollToBottom(behavior);
+            if (remaining <= 1) return;
+            autoScrollTimeoutRef.current = window.setTimeout(() => {
+                run(remaining - 1);
+            }, 80);
+        };
+
+        run(Math.max(1, attempts));
+    };
+
+    const scrollToMessage = (messageId) => {
+        const targetId = String(messageId || "").trim();
+        if (!targetId || !chatContentRef.current) return;
+        const target = Array.from(chatContentRef.current.querySelectorAll("[data-ai-message-id]"))
+            .find((node) => node.getAttribute("data-ai-message-id") === targetId);
+        if (!target) return;
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightedMessageId(targetId);
+        if (highlightTimeoutRef.current) {
+            clearTimeout(highlightTimeoutRef.current);
+        }
+        highlightTimeoutRef.current = setTimeout(() => {
+            setHighlightedMessageId((current) => (current === targetId ? null : current));
+            highlightTimeoutRef.current = null;
+        }, 1800);
+    };
+
     const chatAssistants = useMemo(() => (assistants || []).filter(a => a.purpose === 'chat'), [assistants]);
-    const providerOptions = useMemo(() => {
-        const uniq = Array.from(new Set(chatAssistants.map(a => a.provider)));
-        return uniq.map(p => ({label: (p || '').charAt(0).toUpperCase() + (p || '').slice(1), value: p}));
-    }, [chatAssistants]);
-    const modelOptions = useMemo(() => {
-        const filtered = chatAssistants.filter(a => !provider || a.provider === provider);
-        const uniq = Array.from(new Set(filtered.map(a => a.model)));
-        return uniq.map(m => ({label: m, value: m}));
-    }, [chatAssistants, provider]);
     const assistantOptions = useMemo(() => {
-        const filtered = chatAssistants.filter(a =>
-            (!provider || a.provider === provider) &&
-            (!model || a.model === model)
-        );
-        return filtered.map((assistant) => ({
-            label: `${assistant.name} (${assistant.model})`,
+        return chatAssistants.map((assistant) => ({
+            label: `${assistant.name} · ${assistant.provider} / ${assistant.model}`,
             value: assistant.id,
         }));
-    }, [chatAssistants, provider, model]);
+    }, [chatAssistants]);
+    const selectedAssistant = useMemo(
+        () => chatAssistants.find((assistant) => assistant.id === assistantId) || null,
+        [assistantId, chatAssistants]
+    );
+
+    const persistDrafts = (drafts) => {
+        draftCacheRef.current = drafts;
+        writeStoredChatDrafts(drafts);
+    };
+
+    const removeStoredDraftForSession = (sessionId) => {
+        if (!sessionId) return;
+        persistDrafts((Array.isArray(draftCacheRef.current) ? draftCacheRef.current : []).filter((item) => item.sessionId !== sessionId));
+    };
 
     const resetDraftComposer = () => {
         setInput("");
@@ -641,7 +867,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     };
 
     const sessionCreate = async (name, list, { preferReuseEmpty = true } = {}) => {
-        const requestedName = name || "New Chat";
+        const requestedName = name || t("newChat");
         const allSessions = await window.electron.aiChat.getSessions();
         const existingEmpty = preferReuseEmpty
             ? [...(allSessions || [])]
@@ -662,10 +888,18 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     }
 
     useEffect(() => {
-        if (!showAiChatDialog) return;
+        if (!showAiChatDialog) {
+            if (autoScrollTimeoutRef.current) {
+                clearTimeout(autoScrollTimeoutRef.current);
+                autoScrollTimeoutRef.current = null;
+            }
+            return;
+        }
         initialScrollDoneRef.current = false;
         preferencesHydratedRef.current = false;
+        draftAppliedSessionIdRef.current = null;
         setReplyTo(null);
+        setRestoredDraftNotice(null);
         (async () => {
             try {
                 // sessions
@@ -682,7 +916,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     }));
                     setSessionList(list);
                 } else {
-                    await sessionCreate("New Chat");
+                    await sessionCreate(t("newChat"));
                 }
                 // assistants
                 const list = await window.electron.settings.ai.getAssistants();
@@ -690,25 +924,25 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 const prefs = await window.electron.aiChat.getPreferences();
                 const chatOnly = (list || []).filter(a => a.purpose === 'chat');
                 const persistedAssistant = chatOnly.find(a => a.id === prefs?.assistantId);
-                const persistedProvider = prefs?.provider || persistedAssistant?.provider || "";
-                const persistedModel = prefs?.model || persistedAssistant?.model || "";
-                const persistedAssistantMatches =
-                    !!persistedAssistant &&
-                    (!persistedProvider || persistedAssistant.provider === persistedProvider) &&
-                    (!persistedModel || persistedAssistant.model === persistedModel);
                 const defaultAssistant = chatOnly.find(a => a.default) || null;
                 const firstAssistant = chatOnly[0] || null;
                 const selectedAssistant =
-                    (persistedAssistantMatches && persistedAssistant) ||
+                    persistedAssistant ||
                     defaultAssistant ||
                     firstAssistant ||
                     null;
 
-                setProvider(selectedAssistant?.provider || persistedProvider || "");
-                setModel(selectedAssistant?.model || persistedModel || "");
+                setProvider(selectedAssistant?.provider || "");
+                setModel(selectedAssistant?.model || "");
                 setAssistantId(selectedAssistant?.id || "");
                 setStreaming(!!prefs?.streaming);
-                setThinking(!!prefs?.thinking);
+                const nextThinkingSource = normalizeThinkingModeSource(prefs?.thinkingModeSource);
+                setThinkingModeSource(nextThinkingSource);
+                setThinking(
+                    nextThinkingSource === "manual"
+                        ? !!prefs?.thinking
+                        : resolveAssistantThinkingEnabled(selectedAssistant, null)
+                );
                 setTemperature(typeof prefs?.temperature === "number" ? prefs.temperature : 0.7);
                 setShowDebugDetails(!!prefs?.showDebugDetails);
                 setEnableComposerCompletion(
@@ -716,6 +950,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         ? prefs.enableComposerCompletion
                         : true
                 );
+                setUiLanguage(normalizeAiChatUiLanguage(prefs?.uiLanguage || detectPreferredAiChatUiLanguage()));
+                draftCacheRef.current = readStoredChatDrafts();
                 preferencesHydratedRef.current = true;
             } catch (e) {
                 AppToaster.show({message: e.message, intent: "danger"});
@@ -725,14 +961,30 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
 
     useEffect(() => {
         if (!showAiChatDialog) return;
-        scrollToBottom(initialScrollDoneRef.current ? "smooth" : "auto");
+        scheduleScrollToBottom(initialScrollDoneRef.current ? "smooth" : "auto", initialScrollDoneRef.current ? 1 : 4);
         initialScrollDoneRef.current = true;
     }, [messages.length, showAiChatDialog]);
 
     useEffect(() => {
         if (!showAiChatDialog || !session?.id || initialScrollDoneRef.current) return;
-        scrollToBottom("auto");
+        scheduleScrollToBottom("auto", 4);
         initialScrollDoneRef.current = true;
+    }, [showAiChatDialog, session?.id]);
+
+    useEffect(() => {
+        if (!showAiChatDialog) return;
+        updateJumpToBottomVisibility();
+    }, [messages.length, showAiChatDialog, session?.id]);
+
+    useEffect(() => {
+        if (!showAiChatDialog) return;
+        const container = chatContentRef.current;
+        if (!container) return;
+        container.addEventListener("scroll", updateJumpToBottomVisibility, { passive: true });
+        updateJumpToBottomVisibility();
+        return () => {
+            container.removeEventListener("scroll", updateJumpToBottomVisibility);
+        };
     }, [showAiChatDialog, session?.id]);
 
     // Streaming event listeners
@@ -864,15 +1116,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
 
     useEffect(() => {
         if (!model) return;
+        setCapabilities(null);
         window.electron.aiChat.getCapabilities(model, provider, assistantId)
             .then(caps => {
                 setCapabilities(caps);
             })
             .catch(err => {
-                AppToaster.show({message: `Capability load failed: ${err.message}`, intent: "warning"});
+                AppToaster.show({message: t("capabilityLoadFailed", { message: err.message }), intent: "warning"});
                 console.warn("[AI Chat UI] capability load failed:", err)
             });
-    }, [assistantId, model, provider]);
+    }, [assistantId, model, provider, uiLanguage]);
 
     useEffect(() => {
         if (!showAiChatDialog || !preferencesHydratedRef.current) return;
@@ -882,13 +1135,60 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             assistantId,
             streaming,
             thinking,
+            thinkingModeSource,
             temperature,
             showDebugDetails,
             enableComposerCompletion,
+            uiLanguage,
         }).catch((err) => {
             console.warn("[AI Chat UI] failed to save preferences:", err);
         });
-    }, [assistantId, enableComposerCompletion, model, provider, showAiChatDialog, showDebugDetails, streaming, temperature, thinking]);
+    }, [assistantId, enableComposerCompletion, model, provider, showAiChatDialog, showDebugDetails, streaming, temperature, thinking, thinkingModeSource, uiLanguage]);
+
+    useEffect(() => {
+        if (!showAiChatDialog || !preferencesHydratedRef.current || !session?.id) return;
+        if (draftAppliedSessionIdRef.current === session.id) return;
+        const draft = draftCacheRef.current.find((item) => item.sessionId === session.id) || null;
+        setInput(String(draft?.input || ""));
+        setReplyTo(resolveDraftReplyTarget(session, draft?.replyTo || null));
+        setRestoredDraftNotice(
+            draft?.input || draft?.replyTo?.id
+                ? {
+                    sessionId: session.id,
+                    hasReply: !!draft?.replyTo?.id,
+                }
+                : null
+        );
+        draftAppliedSessionIdRef.current = session.id;
+    }, [session?.id, showAiChatDialog]);
+
+    useEffect(() => {
+        if (!showAiChatDialog || !preferencesHydratedRef.current || !session?.id) return;
+        const timeoutId = window.setTimeout(() => {
+            const existingDrafts = Array.isArray(draftCacheRef.current) ? draftCacheRef.current : [];
+            const hasDraft = !!input || !!replyTo?.id;
+            const nextDrafts = hasDraft
+                ? [
+                    {
+                        sessionId: session.id,
+                        input,
+                        replyTo: replyTo ? {
+                            id: replyTo.id,
+                            role: replyTo.role,
+                            content: String(replyTo.content || ""),
+                        } : null,
+                    },
+                    ...existingDrafts.filter((item) => item.sessionId !== session.id),
+                ].slice(0, 24)
+                : existingDrafts.filter((item) => item.sessionId !== session.id);
+            draftCacheRef.current = nextDrafts;
+            if (!hasDraft && restoredDraftNotice?.sessionId === session.id) {
+                setRestoredDraftNotice(null);
+            }
+            writeStoredChatDrafts(nextDrafts);
+        }, 250);
+        return () => window.clearTimeout(timeoutId);
+    }, [input, replyTo, restoredDraftNotice, session?.id, showAiChatDialog]);
 
     useEffect(() => {
         if (!assistantOptions.length) {
@@ -899,14 +1199,20 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         }
 
         if (!assistantOptions.some((option) => option.value === assistantId)) {
-            const matchingDefault = chatAssistants.find(a =>
-                a.default &&
-                (!provider || a.provider === provider) &&
-                (!model || a.model === model)
-            );
+            const matchingDefault = chatAssistants.find(a => a.default);
             setAssistantId(matchingDefault?.id || assistantOptions[0].value);
         }
-    }, [assistantId, assistantOptions, chatAssistants, model, provider]);
+    }, [assistantId, assistantOptions, chatAssistants]);
+
+    useEffect(() => {
+        setProvider(selectedAssistant?.provider || "");
+        setModel(selectedAssistant?.model || "");
+    }, [selectedAssistant]);
+
+    useEffect(() => {
+        if (thinkingModeSource !== "assistant") return;
+        setThinking(resolveAssistantThinkingEnabled(selectedAssistant, capabilities));
+    }, [capabilities, selectedAssistant, thinkingModeSource]);
 
     useEffect(() => {
         if (!capabilities) return;
@@ -937,20 +1243,10 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     }, [input, showAiChatDialog]);
 
     useEffect(() => {
-        document.addEventListener("click", (event) => {
-            const target = event.target.closest("a");
-            if (target && (target.href.startsWith("http") || target.href.startsWith("file://"))) {
-                event.preventDefault();
-                window.electron.system.openExternal(target.href)
-            }
-        });
-    }, [])
-
-    useEffect(() => {
         if (!showAiChatDialog) return;
         const updateSelection = () => {
-            const text = getSelectedTextInDialog();
-            const rect = text ? getSelectionRectInViewport() : null;
+            const text = getSelectedTextInDialog(chatContentRef.current);
+            const rect = text ? getSelectionRectInViewport(chatContentRef.current) : null;
             setSelectedQuoteText(text);
             setSelectedQuoteRect(rect ? {
                 top: rect.top + window.scrollY,
@@ -970,7 +1266,10 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     }, [showAiChatDialog]);
 
     const hasAssistants = useMemo(() => (chatAssistants || []).length > 0, [chatAssistants]);
-    const canSend = useMemo(() => !sending && (!!input.trim() || !!replyTo) && hasAssistants, [sending, input, hasAssistants, replyTo]);
+    const canSend = useMemo(
+        () => !sending && (!!input.trim() || attachments.length > 0) && hasAssistants,
+        [sending, input, attachments.length, hasAssistants]
+    );
     const buildReplyPreview = (message) => {
         const text = String(message?.content || "").replace(/\s+/g, " ").trim();
         return text.length > 140 ? `${text.slice(0, 140)}...` : text;
@@ -978,11 +1277,23 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
 
     const onSend = async () => {
         const typedContent = input.trim();
-        const content = typedContent;
-        if ((!content && !replyTo) || !session || sending) return;
+        const content = normalizeAsciiEmoticons(typedContent);
+        if ((!content && attachments.length === 0) || !session || sending) return;
         const sendingSessionId = session.id;
+        const pendingReplyTo = replyTo ? {
+            id: replyTo.id,
+            role: replyTo.role,
+            content: String(replyTo.content || ""),
+        } : null;
+        const pendingAttachments = attachments.slice();
         setSending(true);
         setInput("");
+        setReplyTo(null);
+        setAttachments([]);
+        setSelectedQuoteText("");
+        setSelectedQuoteRect(null);
+        setRestoredDraftNotice(null);
+        removeStoredDraftForSession(sendingSessionId);
 
 
         // Optimistic UI: append user message and a skeleton assistant bubble
@@ -996,16 +1307,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     id: crypto.randomUUID?.() || `u-${Math.random().toString(36).slice(2)}`,
                     role: 'user',
                     content: typedContent,
-                    ...(replyTo ? {
+                    ...(pendingReplyTo ? {
                         replyTo: {
-                            id: replyTo.id,
-                            role: replyTo.role,
-                            content: buildReplyPreview(replyTo),
+                            id: pendingReplyTo.id,
+                            role: pendingReplyTo.role,
+                            content: buildReplyPreview(pendingReplyTo),
                         },
-                        replyContext: `Replying to ${replyTo.role === "assistant" ? "assistant" : "user"} message:\n${String(replyTo.content || "").replace(/\s+/g, " ").trim().slice(0, 500)}`,
+                        replyContext: `Replying to ${pendingReplyTo.role === "assistant" ? "assistant" : "user"} message:\n${String(pendingReplyTo.content || "").replace(/\s+/g, " ").trim().slice(0, 500)}`,
                     } : {}),
                     createdAt: now,
-                    attachments,
+                    attachments: pendingAttachments,
                 },
                 {
                     id: tempAssistantId,
@@ -1031,8 +1342,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 model,
                 assistantId,
                 temperature,
-                attachments,
-                replyTo: replyTo ? { id: replyTo.id } : null,
+                uiLanguage,
+                attachments: pendingAttachments,
+                replyTo: pendingReplyTo ? { id: pendingReplyTo.id } : null,
             });
             // Replace with authoritative session from main (removes skeleton)
             setSession((prev) => (prev?.id === updated.id ? updated : prev));
@@ -1045,11 +1357,15 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 const rest = (prev || []).filter((item) => item.id !== updated.id);
                 return [nextItem, ...rest];
             });
-            setAttachments([]);
             setReplyTo(null);
             setSelectedQuoteText("");
+            setRestoredDraftNotice(null);
+            removeStoredDraftForSession(updated.id);
         } catch (e) {
             AppToaster.show({message: e.message, intent: "danger"});
+            setInput(typedContent);
+            setReplyTo(pendingReplyTo);
+            setAttachments(pendingAttachments);
             // Replace skeleton with error text locally if call failed
             setSession(prev => {
                 if (prev?.id !== sendingSessionId) {
@@ -1114,24 +1430,58 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     }
 
     const onNewConversationFromSelection = async () => {
-        const selectedText = selectedQuoteText || getSelectedTextInDialog();
+        const selectedText = selectedQuoteText || getSelectedTextInDialog(chatContentRef.current);
         if (!selectedText || sending) return;
-        await sessionCreate(deriveSessionTitleFromText(selectedText), null, { preferReuseEmpty: true });
+        await sessionCreate(deriveSessionTitleFromText(selectedText, uiLanguage), null, { preferReuseEmpty: true });
         setInput(selectedText);
     };
 
-    const onReplyFromSelection = () => {
-        const selectedText = selectedQuoteText || getSelectedTextInDialog();
+    const onReplyFromSelection = ({ forceCodeBlock = false } = {}) => {
+        const selectedText = selectedQuoteText || getSelectedTextInDialog(chatContentRef.current);
         if (!selectedText || sending) return;
-        insertIntoComposer(formatSelectionReplySnippet(selectedText));
+        const selectedMessage = findSelectedMessageContext(messages, chatContentRef.current);
+        if (selectedMessage) {
+            setReplyTo(selectedMessage);
+        }
+        insertIntoComposer(formatSelectionForComposer(selectedText, { forceCodeBlock, uiLanguage }));
         setSelectedQuoteText("");
         setSelectedQuoteRect(null);
     };
 
+    const onQuoteFromSelection = ({ forceCodeBlock = false } = {}) => {
+        const selectedText = selectedQuoteText || getSelectedTextInDialog(chatContentRef.current);
+        if (!selectedText || sending) return;
+        insertIntoComposer(formatSelectionForComposer(selectedText, { forceCodeBlock, uiLanguage }));
+        setSelectedQuoteText("");
+        setSelectedQuoteRect(null);
+    };
+
+    const onSnippetQuote = (item, { askFollowUp = false } = {}) => {
+        const snippet = String(item?.displaySnippet || item?.snippet || "").trim();
+        if (!snippet) return;
+        const sourceLabel = String(item?.source || "").trim();
+        const quote = formatSelectionForComposer(snippet, { sourceLabel, uiLanguage });
+        const followUpLanguage = String(
+            session?.memory?.preferences?.preferredLanguage
+            || detectComposerLanguage(input || replyTo?.content || snippet)
+            || "en"
+        ).toLowerCase();
+        const followUpPrompts = {
+            uk: "Поясни цей фрагмент у поточному контексті FDO.\n",
+            pl: "Wyjaśnij ten fragment w bieżącym kontekście FDO.\n",
+            de: "Erkläre diesen Ausschnitt im aktuellen FDO-Kontext.\n",
+            zh: "请结合当前 FDO 上下文解释这个片段。\n",
+            fr: "Explique cet extrait dans le contexte FDO actuel.\n",
+            en: "Can you explain this snippet in the current FDO context?\n",
+        };
+        const followUp = askFollowUp ? (followUpPrompts[followUpLanguage] || followUpPrompts.en) : "";
+        insertIntoComposer(`${quote}${followUp}`);
+    };
+
     const onOpenFromLocal = async () => {
         const data = await window.electron.system.openFileDialog({
-            title: 'Select files to attach',
-            buttonLabel: 'Attach',
+            title: t("selectFilesToAttach"),
+            buttonLabel: t("attach"),
             properties: ['openFile', 'multiSelections'],
         }, true)
         if (!data) return;
@@ -1162,7 +1512,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     }
 
     const insertIntoComposer = (text) => {
-        const addition = String(text || "");
+        const addition = normalizeAsciiEmoticons(String(text || ""));
         if (!addition) return;
         const el = composerRef.current;
         if (!el) {
@@ -1172,6 +1522,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         const start = el.selectionStart ?? String(input || "").length;
         const end = el.selectionEnd ?? start;
         const next = `${input.slice(0, start)}${addition}${input.slice(end)}`;
+        const previousInsertion = lastComposerInsertionRef.current;
+        if (
+            previousInsertion &&
+            previousInsertion.after === input &&
+            previousInsertion.addition === addition &&
+            previousInsertion.endPos === start &&
+            start === end
+        ) {
+            return;
+        }
         setInput(next);
         requestAnimationFrame(() => {
             el.focus();
@@ -1180,11 +1540,28 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 el.setSelectionRange(pos, pos);
             }
         });
+        lastComposerInsertionRef.current = {
+            addition,
+            after: next,
+            endPos: start + addition.length,
+        };
     };
 
     const onEmojiSelect = (emoji) => {
         insertIntoComposer(emoji);
         setEmojiOpen(false);
+        setEmojiSearch("");
+    };
+
+    const onEmojiPopoverInteraction = (state) => {
+        setEmojiOpen(state);
+        if (!state) {
+            setEmojiSearch("");
+        }
+    };
+
+    const onDialogOpened = () => {
+        scheduleScrollToBottom("auto", 6);
     };
 
     const onOpenFromSession = async (id) => {
@@ -1219,9 +1596,10 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             isOpen={showAiChatDialog}
             isCloseButtonShown={true}
             onClose={() => setShowAiChatDialog(false)}
+            onOpened={onDialogOpened}
             title={<><Icon icon={"chat"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span
                 className={"bp6-heading"}
-                style={{fontSize: "1.2rem"}}>Chat with AI Assistant</span></>}
+                style={{fontSize: "1.2rem"}}>{t("chatTitle")}</span></>}
             style={{
                 minWidth: 900,
                 paddingBottom: 0,
@@ -1246,8 +1624,32 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         onClick={onNewConversationFromSelection}
                     >
                         <Icon icon="branch" size={12} />
-                        <span>New chat</span>
+                        <span>{t("newChatSelection")}</span>
                     </button>
+                    <div className={styles.selectionActionDivider} />
+                    <button
+                        type="button"
+                        className={styles.selectionActionButton}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => onQuoteFromSelection()}
+                    >
+                        <Icon icon="citation" size={12} />
+                        <span>{t("quote")}</span>
+                    </button>
+                    {selectionLooksCode && (
+                        <>
+                            <div className={styles.selectionActionDivider} />
+                            <button
+                                type="button"
+                                className={styles.selectionActionButton}
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => onQuoteFromSelection({ forceCodeBlock: true })}
+                            >
+                                <Icon icon="code-block" size={12} />
+                                <span>{t("code")}</span>
+                            </button>
+                        </>
+                    )}
                     <div className={styles.selectionActionDivider} />
                     <button
                         type="button"
@@ -1256,23 +1658,24 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         onClick={onReplyFromSelection}
                     >
                         <Icon icon="undo" size={12} />
-                        <span>Reply</span>
+                        <span>{t("reply")}</span>
                     </button>
                 </div>
             )}
-            <div style={{flex: 1, overflow: 'auto', padding: '0 1rem'}}>
+            <div style={{position: "relative", flex: 1, minHeight: 0}}>
+            <div ref={chatContentRef} style={{flex: 1, overflow: 'auto', padding: '0 1rem', height: "100%"}}>
                 {!hasAssistants ? (
                     <NonIdealState
                         icon="manual"
-                        title="No AI Assistants yet"
-                        description="Add your first AI Assistant to integrate intelligent collaboration into your workflow."
+                        title={t("noAssistantsYet")}
+                        description={t("noAssistantsDescription")}
                     />
                 ) : (<>
                         {(messages || []).map(m => {
                             const isAssistant = m.role === 'assistant';
                             const isStreamingLive = isAssistant && (streamingAssistantIdRef.current === m.id) && sending;
                             const showActivityHeader = isAssistant && (m.skeleton || isStreamingLive);
-                            const headerLabel = m.thinkingRequested ? 'Thinking…' : 'Responding…';
+                            const headerLabel = m.thinkingRequested ? t("thinking") : t("responding");
                             const sources = Array.isArray(m.sources) ? m.sources : [];
                             const sourceDetails = Array.isArray(m.sourceDetails) ? m.sourceDetails : [];
                             const toolsUsed = Array.isArray(m.toolsUsed) ? m.toolsUsed : [];
@@ -1297,11 +1700,28 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                     margin: '8px 0'
                                 }}>
                                     <div
-                                        className={`${styles.bubble} ${isAssistant ? styles.assistantBubble : styles.userBubble}`}>
+                                        data-ai-message-id={m.id}
+                                        className={`${styles.bubble} ${isAssistant ? styles.assistantBubble : styles.userBubble}`}
+                                        style={highlightedMessageId === m.id ? {
+                                            boxShadow: "0 0 0 2px rgba(56, 189, 248, 0.75)",
+                                        } : undefined}>
                                         {m.replyTo && (
-                                            <div className={`${styles.replyQuote} ${isAssistant ? styles.replyQuoteAssistant : styles.replyQuoteUser}`}>
+                                            <div
+                                                className={`${styles.replyQuote} ${isAssistant ? styles.replyQuoteAssistant : styles.replyQuoteUser}`}
+                                                onClick={() => scrollToMessage(m.replyTo.id)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter" || event.key === " ") {
+                                                        event.preventDefault();
+                                                        scrollToMessage(m.replyTo.id);
+                                                    }
+                                                }}
+                                                role="button"
+                                                tabIndex={0}
+                                                title={t("jumpToOriginalMessage")}
+                                                style={{cursor: "pointer"}}
+                                            >
                                                 <div className={styles.replyQuoteLabel}>
-                                                    Replying to {m.replyTo.role === "assistant" ? "assistant" : "user"}
+                                                    {getAiChatRoleLabel(uiLanguage, m.replyTo.role)}
                                                 </div>
                                                 <div className={styles.replyQuoteContent}>{m.replyTo.content}</div>
                                             </div>
@@ -1323,7 +1743,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 color: "rgba(255, 243, 199, 0.96)",
                                             }}>
                                                 <Icon icon="help" size={12}/>
-                                                <span>Needs clarification</span>
+                                                <span>{t("needsClarification")}</span>
                                             </div>
                                         )}
                                         {isAssistant && m.thinking && (
@@ -1336,29 +1756,29 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         ) : (
                                             isAssistant ? <>
                                                 <Tooltip content={costUsageTooltip(
-                                                    m.inputTokens, m.outputTokens, m.local, m.totalTokens, m.inputCost, m.outputCost, m.totalCost
+                                                    t, m.inputTokens, m.outputTokens, m.local, m.totalTokens, m.inputCost, m.outputCost, m.totalCost
                                                 )}>
                                                     <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role}/>
                                                 </Tooltip>
                                                 {m.grounded && (
                                                     <div style={{display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8}}>
-                                                        <Tag minimal style={groundedTagStyle("success")}>Grounded</Tag>
+                                                        <Tag minimal style={groundedTagStyle("success")}>{t("grounded")}</Tag>
                                                         {sourceTypes.map((type) => (
-                                                            <Tag key={`${m.id}-${type}`} minimal style={groundedTagStyle()}>{sourceTypeLabel(type)}</Tag>
+                                                            <Tag key={`${m.id}-${type}`} minimal style={groundedTagStyle()}>{sourceTypeLabel(uiLanguage, type)}</Tag>
                                                         ))}
                                                         {Number.isFinite(m.retrievalConfidence) && (
                                                             <Tag minimal style={groundedTagStyle(m.retrievalConfidence < 0.55 ? "warning" : "default")}>
-                                                                {formatConfidenceLabel(m.retrievalConfidence)}
+                                                                {formatConfidenceLabel(m.retrievalConfidence, t)}
                                                             </Tag>
                                                         )}
                                                         {m.retrievalConflict && (
-                                                            <Tag minimal style={groundedTagStyle("warning")}>Mixed sources</Tag>
+                                                            <Tag minimal style={groundedTagStyle("warning")}>{t("mixedSources")}</Tag>
                                                         )}
                                                     </div>
                                                 )}
                                                 {sources.length > 0 && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 255, 255, 0.92)"}}>
-                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 255, 255, 0.98)"}}>Sources used</div>
+                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 255, 255, 0.98)"}}>{t("sourcesUsed")}</div>
                                                         {sources.map((source) => (
                                                             isClickableUrl(source) ? (
                                                                 <div
@@ -1389,7 +1809,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 )}
                                                 {!showDebugDetails && visibleEvidence.length > 0 && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 255, 255, 0.92)"}}>
-                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 255, 255, 0.98)"}}>Evidence</div>
+                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 255, 255, 0.98)"}}>{t("evidence")}</div>
                                                         <div style={{display: "flex", flexDirection: "column", gap: 8}}>
                                                             {visibleEvidence.map((item, index) => (
                                                                 <div
@@ -1424,6 +1844,10 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                                     <div style={{marginTop: 6, whiteSpace: "pre-wrap", color: "rgba(255, 255, 255, 0.92)"}}>
                                                                         {item.displaySnippet}
                                                                     </div>
+                                                                    <div style={{display: "flex", gap: 6, marginTop: 8}}>
+                                                                        <Button small minimal icon="citation" text={t("quote")} onClick={() => onSnippetQuote(item)} />
+                                                                        <Button small minimal icon="comment" text={t("ask")} onClick={() => onSnippetQuote(item, { askFollowUp: true })} />
+                                                                    </div>
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -1432,7 +1856,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 {showDebugDetails && sourceDetails.length > 0 && (
                                                     <details style={{marginTop: 8, fontSize: 12, color: "rgba(255, 255, 255, 0.92)"}}>
                                                         <summary style={{cursor: "pointer", fontWeight: 600, color: "rgba(255, 255, 255, 0.98)"}}>
-                                                            Inspect retrieved snippets
+                                                            {t("inspectRetrievedSnippets")}
                                                         </summary>
                                                         {inspectableSourceDetails.length > 0 ? (
                                                             <div style={{marginTop: 8, display: "flex", flexDirection: "column", gap: 8}}>
@@ -1474,34 +1898,38 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                                         <div style={{marginTop: 6, whiteSpace: "pre-wrap", color: "rgba(255, 255, 255, 0.92)"}}>
                                                                             {item.displaySnippet}
                                                                         </div>
+                                                                        <div style={{display: "flex", gap: 6, marginTop: 8}}>
+                                                                            <Button small minimal icon="citation" text={t("quote")} onClick={() => onSnippetQuote(item)} />
+                                                                            <Button small minimal icon="comment" text={t("ask")} onClick={() => onSnippetQuote(item, { askFollowUp: true })} />
+                                                                        </div>
                                                                     </div>
                                                                 ))}
                                                             </div>
                                                         ) : (
                                                             <div style={{marginTop: 8, color: "rgba(255, 255, 255, 0.82)"}}>
-                                                                Retrieved help sources were implementation-heavy, so no readable snippet preview is shown here.
+                                                                {t("noReadableSnippetPreview")}
                                                             </div>
                                                         )}
                                                     </details>
                                                 )}
                                                 {m.grounded && Number.isFinite(m.retrievalConfidence) && m.retrievalConfidence < 0.55 && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 243, 199, 0.96)"}}>
-                                                        Retrieval confidence is low, so this answer should be treated as a best-effort grounded response.
+                                                        {t("retrievalLowConfidence")}
                                                     </div>
                                                 )}
                                                 {m.retrievalConflict && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 243, 199, 0.96)"}}>
-                                                        Retrieved sources were mixed, so details may depend on which FDO source is authoritative for this question.
+                                                        {t("retrievedSourcesMixedWarning")}
                                                     </div>
                                                 )}
                                                 {m.noSourceMatches && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 243, 199, 0.96)"}}>
-                                                        No dedicated FDO sources matched this question exactly.
+                                                        {t("noDedicatedSources")}
                                                     </div>
                                                 )}
                                                 {toolErrors.length > 0 && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 214, 214, 0.96)"}}>
-                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 228, 228, 0.98)"}}>Tool issues</div>
+                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 228, 228, 0.98)"}}>{t("toolIssues")}</div>
                                                         {toolErrors.map((item) => (
                                                             <div key={`${m.id}-${item.name}`}>{item.name}: {item.error}</div>
                                                         ))}
@@ -1509,7 +1937,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 )}
                                                 {showDebugDetails && toolsUsed.length > 0 && (
                                                     <div style={{marginTop: 8, fontSize: 12, color: "rgba(255, 255, 255, 0.86)"}}>
-                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 255, 255, 0.94)"}}>Tools used</div>
+                                                        <div style={{fontWeight: 600, marginBottom: 4, color: "rgba(255, 255, 255, 0.94)"}}>{t("toolsUsed")}</div>
                                                         {toolsUsed.map((toolName) => (
                                                             <div key={`${m.id}-${toolName}`}>{toolName}</div>
                                                         ))}
@@ -1523,8 +1951,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                     small
                                                     minimal
                                                     icon="undo"
-                                                    text="Reply"
-                                                    title="Reply to this message"
+                                                    text={t("reply")}
+                                                    title={t("replyToThisMessage")}
                                                     style={{
                                                         color: isAssistant ? "rgba(0, 0, 0, 0.72)" : "rgba(255, 255, 255, 0.72)",
                                                         background: "transparent",
@@ -1552,6 +1980,16 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     </>
                 )}
             </div>
+                {showJumpToBottom && (
+                    <Button
+                        small
+                        icon="arrow-down"
+                        className={styles.jumpToBottomButton}
+                        title={t("jumpToBottom")}
+                        onClick={() => scrollToBottom("smooth")}
+                    />
+                )}
+            </div>
             <div
                 className={Classes.DIALOG_FOOTER}
                 style={{
@@ -1560,6 +1998,31 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     background: "var(--bp6-elevation-1)",
                 }}
             >
+                {!!restoredDraftNotice && restoredDraftNotice.sessionId === session?.id && (
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            marginBottom: 8,
+                            padding: "8px 10px",
+                            borderRadius: 10,
+                            background: "rgba(245, 158, 11, 0.12)",
+                            border: "1px solid rgba(245, 158, 11, 0.28)",
+                            color: "var(--bp6-text-color, inherit)",
+                        }}
+                    >
+                        <div style={{display: "flex", alignItems: "center", gap: 8, minWidth: 0}}>
+                            <Icon icon="floppy-disk" size={14} />
+                            <div style={{fontSize: 12, lineHeight: 1.35}}>
+                                {t("draftRestored")}
+                                {restoredDraftNotice.hasReply ? ` ${t("draftReplyRestored")}` : ""}
+                            </div>
+                        </div>
+                        <Button minimal small icon="cross" onClick={() => setRestoredDraftNotice(null)} />
+                    </div>
+                )}
                 <ControlGroup fill={true} vertical={false} className={styles.composerControlRow}>
                     <Popover
                         isOpen={historyOpen}
@@ -1582,8 +2045,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                     }}
                                 >
                                         <Menu>
-                                        <MenuItem icon="add" text="New session" intent="primary"
-                                                  onClick={() => sessionCreate("New Chat", sessionList)}/>
+                                        <MenuItem icon="add" text={t("newSession")} intent="primary"
+                                                  onClick={() => sessionCreate(t("newChat"), sessionList)}/>
                                         <MenuDivider/>
                                     </Menu>
                                 </div>
@@ -1596,10 +2059,12 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                     <Menu>
                                         {[...sessionList]
                                             .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).map(s => (
-                                                <MenuItem key={s.id} intent={s.id === session.id ? "success" : "none"}
-                                                          icon={s.id === session.id ? "tick" : null}
-                                                          text={s.name}
-                                                          onClick={() => onSessionChange(s.id)}
+                                                <MenuItem
+                                                    key={s.id}
+                                                    intent={s.id === session.id ? "success" : "none"}
+                                                    icon={s.id === session.id ? "tick" : (draftSessionIds.has(s.id) ? "edit" : null)}
+                                                    text={draftSessionIds.has(s.id) ? `${s.name} • ${t("draftSuffix")}` : s.name}
+                                                    onClick={() => onSessionChange(s.id)}
                                                 />
                                             ))
                                         }
@@ -1611,7 +2076,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         <Button
                             icon="history"
                             variant={"minimal"}
-                            title="Session History"
+                            title={t("sessionHistory")}
                             onClick={() => setHistoryOpen(v => !v)}
                         />
                     </Popover>
@@ -1624,9 +2089,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                 padding: 12,
                             }}>
                                 <Menu>
-                                    <MenuItem icon="clipboard-file" text="From local PDF/image" intent="primary" onClick={onOpenFromLocal}/>
-                                    <MenuItem icon="globe-network-add" text="From image URL" intent="primary" onClick={() => setAttachFromUrlDialogOpen(true)}/>
-                                    <MenuItem text="From session" icon="chat" intent="primary">
+                                    <MenuItem icon="clipboard-file" text={t("attachFromLocal")} intent="primary" onClick={onOpenFromLocal}/>
+                                    <MenuItem icon="globe-network-add" text={t("attachFromUrl")} intent="primary" onClick={() => setAttachFromUrlDialogOpen(true)}/>
+                                    <MenuItem text={t("attachFromSession")} icon="chat" intent="primary">
                                         {[...sessionList]
                                             .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).filter(s => s.id !== session.id).map(s => (
                                                 <MenuItem key={`attachment-${s.id}`}
@@ -1642,7 +2107,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         <Button
                             icon="plus"
                             variant={"minimal"}
-                            title={"Attach"}
+                            title={t("attach")}
                             onClick={() => setAttachmentOpen(v => !v)}
                         />
                     </Popover>
@@ -1659,12 +2124,15 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         <textarea
                             placeholder={
                                 hasAssistants
-                                    ? (replyTo ? "Add a reply, or send immediately to continue from the selected message..." : "Type a message...")
-                                    : "Add a Chat assistant in Settings to start chatting"
+                                    ? (replyTo ? t("placeholderReply") : t("placeholderDefault"))
+                                    : t("placeholderNoAssistants")
                             }
                             className={styles.composerNativeInput}
                             value={input}
-                            onChange={(e) => setInput(e.target.value)}
+                            onChange={(e) => {
+                                lastComposerInsertionRef.current = null;
+                                setInput(e.target.value);
+                            }}
                             onKeyDown={onKeyDown}
                             onFocus={() => setComposerFocused(true)}
                             onBlur={() => setComposerFocused(false)}
@@ -1676,26 +2144,42 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     </div>
                     <Popover
                         isOpen={emojiOpen}
-                        onInteraction={(state) => setEmojiOpen(state)}
+                        onInteraction={onEmojiPopoverInteraction}
                         placement="top"
                         content={
                             <div className={styles.emojiPopover}>
-                                {QUICK_EMOJIS.map((emoji) => (
-                                    <button
-                                        key={emoji}
-                                        type="button"
-                                        className={styles.emojiButton}
-                                        onClick={() => onEmojiSelect(emoji)}
-                                    >
-                                        {emoji}
-                                    </button>
-                                ))}
+                                <input
+                                    type="text"
+                                    value={emojiSearch}
+                                    onChange={(event) => setEmojiSearch(event.target.value)}
+                                    className={styles.emojiSearchInput}
+                                    placeholder={t("emojiSearchPlaceholder")}
+                                    aria-label={t("emojiSearchPlaceholder")}
+                                    autoFocus
+                                />
+                                <div className={styles.emojiGrid}>
+                                    {emojiResults.map(({ emoji, label }) => (
+                                        <button
+                                            key={`${emoji}-${label}`}
+                                            type="button"
+                                            className={styles.emojiButton}
+                                            title={label}
+                                            aria-label={label}
+                                            onClick={() => onEmojiSelect(emoji)}
+                                        >
+                                            {emoji}
+                                        </button>
+                                    ))}
+                                </div>
+                                {emojiResults.length === 0 && (
+                                    <div className={styles.emojiEmptyState}>{t("emojiSearchEmpty")}</div>
+                                )}
                             </div>
                         }
                     >
                         <Button
                             variant={"minimal"}
-                            title={"Insert emoji"}
+                            title={t("insertEmoji")}
                             onClick={() => setEmojiOpen(v => !v)}
                             text="🙂"
                             className={styles.emojiTriggerButton}
@@ -1707,53 +2191,66 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         placement="top"
                         content={
                             <div className={styles.composerOptionsPopover}>
-                                <FormGroup label="Thinking mode">
+                                <FormGroup label={t("thinkingMode")}>
                                     <Switch
                                         checked={thinking}
                                         onChange={(e) => {
                                             const next = e.target.checked;
+                                            setThinkingModeSource("manual");
                                             setThinking(next);
                                             if (next) {
                                                 setStreaming(true);
                                             }
                                         }}
-                                        innerLabelChecked="On"
-                                        innerLabel="Off"
+                                        innerLabelChecked={t("on")}
+                                        innerLabel={t("off")}
                                         disabled={!(capabilities?.supportsThinking ?? capabilities?.reasoning)}
                                     />
+                                    <div style={{fontSize: 11, opacity: 0.78, marginTop: 4}}>
+                                        {t("thinkingDefaultHint", {
+                                            mode: t(getThinkingModeLabelKey(selectedAssistant?.defaultThinkingMode)),
+                                            source: t(thinkingModeSource === "manual" ? "thinkingSourceManual" : "thinkingSourceAssistant"),
+                                        })}
+                                    </div>
+                                    {!(capabilities?.supportsThinking ?? capabilities?.reasoning) && (
+                                        <div style={{fontSize: 11, opacity: 0.72, marginTop: 4}}>
+                                            {t("thinkingUnavailableHint", {
+                                                mode: t(getThinkingModeLabelKey(selectedAssistant?.defaultThinkingMode)),
+                                            })}
+                                        </div>
+                                    )}
                                 </FormGroup>
-                                <FormGroup label="Streaming">
+                                <FormGroup label={t("streaming")}>
                                     <Switch
                                         checked={streaming}
                                         onChange={(e) => setStreaming(e.target.checked)}
-                                        innerLabelChecked="On"
-                                        innerLabel="Off"
+                                        innerLabelChecked={t("on")}
+                                        innerLabel={t("off")}
                                         disabled={thinking || !capabilities?.streaming}
                                     />
                                     {thinking &&
-                                        <div style={{fontSize: 11, opacity: 0.8, marginTop: 4}}>Auto-enabled while
-                                            Thinking is ON</div>}
+                                        <div style={{fontSize: 11, opacity: 0.8, marginTop: 4}}>{t("autoEnabledWhileThinking")}</div>}
                                 </FormGroup>
-                                <FormGroup label="Debug tool details">
+                                <FormGroup label={t("debugToolDetails")}>
                                     <Switch
                                         checked={showDebugDetails}
                                         onChange={(e) => setShowDebugDetails(e.target.checked)}
-                                        innerLabelChecked="On"
-                                        innerLabel="Off"
+                                        innerLabelChecked={t("on")}
+                                        innerLabel={t("off")}
                                     />
                                 </FormGroup>
-                                <FormGroup label="Smart completion">
+                                <FormGroup label={t("smartCompletion")}>
                                     <Switch
                                         checked={enableComposerCompletion}
                                         onChange={(e) => setEnableComposerCompletion(e.target.checked)}
-                                        innerLabelChecked="On"
-                                        innerLabel="Off"
+                                        innerLabelChecked={t("on")}
+                                        innerLabel={t("off")}
                                     />
                                     <div style={{fontSize: 11, opacity: 0.78, marginTop: 4}}>
-                                        Optional Tab-to-complete hints. Off by default.
+                                        {t("smartCompletionHelp")}
                                     </div>
                                 </FormGroup>
-                                <FormGroup label="Temperature">
+                                <FormGroup label={t("temperature")}>
                                     <Slider
                                         handleHtmlProps={{"aria-label": "temperature"}}
                                         labelStepSize={2}
@@ -1765,40 +2262,34 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         vertical={false}
                                     />
                                 </FormGroup>
-                                <FormGroup label="Provider">
+                                <FormGroup label={t("assistant")}>
                                     <HTMLSelect
-                                        options={providerOptions}
-                                        value={provider}
-                                        onChange={(e) => {
-                                            const next = e.target.value;
-                                            setProvider(next);
-                                            // Auto-select the first model for this provider
-                                            const nextModels = (chatAssistants.filter(a => a.provider === next).map(a => a.model));
-                                            if (nextModels && nextModels.length > 0) {
-                                                setModel(nextModels[0]);
-                                            } else {
-                                                setModel("");
-                                            }
-                                            setAssistantId("");
-                                        }}
-                                    />
-                                </FormGroup>
-                                <FormGroup label="Model">
-                                    <HTMLSelect
-                                        options={modelOptions}
-                                        value={model}
-                                        onChange={(e) => {
-                                            setModel(e.target.value);
-                                            setAssistantId("");
-                                        }}
-                                    />
-                                </FormGroup>
-                                <FormGroup label="Assistant">
-                                    <HTMLSelect
-                                        options={assistantOptions.length > 0 ? assistantOptions : [{ label: "No assistants available", value: "" }]}
+                                        options={assistantOptions.length > 0 ? assistantOptions : [{ label: t("noAssistantsAvailable"), value: "" }]}
                                         value={assistantId}
-                                        onChange={(e) => setAssistantId(e.target.value)}
+                                        onChange={(e) => {
+                                            setAssistantId(e.target.value);
+                                            setThinkingModeSource("assistant");
+                                        }}
                                         disabled={assistantOptions.length === 0}
+                                    />
+                                </FormGroup>
+                                <FormGroup label={t("provider")}>
+                                    <div className={styles.readOnlyOptionValue}>
+                                        <div>{selectedAssistant?.provider || t("noneSelected")}</div>
+                                        <div className={styles.readOnlyOptionHint}>{t("derivedFromAssistant")}</div>
+                                    </div>
+                                </FormGroup>
+                                <FormGroup label={t("model")}>
+                                    <div className={styles.readOnlyOptionValue}>
+                                        <div>{selectedAssistant?.model || t("noneSelected")}</div>
+                                        <div className={styles.readOnlyOptionHint}>{t("derivedFromAssistant")}</div>
+                                    </div>
+                                </FormGroup>
+                                <FormGroup label={t("uiLanguage")}>
+                                    <HTMLSelect
+                                        options={uiLanguageOptions}
+                                        value={uiLanguage}
+                                        onChange={(e) => setUiLanguage(normalizeAiChatUiLanguage(e.target.value))}
                                     />
                                 </FormGroup>
                             </div>
@@ -1807,20 +2298,20 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         <Button
                             icon="cog"
                             variant={"minimal"}
-                            title={"Chat options (Cmd/Ctrl+Enter)"}
+                            title={t("chatOptionsTitle")}
                             onClick={() => setOptionsOpen(v => !v)}
                         />
                     </Popover>
                     <Tooltip content={<span>
-                        <div>Enter: Send message</div>
-                        <div>Shift+Enter: New line</div>
-                        <div>Cmd/Ctrl+Enter: Chat options</div>
+                        <div>{t("sendEnter")}</div>
+                        <div>{t("sendShiftEnter")}</div>
+                        <div>{t("sendOptionsShortcut")}</div>
                     </span>}>
                         <Button
                             intent="primary"
                             icon={sending ? "cloud-upload" : "send-message"}
                             variant={"minimal"}
-                            title={"Send"}
+                            title={t("send")}
                             onClick={onSend}
                             disabled={!canSend}
                         />
@@ -1838,9 +2329,21 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                             background: "var(--bp6-elevation-2)",
                             border: "1px solid var(--bp6-divider-color)",
                         }}>
-                            <div style={{minWidth: 0}}>
+                            <div
+                                style={{minWidth: 0, cursor: "pointer"}}
+                                onClick={() => scrollToMessage(replyTo.id)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        scrollToMessage(replyTo.id);
+                                    }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                title={t("jumpToOriginalMessage")}
+                            >
                                 <div style={{fontSize: 12, fontWeight: 600, marginBottom: 2}}>
-                                    Replying to {replyTo.role === "assistant" ? "assistant" : "user"}
+                                    {getAiChatRoleLabel(uiLanguage, replyTo.role)}
                                 </div>
                                 <div style={{fontSize: 12, opacity: 0.85, whiteSpace: "pre-wrap"}}>
                                     {buildReplyPreview(replyTo)}
@@ -1882,13 +2385,13 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         }}
                     >
                         {/* 🔹 Label tag — model name or "Session Total" */}
-                        {stats.lastModel && "Last used model: "}
+                        {stats.lastModel && `${t("lastUsedModel")}: `}
                         <Tag
                             minimal
                             intent="none"
                             style={{opacity: stats.model ? 1 : 0.7}}
                         >
-                            {stats.model || stats.lastModel || "Session Total"}
+                            {stats.model || stats.lastModel || t("sessionTotal")}
                         </Tag>
 
                         {/* 🔹 Usage / percentage tag */}
@@ -1904,24 +2407,31 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 : "success"
                                     }
                                 >
-                                    {`${Math.round(stats.percentUsed)}% of ${stats.maxTokens.toLocaleString()} tokens`}
+                                    {t("ofTokens", {
+                                        percent: formatUsagePercentDisplay(stats.percentUsed),
+                                        maxTokens: stats.maxTokens.toLocaleString(),
+                                    })}
                                 </Tag>
                                 <Tag minimal intent="none">
-                                    {`${(stats.estimatedUsed ?? 0).toLocaleString()} context tokens retained`}
+                                    {t("contextTokensRetained", {
+                                        count: (stats.estimatedUsed ?? 0).toLocaleString(),
+                                    })}
                                 </Tag>
                             </>
                         ) : (
                             <Tag minimal intent="none">
-                                {`${(stats.totalTokens ?? 0).toLocaleString()} context tokens retained`}
+                                {t("contextTokensRetained", {
+                                    count: (stats.totalTokens ?? 0).toLocaleString(),
+                                })}
                             </Tag>
                         )}
 
                         {/* 🔹 Details line */}
                         <span>
                           {(stats.assistantMessages ?? stats.totalMessages)
-                              ? `• ${(stats.assistantMessages ?? stats.totalMessages)} assistant msg`
+                              ? t("assistantMessagesCount", { count: (stats.assistantMessages ?? stats.totalMessages) })
                               : stats.messageCount
-                                  ? `• ${stats.messageCount} msg`
+                                  ? t("messagesCount", { count: stats.messageCount })
                                   : ""}
                         </span>
                     </div>
@@ -1934,7 +2444,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                     </div>
                 )}
             </div>
-            <AttachFromUrlDialog isOpen={attachFromUrlDialogOpen} setIsOpen={setAttachFromUrlDialogOpen} onSubmit={(url) => {onOpenFromUrl(url)}}/>
+            <AttachFromUrlDialog isOpen={attachFromUrlDialogOpen} setIsOpen={setAttachFromUrlDialogOpen} onSubmit={(url) => {onOpenFromUrl(url)}} t={t}/>
         </Dialog>
     )
 }

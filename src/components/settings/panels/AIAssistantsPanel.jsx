@@ -24,6 +24,12 @@ const PURPOSES = [
     { label: "Coding Assistant", value: "coding" },
 ];
 
+const THINKING_DEFAULTS = [
+    { label: "Auto", value: "auto" },
+    { label: "On", value: "on" },
+    { label: "Off", value: "off" },
+];
+
 const EMPTY_CODEX_AUTH_DIALOG = {
     open: false,
     assistant: null,
@@ -48,6 +54,7 @@ export default function AIAssistantsPanel() {
         purpose: "chat",
         apiKey: "",
         executablePath: "",
+        defaultThinkingMode: "auto",
     });
 
     const filteredModels = providerModels;
@@ -184,6 +191,7 @@ export default function AIAssistantsPanel() {
                 apiKey: form.provider === "codex-cli" ? "" : form.apiKey,
                 model: form.provider === "codex-cli" ? (form.model || "gpt-5") : form.model,
                 purpose: form.provider === "codex-cli" ? "coding" : form.purpose,
+                defaultThinkingMode: form.defaultThinkingMode || "auto",
             };
             await window.electron.settings.ai.addAssistant(nextForm);
             const updated = await refreshAssistants();
@@ -224,6 +232,7 @@ export default function AIAssistantsPanel() {
                 purpose: "chat",
                 apiKey: "",
                 executablePath: "",
+                defaultThinkingMode: "auto",
             });
         } catch (err) {
             AppToaster.show({ message: err.message, intent: "danger" });
@@ -413,6 +422,10 @@ export default function AIAssistantsPanel() {
                                 <b>Model:</b> {a.model}
                             </p>
                             <p>
+                                <b>Default Thinking:</b>{" "}
+                                {THINKING_DEFAULTS.find((item) => item.value === (a.defaultThinkingMode || "auto"))?.label || "Auto"}
+                            </p>
+                            <p>
                                 <b>Purpose:</b>{" "}
                                 {PURPOSES.find((p) => p.value === a.purpose)?.label || a.purpose}
                             </p>
@@ -541,6 +554,15 @@ export default function AIAssistantsPanel() {
                             value={form.purpose}
                             disabled={form.provider === "codex-cli"}
                             onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+                        />
+                    </FormGroup>
+
+                    <FormGroup label="Default Thinking Mode" labelFor="ai-thinking-default">
+                        <HTMLSelect
+                            id="ai-thinking-default"
+                            options={THINKING_DEFAULTS}
+                            value={form.defaultThinkingMode || "auto"}
+                            onChange={(e) => setForm({ ...form, defaultThinkingMode: e.target.value })}
                         />
                     </FormGroup>
 

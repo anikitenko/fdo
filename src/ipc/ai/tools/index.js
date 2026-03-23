@@ -82,26 +82,84 @@ const REWRITING_TERMS = [
 ];
 const CODING_TERMS = [
     "code",
+    "snippet",
+    "code snippet",
     "function",
-    "component",
+    "go",
+    "golang",
     "typescript",
     "javascript",
     "python",
     "yaml",
     "react",
+    "react component",
+    "ui component",
+    "component props",
+    "component state",
     "bug",
     "debug",
     "stack trace",
     "error",
 ];
-const SCOPE_DEFINITIONS = [
-    { scope: "ui", terms: ["ui", "dialog", "window", "screen", "button", "panel", "layout", "renderer"] },
-    { scope: "settings", terms: ["settings", "config", "option", "preferences", "assistant settings"] },
-    { scope: "plugins", terms: ["plugin", "plugins", "manifest", "create plugin", "manage plugins"] },
-    { scope: "trust", terms: ["trust", "certificate", "certificates", "sign", "signature"] },
-    { scope: "sdk", terms: ["sdk", "api", "types", "integration"] },
-    { scope: "docs_help", terms: ["docs", "documentation", "help", "how to", "guide"] },
-    { scope: "code_dev", terms: ["code", "implementation", "implemented", "internals", "debug", "bug", "source"] },
+export const SCOPE_DEFINITIONS = [
+    {
+        scope: "ui",
+        clarificationPriority: 10,
+        clarificationLabels: { en: "FDO UI", uk: "інтерфейс FDO" },
+        terms: [
+            "ui",
+            "dialog",
+            "window",
+            "screen",
+            "button",
+            "panel",
+            "layout",
+            "renderer",
+            "react component",
+            "ui component",
+            "component props",
+            "component state",
+            "інтерфейс",
+            "вікно",
+            "кнопка",
+        ],
+    },
+    {
+        scope: "settings",
+        clarificationPriority: 20,
+        clarificationLabels: { en: "settings", uk: "налаштування" },
+        terms: ["settings", "config", "option", "preferences", "assistant settings", "налаштування", "конфіг"],
+    },
+    {
+        scope: "plugins",
+        clarificationPriority: 30,
+        clarificationLabels: { en: "plugins", uk: "плагіни" },
+        terms: ["plugin", "plugins", "manifest", "create plugin", "manage plugins", "плагін", "плагіни"],
+    },
+    {
+        scope: "trust",
+        clarificationPriority: 40,
+        clarificationLabels: { en: "trust/certificates", uk: "довіра й сертифікати" },
+        terms: ["trust", "trust certificate", "trust certificates", "sign", "signature", "довіра", "сертифікат", "сертифікати"],
+    },
+    {
+        scope: "sdk",
+        clarificationPriority: 50,
+        clarificationLabels: { en: "SDK", uk: "SDK" },
+        terms: ["sdk", "api", "types", "integration"],
+    },
+    {
+        scope: "docs_help",
+        clarificationPriority: null,
+        clarificationLabels: { en: "docs/help", uk: "документація/довідка" },
+        terms: ["docs", "documentation", "help", "how to", "guide"],
+    },
+    {
+        scope: "code_dev",
+        clarificationPriority: 60,
+        clarificationLabels: { en: "implementation details", uk: "деталі реалізації" },
+        terms: ["code", "implementation", "implemented", "internals", "debug", "bug", "source"],
+    },
 ];
 
 const ROUTE_DEFINITIONS = [
@@ -121,10 +179,12 @@ const ROUTE_DEFINITIONS = [
             "flexdevops",
             "plugin",
             "plugins",
+            "плагін",
+            "плагіни",
             "manifest",
-            "certificate",
-            "certificates",
             "trust",
+            "сертифікат",
+            "сертифікати",
             "sdk",
             "sandbox",
             "ai assistant",
@@ -146,6 +206,9 @@ const ROUTE_DEFINITIONS = [
     },
 ];
 
+// Keep this regex IDE-friendly: broad emoji ranges are sufficient for reaction-only detection.
+const EMOJI_STRIP_PATTERN = /[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F\u200D]/gu;
+
 export const SUPPORTED_ROUTES = ["general", "multi", ...ROUTE_DEFINITIONS.map((definition) => definition.route)];
 export const SUPPORTED_TASK_SHAPES = [
     "general_chat",
@@ -159,14 +222,96 @@ export const SUPPORTED_SCOPES = [
     ...SCOPE_DEFINITIONS.map((definition) => definition.scope),
 ];
 
+export function getClarificationScopes(route = "general", locale = "en") {
+    if (route !== "fdo") return [];
+    const normalizedLocale = String(locale || "en").toLowerCase().startsWith("uk") ? "uk" : "en";
+    return SCOPE_DEFINITIONS
+        .filter((definition) => Number.isFinite(definition.clarificationPriority))
+        .sort((a, b) => a.clarificationPriority - b.clarificationPriority)
+        .map((definition) => ({
+            scope: definition.scope,
+            label: definition.clarificationLabels?.[normalizedLocale] || definition.clarificationLabels?.en || definition.scope,
+        }));
+}
+
 function hasTerm(prompt, terms) {
     const q = String(prompt || "").toLowerCase();
-    return terms.some((term) => q.includes(term));
+    return terms.some((term) => {
+        return matchesTerm(q, term);
+    });
+}
+
+function matchesTerm(prompt, term) {
+    const q = String(prompt || "").toLowerCase();
+    const normalizedTerm = String(term || "").toLowerCase();
+    if (!normalizedTerm) return false;
+    if (/^[a-z0-9 ]+$/i.test(normalizedTerm)) {
+        const escaped = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+        return new RegExp(`\\b${escaped}\\b`, "i").test(q);
+    }
+    return q.includes(normalizedTerm);
+}
+
+function levenshteinDistance(a = "", b = "") {
+    const left = String(a);
+    const right = String(b);
+    if (left === right) return 0;
+    if (!left.length) return right.length;
+    if (!right.length) return left.length;
+
+    const prev = Array.from({ length: right.length + 1 }, (_, index) => index);
+    for (let i = 1; i <= left.length; i += 1) {
+        let current = i;
+        for (let j = 1; j <= right.length; j += 1) {
+            const next = Math.min(
+                prev[j] + 1,
+                current + 1,
+                prev[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1)
+            );
+            prev[j - 1] = current;
+            current = next;
+        }
+        prev[right.length] = current;
+    }
+    return prev[right.length];
+}
+
+function tokenizeForScope(prompt = "") {
+    return String(prompt || "")
+        .toLowerCase()
+        .split(/[^a-z0-9а-яіїєґё]+/i)
+        .filter(Boolean);
+}
+
+function matchesScopeTerm(prompt, term, scope) {
+    if (matchesTerm(prompt, term)) return true;
+
+    const normalizedTerm = String(term || "").toLowerCase();
+    if (scope === "ui" && normalizedTerm === "react component") {
+        return matchesTerm(prompt, "react") && matchesTerm(prompt, "component");
+    }
+
+    if (scope !== "plugins") return false;
+    if (!/^[a-z0-9]+$/i.test(normalizedTerm) || normalizedTerm.length < 5) return false;
+
+    const tokens = tokenizeForScope(prompt);
+    return tokens.some((token) => (
+        Math.abs(token.length - normalizedTerm.length) <= 2
+        && levenshteinDistance(token, normalizedTerm) <= 2
+    ));
+}
+
+function hasNegatedCodeIntent(prompt = "") {
+    const q = String(prompt || "").toLowerCase();
+    return /\b(?:not|no|without)\s+code\b/.test(q) || /\bне\s+код\b/.test(q);
 }
 
 function detectDirectPromptRoute(prompt) {
     const q = String(prompt || "").toLowerCase();
     if (!q.trim()) return "general";
+    if (hasTerm(q, TRANSLATION_TERMS) || hasTerm(q, REWRITING_TERMS)) {
+        return "general";
+    }
     const directMatch = ROUTE_DEFINITIONS.find((definition) => hasTerm(q, definition.terms));
     if (directMatch) return directMatch.route;
     return "general";
@@ -175,6 +320,9 @@ function detectDirectPromptRoute(prompt) {
 function detectDirectRouteCandidates(prompt) {
     const q = String(prompt || "").toLowerCase();
     if (!q.trim()) return [];
+    if (hasTerm(q, TRANSLATION_TERMS) || hasTerm(q, REWRITING_TERMS)) {
+        return [];
+    }
     return ROUTE_DEFINITIONS
         .filter((definition) => hasTerm(q, definition.terms))
         .map((definition) => definition.route);
@@ -186,6 +334,32 @@ function detectTopicShift(prompt, sessionRouting = null, routeInfo = null) {
     if (!q || previousRoute === "general") return false;
     if (hasTerm(q, TOPIC_SHIFT_TERMS)) return true;
     if (routeInfo?.route === "general" && routeInfo?.reason === "no-follow-up-signal" && q.length >= 24) return true;
+    return false;
+}
+
+function looksLikeStandaloneCodePrompt(prompt) {
+    const raw = String(prompt || "").trim();
+    if (!raw) return false;
+
+    if (/(^|\n)```/.test(raw)) return true;
+
+    const lines = raw
+        .split("\n")
+        .map((line) => line.replace(/^>\s?/, "").trimEnd())
+        .filter(Boolean);
+
+    if (lines.length === 0) return false;
+
+    const codeLikeLines = lines.filter((line) => (
+        /^\s*(def |class |import |from |return |if |for |while |try:|except\b|async |await |const |let |function |public |private )/.test(line)
+        || /=>/.test(line)
+        || /[{}()[\];]/.test(line)
+        || /^\s*@\w+/.test(line)
+    )).length;
+
+    if (codeLikeLines >= 2) return true;
+    if (codeLikeLines >= 1 && lines.length <= 6) return true;
+    if (/\b(traceback|syntaxerror|typeerror|valueerror|stack trace)\b/i.test(raw)) return true;
     return false;
 }
 
@@ -232,6 +406,7 @@ function computeIntentConfidence(prompt, routeInfo, taskShapeInfo, sessionRoutin
 function detectDirectTaskShape(prompt) {
     const q = String(prompt || "").toLowerCase();
     if (!q.trim()) return "general_chat";
+    if (looksLikeStandaloneCodePrompt(prompt)) return "coding_help";
     if (hasTerm(q, TRANSLATION_TERMS)) return "translation";
     if (hasTerm(q, REWRITING_TERMS)) return "rewriting";
     if (hasTerm(q, CODING_TERMS)) return "coding_help";
@@ -244,9 +419,14 @@ function detectDirectScope(prompt) {
     const scored = SCOPE_DEFINITIONS
         .map((definition) => ({
             scope: definition.scope,
-            matches: definition.terms.filter((term) => q.includes(term)).length,
-            strongestTermLength: Math.max(...definition.terms.filter((term) => q.includes(term)).map((term) => term.length), 0),
+            matches: definition.terms.filter((term) => matchesScopeTerm(q, term, definition.scope)).length,
+            strongestTermLength: Math.max(...definition.terms.filter((term) => matchesScopeTerm(q, term, definition.scope)).map((term) => term.length), 0),
         }))
+        .map((entry) => (
+            entry.scope === "code_dev" && hasNegatedCodeIntent(q)
+                ? { ...entry, matches: 0, strongestTermLength: 0 }
+                : entry
+        ))
         .filter((entry) => entry.matches > 0)
         .sort((a, b) => {
             if (b.matches !== a.matches) return b.matches - a.matches;
@@ -256,9 +436,20 @@ function detectDirectScope(prompt) {
     return scored[0]?.scope || "general";
 }
 
+export function looksLikeReactionOnlyTurn(prompt) {
+    const q = String(prompt || "").trim();
+    if (!q) return false;
+    const stripped = q
+        .replace(/[`~*_>#.,!?'"()\[\]{}:;\/\\|+\-=]+/g, "")
+        .replace(EMOJI_STRIP_PATTERN, "")
+        .trim();
+    return stripped.length === 0;
+}
+
 function looksLikeFollowUp(prompt) {
     const q = String(prompt || "").toLowerCase().trim();
     if (!q) return false;
+    if (looksLikeReactionOnlyTurn(prompt)) return true;
     if (hasTerm(q, FOLLOW_UP_TERMS)) return true;
     return q.length <= 80 && /^(and|also|then|why|how|what|where|when|does|is|are|can)\b/.test(q);
 }
@@ -272,6 +463,7 @@ function looksLikeRouteClarification(prompt) {
 function isShortReferentialTurn(prompt) {
     const q = String(prompt || "").trim();
     if (!q) return false;
+    if (looksLikeReactionOnlyTurn(prompt)) return true;
     if (q.length <= 16 && /[?!.…]$/.test(q)) return true;
     if (q.length > 60) return false;
     return /^(this|that|it|them|those|these|again|continue|more|why|how|and now|what about)\b/i.test(q);
@@ -280,6 +472,12 @@ function isShortReferentialTurn(prompt) {
 function shouldInheritFromSession(prompt, sessionRouting) {
     if (!sessionRouting?.activeRoute && !sessionRouting?.activeTaskShape && !sessionRouting?.activeScope) {
         return false;
+    }
+    if (looksLikeStandaloneCodePrompt(prompt)) {
+        return false;
+    }
+    if (looksLikeReactionOnlyTurn(prompt) && sessionRouting?.activeRoute && sessionRouting.activeRoute !== "general") {
+        return true;
     }
     if ((sessionRouting?.routeConfidence || 0) < 0.55) {
         return false;
@@ -391,6 +589,7 @@ export function resolveTurnIntent(prompt, historyMessages = [], sessionRouting =
     const confidence = computeIntentConfidence(prompt, routeInfo, taskShapeInfo, sessionRouting);
     const topicShift = detectTopicShift(prompt, sessionRouting, routeInfo);
     return {
+        originalPrompt: String(prompt || ""),
         route: routeInfo.route,
         routeReason: routeInfo.reason,
         routeCandidates: Array.isArray(routeInfo.candidates) ? routeInfo.candidates : [],
@@ -488,11 +687,17 @@ export function resolveToolPolicy(prompt, historyMessages = [], sessionRouting =
 
 export function shouldUseSemanticRouter(intent, sessionRouting = null) {
     if (!intent) return false;
+    if (
+        intent.routeReason === "session-route"
+        && intent.route !== "general"
+        && looksLikeReactionOnlyTurn(intent.originalPrompt || "")
+    ) return false;
+    if (intent.route === "general" && ["coding_help", "translation", "rewriting"].includes(intent.taskShape)) return false;
     if (intent.route === "multi") return true;
     if (intent.route === "general") return true;
     if (intent.topicShift) return true;
     if ((intent.confidence || 0) < 0.6) return true;
-    if ((sessionRouting?.routeConfidence || 0) < 0.55) return true;
+    if (sessionRouting && (sessionRouting?.routeConfidence || 0) < 0.55) return true;
     return false;
 }
 

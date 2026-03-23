@@ -1,9 +1,36 @@
 .emojiPopover {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 10px;
-    width: 196px;
+    width: min(320px, calc(100vw - 32px));
+    max-height: min(260px, calc(100vh - 120px));
+}
+
+.emojiSearchInput {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 8px;
+    border: 1px solid var(--bp6-divider-color, rgba(17, 20, 24, 0.15));
+    background: var(--bp6-elevation-1, #ffffff);
+    color: var(--bp6-text-color, inherit);
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+}
+
+.emojiSearchInput:focus {
+    border-color: var(--bp6-intent-primary, #2D72D2);
+    box-shadow: 0 0 0 1px rgba(45, 114, 210, 0.22);
+}
+
+.emojiGrid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+    overflow-y: auto;
+    max-height: min(200px, calc(100vh - 170px));
+    padding-right: 2px;
 }
 
 .emojiButton {
@@ -34,6 +61,12 @@
     font-size: 16px;
 }
 
+.emojiEmptyState {
+    font-size: 12px;
+    opacity: 0.72;
+    padding: 4px 2px 2px;
+}
+
 .composerOptionsPopover {
     box-sizing: border-box;
     padding: 12px;
@@ -41,6 +74,23 @@
     max-width: min(320px, calc(100vw - 32px));
     max-height: min(560px, calc(100vh - 32px));
     overflow-y: auto;
+}
+
+.readOnlyOptionValue {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--bp6-divider-color, rgba(17, 20, 24, 0.15));
+    background: var(--bp6-elevation-1, #ffffff);
+    color: var(--bp6-text-color, inherit);
+    padding: 8px 10px;
+}
+
+.readOnlyOptionHint {
+    font-size: 11px;
+    opacity: 0.72;
+    margin-top: 2px;
 }
 
 .composerControlRow {
@@ -258,4 +308,24 @@
     align-self: stretch;
     background: rgba(255, 255, 255, 0.12);
     margin: 4px 2px;
+}
+
+.jumpToBottomButton {
+    position: absolute;
+    right: 18px;
+    bottom: 16px;
+    z-index: 4;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 999px;
+    background: rgba(29, 33, 39, 0.92) !important;
+    color: rgba(255, 255, 255, 0.96) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+}
+
+.jumpToBottomButton:hover {
+    background: rgba(45, 114, 210, 0.92) !important;
+    color: rgba(255, 255, 255, 1) !important;
 }

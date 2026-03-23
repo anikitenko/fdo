@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Dialog, InputGroup, Button, Classes } from "@blueprintjs/core";
 
-export default function AttachFromUrlDialog({ isOpen, setIsOpen, onSubmit }) {
+export default function AttachFromUrlDialog({ isOpen, setIsOpen, onSubmit, t = (key) => key }) {
     const [url, setUrl] = useState("");
 
     const handleSubmit = () => {
@@ -16,12 +16,12 @@ export default function AttachFromUrlDialog({ isOpen, setIsOpen, onSubmit }) {
         <Dialog
             isOpen={isOpen}
             onClose={() => setIsOpen(false)}
-            title="Attach from URL"
+            title={t("attachDialogTitle")}
             className="bp6-dark"
         >
             <div className={Classes.DIALOG_BODY}>
                 <InputGroup
-                    placeholder="Enter URL..."
+                    placeholder={t("attachDialogPlaceholder")}
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     autoFocus
@@ -30,9 +30,9 @@ export default function AttachFromUrlDialog({ isOpen, setIsOpen, onSubmit }) {
 
             <div className={Classes.DIALOG_FOOTER}>
                 <div className={Classes.DIALOG_FOOTER_ACTIONS}>
-                    <Button onClick={() => setIsOpen(false)}>Cancel</Button>
+                    <Button onClick={() => setIsOpen(false)}>{t("cancel")}</Button>
                     <Button intent="primary" onClick={handleSubmit}>
-                        Attach
+                        {t("attach")}
                     </Button>
                 </div>
             </div>

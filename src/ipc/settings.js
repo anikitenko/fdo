@@ -285,6 +285,10 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.ADD, async (_, data) => {
+        const normalizedThinkingMode = ["auto", "on", "off"].includes(String(data?.defaultThinkingMode || "").toLowerCase())
+            ? String(data.defaultThinkingMode).toLowerCase()
+            : "auto";
+        data.defaultThinkingMode = normalizedThinkingMode;
         let resolvedInvocation = null;
         if (data.provider === "codex-cli") {
             if (data.purpose !== "coding") {
