@@ -1,6 +1,56 @@
 import {contextBridge, ipcRenderer} from 'electron'
 import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels} from "./ipc/channels";
 
+const pluginListenerWrappers = {
+    unloaded: new WeakMap(),
+    ready: new WeakMap(),
+    deployFromEditor: new WeakMap(),
+    init: new WeakMap(),
+    render: new WeakMap(),
+    uiMessage: new WeakMap(),
+};
+const pluginListenerRegistry = {
+    unloaded: new Set(),
+    ready: new Set(),
+    deployFromEditor: new Set(),
+    init: new Set(),
+    render: new Set(),
+    uiMessage: new Set(),
+};
+
+function resetPluginListeners(key, channel) {
+    for (const listener of pluginListenerRegistry[key]) {
+        ipcRenderer.removeListener(channel, listener);
+    }
+    pluginListenerRegistry[key].clear();
+    pluginListenerWrappers[key] = new WeakMap();
+}
+
+function addPluginListener(key, channel, callback, projector = (value) => value) {
+    // Keep at most one active listener per plugin event key.
+    // Rapid React mount/unmount cycles can otherwise accumulate proxy callbacks.
+    resetPluginListeners(key, channel);
+    const wrapped = (_, payload) => callback(projector(payload));
+    pluginListenerWrappers[key].set(callback, wrapped);
+    pluginListenerRegistry[key].add(wrapped);
+    ipcRenderer.on(channel, wrapped);
+}
+
+function removePluginListener(key, channel, callback) {
+    const wrapped = pluginListenerWrappers[key].get(callback);
+    if (!wrapped) {
+        // Fallback cleanup in case callback identity is not preserved across context bridge calls.
+        for (const listener of pluginListenerRegistry[key]) {
+            ipcRenderer.removeListener(channel, listener);
+        }
+        pluginListenerRegistry[key].clear();
+        return;
+    }
+    ipcRenderer.removeListener(channel, wrapped);
+    pluginListenerWrappers[key].delete(callback);
+    pluginListenerRegistry[key].delete(wrapped);
+}
+
 contextBridge.exposeInMainWorld('electron', {
     versions: {
         node: () => process.versions.node,
@@ -51,21 +101,25 @@ contextBridge.exposeInMainWorld('electron', {
         }
     },
     aiCodingAgent: {
+        routeJudge: (data) => ipcRenderer.invoke(AiCodingAgentChannels.ROUTE_JUDGE, data),
         generateCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.GENERATE_CODE, data),
         editCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.EDIT_CODE, data),
         explainCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.EXPLAIN_CODE, data),
         fixCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.FIX_CODE, data),
         smartMode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.SMART_MODE, data),
         planCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.PLAN_CODE, data),
+        cancelRequest: (data) => ipcRenderer.invoke(AiCodingAgentChannels.CANCEL_REQUEST, data),
         on: {
             streamDelta: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
             streamDone: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DONE, (_, data) => callback(data)),
             streamError: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_ERROR, (_, data) => callback(data)),
+            streamCancelled: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_CANCELLED, (_, data) => callback(data)),
         },
         off: {
             streamDelta: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_DELTA, callback),
             streamDone: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_DONE, callback),
             streamError: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_ERROR, callback),
+            streamCancelled: (callback) => ipcRenderer.removeListener(AiCodingAgentChannels.on_off.STREAM_CANCELLED, callback),
         }
     },
     settings: {
@@ -92,12 +146,16 @@ contextBridge.exposeInMainWorld('electron', {
     },
     system:{
         openExternal: (url) => ipcRenderer.send(SystemChannels.OPEN_EXTERNAL_LINK, url),
+        openPluginLogs: () => ipcRenderer.invoke(SystemChannels.OPEN_PLUGIN_LOGS),
         getPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke(SystemChannels.GET_PLUGIN_METRIC, id, fromTime, toTime),
         openFileDialog: (params, multiple) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params, multiple),
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
         getFdoSdkTypes: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_TYPES),
+        getFdoSdkDomMetadata: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_DOM_METADATA),
+        getFdoSdkKnowledge: (query, limit) => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_KNOWLEDGE, query, limit),
+        getExternalReferenceKnowledge: (query, limit) => ipcRenderer.invoke(SystemChannels.GET_EXTERNAL_REFERENCE_KNOWLEDGE, query, limit),
         getBabelPath: () => ipcRenderer.invoke(SystemChannels.GET_BABEL_PATH),
         confirmEditorCloseApproved: () => ipcRenderer.send(SystemChannels.EDITOR_CLOSE_APPROVED),
         confirmEditorReloadApproved: () => ipcRenderer.send(SystemChannels.EDITOR_RELOAD_APPROVED),
@@ -120,6 +178,7 @@ contextBridge.exposeInMainWorld('electron', {
         remove: (id) => ipcRenderer.invoke(PluginChannels.REMOVE, id),
         getAll: () => ipcRenderer.invoke(PluginChannels.GET_ALL),
         get: (data) => ipcRenderer.invoke(PluginChannels.GET, data),
+        getScopePolicies: () => ipcRenderer.invoke(PluginChannels.GET_SCOPE_POLICIES),
         getRuntimeStatus: (ids) => ipcRenderer.invoke(PluginChannels.GET_RUNTIME_STATUS, ids),
         getActivated: () => ipcRenderer.invoke(PluginChannels.GET_ACTIVATED),
         activate: (id) => ipcRenderer.invoke(PluginChannels.ACTIVATE, id),
@@ -129,39 +188,43 @@ contextBridge.exposeInMainWorld('electron', {
         deployToMainFromEditor: (data) => ipcRenderer.invoke(PluginChannels.DEPLOY_FROM_EDITOR, data),
         saveAndCloseFromEditor: (data) => ipcRenderer.invoke(PluginChannels.SAVE_FROM_EDITOR, data),
         build: (data) => ipcRenderer.invoke(PluginChannels.BUILD, data),
+        runTests: (data) => ipcRenderer.invoke(PluginChannels.RUN_TESTS, data),
         init: (id) => ipcRenderer.invoke(PluginChannels.INIT, id),
         render: (id) => ipcRenderer.invoke(PluginChannels.RENDER, id),
         uiMessage: (id, content) => ipcRenderer.invoke(PluginChannels.UI_MESSAGE, id, content),
         verifySignature: (id) => ipcRenderer.invoke(PluginChannels.VERIFY_SIGNATURE, id),
         sign: (id, signerLabel) => ipcRenderer.invoke(PluginChannels.SIGN, id, signerLabel),
         export: (id) => ipcRenderer.invoke(PluginChannels.EXPORT, id),
+        setCapabilities: (id, capabilities) => ipcRenderer.invoke(PluginChannels.SET_CAPABILITIES, id, capabilities),
+        getLogTail: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TAIL, id, options),
+        getLogTrace: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TRACE, id, options),
         on: {
             unloaded: (callback) =>
-                ipcRenderer.on(PluginChannels.on_off.UNLOADED, (_, plugin) => callback(plugin)),
+                addPluginListener("unloaded", PluginChannels.on_off.UNLOADED, callback),
             ready: (callback) =>
-                ipcRenderer.on(PluginChannels.on_off.READY, (_, id) => {callback(id)}),
+                addPluginListener("ready", PluginChannels.on_off.READY, callback),
             deployFromEditor: (callback) =>
-                ipcRenderer.on(PluginChannels.on_off.DEPLOY_FROM_EDITOR, (_, id) => {callback(id)}),
+                addPluginListener("deployFromEditor", PluginChannels.on_off.DEPLOY_FROM_EDITOR, callback),
             init: (callback) =>
-                ipcRenderer.on(PluginChannels.on_off.INIT, (_, id) => {callback(id)}),
+                addPluginListener("init", PluginChannels.on_off.INIT, callback),
             render: (callback) =>
-                ipcRenderer.once(PluginChannels.on_off.RENDER, (_, id) => {callback(id)}),
+                addPluginListener("render", PluginChannels.on_off.RENDER, callback),
             uiMessage: (callback) =>
-                ipcRenderer.once(PluginChannels.on_off.UI_MESSAGE, (_, id) => {callback(id)}),
+                addPluginListener("uiMessage", PluginChannels.on_off.UI_MESSAGE, callback),
         },
         off: {
             unloaded: (callback) =>
-                ipcRenderer.removeListener(PluginChannels.on_off.UNLOADED, callback),
+                removePluginListener("unloaded", PluginChannels.on_off.UNLOADED, callback),
             ready: (callback) =>
-                ipcRenderer.removeListener(PluginChannels.on_off.READY, callback),
+                removePluginListener("ready", PluginChannels.on_off.READY, callback),
             deployFromEditor: (callback) =>
-                ipcRenderer.removeListener(PluginChannels.on_off.DEPLOY_FROM_EDITOR, callback),
+                removePluginListener("deployFromEditor", PluginChannels.on_off.DEPLOY_FROM_EDITOR, callback),
             init: (callback) =>
-                ipcRenderer.removeListener(PluginChannels.on_off.INIT, callback),
+                removePluginListener("init", PluginChannels.on_off.INIT, callback),
             render: (callback) =>
-                ipcRenderer.removeListener(PluginChannels.on_off.RENDER, callback),
+                removePluginListener("render", PluginChannels.on_off.RENDER, callback),
             uiMessage: (callback) =>
-                ipcRenderer.removeListener(PluginChannels.on_off.UI_MESSAGE, callback),
+                removePluginListener("uiMessage", PluginChannels.on_off.UI_MESSAGE, callback),
         }
     },
 })

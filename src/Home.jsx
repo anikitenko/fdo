@@ -1,8 +1,9 @@
-import React, {lazy, Suspense, useEffect, useRef, useState} from 'react'
+import React, {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react'
 import classNames from "classnames";
 import {
     Alignment,
     Button,
+    Dialog,
     HotkeysTarget,
     Icon,
     InputGroup,
@@ -19,6 +20,10 @@ import {SideBar} from "./components/SideBar.jsx";
 import {CommandBar} from "./components/CommandBar.jsx";
 import {generateActionId} from "./utils/generateActionId";
 import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
+import {pluginTrace} from "./utils/pluginTrace";
+import {classifyPluginError} from "./utils/pluginErrorClassification";
+import {getCapabilityPresentation} from "./utils/capabilityPresentation";
+import {parseMissingCapabilityDiagnosticsFromError} from "./utils/parseMissingCapabilitiesFromError";
 
 // Lazy load settings dialog (only needed when opened)
 const SettingsDialog = lazy(() => import("./components/settings/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
@@ -31,6 +36,8 @@ export const Home = () => {
         activePlugins: [],
     });
     const [plugin, setPlugin] = useState("");
+    const [selectedPluginStatusMessage, setSelectedPluginStatusMessage] = useState("");
+    const [selectedPluginLifecycleStage, setSelectedPluginLifecycleStage] = useState("");
     const [showRightSideBar, setShowRightSideBar] = useState(() => {
         return localStorage.getItem("showRightSideBar") === "true";
     });
@@ -46,9 +53,40 @@ export const Home = () => {
     const [notificationsShow, setNotificationsShow] = useState(false)
     const [showSettingsDialog, setShowSettingsDialog] = useState(false)
     const [showAiChatDialog, setShowAiChatDialog] = useState(false)
+    const [capabilityFocusRequest, setCapabilityFocusRequest] = useState(null);
+    const [capabilityDeniedNotice, setCapabilityDeniedNotice] = useState({
+        open: false,
+        pluginId: "",
+        missingCapabilities: [],
+        missingCapabilityDiagnostics: [],
+        details: "",
+    });
 
     const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
+    const selectedPluginRef = useRef("");
+    const pluginLastActivationMsRef = useRef(new Map());
+    const pendingActivationStartedAtRef = useRef(new Map());
+    const pluginToastDedupRef = useRef(new Map());
+    const pendingDeactivateTimersRef = useRef(new Map());
+
+    const deniedCapabilityItems = ((capabilityDeniedNotice.missingCapabilityDiagnostics || []).length > 0
+        ? capabilityDeniedNotice.missingCapabilityDiagnostics
+        : (capabilityDeniedNotice.missingCapabilities || []).map((capability) => ({
+            capability,
+            label: getCapabilityPresentation(capability).title,
+            description: getCapabilityPresentation(capability).description,
+            remediation: `Grant "${capability}" in Manage Plugins -> Capabilities.`,
+            category: getCapabilityPresentation(capability).category,
+            action: "",
+        }))).map((item) => ({
+        ...item,
+        id: item.capability,
+    }));
+
+    useEffect(() => {
+        selectedPluginRef.current = plugin;
+    }, [plugin]);
 
     const isPluginInit = (pluginID) => {
         return pluginInitStatus.get(pluginID) ?? false;
@@ -198,7 +236,7 @@ export const Home = () => {
                     name: "Open",
                     subtitle: "Open plugin page",
                     icon: <Icon icon={"share"} size={16}/>,
-                    perform: () => setPlugin(plugin.id),
+                    perform: () => handlePluginChange(plugin.id),
                     section: plugin.name,
                 }));
 
@@ -240,6 +278,8 @@ export const Home = () => {
     const deselectAllPlugins = () => {
         // Deactivate all plugins in Electron
         const pluginIds = state.activePlugins.map(plugin => plugin.id);
+        pluginIds.forEach((id) => expectedManualUnloadRef.current.add(id));
+        pluginTrace("home.deselectAll.request", {ids: pluginIds});
 
         Promise.all(pluginIds.map(id => window.electron.plugin.deactivate(id)))
             .then(async (results) => {
@@ -252,6 +292,7 @@ export const Home = () => {
                         activePlugins: []
                     }));
                 } else {
+                    pluginIds.forEach((id) => expectedManualUnloadRef.current.delete(id));
                     // Find which plugins failed to deactivate
                     const failedPlugins = results
                         .map((result, index) => !result.success ? pluginIds[index] : null)
@@ -263,8 +304,11 @@ export const Home = () => {
                     });
                 }
                 setPlugin("")
+                setSelectedPluginStatusMessage("")
+                setSelectedPluginLifecycleStage("")
             })
             .catch(async () => {
+                pluginIds.forEach((id) => expectedManualUnloadRef.current.delete(id));
                 (await AppToaster).show({
                     message: `Failed to deactivate plugins`,
                     intent: "danger"
@@ -273,7 +317,9 @@ export const Home = () => {
     };
 
     const deselectPlugin = (plugin) => {
-        window.electron.plugin.deactivate(plugin.id).then(async (result) => {
+        const MIN_UPTIME_BEFORE_DEACTIVATE_MS = 1500;
+        const lastActivatedAt = pluginLastActivationMsRef.current.get(plugin.id) || 0;
+        const deactivateNow = () => window.electron.plugin.deactivate(plugin.id).then(async (result) => {
             if (result) {
                 if (result.success) {
                     setState(prevState => {
@@ -290,17 +336,76 @@ export const Home = () => {
                             return prevState;
                         }
                     });
-                    setPlugin("")
+                    if (selectedPluginRef.current === plugin.id) {
+                        setPlugin("")
+                        setSelectedPluginStatusMessage("")
+                        setSelectedPluginLifecycleStage("")
+                    }
                 } else {
+                    expectedManualUnloadRef.current.delete(plugin.id);
                     (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
                 }
             } else {
+                expectedManualUnloadRef.current.delete(plugin.id);
                 (await AppToaster).show({message: `Failed to deactivate plugin`, intent: "danger"});
             }
         });
+
+        const pendingTimer = pendingDeactivateTimersRef.current.get(plugin.id);
+        if (pendingTimer) {
+            clearTimeout(pendingTimer);
+            pendingDeactivateTimersRef.current.delete(plugin.id);
+        }
+
+        expectedManualUnloadRef.current.add(plugin.id);
+        const elapsed = Date.now() - lastActivatedAt;
+        if (lastActivatedAt > 0 && elapsed < MIN_UPTIME_BEFORE_DEACTIVATE_MS) {
+            const remaining = Math.max(0, MIN_UPTIME_BEFORE_DEACTIVATE_MS - elapsed);
+            pluginTrace("home.deselectPlugin.deferred.cooldown", {id: plugin.id, delayMs: remaining});
+
+            // Keep plugin marked active until deactivation actually completes.
+            // Removing it early causes rapid re-open to issue a duplicate activate
+            // while runtime is still alive, leading to unstable render lifecycle.
+            if (selectedPluginRef.current === plugin.id) {
+                setPlugin("");
+                setSelectedPluginStatusMessage("");
+                setSelectedPluginLifecycleStage("");
+            }
+
+            const timerId = window.setTimeout(() => {
+                pendingDeactivateTimersRef.current.delete(plugin.id);
+                deactivateNow().catch(() => {});
+            }, remaining + 20);
+            pendingDeactivateTimersRef.current.set(plugin.id, timerId);
+            return;
+        }
+
+        pluginTrace("home.deselectPlugin.request", {id: plugin.id});
+        deactivateNow().catch(() => {});
     }
 
-    const selectPlugin = (plugin) => {
+    const selectPlugin = (plugin, options = {}) => {
+        const { open = false } = options;
+        const pendingTimer = pendingDeactivateTimersRef.current.get(plugin.id);
+        if (pendingTimer) {
+            clearTimeout(pendingTimer);
+            pendingDeactivateTimersRef.current.delete(plugin.id);
+            expectedManualUnloadRef.current.delete(plugin.id);
+            pluginTrace("home.selectPlugin.cancelPendingDeactivate", {id: plugin.id});
+        }
+        pluginTrace("home.selectPlugin.request", {id: plugin.id, open, selected: selectedPluginRef.current || ""});
+        const alreadyActive = state.activePlugins.some((item) => item.id === plugin.id);
+
+        if (alreadyActive) {
+            pendingActivationStartedAtRef.current.delete(plugin.id);
+            if (open || !selectedPluginRef.current) {
+                pluginTrace("home.selectPlugin.alreadyActive.open", {id: plugin.id});
+                handlePluginChange(plugin.id);
+            }
+            return;
+        }
+
+        pendingActivationStartedAtRef.current.set(plugin.id, Date.now());
         window.electron.plugin.activate(plugin.id).then(async (result) => {
             if (result) {
                 if (result.success) {
@@ -316,10 +421,16 @@ export const Home = () => {
                             activePlugins: [...prevState.activePlugins, plugin]
                         };
                     });
+                    if (open || !selectedPluginRef.current) {
+                        pluginTrace("home.selectPlugin.activated.open", {id: plugin.id});
+                        handlePluginChange(plugin.id);
+                    }
                 } else {
+                    pendingActivationStartedAtRef.current.delete(plugin.id);
                     (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
                 }
             } else {
+                pendingActivationStartedAtRef.current.delete(plugin.id);
                 (await AppToaster).show({message: `Failed to activate plugin`, intent: "danger"});
             }
         });
@@ -333,6 +444,24 @@ export const Home = () => {
         if (!result?.success || !Array.isArray(result.statuses)) return;
 
         const statusById = new Map(result.statuses.map((item) => [item.id, item]));
+        setPluginReadiness((prev) => {
+            const next = new Map(prev);
+            result.statuses.forEach((status) => {
+                if (status?.id && status.ready) {
+                    next.set(status.id, true);
+                }
+            });
+            return next;
+        });
+        setPluginInitStatus((prev) => {
+            const next = new Map(prev);
+            result.statuses.forEach((status) => {
+                if (status?.id && status.inited) {
+                    next.set(status.id, true);
+                }
+            });
+            return next;
+        });
         setState(prevState => ({
             ...prevState,
             activePlugins: prevState.activePlugins.map((plugin) => {
@@ -347,35 +476,202 @@ export const Home = () => {
     };
 
     const pluginsInitialLoad = useRef(false);
+    const refreshPluginsState = useCallback(async () => {
+        const [allPlugins, activePlugins] = await Promise.all([
+            window.electron.plugin.getAll(),
+            window.electron.plugin.getActivated(),
+        ]);
+
+        const allPluginRecords = (allPlugins?.plugins || []).map((plugin) => ({
+            ...plugin,
+            ...plugin.metadata,
+            capabilities: Array.isArray(plugin.capabilities) ? plugin.capabilities : [],
+            loading: true,
+        }));
+        const activatedIds = new Set(activePlugins?.plugins || []);
+
+        setState((prevState) => ({
+            ...prevState,
+            plugins: allPluginRecords,
+            activePlugins: allPluginRecords.filter((plugin) => activatedIds.has(plugin.id)),
+        }));
+    }, []);
+
     useEffect(() => {
         if (pluginsInitialLoad.current) return;
         pluginsInitialLoad.current = true;
-        window.electron.plugin.getAll().then((allPlugins) => {
-            window.electron.plugin.getActivated().then((activePlugins) => {
-                setState(prevState => (
-                    {
-                        ...prevState, plugins: allPlugins.plugins.map(plugin => {
-                            const currPlugin = {...plugin, ...plugin.metadata, loading: true};
-                            if (activePlugins.plugins.some(item => item === currPlugin.id)) {
-                                selectPlugin(currPlugin);
-                            }
-                            return currPlugin;
-                        })
-                    }
-                ))
-            })
-        })
+        refreshPluginsState();
 
-    }, []);
+    }, [refreshPluginsState]);
 
     useEffect(() => {
         syncActivePluginLoadingState(state.activePlugins);
     }, [state.activePlugins.length]);
 
+    useEffect(() => {
+        if (selectedPluginStatusMessage) return;
+
+        const activeIds = state.activePlugins.map((item) => item.id).filter(Boolean);
+        if (activeIds.length === 0) {
+            return;
+        }
+
+        if (!plugin) {
+            handlePluginChange(activeIds[0]);
+        }
+    }, [plugin, state.activePlugins, selectedPluginStatusMessage]);
+
+    useEffect(() => {
+        if (!plugin) return;
+        if (isPluginInit(plugin)) return;
+        if (!state.activePlugins.some((item) => item.id === plugin)) return;
+
+        let cancelled = false;
+        let attempts = 0;
+
+        const pollRuntimeStatus = async () => {
+            if (cancelled) return;
+            attempts += 1;
+            await syncActivePluginLoadingState(state.activePlugins.filter((item) => item.id === plugin));
+            if (cancelled || attempts >= 8) return;
+            if (!pluginInitStatus.get(plugin)) {
+                setTimeout(pollRuntimeStatus, 250);
+            }
+        };
+
+        pollRuntimeStatus();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [plugin, state.activePlugins, pluginInitStatus]);
+
     const isProcessingPluginFromEditor = useRef(false);
     const isUnloading = useRef(false);
+    const expectedManualUnloadRef = useRef(new Set());
+    const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    const UNLOAD_STALE_GUARD_MS = 2500;
+    const UNEXPECTED_MANUAL_UNLOAD_IGNORE_WINDOW_MS = 6000;
+    const TOAST_DEDUP_MS = 3500;
+
+    const isRuntimeStatusActive = (status) => {
+        if (!status) return false;
+        return !!(status.loading || status.loaded || status.ready || status.inited);
+    };
+
+    const showPluginErrorToast = async ({pluginId, reason, details, allowRetry = true}) => {
+        const dedupeKey = `${pluginId}:${reason}:${details || ""}`;
+        const now = Date.now();
+        const lastAt = pluginToastDedupRef.current.get(dedupeKey) || 0;
+        if (now - lastAt < TOAST_DEDUP_MS) {
+            return;
+        }
+        pluginToastDedupRef.current.set(dedupeKey, now);
+
+        const errorClassification = classifyPluginError(reason, details);
+        const summary = errorClassification.summary;
+        const canRetry = allowRetry && errorClassification.retryable;
+        const pluginRecord = state.plugins.find((item) => item.id === pluginId);
+
+        const openLogs = async () => {
+            const result = await window.electron.system.openPluginLogs();
+            if (!result?.success) {
+                (await AppToaster).show({
+                    message: `Could not open logs folder: ${result?.error || "unknown error"}`,
+                    intent: "warning",
+                });
+            }
+        };
+
+        const reportIssue = async () => {
+            const runtimeStatusResult = await window.electron.plugin.getRuntimeStatus([pluginId]).catch(() => null);
+            const runtimeStatus = runtimeStatusResult?.statuses?.[0] || null;
+            const payload = [
+                `Plugin: ${pluginId}`,
+                `Reason: ${reason}`,
+                `Details: ${details || ""}`,
+                `Runtime status: ${runtimeStatus ? JSON.stringify(runtimeStatus) : "unavailable"}`,
+                `Timestamp: ${new Date().toISOString()}`,
+            ].join("\n");
+            try {
+                await navigator.clipboard.writeText(payload);
+                (await AppToaster).show({
+                    message: `${pluginId}: diagnostic report copied to clipboard.`,
+                    intent: "success",
+                });
+            } catch (error) {
+                (await AppToaster).show({
+                    message: `${pluginId}: failed to copy report. ${error?.message || String(error)}`,
+                    intent: "warning",
+                });
+            }
+        };
+
+        const retryPluginOpen = () => {
+            if (pluginRecord) {
+                selectPlugin(pluginRecord, {open: true});
+                return;
+            }
+            window.electron.plugin.activate(pluginId).then(async (result) => {
+                if (!result?.success) {
+                    (await AppToaster).show({
+                        message: `${pluginId}: retry failed. ${result?.error || "unknown error"}`,
+                        intent: "danger",
+                    });
+                    return;
+                }
+                handlePluginChange(pluginId);
+            });
+        };
+
+        (await AppToaster).show({
+            intent: "danger",
+            timeout: 10000,
+            message: (
+                <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
+                    <div>{pluginId}: {summary}</div>
+                    <div style={{display: "flex", gap: "8px", flexWrap: "wrap"}}>
+                        {canRetry && (
+                            <Button small={true} minimal={true} icon="refresh" onClick={retryPluginOpen}>
+                                Retry
+                            </Button>
+                        )}
+                        <Button small={true} minimal={true} icon="document-open" onClick={openLogs}>
+                            Open logs
+                        </Button>
+                        <Button small={true} minimal={true} icon="issue" onClick={reportIssue}>
+                            Report issue
+                        </Button>
+                    </div>
+                </div>
+            ),
+        });
+    };
+
     useEffect(() => {
         const onPluginReady = (pluginID) => {
+            pluginTrace("home.event.ready", {id: pluginID});
+            pluginLastActivationMsRef.current.set(pluginID, Date.now());
+            pendingActivationStartedAtRef.current.delete(pluginID);
+            setState((prevState) => {
+                const alreadyActive = prevState.activePlugins.some((item) => item.id === pluginID);
+                if (alreadyActive) {
+                    return prevState;
+                }
+
+                const pluginRecord = prevState.plugins.find((item) => item.id === pluginID);
+                if (!pluginRecord) {
+                    return prevState;
+                }
+
+                return {
+                    ...prevState,
+                    activePlugins: [...prevState.activePlugins, pluginRecord],
+                };
+            });
+            if (!selectedPluginRef.current) {
+                handlePluginChange(pluginID);
+            }
             markPluginReady(pluginID)
         }
 
@@ -431,14 +727,13 @@ export const Home = () => {
                         const pluginExists = prevState.plugins.some(item => item.id === newPlugin.id);
 
                         if (pluginExists) {
-                            deselectPlugin(newPlugin)
-                            setTimeout(() => {
-                                selectPlugin(newPlugin)
-                            }, 1000)
+                            // Keep UX stable when plugin is redeployed from editor:
+                            // don't force a deselect/reselect cycle that can blank the view.
+                            selectPlugin(newPlugin, {open: true});
                             return prevState;
                         }
 
-                        selectPlugin(newPlugin);
+                        selectPlugin(newPlugin, {open: true});
                         return {
                             ...prevState,
                             plugins: [...prevState.plugins, newPlugin]
@@ -450,29 +745,130 @@ export const Home = () => {
             isProcessingPluginFromEditor.current = false;
         }
 
-        const onPluginUnloaded = (unloadedPlugin) => {
+        const onPluginUnloaded = async (unloadedPluginEvent) => {
             if (isUnloading.current) return;
             isUnloading.current = true;
-            if (unloadedPlugin) {
-                window.electron.plugin.deactivateUsers(unloadedPlugin).then(() => {
-                })
-                setState(prevState => {
-                    // Check if plugin already exists
-                    const pluginExists = prevState.activePlugins.some(item => item.id === unloadedPlugin);
-
-                    if (pluginExists) {
-                        // Remove the plugin
-                        return {
-                            ...prevState,
-                            activePlugins: prevState.activePlugins.filter(item => item.id !== unloadedPlugin)
-                        }
-                    } else {
-                        return prevState;
-                    }
+            try {
+                const unloadedPlugin = typeof unloadedPluginEvent === "string"
+                    ? { id: unloadedPluginEvent, reason: "unloaded", message: "" }
+                    : (unloadedPluginEvent || {});
+                const unloadedPluginId = unloadedPlugin.id;
+                const reason = unloadedPlugin.reason || "unloaded";
+                const wasSelectedPlugin = unloadedPluginId && unloadedPluginId === selectedPluginRef.current;
+                let isUnexpectedManualUnload = false;
+                pluginTrace("home.event.unloaded", {
+                    id: unloadedPluginId || "",
+                    reason,
+                    wasSelected: !!wasSelectedPlugin,
+                    selected: selectedPluginRef.current || "",
                 });
+
+                if (reason === "manual_unload") {
+                    const expected = unloadedPluginId ? expectedManualUnloadRef.current.has(unloadedPluginId) : false;
+                    if (!expected) {
+                        isUnexpectedManualUnload = true;
+                        pluginTrace("home.unload.unexpectedManual", {id: unloadedPluginId || ""});
+                    }
+                    if (unloadedPluginId) {
+                        expectedManualUnloadRef.current.delete(unloadedPluginId);
+                    }
+                }
+
+                if (unloadedPluginId) {
+                    const activatedAt = pluginLastActivationMsRef.current.get(unloadedPluginId) || 0;
+                    const pendingActivationAt = pendingActivationStartedAtRef.current.get(unloadedPluginId) || 0;
+                    const openedRecently = activatedAt > 0 && (Date.now() - activatedAt) < UNEXPECTED_MANUAL_UNLOAD_IGNORE_WINDOW_MS;
+                    const activationPendingRecently = pendingActivationAt > 0 && (Date.now() - pendingActivationAt) < UNEXPECTED_MANUAL_UNLOAD_IGNORE_WINDOW_MS;
+                    if (reason === "manual_unload" && isUnexpectedManualUnload && (openedRecently || activationPendingRecently)) {
+                        pluginTrace("home.unload.ignored.unexpectedManual.recentActivation", {
+                            id: unloadedPluginId,
+                            openedRecently,
+                            activationPendingRecently,
+                        });
+                        return;
+                    }
+                    try {
+                        const activatedRecently = activatedAt > 0 && (Date.now() - activatedAt) < UNLOAD_STALE_GUARD_MS;
+                        if (activatedRecently) {
+                            await sleep(300);
+                        }
+
+                        // Confirm runtime inactivity across a short window to filter stale unload events.
+                        for (let attempt = 0; attempt < 3; attempt += 1) {
+                            const runtimeStatus = await window.electron.plugin.getRuntimeStatus([unloadedPluginId]);
+                            const status = runtimeStatus?.statuses?.[0];
+                            pluginTrace("home.unload.runtimeStatus", {
+                                id: unloadedPluginId,
+                                attempt,
+                                loading: !!status?.loading,
+                                loaded: !!status?.loaded,
+                                ready: !!status?.ready,
+                                inited: !!status?.inited,
+                            });
+                            if (isRuntimeStatusActive(status)) {
+                                if (reason === "manual_unload" && isUnexpectedManualUnload) {
+                                    pluginTrace("home.unload.ignored.unexpectedManual.stale", {id: unloadedPluginId});
+                                }
+                                pluginTrace("home.unload.ignored.stale", {id: unloadedPluginId});
+                                return;
+                            }
+                            if (attempt < 2) {
+                                await sleep(120);
+                            }
+                        }
+                    } catch (_) {
+                        // If status probe fails, fall back to the unload event handling.
+                    }
+
+                    window.electron.plugin.deactivateUsers(unloadedPluginId).then(() => {
+                    })
+                    setState(prevState => {
+                        const pluginExists = prevState.activePlugins.some(item => item.id === unloadedPluginId);
+
+                        if (pluginExists) {
+                            return {
+                                ...prevState,
+                                activePlugins: prevState.activePlugins.filter(item => item.id !== unloadedPluginId)
+                            }
+                        } else {
+                            return prevState;
+                        }
+                    });
+                }
+
+                if (wasSelectedPlugin) {
+                    const userInitiatedReason = reason === "manual_unload" && !isUnexpectedManualUnload;
+                    if (userInitiatedReason) {
+                        return;
+                    }
+                    if (reason === "manual_unload" && isUnexpectedManualUnload) {
+                        selectedPluginRef.current = "";
+                        setPlugin("");
+                        setSelectedPluginLifecycleStage("");
+                        setSelectedPluginStatusMessage("");
+                        return;
+                    }
+                    await showPluginErrorToast({
+                        pluginId: unloadedPluginId,
+                        reason,
+                        details: unloadedPlugin.message,
+                        allowRetry: reason !== "verification_failed",
+                    });
+                    pluginTrace("home.unload.toast", {id: unloadedPluginId, reason});
+                    setSelectedPluginStatusMessage("");
+                    return;
+                }
+                if (reason !== "manual_unload" && unloadedPluginId) {
+                    await showPluginErrorToast({
+                        pluginId: unloadedPluginId,
+                        reason,
+                        details: unloadedPlugin.message,
+                        allowRetry: false,
+                    });
+                }
+            } finally {
+                isUnloading.current = false;
             }
-            setPlugin("")
-            isUnloading.current = false;
         }
 
         window.electron.plugin.on.ready(onPluginReady)
@@ -513,9 +909,55 @@ export const Home = () => {
     }, []);
 
     const handlePluginChange = (newPlugin) => {
-        setPlugin(null);
-        setTimeout(() => setPlugin(newPlugin), 0);
+        pluginTrace("home.handlePluginChange", {next: newPlugin || "", prev: selectedPluginRef.current || ""});
+        setSelectedPluginStatusMessage("");
+        if (!newPlugin) {
+            selectedPluginRef.current = "";
+            setPlugin("");
+            setSelectedPluginLifecycleStage("");
+            return;
+        }
+
+        selectedPluginRef.current = newPlugin;
+        setSelectedPluginLifecycleStage("selected");
+        setPlugin((prev) => {
+            if (prev === newPlugin) {
+                return prev;
+            }
+            return newPlugin;
+        });
+        syncActivePluginLoadingState(state.activePlugins.filter((item) => item.id === newPlugin));
     };
+
+    useEffect(() => {
+        window.__homeTestApi = {
+            openPluginById: (pluginId) => handlePluginChange(pluginId),
+            getSelectedPlugin: () => selectedPluginRef.current,
+            getActivePluginIds: () => state.activePlugins.map((item) => item.id),
+            selectPluginById: (pluginId, options = {open: true}) => {
+                const target = state.plugins.find((item) => item.id === pluginId);
+                if (!target) return false;
+                selectPlugin(target, options);
+                return true;
+            },
+            deselectPluginById: (pluginId) => {
+                const target = state.activePlugins.find((item) => item.id === pluginId)
+                    || state.plugins.find((item) => item.id === pluginId);
+                if (!target) return false;
+                deselectPlugin(target);
+                return true;
+            },
+        };
+        return () => {
+            for (const timerId of pendingDeactivateTimersRef.current.values()) {
+                clearTimeout(timerId);
+            }
+            pendingDeactivateTimersRef.current.clear();
+            if (window.__homeTestApi) {
+                delete window.__homeTestApi;
+            }
+        };
+    }, [state.activePlugins, state.plugins]);
 
     const handleSideBarItemsClick = (id) => {
         if (id === "system-notifications") {
@@ -534,6 +976,40 @@ export const Home = () => {
         }));
     };
 
+    const handleOpenCapabilitiesFromDenied = () => {
+        if (!capabilityDeniedNotice.pluginId) {
+            setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+            return;
+        }
+        setCapabilityFocusRequest({
+            requestId: `${Date.now()}`,
+            pluginId: capabilityDeniedNotice.pluginId,
+            capabilityIds: capabilityDeniedNotice.missingCapabilities,
+        });
+        setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+    };
+
+    const handleCopyCapabilityDeniedDetails = async () => {
+        try {
+            const details = capabilityDeniedNotice.details || "Capability denied.";
+            await navigator.clipboard.writeText(details);
+            (await AppToaster).show({
+                message: "Permission error details copied to clipboard.",
+                intent: "success",
+            });
+        } catch (_) {
+            (await AppToaster).show({
+                message: "Unable to copy details to clipboard.",
+                intent: "warning",
+            });
+        }
+    };
+
+    const selectedPluginRecord = state.activePlugins.find((item) => item.id === plugin)
+        || state.plugins.find((item) => item.id === plugin)
+        || null;
+    const selectedPluginLabel = selectedPluginRecord?.name || plugin || "";
+
     return (
         <HotkeysTarget
             hotkeys={[
@@ -550,7 +1026,7 @@ export const Home = () => {
             <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
             <div className={classNames("bp6-dark", styles["main-container"])}>
                 {state.activePlugins.length > 0 && (
-                    <SideBar position={"left"} menuItems={state.activePlugins} click={handlePluginChange}/>
+                    <SideBar position={"left"} menuItems={state.activePlugins} click={handlePluginChange} activeItemId={plugin}/>
                 )}
                 <Navbar fixedToTop={true}>
                     <NavbarGroup className={styles["nav-center"]}>
@@ -559,7 +1035,21 @@ export const Home = () => {
                                                  selectPlugin={selectPlugin} deselectPlugin={deselectPlugin}
                                                  deselectAllPlugins={deselectAllPlugins} removePlugin={removePlugin}
                                                  setSearchActions={setSearchActions}
+                                                 refreshPluginsState={refreshPluginsState}
+                                                 capabilityFocusRequest={capabilityFocusRequest}
                         />
+                        {selectedPluginLabel && (
+                            <Tag
+                                minimal={true}
+                                intent="primary"
+                                icon={selectedPluginRecord?.icon || "cube"}
+                                className={styles["active-plugin-tag"]}
+                                title={`Loaded plugin: ${selectedPluginLabel}`}
+                                data-active-plugin={plugin}
+                            >
+                                {selectedPluginLabel}
+                            </Tag>
+                        )}
                     </NavbarGroup>
                     <NavbarGroup align={Alignment.END}>
                         <InputGroup
@@ -591,9 +1081,80 @@ export const Home = () => {
                     marginLeft: (state.plugins.length > 0 ? "50px" : ""),
                     marginRight: (showRightSideBar ? "50px" : "")
                 }}>
-                {(plugin && isPluginInit(plugin)) && <PluginContainer key={plugin} plugin={plugin}/>}
-            </div>
+                    {plugin && <PluginContainer
+                        key={plugin}
+                        plugin={plugin}
+                        onStageChange={setSelectedPluginLifecycleStage}
+                        onCapabilityDenied={(payload) => {
+                            const missingCapabilities = Array.isArray(payload?.missingCapabilities)
+                                ? payload.missingCapabilities
+                                : [];
+                            const missingCapabilityDiagnostics = Array.isArray(payload?.missingCapabilityDiagnostics)
+                                ? payload.missingCapabilityDiagnostics
+                                : parseMissingCapabilityDiagnosticsFromError(payload?.details || payload?.error || "");
+                            const details = String(payload?.details || payload?.error || "Capability denied.");
+                            setCapabilityDeniedNotice({
+                                open: true,
+                                pluginId: payload?.pluginId || plugin,
+                                missingCapabilities,
+                                missingCapabilityDiagnostics,
+                                details,
+                            });
+                        }}
+                    />}
+                </div>
             <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
+            <Dialog
+                isOpen={capabilityDeniedNotice.open}
+                onClose={() => setCapabilityDeniedNotice((prev) => ({...prev, open: false}))}
+                title="Permission Required"
+                canEscapeKeyClose={true}
+                canOutsideClickClose={true}
+            >
+                <div className="bp6-dialog-body">
+                    <p>
+                        Plugin <code>{capabilityDeniedNotice.pluginId || "unknown"}</code> requested a privileged action that is not currently granted.
+                    </p>
+                    <p className="bp6-text-muted" style={{marginBottom: "8px"}}>
+                        Missing capabilities:
+                    </p>
+                    <div style={{display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px"}}>
+                        {deniedCapabilityItems.map(({id, label, description, remediation, action}) => (
+                            <div key={id}>
+                                <Tag intent="warning" minimal>{label}</Tag>
+                                <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                                    {description}
+                                </div>
+                                <div className="bp6-text-small bp6-text-muted">
+                                    Technical ID: <code>{id}</code>
+                                </div>
+                                {action ? (
+                                    <div className="bp6-text-small bp6-text-muted">
+                                        Required for: {action}
+                                    </div>
+                                ) : null}
+                                {remediation ? (
+                                    <div className="bp6-text-small bp6-text-muted">
+                                        Fix: {remediation}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ))}
+                        {capabilityDeniedNotice.missingCapabilities?.length === 0 && (
+                            <Tag minimal>Not parsed from host message</Tag>
+                        )}
+                    </div>
+                    <div className="bp6-text-small bp6-text-muted">
+                        {capabilityDeniedNotice.details}
+                    </div>
+                </div>
+                <div className="bp6-dialog-footer">
+                    <div className="bp6-dialog-footer-actions">
+                        <Button onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
+                        <Button intent="primary" onClick={handleOpenCapabilitiesFromDenied}>Open Capabilities</Button>
+                    </div>
+                </div>
+            </Dialog>
             <Suspense fallback={null}>
                 <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
                 <AiChatDialog setShowAiChatDialog={setShowAiChatDialog} showAiChatDialog={showAiChatDialog} />

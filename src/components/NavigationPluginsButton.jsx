@@ -1,7 +1,7 @@
 import {Button, Card, Divider, Elevation, Icon, Popover, Tag} from "@blueprintjs/core";
 import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
-import {lazy, Suspense, useState} from "react";
+import {lazy, Suspense, useEffect, useState} from "react";
 
 // Lazy load dialogs (only needed when opened)
 const CreatePluginDialog = lazy(() => import("./CreatePluginDialog.jsx").then(m => ({default: m.CreatePluginDialog})));
@@ -9,10 +9,18 @@ const ManagePluginsDialog = lazy(() => import("./ManagePluginsDialog.jsx").then(
 
 export const NavigationPluginsButton = ({
                                             active,
-                                            all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin, setSearchActions
+                                            all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin, setSearchActions, refreshPluginsState,
+                                            capabilityFocusRequest,
                                         }) => {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [showManageDialog, setShowManageDialog] = useState(false);
+
+    useEffect(() => {
+        if (!capabilityFocusRequest?.pluginId) {
+            return;
+        }
+        setShowManageDialog(true);
+    }, [capabilityFocusRequest?.requestId, capabilityFocusRequest?.pluginId]);
 
     return (
         <div>
@@ -43,7 +51,10 @@ export const NavigationPluginsButton = ({
             />
             <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
                                  selectPlugin={selectPlugin}
-                                 deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}/>
+                                 deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}
+                                 refreshPluginsState={refreshPluginsState}
+                                 focusRequest={capabilityFocusRequest}
+            />
         </Suspense>
         </div>
     );
@@ -56,7 +67,13 @@ NavigationPluginsButton.propTypes = {
     deselectPlugin: PropTypes.func,
     deselectAllPlugins: PropTypes.func,
     removePlugin: PropTypes.func,
-    setSearchActions: PropTypes.func
+    setSearchActions: PropTypes.func,
+    refreshPluginsState: PropTypes.func,
+    capabilityFocusRequest: PropTypes.shape({
+        requestId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+        pluginId: PropTypes.string,
+        capabilityIds: PropTypes.array,
+    }),
 }
 
 const PluginsCard = ({
@@ -117,7 +134,7 @@ const PluginsCard = ({
                                           if (active.some((p) => p.id === plugin.id)) {
                                               deselectPlugin(plugin)
                                           } else {
-                                              selectPlugin(plugin)
+                                              selectPlugin(plugin, {open: true})
                                           }
                                       }}
                                       style={{background: "#2e2e2e", borderRadius: "10px"}} data-plugin={plugin.name}>

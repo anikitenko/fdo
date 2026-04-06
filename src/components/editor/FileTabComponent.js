@@ -15,7 +15,7 @@ const FileTabs = ({closeTab}) => {
     const topScrollRef = useRef(null);
     const contentScrollRef = useRef(null);
     const mirrorRef = useRef(null);
-    const interactionsBlocked = restoreLoading || nodeModulesLoading;
+    const interactionsBlocked = restoreLoading;
 
     useEffect(() => {
         const unsubscribeFileTabs = virtualFS.notifications.subscribe("fileTabs", setTabs);
@@ -78,6 +78,23 @@ const FileTabs = ({closeTab}) => {
     }, []);
 
     useEffect(() => {
+        if (!restoreLoading) return;
+        let cancelled = false;
+        const sync = () => {
+            if (cancelled) return;
+            if (!virtualFS.fs.getRestoreLoading()) {
+                setRestoreLoading(false);
+                return;
+            }
+            requestAnimationFrame(sync);
+        };
+        requestAnimationFrame(sync);
+        return () => {
+            cancelled = true;
+        };
+    }, [restoreLoading]);
+
+    useEffect(() => {
         if (typeof window === "undefined") return;
         if (window.localStorage?.getItem("editor.restoreDebug") !== "true") return;
         window.dispatchEvent(new CustomEvent("editor-render-debug", {
@@ -101,11 +118,11 @@ const FileTabs = ({closeTab}) => {
                     </span>
                 </div>
             )}
-            <div className={classnames(styles["file-tabs-mirror"], (restoreLoading || nodeModulesLoading) && styles["subtleBusySurface"])}
+            <div className={classnames(styles["file-tabs-mirror"], restoreLoading && styles["subtleBusySurface"])}
                  ref={topScrollRef}>
                 <div ref={mirrorRef} style={{height: "1px"}}></div>
             </div>
-            <div className={classnames(styles["file-tabs"], (restoreLoading || nodeModulesLoading) && styles["subtleBusySurface"])} style={{height: "39px"}}
+            <div className={classnames(styles["file-tabs"], restoreLoading && styles["subtleBusySurface"])} style={{height: "39px"}}
                  ref={contentScrollRef}>
                 {tabs.map((tab) => (
                     <ButtonGroup key={tab.id}>

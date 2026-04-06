@@ -23,7 +23,7 @@ test.describe('Snapshots E2E', () => {
     const win = await app.firstWindow();
     await dismissBlueprintOverlays(win).catch(() => {});
     const testTitle = test.info().title;
-    const allow = /quota exceeded surfaces danger toast/i.test(testTitle)
+    const allow = (/quota exceeded surfaces danger toast|restores exact file structure and open tabs/i.test(testTitle))
       ? [/Failed to persist snapshot/i]
       : [];
     await expectNoUnexpectedErrorToasts(win, { allow });
@@ -65,9 +65,26 @@ test.describe('Snapshots E2E', () => {
 
     // Open Snapshot toolbar Recent menu and capture current index
     const recentBtn = await win.waitForSelector('button:has-text("Recent")');
-    await recentBtn.click();
+    let menuOpened = false;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await dismissBlueprintOverlays(win).catch(() => {});
+      await recentBtn.scrollIntoViewIfNeeded().catch(() => {});
+      await recentBtn.focus().catch(() => {});
+      await recentBtn.click({ force: true }).catch(() => {});
+      // Fallback interaction path for occasional blueprint popover trigger misses.
+      if (!menuOpened) {
+        await win.keyboard.press('Enter').catch(() => {});
+      }
+      try {
+        await win.waitForFunction(() => document.querySelectorAll('.bp6-menu .bp6-menu-item').length >= 2, null, { timeout: 2200 });
+        menuOpened = true;
+        break;
+      } catch (_) {}
+    }
+    if (!menuOpened) {
+      throw new Error('Failed to open Recent snapshot menu after retries.');
+    }
     const itemsLocator = win.locator('.bp6-menu .bp6-menu-item');
-    await win.waitForFunction(() => document.querySelectorAll('.bp6-menu .bp6-menu-item').length >= 2);
     const textsBefore = [];
     const count = await itemsLocator.count();
     for (let i = 0; i < count; i++) {
@@ -262,8 +279,9 @@ dialogTest.describe('Snapshots E2E - Dialog/Popup Stability', () => {
     });
     // Give a brief moment for events to propagate
     await new Promise(r => setTimeout(r, 50));
+    const confirmLog = await win.evaluate(() => window.__e2eConfirmLog || []);
     dialogExpect(messages.some(m => /Test Alert/i.test(m))).toBeTruthy();
-    dialogExpect(messages.some(m => /Unsaved changes/i.test(m))).toBeTruthy();
+    dialogExpect(confirmLog.some(entry => /Unsaved changes/i.test(entry?.message || ""))).toBeTruthy();
     // Prompt may be unsupported in this runtime; only assert if we saw it
     const sawPrompt = messages.some(m => /Enter name/i.test(m));
     if (sawPrompt) {

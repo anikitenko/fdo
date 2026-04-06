@@ -4,7 +4,7 @@ import classNames from "classnames";
 import * as styles from "./css/SideBar.module.css"
 import PropTypes from "prop-types";
 
-export const SideBar = ({position, menuItems, click}) => {
+export const SideBar = ({position, menuItems, click, activeItemId = ""}) => {
     const [visibleItems, setVisibleItems] = useState(0);
     const [hiddenItems, setHiddenItems] = useState([]);
     const sidebarRef = useRef(null)
@@ -53,11 +53,17 @@ export const SideBar = ({position, menuItems, click}) => {
                             </Popover>
                         )}
                         {!item.submenu_list && (
-                            <Tooltip content={item.name}>
-                                <div className={styles["menu-item"]}>
+                            <Tooltip content={item.id === activeItemId ? `${item.name} (active)` : item.name}>
+                                <div
+                                    className={classNames(styles["menu-item"], item.id === activeItemId && styles["menu-item-active"])}
+                                    data-plugin-sidebar-item={item.id}
+                                    data-plugin-active={item.id === activeItemId ? "true" : "false"}
+                                >
                                     <div className={styles["notification-container"]}>
                                         <Button variant={"minimal"} size={"large"} aria-label={item.icon}
-                                                onClick={() => click(item.id)} loading={item.loading}>
+                                                onClick={() => click(item.id)} loading={item.loading}
+                                                intent={item.id === activeItemId ? "primary" : "none"}
+                                                aria-pressed={item.id === activeItemId}>
                                             <Icon icon={item.icon} size={20}/>
                                         </Button>
                                         <span
@@ -98,5 +104,6 @@ export const SideBar = ({position, menuItems, click}) => {
 SideBar.propTypes = {
     position: PropTypes.string,
     menuItems: PropTypes.array,
-    click: PropTypes.func
+    click: PropTypes.func,
+    activeItemId: PropTypes.string,
 }

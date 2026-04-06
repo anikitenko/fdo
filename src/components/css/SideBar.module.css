@@ -47,6 +47,11 @@
     background: rgba(255, 255, 255, 0.1);
 }
 
+.menu-item-active {
+    background: rgba(45, 114, 210, 0.22);
+    border-left: 2px solid #2d72d2;
+}
+
 .menu-text {
     transition: opacity 0.3s ease;
 }

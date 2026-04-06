@@ -8,13 +8,14 @@ import {IconNames} from "@blueprintjs/icons";
 import * as styles from "./EditorPage.module.css";
 
 import build from "./utils/build";
+import runTests from "./utils/runTests";
 import PropTypes from "prop-types";
 
 import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
 import {RootCertificateSelectionComponent, selectRootCert} from "./utils/RootCertificateSelectionComponent";
 
-const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
+const CodeDeployActions = ({setSelectedTabId, currentSelectedTabId, pluginDirectory}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
     const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
     const [versions, setVersions] = useState(virtualFS.fs.list())
@@ -24,6 +25,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
     const [prettyVersionDate, setPrettyVersionDate] = useState("")
     const [buildInProgress, setBuildInProgress] = useState(false)
     const [deployInProgress, setDeployInProgress] = useState(false)
+    const [testsInProgress, setTestsInProgress] = useState(false)
     const [saveAndCloseInProgress, setSaveAndCloseInProgress] = useState(false)
     const [treeLoading, setTreeLoading] = useState(virtualFS.fs.getLoading())
     const [rootCertificates, setRootCertificates] = useState([])
@@ -125,9 +127,20 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
 
     const triggerBuild = async () => {
         setBuildInProgress(true)
-        setSelectedTabId("output")
+        if (currentSelectedTabId !== "ai-agent") {
+            setSelectedTabId("output")
+        }
         await build()
         setBuildInProgress(false)
+    }
+
+    const triggerRunTests = async () => {
+        setTestsInProgress(true)
+        if (currentSelectedTabId !== "ai-agent") {
+            setSelectedTabId("tests")
+        }
+        await runTests()
+        setTestsInProgress(false)
     }
 
     const triggerDeploy = async () => {
@@ -263,6 +276,8 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
               defaultCollapsed={false}
               sticky={(
                 <ButtonGroup fill={true} vertical={true}>
+                  <Button text="Run Tests" intent="warning" icon="endorsed" loading={testsInProgress}
+                          onClick={async () => await triggerRunTests()} />
                   <Button text="Compile" intent="primary" icon="build" loading={buildInProgress}
                           onClick={async () => await triggerBuild()} />
                   <Button text="Deploy" intent="success" icon="share" loading={deployInProgress}
@@ -307,6 +322,7 @@ const CodeDeployActions = ({setSelectedTabId, pluginDirectory}) => {
 }
 CodeDeployActions.propTypes = {
     setSelectedTabId: PropTypes.func.isRequired,
+    currentSelectedTabId: PropTypes.string,
     pluginDirectory: PropTypes.string.isRequired
 }
 

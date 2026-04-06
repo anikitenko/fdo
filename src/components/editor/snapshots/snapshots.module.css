@@ -25,15 +25,34 @@
 .statusPill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 30px;
+  gap: 7px;
+  min-height: 26px;
   padding: 0 10px;
   border-radius: 999px;
-  background: rgba(63, 81, 181, 0.18);
-  border: 1px solid rgba(99, 114, 245, 0.32);
-  color: #dbe6ff;
+  background: rgba(90, 104, 138, 0.14);
+  border: 1px solid rgba(122, 138, 173, 0.24);
+  color: rgba(223, 232, 255, 0.9);
   font-size: 12px;
   white-space: nowrap;
+  box-shadow: none;
+}
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #7ea7ff;
+  box-shadow: 0 0 0 4px rgba(126, 167, 255, 0.12);
+  animation: snapshot-status-pulse 1.4s ease-in-out infinite;
+}
+@keyframes snapshot-status-pulse {
+  0%, 100% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .timeline-menu { min-width: 280px; }
 .menu-item-row { display: flex; align-items: center; gap: 8px; }

@@ -120,4 +120,52 @@ describe('VirtualFS snapshots', () => {
       localStorage.setItem = origSetItem;
     }
   });
+
+  test('getLatestContent and getModel recover from disposed Monaco models', () => {
+    const model = createModel('/index.ts', 'export const value = 1;');
+    model.dispose();
+
+    expect(() => virtualFS.getLatestContent()).not.toThrow();
+    expect(virtualFS.getLatestContent()['/index.ts']).toBe('export const value = 1;');
+
+    const recoveredModel = virtualFS.getModel('/index.ts');
+    expect(recoveredModel).toBeTruthy();
+    expect(recoveredModel.isDisposed()).toBe(false);
+    expect(recoveredModel.getValue()).toBe('export const value = 1;');
+  });
+
+  test('fallback SDK typings include operator response helpers and response types', async () => {
+    window.electron = window.electron || {};
+    window.electron.fs = {
+      getNodeModules: jest.fn().mockResolvedValue({success: true, files: []}),
+    };
+    window.electron.sdk = {
+      getTypes: jest.fn().mockResolvedValue({success: true, files: []}),
+    };
+
+    await virtualFS.fs.setupNodeModules();
+
+    const fallbackTypes = virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/index.d.ts');
+    expect(fallbackTypes).toContain('createPrivilegedActionCorrelationId');
+    expect(fallbackTypes).toContain('createPrivilegedActionBackendRequest');
+    expect(fallbackTypes).toContain('requestPrivilegedAction');
+    expect(fallbackTypes).toContain('createScopedProcessExecActionRequest');
+    expect(fallbackTypes).toContain('requestScopedProcessExec');
+    expect(fallbackTypes).toContain('getOperatorToolPreset');
+    expect(fallbackTypes).toContain('listOperatorToolPresets');
+    expect(fallbackTypes).toContain('createOperatorToolCapabilityPreset');
+    expect(fallbackTypes).toContain('createOperatorToolActionRequest');
+    expect(fallbackTypes).toContain('requestOperatorTool');
+    expect(fallbackTypes).toContain('createCapabilityBundle');
+    expect(fallbackTypes).toContain('createFilesystemCapabilityBundle');
+    expect(fallbackTypes).toContain('createProcessCapabilityBundle');
+    expect(fallbackTypes).toContain('describeCapability');
+    expect(fallbackTypes).toContain('parseMissingCapabilityError');
+    expect(fallbackTypes).toContain('isPrivilegedActionSuccessResponse');
+    expect(fallbackTypes).toContain('isPrivilegedActionErrorResponse');
+    expect(fallbackTypes).toContain('unwrapPrivilegedActionResponse');
+    expect(fallbackTypes).toContain('export type PrivilegedActionResponse');
+    expect(fallbackTypes).toContain('export type PrivilegedActionSuccessResponse');
+    expect(fallbackTypes).toContain('export type PrivilegedActionErrorResponse');
+  });
 });

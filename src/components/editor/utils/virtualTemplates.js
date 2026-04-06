@@ -5,34 +5,28 @@ import {Render} from "./render"
 class MyPlugin extends FDO_SDK implements FDOInterface {
 `
     const data_metadata = `
-    private readonly _metadata: PluginMetadata = {
-        name: "${name}",
-        version: "1.0.0",
-        author: "AleXvWaN",
-        description: "A sample FDO plugin",
-        icon: "COG",
-    };`
-    const data_constructor = `
-    constructor() {
-        super();
-    }
-    `
-    const data_get_metadata = `
     public get metadata(): PluginMetadata {
-        return this._metadata;
+        return {
+            name: "${name}",
+            version: "1.0.0",
+            author: "AleXvWaN",
+            description: "A sample FDO plugin",
+            icon: "cog",
+        };
     }
     `
     const data_init = `
     public init(): void {
-        this.log("MyPlugin initialized!");
+        this.log(this.metadata.name + " initialized!");
     }
     `
     const data_render = `
     public render(): string {
+        const metadata = this.metadata;
         return (Render({
-            version: this._metadata.version,
-            author: this._metadata.author,
-            description: this._metadata.description
+            version: metadata.version,
+            author: metadata.author,
+            description: metadata.description
         }))
     }
     `
@@ -42,7 +36,7 @@ export default MyPlugin;
 
 new MyPlugin();
 `
-    return data_class_header + data_metadata + data_constructor + data_get_metadata + data_init + data_render + data_class_footer;
+    return data_class_header + data_metadata + data_init + data_render + data_class_footer;
 }
 
 export const BLANK_TEMPLATE_RENDER = (name) => {

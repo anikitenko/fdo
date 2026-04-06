@@ -229,4 +229,79 @@ describe("editor snapshot state", () => {
         expect(nodeModulesLoadingStates).toEqual([true, false]);
 
     });
+
+    test("node_modules preload tolerates non-iterable SDK types payload", async () => {
+        const originalGetFdoSdkTypes = window.electron.system.getFdoSdkTypes;
+        window.electron.system.getFdoSdkTypes = jest.fn().mockResolvedValue({
+            success: false,
+            error: "types unavailable",
+        });
+
+        const addToQueueSpy = jest.spyOn(virtualFS.notifications, "addToQueue");
+
+        try {
+            await expect(virtualFS.fs.setupNodeModules()).resolves.toBeUndefined();
+        } finally {
+            window.electron.system.getFdoSdkTypes = originalGetFdoSdkTypes;
+        }
+
+        const nodeModulesLoadingStates = addToQueueSpy.mock.calls
+            .filter(([eventType]) => eventType === "nodeModulesLoading")
+            .map(([, value]) => value);
+        expect(nodeModulesLoadingStates).toEqual([true, false]);
+    });
+
+    test("node_modules preload injects fallback SDK declarations when SDK types are missing", async () => {
+        const originalGetFdoSdkTypes = window.electron.system.getFdoSdkTypes;
+        window.electron.system.getFdoSdkTypes = jest.fn().mockResolvedValue({
+            success: true,
+            files: [],
+        });
+        const addExtraLibSpy = jest.spyOn(monaco.typescript.typescriptDefaults, "addExtraLib");
+
+        try {
+            await virtualFS.fs.setupNodeModules();
+        } finally {
+            window.electron.system.getFdoSdkTypes = originalGetFdoSdkTypes;
+        }
+
+        expect(addExtraLibSpy).toHaveBeenCalledWith(
+            expect.stringContaining('declare module "@anikitenko/fdo-sdk"'),
+            "/node_modules/@anikitenko/fdo-sdk/index.d.ts"
+        );
+    });
+
+    test("restore loading watchdog recovers stuck restore state", () => {
+        jest.useFakeTimers();
+        try {
+            const addToQueueSpy = jest.spyOn(virtualFS.notifications, "addToQueue");
+
+            virtualFS.fs.setRestoreLoading();
+            expect(virtualFS.fs.getRestoreLoading()).toBe(true);
+
+            jest.advanceTimersByTime(virtualFS.fs.restoreLoadingWatchdogMs + 50);
+
+            expect(virtualFS.fs.getRestoreLoading()).toBe(false);
+            const restoreLoadingStates = addToQueueSpy.mock.calls
+                .filter(([eventType]) => eventType === "restoreLoading")
+                .map(([, value]) => value);
+            expect(restoreLoadingStates).toEqual([true, false]);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test("notification queue flushes restoreLoading transitions without long backlog delay", async () => {
+        const restoreStates = [];
+        virtualFS.notifications.subscribe("restoreLoading", (value) => restoreStates.push(value));
+
+        virtualFS.notifications.addToQueue("restoreLoading", true);
+        for (let i = 0; i < 120; i += 1) {
+            virtualFS.notifications.addToQueue("treeUpdate", []);
+        }
+        virtualFS.notifications.addToQueue("restoreLoading", false);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(restoreStates).toEqual([true, false]);
+    });
 });

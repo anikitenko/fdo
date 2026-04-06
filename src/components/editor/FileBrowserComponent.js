@@ -17,7 +17,7 @@ const FileBrowserComponent = () => {
     const [nodeModulesLoading, setNodeModulesLoading] = useState(virtualFS.fs.getNodeModulesLoading())
     const [contextElement, setContextElement] = useState(null)
     const {show} = useContextMenu();
-    const interactionsBlocked = restoreLoading || nodeModulesLoading;
+    const interactionsBlocked = restoreLoading;
 
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("treeUpdate", setTreeData);
@@ -31,6 +31,23 @@ const FileBrowserComponent = () => {
             unsubscribeNodeModulesLoading();
         }
     }, []);
+
+    useEffect(() => {
+        if (!restoreLoading) return;
+        let cancelled = false;
+        const sync = () => {
+            if (cancelled) return;
+            if (!virtualFS.fs.getRestoreLoading()) {
+                setRestoreLoading(false);
+                return;
+            }
+            requestAnimationFrame(sync);
+        };
+        requestAnimationFrame(sync);
+        return () => {
+            cancelled = true;
+        };
+    }, [restoreLoading]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -102,7 +119,7 @@ const FileBrowserComponent = () => {
                 onNodeExpand={handleNodeExpand}
                 onNodeCollapse={handleNodeCollapse}
                 onNodeContextMenu={handleContextMenu}
-                className={classnames(styles["file-tree"], (restoreLoading || nodeModulesLoading) && styles["subtleBusySurface"])}
+                className={classnames(styles["file-tree"], restoreLoading && styles["subtleBusySurface"])}
             />
             <ContextMenu contextElement={contextElement} />
         </>

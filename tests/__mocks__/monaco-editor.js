@@ -9,6 +9,22 @@ function UriFile(path) {
   };
 }
 
+const languageDefaults = {
+  addExtraLib: jest.fn(),
+  getCompilerOptions: () => ({}),
+  setCompilerOptions: jest.fn(),
+  setDiagnosticsOptions: jest.fn(),
+  setEagerModelSync: jest.fn(),
+};
+
+const javascriptDefaults = {
+  addExtraLib: jest.fn(),
+  getCompilerOptions: () => ({}),
+  setCompilerOptions: jest.fn(),
+  setDiagnosticsOptions: jest.fn(),
+  setEagerModelSync: jest.fn(),
+};
+
 const monaco = {
   Uri: {
     file: (p) => ({ toString: () => `file://${p}`, toString: (x) => `file://${p}` }),
@@ -20,24 +36,42 @@ const monaco = {
       const model = {
         uri,
         _value: String(value || ''),
-        getValue() { return this._value; },
-        setValue(v) { this._value = String(v); },
-        dispose() { models.delete(uri.toString()); },
+        _disposed: false,
+        getLanguageId() { return _lang || ''; },
+        getValue() {
+          if (this._disposed) {
+            throw new Error('Model is disposed!');
+          }
+          return this._value;
+        },
+        setValue(v) {
+          if (this._disposed) {
+            throw new Error('Model is disposed!');
+          }
+          this._value = String(v);
+        },
+        isDisposed() { return this._disposed; },
+        dispose() {
+          this._disposed = true;
+          models.delete(uri.toString());
+        },
       };
       models.set(uri.toString(), model);
       return model;
     },
     setModelMarkers: jest.fn(),
+    getModelMarkers: jest.fn(() => []),
     onDidCreateEditor: (cb) => { setTimeout(cb, 0); return { dispose() {} }; },
     registerEditorOpener: jest.fn(),
   },
+  typescript: {
+    typescriptDefaults: languageDefaults,
+    javascriptDefaults,
+  },
   languages: {
     typescript: {
-      typescriptDefaults: {
-        addExtraLib: jest.fn(),
-        getCompilerOptions: () => ({}),
-        setCompilerOptions: jest.fn(),
-      },
+      typescriptDefaults: languageDefaults,
+      javascriptDefaults,
     },
   },
 };

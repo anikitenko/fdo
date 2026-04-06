@@ -158,4 +158,26 @@ describe('SnapshotToolbarActions', () => {
     expect(screen.getByRole('button', { name: /Switch Anyway/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
   });
+
+  test('external snapshot creation emits snapshotSaved for provider synchronization', async () => {
+    const monaco = require('monaco-editor');
+    const model = monaco.editor.createModel('A', 'plaintext', monaco.Uri.file('/a.ts'));
+    virtualFS.createFile('/a.ts', model);
+    const addToQueueSpy = jest.spyOn(virtualFS.notifications, 'addToQueue');
+
+    render(<Wrapper><SnapshotToolbarActions /></Wrapper>);
+
+    expect(screen.getByRole('button', { name: /Snapshot/i })).toHaveClass('bp6-intent-success');
+    expect(screen.getByRole('button', { name: /Recent/i })).toHaveClass('bp6-intent-primary');
+
+    const created = virtualFS.fs.create('', [], { quiet: true });
+
+    await waitFor(() => {
+      expect(addToQueueSpy).toHaveBeenCalledWith('snapshotSaved', expect.objectContaining({
+        version: created.version,
+        prev: '',
+        quiet: true,
+      }));
+    });
+  });
 });

@@ -232,6 +232,7 @@ async function detectExecCapabilities(command = "", baseArgs = []) {
         supportsSandbox: /--sandbox\b/.test(helpText),
         supportsSkipGitRepoCheck: /--skip-git-repo-check\b/.test(helpText),
         supportsModel: /--model\b/.test(helpText),
+        supportsJson: /--json\b/.test(helpText),
     };
 }
 
