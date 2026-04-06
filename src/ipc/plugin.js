@@ -1,7 +1,7 @@
-import {app, ipcMain} from "electron";
+import {app, dialog, ipcMain} from "electron";
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
 import {rmSync, chmodSync, existsSync, statSync} from "node:fs";
-import { readFile } from 'node:fs/promises';
+import {readFile, readdir, stat} from 'node:fs/promises';
 import Module from 'node:module';
 import PluginORM from "../utils/PluginORM";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "../main.js";
@@ -24,6 +24,27 @@ import {v4 as uuidv4} from 'uuid';
 
 import archiver from "archiver"
 import {extractMetadata} from "../utils/extractMetadata";
+import {normalizeAndValidatePluginMetadata} from "../utils/pluginMetadataContract";
+import {runPluginWorkspaceTests} from "../utils/pluginTestRunner";
+import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/pluginRuntimeSecurity";
+import {
+    executeHostPrivilegedAction,
+    HOST_PRIVILEGED_HANDLER,
+    HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+} from "../utils/hostPrivilegedActions";
+import {HOST_FS_SCOPE_REGISTRY} from "../utils/privilegedFsScopeRegistry";
+import {HOST_PROCESS_SCOPE_REGISTRY} from "../utils/privilegedProcessScopeRegistry";
+
+function buildHostPluginMessage(message, content = undefined) {
+    const envelope = { message };
+    if (content !== undefined) {
+        envelope.content = content;
+    }
+    return {
+        ...envelope,
+        data: envelope,
+    };
+}
 
 export async function buildUsingEsbuild(virtualData) {
     const isDev = !app.isPackaged;
@@ -64,6 +85,7 @@ export async function buildUsingEsbuild(virtualData) {
         format: "cjs",
         platform: "node",
         write: false,
+        external: ["@anikitenko/fdo-sdk"],
         plugins: [
             EsbuildVirtualFsPlugin(virtualData)
         ],
@@ -80,7 +102,206 @@ export async function buildUsingEsbuild(virtualData) {
     });
 }
 
+async function getPluginLogTail(pluginId, options = {}) {
+    const maxFiles = Math.max(1, Math.min(8, Number(options?.maxFiles || 4)));
+    const maxChars = Math.max(1000, Math.min(40000, Number(options?.maxChars || 12000)));
+    const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+    const plugin = pluginORM.getPlugin(pluginId);
+
+    if (!plugin?.id) {
+        return {success: false, error: `Plugin "${pluginId}" not found`, pluginId, logs: [], combined: ""};
+    }
+
+    const userDataRoot = process.env.FDO_E2E_USER_DATA_DIR || app.getPath("userData");
+    const logDir = path.join(userDataRoot, "plugin-data", pluginId, "logs");
+    if (!existsSync(logDir)) {
+        return {success: false, error: "No plugin runtime logs found", pluginId, logDir, logs: [], combined: ""};
+    }
+
+    const entries = await readdir(logDir, {withFileTypes: true});
+    const fileStats = [];
+    for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const filePath = path.join(logDir, entry.name);
+        try {
+            const details = await stat(filePath);
+            fileStats.push({
+                filePath,
+                fileName: entry.name,
+                mtimeMs: details.mtimeMs || 0,
+            });
+        } catch (_) {
+            // Ignore unreadable files and continue.
+        }
+    }
+
+    const selectedFiles = fileStats
+        .sort((a, b) => b.mtimeMs - a.mtimeMs || a.fileName.localeCompare(b.fileName))
+        .slice(0, maxFiles);
+
+    if (selectedFiles.length === 0) {
+        return {success: false, error: "No plugin runtime logs found", pluginId, logDir, logs: [], combined: ""};
+    }
+
+    const logs = [];
+    const combinedParts = [];
+    const perFileBudget = Math.max(500, Math.floor(maxChars / selectedFiles.length));
+
+    for (const file of selectedFiles) {
+        try {
+            const content = await readFile(file.filePath, "utf8");
+            const tail = String(content || "").slice(-perFileBudget);
+            logs.push({
+                file: file.fileName,
+                size: tail.length,
+                tail,
+            });
+            combinedParts.push(`Log file: ${file.fileName}\n\`\`\`\n${tail}\n\`\`\``);
+        } catch (error) {
+            logs.push({
+                file: file.fileName,
+                size: 0,
+                tail: "",
+                error: error?.message || String(error),
+            });
+        }
+    }
+
+    return {
+        success: true,
+        pluginId,
+        logDir,
+        logs,
+        combined: combinedParts.join("\n\n"),
+    };
+}
+
+async function getPluginLogTrace(pluginId, options = {}) {
+    const maxNotifications = Math.max(1, Math.min(20, Number(options?.maxNotifications || 8)));
+    const maxLifecycleEvents = Math.max(5, Math.min(200, Number(options?.maxLifecycleEvents || 80)));
+    const runtimeStatus = {
+        loading: !!PluginManager.loadingPlugins?.[pluginId],
+        loaded: !!PluginManager.getLoadedPlugin(pluginId),
+        ready: !!PluginManager.getLoadedPluginReady(pluginId),
+        inited: !!PluginManager.getLoadedPluginInited(pluginId),
+        lastUnload: PluginManager.lastUnloadByPlugin?.[pluginId] || null,
+    };
+    const lifecycleEvents = typeof PluginManager.getPluginEventTrace === "function"
+        ? PluginManager.getPluginEventTrace(pluginId, {limit: maxLifecycleEvents})
+        : [];
+    const liveOutputTail = Array.isArray(PluginManager.pluginRuntimeOutputTail?.[pluginId])
+        ? PluginManager.pluginRuntimeOutputTail[pluginId]
+        : [];
+
+    const tail = await getPluginLogTail(pluginId, options).catch((error) => ({
+        success: false,
+        error: error?.message || String(error),
+        pluginId,
+        logs: [],
+        combined: "",
+    }));
+
+    const pluginToken = String(pluginId || "").toLowerCase();
+    const relatedNotifications = NotificationCenter.getAllNotifications()
+        .filter((item) => {
+            const title = String(item?.title || "").toLowerCase();
+            const message = String(item?.message || "").toLowerCase();
+            return pluginToken && (title.includes(pluginToken) || message.includes(pluginToken));
+        })
+        .slice(-maxNotifications);
+
+    const notificationText = relatedNotifications.length > 0
+        ? relatedNotifications.map((item) => {
+            return [
+                `- [${item?.createdAt || ""}] ${item?.title || ""}`,
+                String(item?.message || ""),
+            ].join("\n");
+        }).join("\n\n")
+        : "No recent host notifications mentioning this plugin.";
+
+    const runtimeText = [
+        `Runtime status for "${pluginId}":`,
+        `loading=${runtimeStatus.loading}; loaded=${runtimeStatus.loaded}; ready=${runtimeStatus.ready}; inited=${runtimeStatus.inited}`,
+        runtimeStatus.lastUnload
+            ? `lastUnload=${JSON.stringify(runtimeStatus.lastUnload)}`
+            : "lastUnload=none",
+    ].join("\n");
+    const lifecycleText = lifecycleEvents.length > 0
+        ? lifecycleEvents.map((entry) => {
+            const isoTs = Number.isFinite(entry?.ts) ? new Date(entry.ts).toISOString() : "unknown-ts";
+            return `- [${isoTs}] ${entry?.event || "unknown"} ${JSON.stringify(entry?.details || {})}`;
+        }).join("\n")
+        : "No in-memory lifecycle trace available.";
+    const liveOutputText = liveOutputTail.length > 0
+        ? liveOutputTail.join("\n")
+        : "No active runtime stdout/stderr tail available.";
+
+    const combined = [
+        runtimeText,
+        "",
+        "Host lifecycle trace:",
+        lifecycleText,
+        "",
+        "Live runtime output tail:",
+        liveOutputText,
+        "",
+        "Related host notifications:",
+        notificationText,
+        "",
+        "Plugin runtime logs:",
+        tail?.combined || "No runtime log files found.",
+    ].join("\n");
+
+    return {
+        success: true,
+        pluginId,
+        runtimeStatus,
+        lifecycleEvents,
+        liveOutputTail,
+        notifications: relatedNotifications,
+        logTail: tail,
+        combined,
+    };
+}
+
 export function registerPluginHandlers() {
+    const emitPrivilegedAudit = (event) => {
+        console.info("[PLUGIN_PRIVILEGED_AUDIT]", JSON.stringify(event));
+    };
+
+    const handlePrivilegedAction = async (pluginId, loadedPlugin, payload = {}) => {
+        const correlationId = typeof payload?.correlationId === "string" && payload.correlationId.trim()
+            ? payload.correlationId.trim()
+            : `priv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const request = payload?.request ?? payload;
+
+        return executeHostPrivilegedAction(request, {
+            pluginId,
+            correlationId,
+            grantedCapabilities: loadedPlugin?.grantedCapabilities || [],
+            onAudit: emitPrivilegedAudit,
+            confirmPrivilegedAction: async ({title, message, detail, confirmLabel, cancelLabel, action}) => {
+                const defaultTitle = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
+                    ? "Confirm Scoped Process Execution"
+                    : "Confirm Privileged Plugin Action";
+                const defaultMessage = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
+                    ? "Plugin requests running an approved external tool"
+                    : "Plugin requests a privileged host action";
+                const result = await dialog.showMessageBox({
+                    type: "warning",
+                    title: title || defaultTitle,
+                    message: message || defaultMessage,
+                    detail: detail || "",
+                    buttons: [cancelLabel || "Cancel", confirmLabel || "Apply"],
+                    cancelId: 0,
+                    defaultId: 1,
+                    noLink: true,
+                });
+                return result.response === 1;
+            },
+        });
+    };
+
     ipcMain.handle(PluginChannels.GET_DATA, async (event, pluginPath) => {
         try {
             if (process.env.FDO_E2E === "1" && typeof pluginPath === "string" && pluginPath.startsWith("/tmp/e2e-")) {
@@ -167,6 +388,7 @@ export function registerPluginHandlers() {
 
     ipcMain.handle(PluginChannels.SAVE, async (event, data) => {
         const {name, content, metadata, entrypoint} = data;
+        const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : [];
         try {
             const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
             const pluginName = generatePluginName(name)
@@ -177,7 +399,7 @@ export function registerPluginHandlers() {
                 if (!result) {
                     rmSync(pluginPath, {recursive: true, force: true})
                 }
-                pluginORM.addPlugin(pluginName, metadata, pluginPath, entrypoint)
+                pluginORM.addPlugin(pluginName, metadata, pluginPath, entrypoint, false, capabilities)
 
                 PluginManager.sendToMainWindow(PluginChannels.on_off.DEPLOY_FROM_EDITOR, pluginName)
 
@@ -222,6 +444,20 @@ export function registerPluginHandlers() {
         }
     });
 
+    ipcMain.handle(PluginChannels.GET_SCOPE_POLICIES, async () => {
+        try {
+            return {
+                success: true,
+                scopes: [
+                    ...Object.values(HOST_FS_SCOPE_REGISTRY || {}),
+                    ...Object.values(HOST_PROCESS_SCOPE_REGISTRY || {}),
+                ],
+            };
+        } catch (error) {
+            return {success: false, error: error.message, scopes: []};
+        }
+    });
+
     ipcMain.handle(PluginChannels.GET_RUNTIME_STATUS, async (event, ids = []) => {
         try {
             const requestedIds = Array.isArray(ids) ? ids : [];
@@ -230,6 +466,8 @@ export function registerPluginHandlers() {
                 loading: !!PluginManager.loadingPlugins?.[id],
                 loaded: !!PluginManager.getLoadedPlugin(id),
                 ready: !!PluginManager.getLoadedPluginReady(id),
+                inited: !!PluginManager.getLoadedPluginInited(id),
+                lastUnload: PluginManager.lastUnloadByPlugin?.[id] || null,
             }));
             return { success: true, statuses };
         } catch (error) {
@@ -291,23 +529,43 @@ export function registerPluginHandlers() {
 
     ipcMain.handle(PluginChannels.INIT, async (event, id) => {
         const plugin = PluginManager.getLoadedPlugin(id)
-        if (plugin.ready) {
-            plugin.instance.postMessage({message: 'PLUGIN_INIT'})
+        if (!plugin) {
+            return {success: false, error: `Plugin "${id}" is not loaded`};
         }
+        if (!plugin.ready) {
+            return {success: false, error: `Plugin "${id}" is not ready`};
+        }
+        plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_INIT", {
+            ...buildPluginInitPayload(plugin.grantedCapabilities || resolveHostGrantedCapabilities()),
+        }))
+        return {success: true};
     })
 
     ipcMain.handle(PluginChannels.RENDER, async (event, id) => {
         const plugin = PluginManager.getLoadedPlugin(id)
-        if (plugin.ready) {
-            plugin.instance.postMessage({message: 'PLUGIN_RENDER'})
+        if (!plugin) {
+            return {success: false, error: `Plugin "${id}" is not loaded`};
         }
+        if (!plugin.ready) {
+            return {success: false, error: `Plugin "${id}" is not ready`};
+        }
+        plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_RENDER"))
+        return {success: true};
     })
 
     ipcMain.handle(PluginChannels.UI_MESSAGE, async (event, id, content) => {
         const plugin = PluginManager.getLoadedPlugin(id)
-        if (plugin.ready) {
-            plugin.instance.postMessage({message: 'UI_MESSAGE', content})
+        if (!plugin) {
+            return {success: false, error: `Plugin "${id}" is not loaded`};
         }
+        if (!plugin.ready) {
+            return {success: false, error: `Plugin "${id}" is not ready`};
+        }
+        if (content?.handler === HOST_PRIVILEGED_HANDLER) {
+            return handlePrivilegedAction(id, plugin, content?.content || {});
+        }
+        plugin.instance.postMessage(buildHostPluginMessage("UI_MESSAGE", content))
+        return {success: true};
     })
 
     ipcMain.handle(PluginChannels.BUILD, async (event, data) => {
@@ -320,65 +578,82 @@ export function registerPluginHandlers() {
         }
     });
 
+    ipcMain.handle(PluginChannels.RUN_TESTS, async (event, data) => {
+        try {
+            return await runPluginWorkspaceTests(data?.latestContent || {});
+        } catch (error) {
+            NotificationCenter.addNotification({title: `Test error`, message: error.toString(), type: "danger"});
+            return {success: false, error: `Test error: ${error.toString()}`, output: ""};
+        }
+    });
+
     ipcMain.handle(PluginChannels.DEPLOY_FROM_EDITOR, async (event, data) => {
-        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
-        const plugin = pluginORM.getPlugin(data.name);
-        let pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
-        if (plugin) {
-            pathToDir = plugin.home
-        }
-        const pathToPlugin = path.join(pathToDir, data.entrypoint)
-        const metadata = data.metadata
-        metadata.icon = metadata.icon.toLowerCase()
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const plugin = pluginORM.getPlugin(data.name);
+            let pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
+            if (plugin) {
+                pathToDir = plugin.home
+            }
+            const pathToPlugin = path.join(pathToDir, data.entrypoint)
+            const metadata = normalizeAndValidatePluginMetadata(data.metadata)
 
-        await ensureAndWrite(pathToPlugin, data.content)
-        const signResult = Certs.signPlugin(pathToDir, data.rootCert)
-        if (!signResult.success) {
-            return signResult
-        }
-        pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true)
+            await ensureAndWrite(pathToPlugin, data.content)
+            const signResult = Certs.signPlugin(pathToDir, data.rootCert)
+            if (!signResult.success) {
+                return signResult
+            }
+            const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : (plugin?.capabilities || []);
+            pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true, capabilities)
 
-        const mainWindow = PluginManager.mainWindow
-        if (mainWindow) {
-            mainWindow.focus()
+            const mainWindow = PluginManager.mainWindow
+            if (mainWindow) {
+                mainWindow.focus()
+            }
+            mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
+            return {success: true}
+        } catch (error) {
+            return {success: false, error: error.message};
         }
-        mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
-        return {success: true}
     })
 
     ipcMain.handle(PluginChannels.SAVE_FROM_EDITOR, async (event, data) => {
-        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
-        const plugin = pluginORM.getPlugin(data.name);
-        let pathToDir;
-        if (data.dir === "sandbox" || data.dir.includes(data.sandbox) || !plugin) {
-            pathToDir = path.join(PLUGINS_DIR, data.name)
-        } else {
-            pathToDir = plugin.home
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const plugin = pluginORM.getPlugin(data.name);
+            let pathToDir;
+            if (data.dir === "sandbox" || data.dir.includes(data.sandbox) || !plugin) {
+                pathToDir = path.join(PLUGINS_DIR, data.name)
+            } else {
+                pathToDir = plugin.home
+            }
+
+            await syncPluginDir(pathToDir, data.content)
+
+            const signResult = Certs.signPlugin(pathToDir, data.rootCert)
+            if (!signResult.success) {
+                return signResult
+            }
+
+            const metadata = normalizeAndValidatePluginMetadata(data.metadata)
+            const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : (plugin?.capabilities || []);
+            pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true, capabilities)
+
+            if (data.dir.includes(data.sandbox)) {
+                rmSync(data.dir, {recursive: true, force: true})
+                const mainWindow = PluginManager.mainWindow
+                mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
+            }
+
+            const editorWindowInstance = editorWindow.getWindow()
+            if (editorWindowInstance) {
+                editorWindowInstance.destroy();
+            }
+
+            return {success: true}
+        } catch (error) {
+            return {success: false, error: error.message};
         }
-
-        await syncPluginDir(pathToDir, data.content)
-
-        const signResult = Certs.signPlugin(pathToDir, data.rootCert)
-        if (!signResult.success) {
-            return signResult
-        }
-
-        const metadata = data.metadata
-        metadata.icon = metadata.icon.toLowerCase()
-        pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true)
-
-        if (data.dir.includes(data.sandbox)) {
-            rmSync(data.dir, {recursive: true, force: true})
-            const mainWindow = PluginManager.mainWindow
-            mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
-        }
-
-        const editorWindowInstance = editorWindow.getWindow()
-        if (editorWindowInstance) {
-            editorWindowInstance.destroy();
-        }
-
-        return {success: true}
     })
 
     ipcMain.handle(PluginChannels.VERIFY_SIGNATURE, async (event, id) => {
@@ -425,4 +700,34 @@ export function registerPluginHandlers() {
             archive.on('error', reject);
         });
     })
+
+    ipcMain.handle(PluginChannels.SET_CAPABILITIES, async (_event, id, capabilities = []) => {
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const result = pluginORM.setPluginCapabilities(id, capabilities);
+            if (!result.success) {
+                return result;
+            }
+            const plugin = pluginORM.getPlugin(id);
+            return {success: true, capabilities: result.capabilities, plugin};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error)};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_LOG_TAIL, async (_event, id, options = {}) => {
+        try {
+            return await getPluginLogTail(id, options);
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), pluginId: id, logs: [], combined: ""};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_LOG_TRACE, async (_event, id, options = {}) => {
+        try {
+            return await getPluginLogTrace(id, options);
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), pluginId: id, combined: ""};
+        }
+    });
 }

@@ -28,6 +28,13 @@ import {metricDensityReductionInterval} from "../utils/metricDensityReductionInt
 import {CertificateValidComponent} from "./editor/utils/CertificateValidComponent";
 import {RootCertificateSelectionComponent, selectRootCert} from "./editor/utils/RootCertificateSelectionComponent";
 import {CodeEditorSelectionComponent, selectCodeEditor} from "./editor/utils/CodeEditorSelectionComponent";
+import {
+    applyCapabilityToggle,
+    buildScopeCapabilities,
+    getSelectedScopeCapabilities,
+    hasCapabilitySelectionChanges
+} from "../utils/pluginCapabilitySelection";
+import {getCapabilityPresentation} from "../utils/capabilityPresentation";
 
 export const ManagePluginsDialog = ({
                                         show,
@@ -37,10 +44,13 @@ export const ManagePluginsDialog = ({
                                         deselectPlugin,
                                         selectPlugin,
                                         removePlugin,
-                                        setSearchActions
+                                        setSearchActions,
+                                        refreshPluginsState,
+                                        focusRequest,
                                     }) => {
     const [selectedTabId, setSelectedTabId] = useState(null);
     const [sortedPlugins, setSortedPlugins] = useState([]);
+    const [scopePolicies, setScopePolicies] = useState([]);
 
     useEffect(() => {
         if (!plugins) return;
@@ -90,6 +100,24 @@ export const ManagePluginsDialog = ({
             return [...prev, ...newActions];
         });
     }, [sortedPlugins, activePlugins]);
+
+    useEffect(() => {
+        if (!show) return;
+        window.electron.plugin.getScopePolicies().then((result) => {
+            if (result?.success) {
+                setScopePolicies(Array.isArray(result.scopes) ? result.scopes : []);
+                return;
+            }
+            setScopePolicies([]);
+        }).catch(() => {
+            setScopePolicies([]);
+        });
+    }, [show]);
+
+    useEffect(() => {
+        if (!show || !focusRequest?.pluginId) return;
+        setSelectedTabId(focusRequest.pluginId);
+    }, [show, focusRequest?.pluginId, focusRequest?.requestId]);
 
     return (
         <Dialog
@@ -142,6 +170,13 @@ export const ManagePluginsDialog = ({
                                                     deselectPlugin={deselectPlugin} removePlugin={removePlugin}
                                                     setSelectedTabId={setSelectedTabId}
                                                     selectedTabId={selectedTabId} setSortedPlugins={setSortedPlugins}
+                                                    scopePolicies={scopePolicies}
+                                                    refreshPluginsState={refreshPluginsState}
+                                                    highlightedCapabilityIds={
+                                                        focusRequest?.pluginId === plugin.id
+                                                            ? (Array.isArray(focusRequest?.capabilityIds) ? focusRequest.capabilityIds : [])
+                                                            : []
+                                                    }
                                  />
                              }/>
                     )
@@ -168,7 +203,13 @@ ManagePluginsDialog.propTypes = {
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,
     removePlugin: PropTypes.func,
-    setSearchActions: PropTypes.func
+    setSearchActions: PropTypes.func,
+    refreshPluginsState: PropTypes.func,
+    focusRequest: PropTypes.shape({
+        requestId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+        pluginId: PropTypes.string,
+        capabilityIds: PropTypes.array,
+    }),
 }
 
 const SelectPluginPanel = ({
@@ -179,8 +220,12 @@ const SelectPluginPanel = ({
                                removePlugin,
                                setSelectedTabId,
                                selectedTabId,
-                               setSortedPlugins
+                               setSortedPlugins,
+                               scopePolicies,
+                               refreshPluginsState,
+                               highlightedCapabilityIds,
                            }) => {
+    const BASE_PRIVILEGED_CAPABILITIES = ["system.hosts.write", "system.process.exec"];
     const [metrics, setMetrics] = useState([]);
     const [availableMetrics, setAvailableMetrics] = useState([]);
     const [selectedLines, setSelectedLines] = useState({});
@@ -197,6 +242,8 @@ const SelectPluginPanel = ({
     const [isOpenClean, setIsOpenClean] = useState(false)
     const [isLoadingClean, setIsLoadingClean] = useState(false)
     const [isOpenRemove, setIsOpenRemove] = useState(false)
+    const [capabilitiesDraft, setCapabilitiesDraft] = useState([]);
+    const [isSavingCapabilities, setIsSavingCapabilities] = useState(false);
 
     const [pluginVerification, setPluginVerification] = useState(null)
 
@@ -215,6 +262,74 @@ const SelectPluginPanel = ({
     const rememberEditorRef = useRef(false);
 
     const [exportProgress, setExportProgress] = useState(false)
+
+    useEffect(() => {
+        setCapabilitiesDraft(Array.isArray(plugin?.capabilities) ? plugin.capabilities : []);
+    }, [plugin?.id, plugin?.capabilities]);
+
+    const hasCapability = (capability) => capabilitiesDraft.includes(capability);
+
+    const setCapability = (capability, checked) => {
+        const scopeItem = scopeCapabilities.find((item) => item.capability === capability);
+        setCapabilitiesDraft((prev) => applyCapabilityToggle(prev, {
+            capability,
+            checked,
+            baseCapability: scopeItem?.baseCapability || capability,
+        }));
+    };
+
+    const scopeCapabilities = useMemo(() => buildScopeCapabilities(scopePolicies), [scopePolicies]);
+    const scopeCapabilitiesByBase = useMemo(() => {
+        return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
+            groups[baseCapability] = scopeCapabilities.filter((item) => item.baseCapability === baseCapability);
+            return groups;
+        }, {});
+    }, [scopeCapabilities]);
+    const baseCapabilityEnabled = useMemo(() => {
+        return BASE_PRIVILEGED_CAPABILITIES.reduce((acc, capability) => {
+            acc[capability] = hasCapability(capability);
+            return acc;
+        }, {});
+    }, [capabilitiesDraft]);
+    const selectedScopeCapabilitiesByBase = useMemo(() => {
+        return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
+            groups[baseCapability] = getSelectedScopeCapabilities(
+                capabilitiesDraft,
+                scopeCapabilitiesByBase[baseCapability] || [],
+            );
+            return groups;
+        }, {});
+    }, [capabilitiesDraft, scopeCapabilitiesByBase]);
+    const highlightedSet = useMemo(
+        () => new Set(Array.isArray(highlightedCapabilityIds) ? highlightedCapabilityIds : []),
+        [highlightedCapabilityIds]
+    );
+    const hasUnsavedCapabilityChanges = useMemo(
+        () => hasCapabilitySelectionChanges(plugin?.capabilities, capabilitiesDraft),
+        [plugin?.capabilities, capabilitiesDraft]
+    );
+
+    const saveCapabilities = async () => {
+        setIsSavingCapabilities(true);
+        try {
+            const nextCapabilities = [...new Set(capabilitiesDraft)];
+            const result = await window.electron.plugin.setCapabilities(plugin.id, nextCapabilities);
+            if (!result?.success) {
+                (await AppToaster).show({
+                    message: `Failed to save capabilities: ${result?.error || "unknown error"}`,
+                    intent: "danger",
+                });
+                return;
+            }
+            (await AppToaster).show({
+                message: `Capabilities updated for ${plugin.id}.`,
+                intent: "success",
+            });
+            await refreshPluginsState?.();
+        } finally {
+            setIsSavingCapabilities(false);
+        }
+    };
 
     const METRIC_COLORS = {
         "CPU Percent": "#FF5733", // Red-Orange
@@ -472,7 +587,7 @@ const SelectPluginPanel = ({
                                 if (activePlugins?.some((p) => p.id === plugin.id)) {
                                     deselectPlugin(plugin)
                                 } else {
-                                    selectPlugin(plugin)
+                                    selectPlugin(plugin, {open: true})
                                 }
                             }}
                     />
@@ -515,9 +630,11 @@ const SelectPluginPanel = ({
                             <div><span>Signed by <i
                                 className={"bp6-running-text"}>{pluginVerification.commonName?.value}</i></span></div>
                             <div className={"bp6-text-overflow-ellipsis"}><span>CA is <i
-                                className={"bp6-running-text"}>{pluginVerification.signer.label}</i></span>
+                                className={"bp6-running-text"}>{pluginVerification.signer?.label || "Unknown signer"}</i></span>
                             </div>
-                            <CertificateValidComponent cert={pluginVerification.signer}/>
+                            {pluginVerification.signer ? (
+                                <CertificateValidComponent cert={pluginVerification.signer}/>
+                            ) : null}
                         </>
                     )}
                 </div>
@@ -603,6 +720,131 @@ const SelectPluginPanel = ({
                             }}/>
                 )}
             </ControlGroup>
+            <Divider/>
+            <Card style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
+                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+                    <div>
+                        <div className={"bp6-heading"} style={{fontSize: "0.95rem"}}>Capabilities & Privileged Access</div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            Default is deny-by-default. Grant only what this plugin needs.
+                        </div>
+                    </div>
+                    <Button
+                        intent="primary"
+                        icon="floppy-disk"
+                        loading={isSavingCapabilities}
+                        disabled={!hasUnsavedCapabilityChanges}
+                        onClick={saveCapabilities}
+                    >
+                        {hasUnsavedCapabilityChanges ? "Save Capabilities" : "Saved"}
+                    </Button>
+                </div>
+                <Divider style={{marginTop: "10px", marginBottom: "10px"}}/>
+                {BASE_PRIVILEGED_CAPABILITIES.map((baseCapability) => {
+                    const groupedScopes = scopeCapabilitiesByBase[baseCapability] || [];
+                    const baseEnabled = !!baseCapabilityEnabled[baseCapability];
+
+                    return (
+                        <Card key={baseCapability} style={{marginBottom: "8px", border: "1px solid #eef0f2"}}>
+                            {highlightedSet.has(baseCapability) ? (
+                                <Tag intent="warning" minimal style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
+                            ) : null}
+                            <Checkbox
+                                checked={baseEnabled}
+                                label={getCapabilityPresentation(baseCapability, scopePolicies).title}
+                                onChange={(event) => setCapability(baseCapability, event.target.checked)}
+                            />
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                {getCapabilityPresentation(baseCapability, scopePolicies).description}
+                            </div>
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                Technical ID: <code>{baseCapability}</code>
+                            </div>
+                            {groupedScopes.map((scopeItem) => (
+                                <Card
+                                    key={scopeItem.capability}
+                                    style={{
+                                        marginTop: "8px",
+                                        marginBottom: "8px",
+                                        border: highlightedSet.has(scopeItem.capability) ? "1px solid #f6d667" : "1px solid #eef0f2",
+                                        background: highlightedSet.has(scopeItem.capability) ? "#fff8db" : "white",
+                                    }}
+                                >
+                                    {highlightedSet.has(scopeItem.capability) ? (
+                                        <Tag intent="warning" minimal style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
+                                    ) : null}
+                                    <Checkbox
+                                        checked={hasCapability(scopeItem.capability)}
+                                        disabled={!baseEnabled}
+                                        label={getCapabilityPresentation(scopeItem.capability, scopePolicies).title}
+                                        onChange={(event) => setCapability(scopeItem.capability, event.target.checked)}
+                                    />
+                                    <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                        {getCapabilityPresentation(scopeItem.capability, scopePolicies).description}
+                                    </div>
+                                    <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                        Technical ID: <code>{scopeItem.capability}</code>
+                                    </div>
+                                    <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                        Depends on: <code>{scopeItem.baseCapability}</code> | risk: {getCapabilityPresentation(scopeItem.capability, scopePolicies).risk}
+                                    </div>
+                                    {scopeItem.allowedRoots.length > 0 ? (
+                                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                            Roots: {scopeItem.allowedRoots.join(", ")}
+                                        </div>
+                                    ) : null}
+                                    {scopeItem.allowedOperationTypes.length > 0 ? (
+                                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                            Ops: {scopeItem.allowedOperationTypes.join(", ")} | confirm: {scopeItem.requireConfirmation ? "required" : "no"}
+                                        </div>
+                                    ) : null}
+                                    {scopeItem.allowedExecutables.length > 0 ? (
+                                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                            Commands: {scopeItem.allowedExecutables.join(", ")}
+                                        </div>
+                                    ) : null}
+                                    {scopeItem.allowedCwdRoots.length > 0 ? (
+                                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                            CWD roots: {scopeItem.allowedCwdRoots.join(", ")}
+                                        </div>
+                                    ) : null}
+                                    {scopeItem.allowedEnvKeys.length > 0 ? (
+                                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                            Env keys: {scopeItem.allowedEnvKeys.join(", ")}
+                                            {scopeItem.timeoutCeilingMs ? ` | timeout max: ${scopeItem.timeoutCeilingMs}ms` : ""}
+                                            {" | "}
+                                            confirm: {scopeItem.requireConfirmation ? "required" : "no"}
+                                        </div>
+                                    ) : null}
+                                </Card>
+                            ))}
+                            {!baseEnabled && (selectedScopeCapabilitiesByBase[baseCapability] || []).length > 0 ? (
+                                <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginTop: "8px"}}>
+                                    <div className={classNames("bp6-text-small")} style={{marginBottom: "8px"}}>
+                                        Scoped capabilities are present, but base privileged access is disabled.
+                                    </div>
+                                    <Button
+                                        size="small"
+                                        intent="warning"
+                                        onClick={() => setCapability(baseCapability, true)}
+                                    >
+                                        Enable required base permission
+                                    </Button>
+                                </Card>
+                            ) : null}
+                            {baseEnabled && groupedScopes.length > 0 && (selectedScopeCapabilitiesByBase[baseCapability] || []).length === 0 ? (
+                                <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginTop: "8px"}}>
+                                    <div className={classNames("bp6-text-small")}>
+                                        {baseCapability === "system.process.exec"
+                                            ? "Base tool execution is enabled, but no process scopes are granted yet. Both are required for process execution requests."
+                                            : "Base privileged access is enabled, but no filesystem scopes are granted yet. Both are required for scoped filesystem requests."}
+                                    </div>
+                                </Card>
+                            ) : null}
+                        </Card>
+                    );
+                })}
+            </Card>
             <Divider/>
             <Card style={{marginBottom: "15px", marginTop: "15px", border: "1px solid darkblue"}}>
                 <p style={{textAlign: "right"}} className={classNames("bp6-text-small", "bp6-text-muted")}>
@@ -766,5 +1008,8 @@ SelectPluginPanel.propTypes = {
     removePlugin: PropTypes.func,
     setSelectedTabId: PropTypes.func,
     selectedTabId: PropTypes.string,
-    setSortedPlugins: PropTypes.func
+    setSortedPlugins: PropTypes.func,
+    scopePolicies: PropTypes.array,
+    refreshPluginsState: PropTypes.func,
+    highlightedCapabilityIds: PropTypes.array,
 }

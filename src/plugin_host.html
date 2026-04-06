@@ -16,6 +16,32 @@
     <script src="static://assets/js/notyf/notyf.min.js" defer></script>
     <script src="static://assets/vendor/goober/dist/goober.umd.js" defer></script>
     <script src="static://assets/js/ace/ace.js" defer></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            min-height: 100%;
+            background: #ffffff;
+            color: #1c2127;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+        }
+
+        #plugin-root {
+            min-height: 100vh;
+            background: #ffffff;
+            color: #1c2127;
+        }
+
+        [data-plugin-root="true"] {
+            min-height: 100vh;
+            color: inherit;
+            background: transparent;
+        }
+    </style>
     <title>Plugin</title>
 </head>
 <body>

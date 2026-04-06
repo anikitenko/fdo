@@ -648,10 +648,10 @@ export default function AIAssistantsPanel() {
                             <p className={styles["dialog-wrap-text"]} style={{ color: "var(--bp6-text-color-muted, #5f6b7c)" }}>
                                 This is the runtime layer. Authentication state is tracked separately below.
                             </p>
-                            <p className={styles["dialog-status-row"]}>
+                            <div className={styles["dialog-status-row"]}>
                                 <b>Account:</b> <Tag intent={codexAuthIntent}>{formatCodexAuthLabel(codexAuthStatus)}</Tag>
                                 {(codexAuthDialog.loading || codexAuthStatus === "pending") ? <Spinner size={16} /> : null}
-                            </p>
+                            </div>
                             {codexAuthDialog.assistant.codexAuth?.message ? (
                                 <p className={styles["dialog-wrap-text"]} style={{ color: "var(--bp6-text-color-muted, #5f6b7c)" }}>
                                     {codexAuthDialog.assistant.codexAuth.message}

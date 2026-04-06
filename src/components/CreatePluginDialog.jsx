@@ -46,6 +46,11 @@ export const CreatePluginDialog = ({show, close}) => {
         handleReset()
     }
 
+    const normalizeImportedMetadata = (metadata) => ({
+        ...metadata,
+        icon: typeof metadata?.icon === "string" ? metadata.icon.toLowerCase() : metadata?.icon,
+    });
+
     const handleFileUpload = async () => {
         setUploadLoading(true);
         const selectedPluginPath = await window.electron.system.openFileDialog({
@@ -57,11 +62,10 @@ export const CreatePluginDialog = ({show, close}) => {
             setUploadLoading(false);
             return
         }
-        const pluginData = await window.electron.plugin.getData(selectedPluginPath);
+            const pluginData = await window.electron.plugin.getData(selectedPluginPath);
         if (pluginData) {
             if (pluginData.success) {
-                const metadata = pluginData.metadata
-                metadata.icon = metadata.icon.toLowerCase()
+                const metadata = normalizeImportedMetadata(pluginData.metadata)
 
                 setPluginContent(pluginData.content);
                 setPluginName(pluginData.metadata.name);
@@ -192,7 +196,7 @@ export const CreatePluginDialog = ({show, close}) => {
                     }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
                             <span style={{ fontSize: "1.5rem" }}>🧩</span>
-                            <Icon icon={pluginMetadata.icon.toLowerCase()} intent="primary" size={24} />
+                            <Icon icon={pluginMetadata.icon} intent="primary" size={24} />
                             <span style={{ fontWeight: "bold", fontSize: "1.2rem" }}>{pluginMetadata.name}</span>
                         </div>
 

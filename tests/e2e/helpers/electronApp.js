@@ -1,3 +1,19 @@
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+let e2eUserDataDir = "";
+
+function ensureE2EUserDataDir() {
+  if (e2eUserDataDir) {
+    return e2eUserDataDir;
+  }
+  const workerIndex = process.env.TEST_WORKER_INDEX || "0";
+  const prefix = `fdo-e2e-${process.pid}-${workerIndex}-`;
+  e2eUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return e2eUserDataDir;
+}
+
 async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -31,11 +47,14 @@ async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
 }
 
 async function launchElectronApp(electron) {
+  const userDataDir = ensureE2EUserDataDir();
   const app = await electron.launch({
     args: ['.'],
     env: {
       ...process.env,
       FDO_E2E: '1',
+      FDO_E2E_MULTI_INSTANCE: '1',
+      FDO_E2E_USER_DATA_DIR: userDataDir,
     },
   });
   const firstWindow = await app.firstWindow();
@@ -147,11 +166,19 @@ async function closeElectronApp(app) {
   try {
     await app.close();
   } catch (_) {}
+
+  if (e2eUserDataDir && process.env.FDO_E2E_KEEP_USER_DATA !== "1") {
+    try {
+      fs.rmSync(e2eUserDataDir, { recursive: true, force: true });
+    } catch (_) {}
+    e2eUserDataDir = "";
+  }
 }
 
 async function openEditorWithMockedIPC(app, overrides = {}) {
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
+  const useRealAssistants = !!overrides?.__useRealAssistants;
   const fixtureId = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const pluginDisplayName = `E2E Plugin ${fixtureId}`;
   const pluginDir = `/tmp/${fixtureId}`;
@@ -160,7 +187,7 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-+)|(-+$)/g, '')}`;
 
-  await window.evaluate(({ extra, pluginDisplayName, pluginDir, sandboxName }) => {
+  await window.evaluate(({ extra, pluginDisplayName, pluginDir, sandboxName, useRealAssistants }) => {
     window.__E2E__ = true;
     window.__SNAPSHOTS_ENABLED = true;
     window.electron = window.electron || {};
@@ -170,12 +197,28 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
     } catch (_) {}
     window.electron.system.getModuleFiles = () => Promise.resolve({ files: [] });
     window.electron.system.getFdoSdkTypes = () => Promise.resolve({ files: [] });
-    window.electron.settings = { certificates: { getRoot: async () => [] } };
+    window.electron.settings = window.electron.settings || {};
+    window.electron.settings.certificates = window.electron.settings.certificates || {};
+    window.electron.settings.certificates.getRoot = async () => [];
+    window.electron.settings.ai = window.electron.settings.ai || {};
+    if (!useRealAssistants) {
+      window.electron.settings.ai.getAssistants = async () => ([
+        {
+          id: "e2e-coding-assistant",
+          name: "E2E Coding Assistant",
+          provider: "openai",
+          model: "gpt-4.1-mini",
+          purpose: "coding",
+          default: true,
+          apiKey: "e2e",
+        },
+      ]);
+    }
 
     if (extra && typeof extra === 'object') {
       Object.assign(window, extra.window || {});
     }
-  }, { extra: overrides, pluginDisplayName, pluginDir, sandboxName });
+  }, { extra: overrides, pluginDisplayName, pluginDir, sandboxName, useRealAssistants });
   await clearToastLog(window);
 
   const pluginData = encodeURIComponent(JSON.stringify({

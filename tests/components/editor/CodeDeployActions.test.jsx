@@ -3,13 +3,17 @@ import {render, screen, fireEvent} from '@testing-library/react';
 import CodeDeployActions from '../../../src/components/editor/CodeDeployActions.js';
 import virtualFS from '../../../src/components/editor/utils/VirtualFS';
 
+jest.mock('../../../src/components/editor/utils/runTests', () => jest.fn(() => Promise.resolve({ success: true })));
+const runTests = require('../../../src/components/editor/utils/runTests');
+
 function setupComponent() {
-  const props = { setSelectedTabId: jest.fn(), pluginDirectory: '/tmp/plugin' };
+  const props = { setSelectedTabId: jest.fn(), currentSelectedTabId: 'output', pluginDirectory: '/tmp/plugin' };
   return render(<CodeDeployActions {...props} />);
 }
 
 describe('CodeDeployActions snapshot UI', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     virtualFS.files = {};
     virtualFS.treeObject = [{ id: '/', label: '/', type: 'folder', isExpanded: true, childNodes: [] }];
     virtualFS.fs.versions = {};
@@ -20,51 +24,37 @@ describe('CodeDeployActions snapshot UI', () => {
     localStorage.clear();
   });
 
-  test('snapshot Select opens and lists versions (sorted newest first)', async () => {
-    // Seed two snapshots so menu has entries
-    const monaco = require('monaco-editor');
-    const model = monaco.editor.createModel('A', 'plaintext', monaco.Uri.file('/a.ts'));
-    virtualFS.createFile('/a.ts', model);
-    const v1 = virtualFS.fs.create('', []);
-    virtualFS.setFileContent('/a.ts', 'B');
-    const v2 = virtualFS.fs.create(v1.version, []);
-
+  test('renders snapshot section with timeline entry point', async () => {
     setupComponent();
 
-    // Open the Snapshots Select popover by clicking the trigger button whose label contains current version id
-    const triggerBtn = await screen.findByRole('button', { name: new RegExp(v2.version) });
-    expect(triggerBtn).toBeTruthy();
-    fireEvent.click(triggerBtn);
-
-    // Try to find the popover menu by role=listbox or fallback to class selector
-    let menu = null;
-    try {
-      menu = await screen.findByRole('listbox');
-    } catch (e) {
-      const nodes = document.querySelectorAll('.bp6-menu');
-      if (nodes && nodes.length) menu = nodes[0];
-    }
-    expect(menu).toBeTruthy();
-
-    // Ensure both versions are present and order is newest (v2) first
-    const candidates = Array.from(menu.querySelectorAll('.bp6-menu-item'));
-    const texts = candidates.map((el) => el.textContent || '');
-    expect(texts.some(t => t.includes(v1.version))).toBe(true);
-    expect(texts.some(t => t.includes(v2.version))).toBe(true);
+    expect(screen.getByRole('button', { name: /Open Snapshot Timeline/i })).toBeTruthy();
   });
 
-  test('Create snapshot button triggers fs.create and versions update', () => {
-    // seed a file so create captures at least one file
-    const monaco = require('monaco-editor');
-    const model = monaco.editor.createModel('A', 'plaintext', monaco.Uri.file('/a.ts'));
-    virtualFS.createFile('/a.ts', model);
-
+  test('renders action buttons for tests, compile, deploy, and save', () => {
     setupComponent();
-    const btn = screen.getByRole('button', { name: /Create snapshot/i });
-    fireEvent.click(btn);
+    expect(screen.getByRole('button', { name: /Run Tests/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Compile/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Deploy/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Save & Close/i })).toBeTruthy();
+  });
 
-    const versions = virtualFS.fs.list();
-    expect(versions.length).toBeGreaterThan(0);
-    expect(versions[0].current).toBe(true);
+  test('Run Tests button switches to output and invokes bundled test runner flow', async () => {
+    const setSelectedTabId = jest.fn();
+    render(<CodeDeployActions setSelectedTabId={setSelectedTabId} currentSelectedTabId="output" pluginDirectory="/tmp/plugin" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Run Tests/i }));
+
+    expect(setSelectedTabId).toHaveBeenCalledWith('tests');
+    expect(runTests).toHaveBeenCalled();
+  });
+
+  test('Run Tests keeps the AI Coding Agent tab visible when already selected', async () => {
+    const setSelectedTabId = jest.fn();
+    render(<CodeDeployActions setSelectedTabId={setSelectedTabId} currentSelectedTabId="ai-agent" pluginDirectory="/tmp/plugin" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Run Tests/i }));
+
+    expect(setSelectedTabId).not.toHaveBeenCalled();
+    expect(runTests).toHaveBeenCalled();
   });
 });

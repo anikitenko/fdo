@@ -11,6 +11,97 @@ import {createVirtualFile} from "./createVirtualFile";
 import {extractMetadata} from "../../../utils/extractMetadata";
 import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
 
+const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
+  export interface PluginMetadata {
+    name: string;
+    version: string;
+    author: string;
+    description?: string;
+    icon?: string;
+    [key: string]: any;
+  }
+  export interface FDOInterface {
+    metadata: PluginMetadata;
+    init(...args: any[]): any;
+    render(...args: any[]): any;
+    [key: string]: any;
+  }
+  export class FDO_SDK {
+    constructor(...args: any[]);
+    static css(...args: any[]): string;
+    static styled(...args: any[]): any;
+    static keyframes(...args: any[]): string;
+    [key: string]: any;
+  }
+  export const DOM: any;
+  export const DOMText: any;
+  export const DOMInput: any;
+  export const DOMButton: any;
+  export const DOMLink: any;
+  export const DOMMedia: any;
+  export const DOMTable: any;
+  export const DOMNested: any;
+  export const DOMSemantic: any;
+  export const DOMMisc: any;
+  export const PluginRegistry: any;
+  export const SidePanelMixin: any;
+  export const QuickActionMixin: any;
+  export const BLUEPRINT_V6_ICON_NAMES: readonly string[];
+  export function validatePluginMetadata(input: any): any;
+  export function validateHostPrivilegedActionRequest(input: any): any;
+  export function validatePrivilegedActionRequest(input: any): any;
+  export function validateHostMessageEnvelope(input: any): any;
+  export function validatePluginInitPayload(input: any): any;
+  export function validateSerializedRenderPayload(input: any): any;
+  export function validateUIMessagePayload(input: any): any;
+  export function createHostsWriteActionRequest(payload: any): any;
+  export function createFilesystemMutateActionRequest(payload: any): any;
+  export function createProcessExecActionRequest(payload: any): any;
+  export function createPrivilegedActionCorrelationId(prefix?: string): string;
+  export function createPrivilegedActionBackendRequest<TRequest = any>(request: TRequest, options?: any): { correlationId: string; request: TRequest };
+  export function requestPrivilegedAction<TResult = any, TRequest = any>(request: TRequest, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+  export function createScopedProcessExecActionRequest(scopeId: string, payload: any): any;
+  export function requestScopedProcessExec<TResult = any>(scopeId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+  export function getOperatorToolPreset(presetId: string): any;
+  export function listOperatorToolPresets(): any[];
+  export function createOperatorToolCapabilityPreset(presetId: string): string[];
+  export function createOperatorToolActionRequest(presetId: string, payload: any): any;
+  export function requestOperatorTool<TResult = any>(presetId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+  export function createCapabilityBundle(capabilities: string[]): string[];
+  export function createFilesystemCapabilityBundle(scopeId: string): string[];
+  export function createProcessCapabilityBundle(scopeId: string): string[];
+  export function describeCapability(capability: string): { capability: string; label: string; description: string; category: string };
+  export function parseMissingCapabilityError(error: unknown): { capability: string; action: string; category: string; label: string; description: string; remediation: string } | null;
+  export function createFilesystemScopeCapability(scope: string): string;
+  export function createProcessScopeCapability(scope: string): string;
+  export function requireFilesystemScopeCapability(scope: string): string;
+  export function requireProcessScopeCapability(scope: string): string;
+  export function isPrivilegedActionSuccessResponse<TResult = any>(value: unknown): value is PrivilegedActionSuccessResponse<TResult>;
+  export function isPrivilegedActionErrorResponse(value: unknown): value is PrivilegedActionErrorResponse;
+  export function unwrapPrivilegedActionResponse<TResult = any>(response: PrivilegedActionResponse<TResult>): TResult;
+  export type PrivilegedActionSuccessResponse<TResult = any> = {
+    ok: true;
+    correlationId: string;
+    result: TResult;
+  };
+  export type PrivilegedActionErrorResponse = {
+    ok: false;
+    correlationId: string;
+    error: string;
+    code?: string;
+  };
+  export type PrivilegedActionResponse<TResult = any> = PrivilegedActionSuccessResponse<TResult> | PrivilegedActionErrorResponse;
+  export function isBlueprintV6IconName(name: string): boolean;
+  export function formatDeprecationMessage(message: string, replacement?: string): string;
+  export function emitDeprecationWarning(message: string, replacement?: string): void;
+  export function handleError(error: any): any;
+  export function atomicWriteFile(...args: any[]): Promise<void>;
+  export function atomicWriteFileSync(...args: any[]): void;
+  export function runWithSudo(...args: any[]): Promise<any>;
+  export function pify<T = any>(input: any): T;
+}
+`;
+
 function createDefaultTreeObject() {
     return {
         id: "/",
@@ -75,8 +166,9 @@ const virtualFS = {
             while (this.queue.length > 0) {
                 const {eventType, data, seq} = this.queue.shift();
                 this.__dispatch(eventType, data, seq); // Fire the event
-                //console.log(`Notified: ${eventType} (#${seq}) ->`, data);
-                await this.__delay(50); // Ensure sequential execution
+                // Keep event order but avoid artificial per-event latency that can
+                // leave UI controls blocked under high notification volume.
+                await Promise.resolve();
             }
             this.processing = false;
         },
@@ -93,9 +185,6 @@ const virtualFS = {
                 }
             });
         },
-        __delay(ms) {
-            return new Promise((resolve) => setTimeout(resolve, ms));
-        },
         reset() {
             this.queue = [];
             this.processing = false;
@@ -108,12 +197,15 @@ const virtualFS = {
         parent: Object,
         inProgress: false,
         progress: 0,
+        history: [],
         plugin: {
             content: null,
         },
         message: {
+            kind: "build",
             error: false,
-            message: ""
+            message: "",
+            ts: 0,
         },
         getInit() {
             return this.init
@@ -134,12 +226,31 @@ const virtualFS = {
         addProgress(num) {
             this.progress = num
         },
-        addMessage(message, error = false) {
-            this.message = {error: error, message: message}
+        addMessage(message, error = false, kind = "build") {
+            const entry = {
+                kind: kind === "test" ? "test" : "build",
+                error: !!error,
+                message: typeof message === "string" ? message : String(message ?? ""),
+                ts: Date.now(),
+            }
+            this.message = entry
+            this.history.push(entry)
+            if (this.history.length > 80) {
+                this.history = this.history.slice(-80)
+            }
             if (error) {
                 this.inProgress = false
             }
             this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
+        },
+        getHistory(limit = 20, kind = null) {
+            const filtered = kind
+                ? this.history.filter((entry) => entry?.kind === kind)
+                : this.history;
+            return filtered.slice(-Math.max(0, limit))
+        },
+        clearHistory() {
+            this.history = []
         },
         getEntrypoint() {
             const latestContent = this.parent.getLatestContent()
@@ -187,6 +298,8 @@ const virtualFS = {
         loading: false,
         nodeModulesLoading: false,
         restoreLoading: false,
+        restoreLoadingWatchdogTimer: null,
+        restoreLoadingWatchdogMs: 12000,
         getLoading() {
             return this.loading
         },
@@ -213,11 +326,32 @@ const virtualFS = {
             this.parent.notifications.addToQueue("nodeModulesLoading", false)
         },
         setRestoreLoading() {
+            if (this.restoreLoading) {
+                return;
+            }
             this.restoreLoading = true
             this.parent.notifications.addToQueue("restoreLoading", true)
+            if (this.restoreLoadingWatchdogTimer) {
+                clearTimeout(this.restoreLoadingWatchdogTimer);
+                this.restoreLoadingWatchdogTimer = null;
+            }
+            this.restoreLoadingWatchdogTimer = setTimeout(() => {
+                if (!this.restoreLoading) {
+                    return;
+                }
+                console.warn("[VirtualFS] Restore loading watchdog recovered a stuck restore state.");
+                this.stopRestoreLoading();
+            }, this.restoreLoadingWatchdogMs);
         },
         stopRestoreLoading() {
+            if (!this.restoreLoading) {
+                return;
+            }
             this.restoreLoading = false
+            if (this.restoreLoadingWatchdogTimer) {
+                clearTimeout(this.restoreLoadingWatchdogTimer);
+                this.restoreLoadingWatchdogTimer = null;
+            }
             this.parent.notifications.addToQueue("restoreLoading", false)
             this.parent.notifications.addToQueue("restorePhase", "idle")
         },
@@ -299,6 +433,11 @@ const virtualFS = {
                 this.parent.notifications.addToQueue("snapshotError", { message: "Failed to persist snapshot. Storage may be full.", error: String(e) });
             }
             this.parent.notifications.addToQueue("treeVersionsUpdate", this.__list());
+            this.parent.notifications.addToQueue("snapshotSaved", {
+                version: latest,
+                prev: prevVersion,
+                quiet,
+            });
 
             if (!quiet) {
                 this.stopLoading();
@@ -309,7 +448,7 @@ const virtualFS = {
             this.setRestoreLoading()
             this.setRestorePhase("clearing-models")
             for (const key of Object.keys(this.parent.files)) {
-                monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
+                monaco.typescript.typescriptDefaults.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`))
                 if (model) {
                     model.dispose()
@@ -332,7 +471,7 @@ const virtualFS = {
             for (const file of this.versions[version].content) {
                 const uri = monaco.Uri.file(`${file.id}`)
                 const fileContent = file.content
-                monaco.languages.typescript.typescriptDefaults.addExtraLib(fileContent, file.id)
+                monaco.typescript.typescriptDefaults.addExtraLib(fileContent, file.id)
                 let model = {}
                 model = monaco.editor.getModel(uri)
                 if (!model) {
@@ -353,8 +492,8 @@ const virtualFS = {
 
             const nodeModulesPromise = this.setupNodeModules()
             this.setRestorePhase("restoring-selection")
-            monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-                ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
+            monaco.typescript.typescriptDefaults.setCompilerOptions({
+                ...monaco.typescript.typescriptDefaults.getCompilerOptions()
             });
 
             this.version_current = version
@@ -411,7 +550,7 @@ const virtualFS = {
                 '    const styles: { [className: string]: Record<string, string> };\n'+
                 '    export default styles;\n' +
                 '}'
-            monaco.languages.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
+            monaco.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType, undefined, false, false, undefined, {
                 suppressTreeUpdate: true,
                 suppressFileSelected: true,
@@ -425,36 +564,69 @@ const virtualFS = {
                 window.electron.system.getFdoSdkTypes(),
             ]).then((results) => {
                 const [moduleFilesResult, sdkTypesResult] = results;
-
-                if (moduleFilesResult.status === "fulfilled") {
-                    for (const file of moduleFilesResult.value.files) {
-                        let plaintext = false;
-                        if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
-                            continue;
-                        }
-
-                        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`);
-
-                        if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
-                            plaintext = true;
-                        }
-                        createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext, undefined, {
-                            suppressTreeUpdate: true,
-                            suppressFileSelected: true,
-                            suppressDefaultSelection: true
-                        });
+                const resolveFiles = (result, source) => {
+                    if (result?.status !== "fulfilled") {
+                        return [];
                     }
+                    const payload = result.value;
+                    if (Array.isArray(payload)) {
+                        return payload;
+                    }
+                    if (Array.isArray(payload?.files)) {
+                        return payload.files;
+                    }
+                    if (payload && payload.success === false) {
+                        console.warn(`[VirtualFS] ${source} payload reported failure`, payload.error || payload);
+                    } else {
+                        console.warn(`[VirtualFS] ${source} payload is missing iterable files`, payload);
+                    }
+                    return [];
+                };
+                const moduleFiles = resolveFiles(moduleFilesResult, "module files");
+                const sdkTypeFiles = resolveFiles(sdkTypesResult, "sdk type files");
+
+                for (const file of moduleFiles) {
+                    let plaintext = false;
+                    if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
+                        continue;
+                    }
+                    if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
+                        continue;
+                    }
+
+                    monaco.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`);
+
+                    if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
+                        plaintext = true;
+                    }
+                    createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext, undefined, {
+                        suppressTreeUpdate: true,
+                        suppressFileSelected: true,
+                        suppressDefaultSelection: true
+                    });
                 }
 
-                if (sdkTypesResult.status === "fulfilled") {
-                    for (const file of sdkTypesResult.value.files) {
-                        monaco.languages.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`);
-                        createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content, undefined, false, false, undefined, {
-                            suppressTreeUpdate: true,
-                            suppressFileSelected: true,
-                            suppressDefaultSelection: true
-                        });
+                for (const file of sdkTypeFiles) {
+                    if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
+                        continue;
                     }
+                    monaco.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`);
+                    createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content, undefined, false, false, undefined, {
+                        suppressTreeUpdate: true,
+                        suppressFileSelected: true,
+                        suppressDefaultSelection: true
+                    });
+                }
+                if (sdkTypeFiles.length === 0) {
+                    monaco.typescript.typescriptDefaults.addExtraLib(
+                        FDO_SDK_FALLBACK_D_TS,
+                        `/node_modules/@anikitenko/fdo-sdk/index.d.ts`
+                    );
+                    createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/index.d.ts`, FDO_SDK_FALLBACK_D_TS, undefined, false, false, undefined, {
+                        suppressTreeUpdate: true,
+                        suppressFileSelected: true,
+                        suppressDefaultSelection: true
+                    });
                 }
 
                 this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc());
@@ -702,6 +874,40 @@ const virtualFS = {
     isInitWorkspace() {
         return this.initWorkspace
     },
+    resetWorkspaceState() {
+        Object.keys(this.files).forEach((key) => {
+            try {
+                this.files[key]?.model?.dispose?.();
+            } catch (_) {
+                // Best-effort cleanup
+            }
+        });
+        this.files = {};
+        this.initWorkspace = false;
+        this.pluginName = "";
+        this.sandboxName = "";
+        this.quickInputWidgetTop = false;
+        this.treeObject = [createDefaultTreeObject()];
+        this.fileDialog = { show: false, data: {} };
+        this.tabs.list = [];
+        this.fs.versions = {};
+        this.fs.version_latest = 0;
+        this.fs.version_current = 0;
+        this.fs.tsCounter = 0;
+        this.fs.loading = false;
+        this.fs.nodeModulesLoading = false;
+        this.fs.restoreLoading = false;
+        if (this.fs.restoreLoadingWatchdogTimer) {
+            clearTimeout(this.fs.restoreLoadingWatchdogTimer);
+            this.fs.restoreLoadingWatchdogTimer = null;
+        }
+        this.fs.nodeModulesPromise = null;
+        this.build.init = false;
+        this.build.inProgress = false;
+        this.build.progress = 0;
+        this.build.plugin.content = null;
+        this.build.message = { error: false, message: "" };
+    },
     setInitWorkspace(name, sandbox) {
         this.pluginName = name
         this.sandboxName = sandbox
@@ -720,11 +926,84 @@ const virtualFS = {
     setQuickInputWidgetTop(loc) {
         this.quickInputWidgetTop = loc
     },
+    __isModelDisposed(model) {
+        if (!model) return true;
+        if (typeof model.isDisposed === "function") {
+            try {
+                return !!model.isDisposed();
+            } catch (_) {
+                return true;
+            }
+        }
+        try {
+            model.getValue();
+            return false;
+        } catch (_) {
+            return true;
+        }
+    },
+    __rememberModelState(fileName, model) {
+        const entry = this.files[fileName] || {};
+        const nextContent = (() => {
+            try {
+                return model?.getValue?.() ?? entry.content ?? "";
+            } catch (_) {
+                return entry.content ?? "";
+            }
+        })();
+        const nextLanguage = (() => {
+            try {
+                return model?.getLanguageId?.() || entry.language || getLanguage(fileName);
+            } catch (_) {
+                return entry.language || getLanguage(fileName);
+            }
+        })();
+        this.files[fileName] = {
+            ...entry,
+            model,
+            content: nextContent,
+            language: nextLanguage,
+            state: entry.state || {},
+        };
+        return this.files[fileName];
+    },
+    __ensureLiveModel(fileName) {
+        const entry = this.files[fileName];
+        if (!entry) return null;
+
+        if (entry.model && !this.__isModelDisposed(entry.model)) {
+            return entry.model;
+        }
+
+        const uri = monaco.Uri.file(`${fileName}`);
+        const liveModel = monaco.editor.getModel(uri);
+        if (liveModel && !this.__isModelDisposed(liveModel)) {
+            this.__rememberModelState(fileName, liveModel);
+            return liveModel;
+        }
+
+        if (typeof entry.content === "string") {
+            const recreatedModel = monaco.editor.createModel(
+                entry.content,
+                entry.language || getLanguage(fileName),
+                uri
+            );
+            this.__rememberModelState(fileName, recreatedModel);
+            return recreatedModel;
+        }
+
+        return null;
+    },
     getFileContent(fileName) {
-        return this.files[fileName]?.model?.getValue() ?? undefined;
+        const model = this.__ensureLiveModel(fileName);
+        if (model) {
+            const entry = this.__rememberModelState(fileName, model);
+            return entry.content;
+        }
+        return this.files[fileName]?.content ?? undefined;
     },
     getModel(fileName) {
-        return this.files[fileName]?.model
+        return this.__ensureLiveModel(fileName)
     },
     getModelState(fileName) {
         return this.files[fileName]?.state
@@ -734,7 +1013,14 @@ const virtualFS = {
     },
     getLatestContent() {
         return Object.fromEntries(
-            Object.keys(this.files).map(key => [key, this.files[key].model.getValue()])
+            Object.keys(this.files).map((key) => {
+                const model = this.__ensureLiveModel(key);
+                if (model) {
+                    const entry = this.__rememberModelState(key, model);
+                    return [key, entry.content];
+                }
+                return [key, this.files[key]?.content ?? ""];
+            })
         )
     },
     getTreeObjectItemById(id) {
@@ -759,7 +1045,16 @@ const virtualFS = {
         return this.__sortTreeObjectChildrenAsc(this.treeObject)
     },
     setFileContent(fileName, content) {
-        return this.files[fileName]?.model?.setValue(content) ?? undefined;
+        const model = this.__ensureLiveModel(fileName);
+        if (model?.setValue) {
+            model.setValue(content);
+            this.__rememberModelState(fileName, model);
+            return undefined;
+        }
+        if (this.files[fileName]) {
+            this.files[fileName].content = content;
+        }
+        return undefined;
     },
     setTreeObjectItemRoot(name) {
         this.treeObject[0].id = "/";
@@ -812,21 +1107,7 @@ const virtualFS = {
     },
 
     updateModel(filePath, model) {
-        if (this.files[filePath]) {
-            if (this.files[filePath].model) {
-                this.files[filePath].model = model
-            } else {
-                this.files[filePath] = {
-                    model: model,
-                    state: {}
-                }
-            }
-        } else {
-            this.files[filePath] = {
-                model: model,
-                state: {}
-            }
-        }
+        this.__rememberModelState(filePath, model);
     },
 
     updateModelState(filePath, state) {
@@ -970,7 +1251,7 @@ const virtualFS = {
         for (const key of Object.keys(this.files)) {
             if (key.startsWith(fileName)) {
                 fileIDs.push(key)
-                monaco.languages.typescript.typescriptDefaults.addExtraLib("", key);
+                monaco.typescript.typescriptDefaults.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`));
                 if (model) {
                     model.dispose(); // Remove it from Monaco
@@ -986,8 +1267,8 @@ const virtualFS = {
         fileIDs.forEach((id) => {
             this.notifications.addToQueue("fileRemoved", id);
         });
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
+        monaco.typescript.typescriptDefaults.setCompilerOptions({
+            ...monaco.typescript.typescriptDefaults.getCompilerOptions()
         });
         this.removeTreeObjectItemById(fileName)
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
@@ -1115,8 +1396,8 @@ const virtualFS = {
                 }
             }
         }
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            ...monaco.languages.typescript.typescriptDefaults.getCompilerOptions()
+        monaco.typescript.typescriptDefaults.setCompilerOptions({
+            ...monaco.typescript.typescriptDefaults.getCompilerOptions()
         });
     },
 

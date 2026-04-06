@@ -1,4 +1,5 @@
 import JSONORM from "./JSONORM";
+import {normalizeCapabilityList} from "./pluginCapabilities";
 
 export default class PluginORM extends JSONORM {
     constructor(filePath) {
@@ -7,23 +8,54 @@ export default class PluginORM extends JSONORM {
     }
 
     // Add a plugin
-    addPlugin(pluginName, metadata, home, entry, overwrite = false) {
+    normalizePluginRecord(plugin) {
+        if (!plugin || typeof plugin !== "object") {
+            return plugin;
+        }
+        return {
+            ...plugin,
+            capabilities: normalizeCapabilityList(plugin.capabilities),
+        };
+    }
+
+    addPlugin(pluginName, metadata, home, entry, overwrite = false, capabilities = []) {
         if (overwrite) {
             this.removePlugin(pluginName);
         }
         if (!this.data.plugins.includes(pluginName)) {
-            this.data.plugins.push({id: pluginName, metadata: metadata, home, entry});
+            this.data.plugins.push(this.normalizePluginRecord({
+                id: pluginName,
+                metadata: metadata,
+                home,
+                entry,
+                capabilities,
+            }));
             this._save();
         }
     }
 
     // Get all plugins
     getAllPlugins() {
-        return this.data.plugins;
+        return this.data.plugins.map((plugin) => this.normalizePluginRecord(plugin));
     }
 
     getPlugin(id) {
-        return this.data.plugins.find(plugin => plugin.id === id);
+        const plugin = this.data.plugins.find(plugin => plugin.id === id);
+        return this.normalizePluginRecord(plugin);
+    }
+
+    setPluginCapabilities(pluginName, capabilities = []) {
+        const index = this.data.plugins.findIndex((plugin) => plugin.id === pluginName);
+        if (index < 0) {
+            return {success: false, error: `Plugin "${pluginName}" not found.`};
+        }
+        const normalized = normalizeCapabilityList(capabilities);
+        this.data.plugins[index] = this.normalizePluginRecord({
+            ...this.data.plugins[index],
+            capabilities: normalized,
+        });
+        this._save();
+        return {success: true, capabilities: normalized};
     }
 
     // Remove a plugin

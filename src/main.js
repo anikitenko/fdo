@@ -85,6 +85,13 @@ debugLog('[MAIN] Starting FDO main process...');
 debugLog(`[MAIN] isPackaged: ${app.isPackaged}`);
 debugLog(`[MAIN] argv: ${JSON.stringify(process.argv)}`);
 
+// E2E parallel workers need isolated app instances.
+// Keep production/single-instance behavior unchanged unless explicitly enabled.
+const allowE2EMultiInstance = process.env.FDO_E2E === "1" && process.env.FDO_E2E_MULTI_INSTANCE === "1";
+if (allowE2EMultiInstance) {
+    debugLog('[MAIN] E2E multi-instance mode enabled; skipping single-instance lock enforcement.');
+}
+
 // Initialize startup metrics (must be early)
 initMetrics();
 
@@ -126,9 +133,10 @@ function getPluginFilePath(urlPath) {
 
 // Lazy getters for paths that require app.getPath('userData')
 // These must be functions because app.getPath() isn't available until app is ready
-export const getPluginsDir = () => nodePath.join(app.getPath('userData'), 'plugins');
-export const getUserConfigFile = () => nodePath.join(app.getPath('userData'), 'config.json');
-export const getPluginsRegistryFile = () => nodePath.join(app.getPath('userData'), 'plugins.json');
+const getUserDataRoot = () => process.env.FDO_E2E_USER_DATA_DIR || app.getPath('userData');
+export const getPluginsDir = () => nodePath.join(getUserDataRoot(), 'plugins');
+export const getUserConfigFile = () => nodePath.join(getUserDataRoot(), 'config.json');
+export const getPluginsRegistryFile = () => nodePath.join(getUserDataRoot(), 'plugins.json');
 
 // For backwards compatibility, keep these as constants that will be initialized when used
 // (they'll be calculated lazily on first access after app is ready)
@@ -142,14 +150,17 @@ export const MAX_METRICS = 86400;
 let actionInProgress = false;
 let SIGNAL_FILE;
 let FAIL_FILE;
+let isAppShuttingDown = false;
 
 // Initialize paths once app is ready
 function initializePaths() {
+    const rootPath = getUserDataRoot();
+    mkdirSync(rootPath, { recursive: true });
     PLUGINS_DIR = getPluginsDir();
     USER_CONFIG_FILE = getUserConfigFile();
     PLUGINS_REGISTRY_FILE = getPluginsRegistryFile();
-    SIGNAL_FILE = nodePath.join(app.getPath('userData'), 'deployment-finished.signal');
-    FAIL_FILE = nodePath.join(app.getPath('userData'), 'deployment-failed.signal');
+    SIGNAL_FILE = nodePath.join(rootPath, 'deployment-finished.signal');
+    FAIL_FILE = nodePath.join(rootPath, 'deployment-failed.signal');
 }
 
 function getValidCommandFromArgs(args, knownCommands) {
@@ -409,7 +420,7 @@ if (process.defaultApp) {
     app.setAsDefaultProtocolClient('fdo-fiddle')
 }
 
-const gotTheLock = app.requestSingleInstanceLock()
+const gotTheLock = allowE2EMultiInstance ? true : app.requestSingleInstanceLock()
 
 debugLog(`[MAIN] Single instance lock: ${gotTheLock}`);
 
@@ -437,6 +448,19 @@ const createWindow = async () => {
             spellcheck: false,
         },
     });
+
+    if (process.env.FDO_E2E === "1") {
+        mainWindow.on("close", (event) => {
+            if (isAppShuttingDown) {
+                return;
+            }
+            // In E2E runs we occasionally receive unexpected close signals
+            // that terminate the window mid-test. Ignore those closes unless
+            // the app is actually shutting down.
+            event.preventDefault();
+            debugLog("[MAIN] Ignored unexpected window close in E2E mode.");
+        });
+    }
 
     logMetric('window-created');
 
@@ -501,12 +525,25 @@ app.whenReady().then(async () => {
     protocol.handle("static", async (req) => {
         try {
             const reqURL = new URL(req.url);
-            const relativePath = decodeURIComponent(reqURL.pathname.replace(/^\/+/, ''));
-            const assetsPath = isDev
-                ? nodePath.join(__dirname, '..', '..', 'dist', 'renderer', 'assets', relativePath)
-                : nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', relativePath);
-            const data = await readFile(assetsPath);
-            const mimeType = mime.getType(assetsPath) || 'application/octet-stream';
+            const hostPart = reqURL.hostname && reqURL.hostname !== 'host' ? `${reqURL.hostname}/` : '';
+            const pathPart = reqURL.pathname.replace(/^\/+/, '');
+            const relativePath = decodeURIComponent(`${hostPart}${pathPart}`) || 'plugin_host.html';
+            const normalizedRelativePath = nodePath.posix.normalize(relativePath);
+
+            if (
+                normalizedRelativePath.startsWith('..') ||
+                normalizedRelativePath.includes('/../') ||
+                normalizedRelativePath === '.'
+            ) {
+                return new Response('Forbidden', { status: 403 });
+            }
+
+            const rendererBasePath = isDev
+                ? nodePath.join(__dirname, '..', '..', 'dist', 'renderer')
+                : nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer');
+            const resolvedPath = nodePath.join(rendererBasePath, normalizedRelativePath);
+            const data = await readFile(resolvedPath);
+            const mimeType = mime.getType(resolvedPath) || 'application/octet-stream';
 
             return new Response(data, {
                 headers: {
@@ -519,6 +556,56 @@ app.whenReady().then(async () => {
             return new Response('File not found', { status: 404 });
         }
     })
+
+    protocol.handle('plugin', async (request) => {
+        try {
+            const url = new URL(request.url);
+            let relativePath = url.pathname;
+
+            console.log('[PLUGIN PROTOCOL] Request:', request.url, 'Path:', relativePath);
+
+            // Normalize special cases
+            if (!relativePath || relativePath === '/' || relativePath === '/index.html') {
+                relativePath = '/plugin_host.html';
+            } else if (relativePath === '/plugin_host.html/' || relativePath === '/plugin_host.html') {
+                relativePath = '/plugin_host.html';
+            } else if (relativePath === '/plugin_host/index.js') {
+                relativePath = '/index.js';
+            }
+
+            if (url.hostname === 'plugin_host.html' && relativePath === '/') {
+                relativePath = '/plugin_host.html';
+            }
+
+            const filePath = getPluginFilePath(relativePath);
+            console.log('[PLUGIN PROTOCOL] Serving file:', filePath);
+            const data = await readFile(filePath);
+            const mimeType = mime.getType(filePath) || 'text/plain';
+
+            return new Response(data, {
+                headers: {
+                    'Content-Type': mimeType,
+                },
+            });
+        } catch (err) {
+            console.error('[PLUGIN PROTOCOL] Error:', err.message, 'for URL:', request.url);
+            if (err.code === 'ENOENT') {
+                NotificationCenter.addNotification({
+                    title: `Plugin loading`,
+                    message: `Plugin file not found: ${request.url}`,
+                    type: 'warning'
+                });
+                return new Response('File not found', { status: 404 });
+            }
+
+            NotificationCenter.addNotification({
+                title: `Plugin loading`,
+                message: `Unexpected error in plugin protocol handler: ${err.message}`,
+                type: 'warning'
+            });
+            return new Response('Internal error', { status: 500 });
+        }
+    });
     
     // Initialize paths that require app.getPath('userData')
     initializePaths();
@@ -628,50 +715,6 @@ app.whenReady().then(async () => {
         dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
     })
 
-    protocol.handle('plugin', async (request) => {
-        try {
-            const url = new URL(request.url);
-            let relativePath = url.pathname;
-            
-            console.log('[PLUGIN PROTOCOL] Request:', request.url, 'Path:', relativePath);
-
-            // Normalize special cases
-            if (relativePath === '/' || relativePath === '/index.html') {
-                relativePath = '/plugin_host.html';
-            } else if (relativePath === '/plugin_host/index.js') {
-                relativePath = '/index.js';
-            }
-
-            const filePath = getPluginFilePath(relativePath);
-            console.log('[PLUGIN PROTOCOL] Serving file:', filePath);
-            const data = await readFile(filePath);
-            const mimeType = mime.getType(filePath) || 'text/plain';
-
-            return new Response(data, {
-                headers: {
-                    'Content-Type': mimeType,
-                },
-            });
-        } catch (err) {
-            console.error('[PLUGIN PROTOCOL] Error:', err.message, 'for URL:', request.url);
-            if (err.code === 'ENOENT') {
-                NotificationCenter.addNotification({
-                    title: `Plugin loading`,
-                    message: `Plugin file not found: ${request.url}`,
-                    type: 'warning'
-                });
-                return new Response('File not found', { status: 404 });
-            }
-
-            NotificationCenter.addNotification({
-                title: `Plugin loading`,
-                message: `Unexpected error in plugin protocol handler: ${err.message}`,
-                type: 'warning'
-            });
-            return new Response('Internal error', { status: 500 });
-        }
-    });
-
     setInterval(() => {
         const metrics = app.getAppMetrics();
         AppMetrics.push({date: Date.now(), metrics});
@@ -688,45 +731,48 @@ app.whenReady().then(async () => {
     registerAiChatHandlers();
     registerAiCodingAgentHandlers();
 
-    const allRoots = settings.get('certificates.root') || [];
-    const rootCert = allRoots.find(cert =>
-        cert.label === 'root' &&
-        cert.cert &&
-        cert.key
-    );
+    const skipE2ECertBootstrap = process.env.FDO_E2E === "1" && process.env.FDO_E2E_MULTI_INSTANCE === "1";
+    if (!skipE2ECertBootstrap) {
+        const allRoots = settings.get('certificates.root') || [];
+        const rootCert = allRoots.find(cert =>
+            cert.label === 'root' &&
+            cert.cert &&
+            cert.key
+        );
 
-    if (rootCert) {
-        const days = Certs.daysUntilExpiry(rootCert.cert);
+        if (rootCert) {
+            const days = Certs.daysUntilExpiry(rootCert.cert);
 
-        if (days < Certs.EXPIRY_THRESHOLD_DAYS) {
-            NotificationCenter.addNotification({
-                title: `FDO Root Certificate`,
-                message: `⚠️ Expiring in ${Math.floor(days)} days. Regenerating...`,
-                type: 'warning'
-            });
-            try {
-                Certs.generateRootCA('root', true);
-            } catch (e) {
-                log.warn('❌ Failed to regenerate "FDO Root Certificate":', e);
-                app.quit();
+            if (days < Certs.EXPIRY_THRESHOLD_DAYS) {
+                NotificationCenter.addNotification({
+                    title: `FDO Root Certificate`,
+                    message: `⚠️ Expiring in ${Math.floor(days)} days. Regenerating...`,
+                    type: 'warning'
+                });
+                try {
+                    Certs.generateRootCA('root', true);
+                } catch (e) {
+                    log.warn('❌ Failed to regenerate "FDO Root Certificate":', e);
+                    app.quit();
+                }
+            } else {
+                NotificationCenter.addNotification({
+                    title: `FDO Root Certificate`,
+                    message: `✔ Valid for ${Math.floor(days)} more days.`
+                });
             }
         } else {
             NotificationCenter.addNotification({
                 title: `FDO Root Certificate`,
-                message: `✔ Valid for ${Math.floor(days)} more days.`
+                message: `❌ Not found. Generating new...`,
+                type: 'warning'
             });
-        }
-    } else {
-        NotificationCenter.addNotification({
-            title: `FDO Root Certificate`,
-            message: `❌ Not found. Generating new...`,
-            type: 'warning'
-        });
-        try {
-            Certs.generateRootCA('root');
-        } catch (e) {
-            log.warn('❌ Failed to generate "FDO Root Certificate":', e);
-            app.quit();
+            try {
+                Certs.generateRootCA('root');
+            } catch (e) {
+                log.warn('❌ Failed to generate "FDO Root Certificate":', e);
+                app.quit();
+            }
         }
     }
 
@@ -749,5 +795,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+    isAppShuttingDown = true;
     interruptAllCodexAuthProcesses();
 });

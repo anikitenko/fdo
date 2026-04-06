@@ -21,10 +21,65 @@ import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
 import generatePluginName from "./utils/generatePluginName";
 import {ShowLightbulbIconMode} from "monaco-editor/esm/vs/editor/common/config/editorOptions";
+import {
+    buildCapabilityAndDeprecationCodeActions,
+    buildMetadataIconCodeActions,
+    computeCapabilityAndDeprecationMarkers,
+    mergeMonacoValidationMarkers,
+    suggestBlueprintIcons,
+} from "./utils/monacoCapabilityDiagnostics";
 
 loader.config({monaco});
 
 let editorOpenerRegistered = false;
+let fdoCodeActionProvidersRegistered = false;
+let activeCodeEditor = null;
+
+function ensureFdoCodeActionProvidersRegistered() {
+    if (fdoCodeActionProvidersRegistered) {
+        return;
+    }
+    if (typeof monaco?.languages?.registerCodeActionProvider !== "function") {
+        return;
+    }
+
+    const createProvider = () => ({
+        provideCodeActions(model, _range, context) {
+            const source = model?.getValue?.() || "";
+            const markers = Array.isArray(context?.markers) ? context.markers : [];
+            const actions = [];
+
+            markers.forEach((marker) => {
+                const fixes = [
+                    ...buildMetadataIconCodeActions({source, marker}),
+                    ...buildCapabilityAndDeprecationCodeActions({source, marker}),
+                ];
+                fixes.forEach((fix) => {
+                    actions.push({
+                        title: fix.title,
+                        kind: "quickfix.fdo",
+                        diagnostics: [marker],
+                        edit: {
+                            edits: [{
+                                resource: model.uri,
+                                textEdit: fix.edit,
+                            }],
+                        },
+                        isPreferred: true,
+                    });
+                });
+            });
+
+            return {actions, dispose: () => {}};
+        },
+    });
+
+    monaco.languages.registerCodeActionProvider("typescript", createProvider());
+    monaco.languages.registerCodeActionProvider("javascript", createProvider());
+    monaco.languages.registerCodeActionProvider("typescriptreact", createProvider());
+    monaco.languages.registerCodeActionProvider("javascriptreact", createProvider());
+    fdoCodeActionProvidersRegistered = true;
+}
 
 export const EditorPage = () => {
     const location = useLocation();
@@ -40,9 +95,13 @@ export const EditorPage = () => {
     const [buildOutputSelectedTabId, setBuildOutputSelectedTabId] = useState("problems")
     const [workspaceReady, setWorkspaceReady] = useState(false)
     const [workspaceError, setWorkspaceError] = useState("")
+    const [hasOpenTabs, setHasOpenTabs] = useState(virtualFS.tabs.get().length > 0)
     const [restoreLoading, setRestoreLoading] = useState(virtualFS.fs.getRestoreLoading())
     const [restorePhase, setRestorePhase] = useState("idle")
     const [debugRenderStats, setDebugRenderStats] = useState({ shell: 0, tabs: 0, tree: 0, lastComponent: "", lastTs: 0 })
+    const [grantedCapabilities, setGrantedCapabilities] = useState([]);
+    const [pluginPersisted, setPluginPersisted] = useState(false);
+    const diagnosticsListenerDisposeRef = useRef(null);
     const initialSnapshotCreatedRef = useRef(false)
     // Request deduplication flags for window close/reload
     const [closeInProgress, setCloseInProgress] = useState(false)
@@ -59,6 +118,9 @@ export const EditorPage = () => {
 
     useEffect(() => {
         document.title = "Plugin Editor";
+        return () => {
+            activeCodeEditor = null;
+        };
     }, []);
 
     useEffect(() => {
@@ -66,6 +128,10 @@ export const EditorPage = () => {
 
         const initializeWorkspace = async () => {
             try {
+                virtualFS.resetWorkspaceState();
+                initialSnapshotCreatedRef.current = false;
+                setWorkspaceReady(false);
+                setWorkspaceError("");
                 await setupVirtualWorkspace(pluginName, pluginData.name.trim(), pluginTemplate, pluginDirectory);
                 if (cancelled) return;
 
@@ -101,6 +167,7 @@ export const EditorPage = () => {
                 }
 
                 setEditorModelPath(initialFile?.id || virtualFS.DEFAULT_FILE_MAIN);
+                setHasOpenTabs(virtualFS.tabs.get().length > 0);
                 setWorkspaceReady(true);
             } catch (error) {
                 if (!cancelled) {
@@ -116,6 +183,80 @@ export const EditorPage = () => {
     }, [pluginDirectory, pluginName, pluginTemplate, pluginData.name]);
 
     useEffect(() => codeEditorActions(codeEditor), [codeEditor]);
+
+    useEffect(() => {
+        ensureFdoCodeActionProvidersRegistered();
+    }, []);
+
+    const getBaseMonacoMarkersForModel = (model) => {
+        if (!model?.uri) {
+            return [];
+        }
+        return monaco.editor
+            .getModelMarkers({resource: model.uri})
+            .filter((marker) => {
+                if (String(marker?.source || "").toLowerCase() === "fdo-capability") {
+                    return false;
+                }
+                const markerCode = String(marker?.code || "");
+                return !markerCode.startsWith("FDO_");
+            });
+    };
+
+    const applyFdoCapabilityDiagnostics = (modelPath, baseMarkers = null) => {
+        if (!modelPath) return;
+        const model = virtualFS.getModel(modelPath);
+        if (!model) return;
+
+        const source = model?.getValue?.() || "";
+        const capabilityMarkers = computeCapabilityAndDeprecationMarkers({
+            source,
+            grantedCapabilities,
+            pluginPersisted,
+        });
+
+        monaco.editor.setModelMarkers(model, "fdo-capability", capabilityMarkers);
+        const mergedMarkers = mergeMonacoValidationMarkers(
+            Array.isArray(baseMarkers) ? baseMarkers : getBaseMonacoMarkersForModel(model),
+            capabilityMarkers
+        );
+
+        if (mergedMarkers.length > 0) {
+            virtualFS.tabs.addMarkers(modelPath, mergedMarkers);
+        } else {
+            virtualFS.tabs.removeMarkers(modelPath);
+        }
+    };
+
+    useEffect(() => {
+        let cancelled = false;
+        const pluginId = pluginData?.name?.trim?.();
+        if (!pluginId || !window?.electron?.plugin?.get) {
+            setGrantedCapabilities([]);
+            setPluginPersisted(false);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        window.electron.plugin.get(pluginId).then((result) => {
+            if (cancelled) {
+                return;
+            }
+            setPluginPersisted(!!result?.plugin?.id);
+            const caps = Array.isArray(result?.plugin?.capabilities) ? result.plugin.capabilities : [];
+            setGrantedCapabilities(caps);
+        }).catch(() => {
+            if (!cancelled) {
+                setGrantedCapabilities([]);
+                setPluginPersisted(false);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [pluginData?.name]);
 
     useEffect(() => {
         if (typeof window === "undefined" || !window.__E2E__) {
@@ -158,6 +299,7 @@ export const EditorPage = () => {
             nodeModulesLoading: virtualFS.fs.getNodeModulesLoading(),
             initWorkspace: virtualFS.isInitWorkspace(),
             sandboxName: virtualFS.sandboxName,
+            markers: virtualFS.tabs.listMarkers(),
         };
         };
 
@@ -173,6 +315,129 @@ export const EditorPage = () => {
                 }
                 virtualFS.createFile(filePath, model, { suppressDefaultSelection: true });
                 return getState();
+            },
+            getModelMarkers(filePath = "/index.ts") {
+                const uri = monaco.Uri.file(filePath);
+                const model = monaco.editor.getModel(uri);
+                if (!model) {
+                    return [];
+                }
+                return monaco.editor.getModelMarkers({resource: model.uri}).map((marker) => ({
+                    message: marker?.message || "",
+                    source: marker?.source || "",
+                    code: marker?.code || "",
+                    startLineNumber: marker?.startLineNumber || 0,
+                    endLineNumber: marker?.endLineNumber || 0,
+                    startColumn: marker?.startColumn || 0,
+                    endColumn: marker?.endColumn || 0,
+                }));
+            },
+            getFileContent(filePath = "/index.ts") {
+                const uri = monaco.Uri.file(filePath);
+                const model = monaco.editor.getModel(uri);
+                if (!model) {
+                    return null;
+                }
+                return model.getValue?.() ?? null;
+            },
+            suggestBlueprintIcons(input = "", limit = 5) {
+                return suggestBlueprintIcons(input, limit);
+            },
+            getMetadataIconQuickFixTitles(iconValue = "zzbzfbfb") {
+                const source = `
+                    private readonly _metadata: PluginMetadata = {
+                        name: "Example",
+                        version: "1.0.0",
+                        author: "Test",
+                        description: "Demo",
+                        icon: "${String(iconValue || "")}",
+                    };
+                `;
+                const markers = computeCapabilityAndDeprecationMarkers({
+                    source,
+                    grantedCapabilities: [],
+                });
+                const invalidMarker = markers.find((marker) => marker.code === "FDO_INVALID_METADATA_ICON");
+                if (!invalidMarker) {
+                    return [];
+                }
+                return buildMetadataIconCodeActions({source, marker: invalidMarker}).map((fix) => fix.title);
+            },
+            getMetadataIconQuickFixTitlesForPath(filePath = "/index.ts") {
+                const uri = monaco.Uri.file(filePath);
+                const model = monaco.editor.getModel(uri);
+                if (!model) {
+                    return [];
+                }
+                const source = model.getValue?.() || "";
+                const markers = computeCapabilityAndDeprecationMarkers({
+                    source,
+                    grantedCapabilities,
+                    pluginPersisted,
+                });
+                const invalidMarker = markers.find((marker) => marker.code === "FDO_INVALID_METADATA_ICON");
+                if (!invalidMarker) {
+                    return [];
+                }
+                return buildMetadataIconCodeActions({source, marker: invalidMarker}).map((fix) => fix.title);
+            },
+            focusEditor() {
+                activeCodeEditor?.focus?.();
+                return !!activeCodeEditor;
+            },
+            setEditorPosition(lineNumber = 1, column = 1) {
+                if (!activeCodeEditor?.setPosition) {
+                    return false;
+                }
+                activeCodeEditor.setPosition({lineNumber, column});
+                activeCodeEditor.revealPositionInCenter?.({lineNumber, column});
+                activeCodeEditor.focus?.();
+                return true;
+            },
+            async triggerQuickFix() {
+                if (!activeCodeEditor) {
+                    return false;
+                }
+                if (typeof activeCodeEditor.trigger === "function") {
+                    activeCodeEditor.trigger("keyboard", "editor.action.quickFix", {});
+                    return true;
+                }
+                if (typeof activeCodeEditor.getAction === "function") {
+                    const action = activeCodeEditor.getAction("editor.action.quickFix");
+                    if (action?.run) {
+                        await action.run();
+                        return true;
+                    }
+                }
+                return false;
+            },
+            applyFirstMetadataIconQuickFixForPath(filePath = "/index.ts") {
+                const uri = monaco.Uri.file(filePath);
+                const model = monaco.editor.getModel(uri);
+                if (!model) {
+                    return false;
+                }
+                const source = model.getValue?.() || "";
+                const markers = computeCapabilityAndDeprecationMarkers({
+                    source,
+                    grantedCapabilities,
+                    pluginPersisted,
+                });
+                const invalidMarker = markers.find((marker) => marker.code === "FDO_INVALID_METADATA_ICON");
+                if (!invalidMarker) {
+                    return false;
+                }
+                const fixes = buildMetadataIconCodeActions({source, marker: invalidMarker});
+                const firstFix = fixes[0];
+                if (!firstFix?.edit?.range || typeof firstFix.edit.text !== "string") {
+                    return false;
+                }
+                model.applyEdits([{
+                    range: firstFix.edit.range,
+                    text: firstFix.edit.text,
+                    forceMoveMarkers: true,
+                }]);
+                return true;
             },
             deleteFile(filePath) {
                 virtualFS.deleteFile(filePath);
@@ -215,6 +480,24 @@ export const EditorPage = () => {
             unsubscribeRestorePhase();
         };
     }, []);
+
+    useEffect(() => {
+        if (!restoreLoading) return;
+        let cancelled = false;
+        const sync = () => {
+            if (cancelled) return;
+            if (!virtualFS.fs.getRestoreLoading()) {
+                setRestoreLoading(false);
+                setRestorePhase("idle");
+                return;
+            }
+            requestAnimationFrame(sync);
+        };
+        requestAnimationFrame(sync);
+        return () => {
+            cancelled = true;
+        };
+    }, [restoreLoading]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -274,15 +557,53 @@ export const EditorPage = () => {
     }, [workspaceReady, workspaceError]);
 
     useEffect(() => {
+        if (!editorModelPath) {
+            return;
+        }
+        applyFdoCapabilityDiagnostics(editorModelPath);
+    }, [editorModelPath, grantedCapabilities, pluginPersisted]);
+
+    useEffect(() => {
+        if (!codeEditor || !editorModelPath) {
+            return;
+        }
+
+        diagnosticsListenerDisposeRef.current?.dispose?.();
+        const model = virtualFS.getModel(editorModelPath);
+        if (!model?.onDidChangeContent) {
+            return;
+        }
+        diagnosticsListenerDisposeRef.current = model.onDidChangeContent(() => {
+            applyFdoCapabilityDiagnostics(editorModelPath);
+        });
+
+        return () => {
+            diagnosticsListenerDisposeRef.current?.dispose?.();
+            diagnosticsListenerDisposeRef.current = null;
+        };
+    }, [codeEditor, editorModelPath, grantedCapabilities, pluginPersisted]);
+
+    useEffect(() => {
         if (!codeEditor || !workspaceReady || !editorModelPath) return;
         const model = virtualFS.getModel(editorModelPath);
         if (!model) return;
-        codeEditor.setModel(model);
-        const state = virtualFS.getModelState(editorModelPath);
-        if (state) {
-            codeEditor.restoreViewState(state);
+        try {
+            codeEditor.setModel(model);
+            const state = virtualFS.getModelState(editorModelPath);
+            if (state) {
+                codeEditor.restoreViewState(state);
+            }
+        } catch (error) {
+            console.error("[EditorPage] Failed to bind Monaco model to editor", error);
+            setCodeEditor(null);
         }
     }, [codeEditor, editorModelPath, workspaceReady]);
+
+    useEffect(() => {
+        if (!hasOpenTabs) {
+            setCodeEditor(null);
+        }
+    }, [hasOpenTabs]);
 
     useEffect(() => {
         closeInProgressRef.current = closeInProgress;
@@ -317,10 +638,52 @@ export const EditorPage = () => {
         });
     }
 
+    const getReopenTargetFile = () => {
+        const workspaceFileIds = (() => {
+            try {
+                return Object.keys(virtualFS.getLatestContent?.() || {}).filter((path) => (
+                    typeof path === "string"
+                    && path.startsWith("/")
+                    && !path.startsWith("/node_modules/")
+                    && !path.startsWith("/dist/")
+                ));
+            } catch (_) {
+                return [];
+            }
+        })();
+        const firstWorkspaceFile = workspaceFileIds
+            .map((path) => virtualFS.getTreeObjectItemById(path))
+            .find((item) => item?.type === "file");
+
+        return (
+            virtualFS.getTreeObjectItemById(virtualFS.DEFAULT_FILE_MAIN)
+            || virtualFS.getTreeObjectItemById(virtualFS.DEFAULT_FILE_RENDER)
+            || firstWorkspaceFile
+            || null
+        );
+    };
+
+    const reopenPreferredFile = () => {
+        const preferredFile = getReopenTargetFile();
+
+        if (!preferredFile?.id) return;
+
+        virtualFS.setTreeObjectItemSelectedSilent(preferredFile.id);
+        virtualFS.tabs.add(preferredFile);
+        setHasOpenTabs(true);
+        setEditorModelPath(preferredFile.id);
+    };
+
+    const reopenTargetFile = getReopenTargetFile();
+    const reopenButtonText = reopenTargetFile?.id === virtualFS.DEFAULT_FILE_MAIN
+        ? "Open Main File"
+        : "Open Available File";
+
     useEffect(() => {
         const unsubscribe = virtualFS.notifications.subscribe("fileSelected", (file) => {
             if (file) {
                 virtualFS.tabs.add(file);
+                setHasOpenTabs(true);
                 setEditorModelPath(file.id)
                 codeEditor?.setModel(virtualFS.getModel(file.id))
                 codeEditor?.restoreViewState(virtualFS.getModelState(file.id))
@@ -332,13 +695,23 @@ export const EditorPage = () => {
             virtualFS.tabs.switchToLast()
             codeEditor?.focus()
         });
+        const unsubscribeFileTabs = virtualFS.notifications.subscribe("fileTabs", (tabs = []) => {
+            const nextHasOpenTabs = (tabs || []).length > 0;
+            setHasOpenTabs(nextHasOpenTabs);
+            if (!nextHasOpenTabs) {
+                setEditorModelPath(null);
+            }
+        });
         const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", (tabID) => {
             if (pendingTabSwitchFrameRef.current) {
                 cancelAnimationFrame(pendingTabSwitchFrameRef.current);
             }
             pendingTabSwitchFrameRef.current = requestAnimationFrame(() => {
                 pendingTabSwitchFrameRef.current = null;
-                if (!tabID) return;
+                if (!tabID) {
+                    setEditorModelPath(null);
+                    return;
+                }
                 setEditorModelPath(tabID)
                 virtualFS.setTreeObjectItemSelectedSilent(tabID)
                 // Ensure the editor model is switched and its view state (cursor/scroll/selection) is restored
@@ -418,6 +791,7 @@ export const EditorPage = () => {
             }
             unsubscribe()
             unsubscribeFileRemoved()
+            unsubscribeFileTabs()
             unsubscribeTabSwitched()
             if (pendingTabSwitchFrameRef.current) {
                 cancelAnimationFrame(pendingTabSwitchFrameRef.current);
@@ -510,7 +884,11 @@ export const EditorPage = () => {
                                     <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                             <div>
                                 <div className={styles["code-deploy-actions"]}>
-                                            <CodeDeployActions setSelectedTabId={setBuildOutputSelectedTabId} pluginDirectory={pluginDirectory}/>
+                                            <CodeDeployActions
+                                                setSelectedTabId={setBuildOutputSelectedTabId}
+                                                currentSelectedTabId={buildOutputSelectedTabId}
+                                                pluginDirectory={pluginDirectory}
+                                            />
                                         </div>
                                     </div>
                                 </div>
@@ -531,49 +909,65 @@ export const EditorPage = () => {
                                      className={styles["inner-editor-terminal-grid"]}>
                                     <div style={{minWidth: "0", overflow: "hidden", width: "100%"}}>
                                             <FileTabs closeTab={closeTab}/>
-                                        <Editor defaultLanguage="plaintext"
-                                                theme="editor-dark"
-                                                height={"calc(100% - 69px)"}
-                                                onValidate={(e) => {
-                                                    if (e.length > 0) {
-                                                        virtualFS.tabs.addMarkers(editorModelPath, e)
-                                                    } else {
-                                                        virtualFS.tabs.removeMarkers(editorModelPath)
-                                                    }
-                                                }}
-                                                defaultValue={packageDefaultContent(pluginName)}
-                                                path={editorModelPath}
-                                                className={styles["editor-container"]}
-                                                onMount={(editor) => {
-                                                    setCodeEditor(editor)
-                                                    EditorStyle()
-                                                }}
+                                        {hasOpenTabs && editorModelPath ? (
+                                            <Editor defaultLanguage="plaintext"
+                                                    theme="editor-dark"
+                                                    height={"calc(100% - 69px)"}
+                                                    onValidate={(e) => {
+                                                        if (!editorModelPath) return;
+                                                        applyFdoCapabilityDiagnostics(editorModelPath, e);
+                                                    }}
+                                                    defaultValue={packageDefaultContent(pluginName)}
+                                                    path={editorModelPath}
+                                                    className={styles["editor-container"]}
+                                                    onMount={(editor) => {
+                                                        setCodeEditor(editor)
+                                                        activeCodeEditor = editor
+                                                        EditorStyle()
+                                                    }}
 
-                                                options={{
-                                                    minimap: {
-                                                        enabled: true,
-                                                        autohide: true,
-                                                        size: "fill",
-                                                        scale: 1.5
-                                                    },
-                                                    linkedEditing: true,
-                                                    lightbulb: {
-                                                        enabled: ShowLightbulbIconMode.On
-                                                    },
-                                                    scrollbar: {vertical: "auto", horizontal: "auto"},
-                                                    stickyScroll: {
-                                                        enabled: true,
-                                                        maxLineCount: 5,
-                                                    },
-                                                    fontSize: 13,
-                                                    mouseWheelZoom: true,
-                                                    smoothScrolling: true,
-                                                    dragAndDrop: false,
-                                                    automaticLayout: true,
-                                                    fixedOverflowWidgets: true,
-                                                    scrollBeyondLastLine: false,
-                                                }}
-                                        />
+                                                    options={{
+                                                        minimap: {
+                                                            enabled: true,
+                                                            autohide: true,
+                                                            size: "fill",
+                                                            scale: 1.5
+                                                        },
+                                                        linkedEditing: true,
+                                                        lightbulb: {
+                                                            enabled: ShowLightbulbIconMode.On
+                                                        },
+                                                        scrollbar: {vertical: "auto", horizontal: "auto"},
+                                                        stickyScroll: {
+                                                            enabled: true,
+                                                            maxLineCount: 5,
+                                                        },
+                                                        fontSize: 13,
+                                                        mouseWheelZoom: true,
+                                                        smoothScrolling: true,
+                                                        dragAndDrop: false,
+                                                        automaticLayout: true,
+                                                        fixedOverflowWidgets: true,
+                                                        scrollBeyondLastLine: false,
+                                                    }}
+                                            />
+                                        ) : (
+                                            <div className={styles["editorEmptyState"]} role="status" aria-live="polite">
+                                                <div className={styles["editorEmptyCard"]}>
+                                                    <div className={styles["editorEmptyTitle"]}>No file open</div>
+                                                    <div className={styles["editorEmptySubtitle"]}>
+                                                        Select a file from Project Explorer or reopen the main plugin file.
+                                                    </div>
+                                                    <Button
+                                                        small
+                                                        icon="document-open"
+                                                        text={reopenButtonText}
+                                                        onClick={reopenPreferredFile}
+                                                        disabled={!reopenTargetFile}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                     <div
                                         className={styles["gutter-row-editor-terminal"]} {...getInnerCodeGutterProps('row', 1)}></div>

@@ -1,6 +1,17 @@
 import Store from 'electron-store';
+import fs from 'node:fs';
+
+const e2eCwd = process.env.FDO_E2E_USER_DATA_DIR;
+if (e2eCwd) {
+    try {
+        fs.mkdirSync(e2eCwd, { recursive: true });
+    } catch (_) {
+        // Best-effort; electron-store will surface path errors if any.
+    }
+}
 
 export const settings = new Store({
+    ...(e2eCwd ? { cwd: e2eCwd } : {}),
     encryptionKey: "FDO-APPLICATION",
     name: "settings",
     schema: {

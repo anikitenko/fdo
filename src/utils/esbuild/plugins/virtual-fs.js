@@ -25,12 +25,42 @@ export function EsbuildVirtualFsPlugin(latestContent) {
         name: "virtual-fs",
         setup(build) {
             const NATIVE_MODULES = new Set(require("module").builtinModules);
+            const NATIVE_MODULES_NO_PREFIX = new Set(
+                [...NATIVE_MODULES].map((moduleName) => String(moduleName || "").replace(/^node:/, ""))
+            );
+            const CONFIGURED_EXTERNALS = Array.isArray(build?.initialOptions?.external)
+                ? build.initialOptions.external.filter((entry) => typeof entry === "string")
+                : [];
+            const isNativeModule = (moduleName = "") => {
+                const normalized = String(moduleName || "");
+                if (!normalized) return false;
+                const withoutPrefix = normalized.replace(/^node:/, "");
+                return normalized.startsWith("node:")
+                    || NATIVE_MODULES.has(normalized)
+                    || NATIVE_MODULES_NO_PREFIX.has(withoutPrefix);
+            };
+            const isConfiguredExternal = (moduleName = "") => {
+                const normalized = String(moduleName || "");
+                if (!normalized) return false;
+                return CONFIGURED_EXTERNALS.some((externalEntry) => {
+                    if (externalEntry === normalized) return true;
+                    if (externalEntry.endsWith("/*")) {
+                        return normalized.startsWith(externalEntry.slice(0, -1));
+                    }
+                    if (!externalEntry.startsWith(".") && !externalEntry.startsWith("/")) {
+                        return normalized.startsWith(`${externalEntry}/`);
+                    }
+                    return false;
+                });
+            };
 
             build.onResolve({filter: /^[^.\/]/}, (args) => {
                 // Handle native modules
-                if (
-                    NATIVE_MODULES.has(args.path)
-                ) {
+                if (isNativeModule(args.path)) {
+                    return {external: true};
+                }
+                // Preserve esbuild externals declared by the caller (e.g. SDK runtime package).
+                if (isConfiguredExternal(args.path)) {
                     return {external: true};
                 }
                 if (

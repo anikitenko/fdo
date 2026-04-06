@@ -1,5 +1,5 @@
-import React, {useMemo, useState} from "react";
-import {Button, ButtonGroup, Menu, MenuDivider, MenuItem, Popover, InputGroup, Tag, Spinner} from "@blueprintjs/core";
+import React, {useEffect, useMemo, useState} from "react";
+import {Button, ButtonGroup, Menu, MenuDivider, MenuItem, Popover, InputGroup, Tag} from "@blueprintjs/core";
 import {useSnapshots} from "./SnapshotContext.jsx";
 import * as styles from "./snapshots.module.css";
 
@@ -54,21 +54,27 @@ export const SnapshotToolbarActions = () => {
   const recent = useMemo(() => versions, [versions]);
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    if (open && (switching || restoreLoading || creating)) {
+      setOpen(false);
+    }
+  }, [open, switching, restoreLoading, creating]);
+
   return (
     <div className={styles["toolbar"]}>
       <div className={styles["toolbarPrimaryRow"]}>
         <ButtonGroup variant={"minimal"}>
           <Button icon="camera" text="Snapshot" intent={hasUnsavedChanges ? "warning" : "success"} loading={creating} disabled={switching} onClick={()=>createSnapshot()} />
-          <Popover content={<RecentMenu versions={recent} onSwitch={requestSwitch} onRename={renameSnapshot} onDelete={deleteSnapshot} openPanel={openPanel} />} placement="bottom-start" usePortal={false} isOpen={open} onInteraction={(next)=>setOpen(next)}>
+          <Popover content={<RecentMenu versions={recent} onSwitch={requestSwitch} onRename={renameSnapshot} onDelete={deleteSnapshot} openPanel={openPanel} />} placement="bottom-start" usePortal={true} isOpen={open} onInteraction={(next)=>setOpen(next)}>
             <Button endIcon={hasUnsavedChanges ? "warning-sign" : "caret-down"} intent={hasUnsavedChanges ? "warning" : "primary"} icon="time" text="Recent" disabled={switching} onClick={()=>setOpen(!open)} />
           </Popover>
           <Button icon="history" onClick={openPanel} intent="primary" text="Timeline" disabled={switching} />
         </ButtonGroup>
-        {(creating || switching || restoreLoading || (loading && versions.length === 0)) && (
+        {(creating || (loading && versions.length === 0)) && (
           <div className={styles["statusPill"]} role="status" aria-live="polite">
-            <Spinner size={14} />
+            <span className={styles["statusDot"]} aria-hidden="true" />
             <span>
-              {creating ? "Saving snapshot…" : (switching || restoreLoading) ? "Switching snapshot…" : "Loading snapshots…"}
+              {creating ? "Saving snapshot…" : "Loading snapshots…"}
             </span>
           </div>
         )}

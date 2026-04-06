@@ -1,5 +1,5 @@
 import React from "react";
-import {render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {MemoryRouter} from "react-router-dom";
 import * as monaco from "monaco-editor";
 import virtualFS from "../../../src/components/editor/utils/VirtualFS";
@@ -136,6 +136,44 @@ describe("EditorPage baseline snapshot", () => {
         });
     });
 
+    test("opening a different existing plugin workspace creates its own baseline snapshot", async () => {
+        const firstPluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+        const secondPluginData = encodeURIComponent(JSON.stringify({
+            name: "Existing Plugin",
+            template: "blank",
+            dir: "/plugins/existing-plugin",
+        }));
+
+        const { unmount } = render(
+            <MemoryRouter initialEntries={[`/editor?data=${firstPluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(virtualFS.fs.list()).toHaveLength(1);
+        });
+        expect(virtualFS.pluginName).toBe("test-plugin");
+
+        unmount();
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${secondPluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(virtualFS.fs.list()).toHaveLength(1);
+        });
+        expect(virtualFS.pluginName).toBe("existing-plugin");
+        expect(virtualFS.getTreeObjectItemById("/index.ts")).toBeTruthy();
+    });
+
     test("shows a blocking restore overlay during snapshot restore", async () => {
         const pluginData = encodeURIComponent(JSON.stringify({
             name: "Test Plugin",
@@ -159,6 +197,105 @@ describe("EditorPage baseline snapshot", () => {
             expect(screen.getByRole("alertdialog", { name: /Restoring snapshot/i })).toBeTruthy();
         });
         expect(screen.getByText(/Updating files, tabs, and editor state/i)).toBeTruthy();
+    });
+
+    test("shows an explicit empty editor state after closing the last tab", async () => {
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(virtualFS.tabs.get().length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            virtualFS.tabs.get().forEach((tab) => virtualFS.tabs.removeById(tab.id));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText(/No file open/i)).toBeTruthy();
+        });
+        expect(screen.getByText(/Select a file from Project Explorer or reopen the main plugin file/i)).toBeTruthy();
+    });
+
+    test("open main file reopens the default main file instead of the last closed tab", async () => {
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(virtualFS.tabs.get().length).toBeGreaterThan(0);
+        });
+
+        const renderFile = virtualFS.getTreeObjectItemById("/render.tsx");
+        act(() => {
+            virtualFS.tabs.add(renderFile);
+            virtualFS.tabs.setActiveTab(renderFile);
+        });
+
+        act(() => {
+            virtualFS.tabs.get().forEach((tab) => virtualFS.tabs.removeById(tab.id));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText(/No file open/i)).toBeTruthy();
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: /Open Main File/i }));
+
+        await waitFor(() => {
+            expect(virtualFS.tabs.getActiveTabId()).toBe("/index.ts");
+        });
+    });
+
+    test("falls back to the render entry when index.ts does not exist", async () => {
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(virtualFS.tabs.get().length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            virtualFS.deleteFile("/index.ts");
+            virtualFS.tabs.get().forEach((tab) => virtualFS.tabs.removeById(tab.id));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText(/No file open/i)).toBeTruthy();
+        });
+
+        const reopenButton = screen.getByRole("button", { name: /Open Available File/i });
+        fireEvent.click(reopenButton);
+
+        await waitFor(() => {
+            expect(virtualFS.tabs.getActiveTabId()).toBe("/render.tsx");
+        });
     });
 
     test("registers and unregisters editor close and reload confirmations exactly once", async () => {
@@ -215,5 +352,50 @@ describe("EditorPage baseline snapshot", () => {
         addEventListenerSpy.mockRestore();
         removeEventListenerSpy.mockRestore();
         process.env.NODE_ENV = previousNodeEnv;
+    });
+
+    test("registers quick-fix provider with Monaco textEdit payloads", async () => {
+        monaco.languages.registerCodeActionProvider = jest.fn();
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(monaco.languages.registerCodeActionProvider).toHaveBeenCalled();
+        });
+
+        const provider = monaco.languages.registerCodeActionProvider.mock.calls[0]?.[1];
+        expect(provider).toBeTruthy();
+
+        const source = `const req = createHostsWriteActionRequest({ action: "system.hosts.write" });`;
+        const actionsResult = provider.provideCodeActions(
+            {
+                getValue: () => source,
+                uri: monaco.Uri.file("/index.ts"),
+            },
+            null,
+            {
+                markers: [{
+                    code: "FDO_MISSING_SYSTEM_HOSTS_WRITE",
+                    message: 'Missing capability: "system.hosts.write".',
+                    startLineNumber: 1,
+                    startColumn: 1,
+                    endLineNumber: 1,
+                    endColumn: 10,
+                }],
+            }
+        );
+
+        const firstEdit = actionsResult?.actions?.[0]?.edit?.edits?.[0];
+        expect(firstEdit?.textEdit).toBeTruthy();
+        expect(firstEdit?.edit).toBeUndefined();
     });
 });

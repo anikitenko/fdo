@@ -49,6 +49,43 @@
     height: calc(100vh - 42px);
 }
 
+.editorEmptyState {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: calc(100% - 69px);
+    min-height: 240px;
+    background: linear-gradient(180deg, rgba(21, 26, 33, 0.92), rgba(17, 21, 27, 0.96));
+}
+
+.editorEmptyCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 320px;
+    max-width: 480px;
+    padding: 24px 28px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(28, 34, 43, 0.92);
+    box-shadow: 0 20px 44px rgba(0, 0, 0, 0.26);
+    text-align: center;
+}
+
+.editorEmptyTitle {
+    color: #f8fafc;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.editorEmptySubtitle {
+    color: rgba(226, 232, 240, 0.8);
+    font-size: 13px;
+    line-height: 1.5;
+    max-width: 360px;
+}
+
 .editorRestoreOverlay {
     position: absolute;
     inset: 0;

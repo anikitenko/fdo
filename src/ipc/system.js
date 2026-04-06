@@ -13,6 +13,11 @@ import {promisify} from "util";
 import {installFDOCLI, removeFDOCLI} from "../utils/installFDOCLI";
 import {lookpath} from "lookpath";
 import {createEditorWindowConfirmState} from "./system_confirm_state";
+import {buildFdoSdkKnowledgeIndex, searchFdoSdkKnowledge} from "../utils/fdoSdkKnowledge";
+import {extractReferenceUrls, summarizeHtmlReference} from "../utils/externalReferenceKnowledge";
+import {fetchWithTimeout} from "../utils/fetchWithTimeout";
+import {readFile} from "node:fs/promises";
+import fs from "node:fs";
 
 const execAsync = promisify(exec);
 
@@ -28,6 +33,110 @@ const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY = isDev
 
 // Timeout tracking for editor window close operations
 let editorCloseTimeoutId = null;
+let fdoSdkKnowledgeCache = {
+    sourcePath: "",
+    index: null,
+};
+
+function pickExistingDirectory(paths = []) {
+    for (const candidate of paths) {
+        try {
+            if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+                return candidate;
+            }
+        } catch (_) {
+            // Ignore unreadable candidates and continue with next path.
+        }
+    }
+    return "";
+}
+
+function resolveFdoSdkPackagePath() {
+    const isDev = !app.isPackaged;
+    const candidates = isDev
+        ? [
+            path.join(process.cwd(), 'node_modules', '@anikitenko', 'fdo-sdk'),
+            path.join(__dirname, '..', '..', 'node_modules', '@anikitenko', 'fdo-sdk'),
+            path.join(__dirname, '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk'),
+        ]
+        : [
+            path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk'),
+            path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anikitenko', 'fdo-sdk'),
+        ];
+
+    return pickExistingDirectory(candidates) || candidates[0];
+}
+
+function resolveFdoSdkDistPath() {
+    const packagePath = resolveFdoSdkPackagePath();
+    const isDev = !app.isPackaged;
+    const candidates = [
+        path.join(packagePath, 'dist'),
+        ...(isDev
+            ? [path.join(__dirname, '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')]
+            : [path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')]),
+    ];
+
+    return pickExistingDirectory(candidates) || candidates[0];
+}
+
+function getFilesTreeSafe(basePath, targetPath, filter = null) {
+    try {
+        const files = getFilesTree(basePath, targetPath);
+        return typeof filter === "function" ? files.filter(filter) : files;
+    } catch (_) {
+        return [];
+    }
+}
+
+function getCachedFdoSdkKnowledgeIndex() {
+    const packagePath = resolveFdoSdkPackagePath();
+    const distPath = resolveFdoSdkDistPath();
+    const sourcePath = `${packagePath}|${distPath}`;
+    if (fdoSdkKnowledgeCache.index && fdoSdkKnowledgeCache.sourcePath === sourcePath) {
+        return fdoSdkKnowledgeCache.index;
+    }
+
+    const topLevelDocsFilter = (file) => /README|CHANGELOG|package\.json/i.test(file.path);
+    const files = [
+        ...getFilesTreeSafe(distPath, '@types'),
+        ...getFilesTreeSafe(packagePath, '.', topLevelDocsFilter),
+        ...getFilesTreeSafe(packagePath, 'docs'),
+        ...getFilesTreeSafe(packagePath, 'examples'),
+        ...getFilesTreeSafe(distPath, 'docs'),
+    ];
+    const index = buildFdoSdkKnowledgeIndex(files);
+    fdoSdkKnowledgeCache = {
+        sourcePath,
+        index,
+    };
+    return index;
+}
+
+async function fetchExternalReferenceKnowledge(query = "", limit = 3) {
+    const urls = extractReferenceUrls(query).slice(0, limit);
+    const results = [];
+
+    for (const url of urls) {
+        try {
+            const response = await fetchWithTimeout(url, {
+                redirect: "follow",
+                headers: {
+                    "user-agent": "FDO-AI-Coding-Agent/1.0",
+                },
+            }, 8000);
+            if (!response.ok) {
+                continue;
+            }
+            const html = await response.text();
+            results.push(summarizeHtmlReference(response.url || url, html));
+        } catch (_) {
+            // Ignore individual fetch failures and continue with the next reference.
+        }
+    }
+
+    return results;
+}
 
 /**
  * Force closes the editor window if normal close fails
@@ -118,6 +227,19 @@ export function registerSystemHandlers() {
         }
     });
 
+    ipcMain.handle(SystemChannels.OPEN_PLUGIN_LOGS, async () => {
+        const logsDir = path.join(app.getPath("userData"), "logs");
+        try {
+            const openError = await shell.openPath(logsDir);
+            if (openError) {
+                return {success: false, error: openError};
+            }
+            return {success: true, path: logsDir};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error)};
+        }
+    });
+
     ipcMain.handle(SystemChannels.GET_PLUGIN_METRIC, (event, id, fromTime, toTime) => {
         let plugin = PluginManager.getLoadedPluginInstance(id);
         // If plugin is not found, try to retrieve it from `AppMetrics`
@@ -187,14 +309,53 @@ export function registerSystemHandlers() {
 
     ipcMain.handle(SystemChannels.GET_FDO_SDK_TYPES, async () => {
         try {
-            const isDev = !app.isPackaged;
-            const fdoSdkTypes = isDev
-                ? path.join(__dirname, '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')
-                : path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist');
-            const filesTree = getFilesTree(fdoSdkTypes, '@types')
-            return {success: true, files: filesTree};
+            const fdoSdkTypes = resolveFdoSdkDistPath();
+            const candidates = [
+                path.join(fdoSdkTypes, "@types"),
+                path.join(fdoSdkTypes, "types"),
+            ];
+            for (const candidate of candidates) {
+                if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+                    const filesTree = getFilesTree(candidate, '.');
+                    return {success: true, files: filesTree};
+                }
+            }
+            // Recent SDK bundles may ship without dedicated .d.ts trees.
+            return {success: true, files: [], warning: "No SDK type files found in dist."};
         } catch (error) {
-            return {success: false, error: error.message};
+            return {success: false, error: error.message, files: []};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_FDO_SDK_DOM_METADATA, async () => {
+        try {
+            const domMetadataPath = path.join(resolveFdoSdkDistPath(), "dom-metadata.json");
+            const content = await readFile(domMetadataPath, "utf8");
+            return {
+                success: true,
+                metadata: JSON.parse(content),
+            };
+        } catch (error) {
+            return {success: false, error: error.message, metadata: []};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_FDO_SDK_KNOWLEDGE, async (_event, query = "", limit = 6) => {
+        try {
+            const index = getCachedFdoSdkKnowledgeIndex();
+            const results = searchFdoSdkKnowledge(index, query, { limit });
+            return { success: true, results };
+        } catch (error) {
+            return { success: false, error: error.message, results: [] };
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_EXTERNAL_REFERENCE_KNOWLEDGE, async (_event, query = "", limit = 3) => {
+        try {
+            const results = await fetchExternalReferenceKnowledge(query, limit);
+            return { success: true, results };
+        } catch (error) {
+            return { success: false, error: error.message, results: [] };
         }
     })
 

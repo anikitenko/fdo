@@ -6,6 +6,67 @@ The AI Coding Agent is a new feature integrated into the FDO built-in code edito
 
 The AI assistant is **FDO SDK-aware** and can help with plugin development using the `@anikitenko/fdo-sdk`.
 
+For privileged integrations, the AI Coding Agent should prefer host-mediated scoped actions over raw shell or child-process spawning from plugin code. In practice, that means recommending:
+
+- `system.hosts.write` for `/etc/hosts` workflows
+- `system.fs.mutate` with `system.fs.scope.<scope-id>` for controlled external filesystem writes
+- `system.process.exec` with `system.process.scope.<scope-id>` as a broad capability plus narrow scope pair for approved operator tools such as Docker, kubectl, Helm, or Terraform
+
+For operator-style authoring, the SDK fixture set is the primary entry point.
+
+Authoring priority order:
+
+1. suggest the closest fixture under `examples/fixtures/`
+2. for known tool families, suggest curated presets and helpers:
+   - `createOperatorToolCapabilityPreset(...)`
+   - `createOperatorToolActionRequest(...)`
+   - `requestOperatorTool(...)`
+3. for host-specific/internal tools not covered by curated presets, suggest:
+   - `createProcessCapabilityBundle(...)`
+   - `createProcessScopeCapability(...)`
+   - `requestScopedProcessExec(...)`
+4. only suggest lower-level transport helpers when the user explicitly needs transport-level control, debugging, or a non-curated action family:
+   - `createProcessExecActionRequest(...)`
+   - `requestPrivilegedAction(...)`
+
+For operator-style request/response handling, the preferred SDK pattern is:
+
+- start from the closest operator fixture under `examples/fixtures/`
+- use `requestOperatorTool(...)` for known DevOps/SRE tool presets such as Docker, kubectl, Helm, Terraform, Ansible, AWS CLI, gcloud, Azure CLI, Podman, Kustomize, GitHub CLI, Git, Vault, and Nomad
+- use `createOperatorToolCapabilityPreset(...)` and `createOperatorToolActionRequest(...)` when you need the matching capability grant set and request builder for a known preset
+- use `createProcessCapabilityBundle(...)`, `createProcessScopeCapability(...)`, and `requestScopedProcessExec(...)` for host-defined or internal custom tools
+- use `createFilesystemCapabilityBundle(...)` for scoped filesystem capability setup
+- use `parseMissingCapabilityError(...)` and `describeCapability(...)` for capability-denied remediation and user-facing copy
+- keep `requestPrivilegedAction(request, { correlationIdPrefix })` and `createProcessExecActionRequest(...)` as the low-level helper path only when explicit transport-level control is required
+- use `createPrivilegedActionBackendRequest(...)` when plugin code needs the stable transport envelope without sending immediately
+- branch on `isPrivilegedActionSuccessResponse(...)` / `isPrivilegedActionErrorResponse(...)`
+- optionally simplify handling with `unwrapPrivilegedActionResponse(...)`
+
+For serialized `renderOnLoad()` handlers, prefer inlining `requestPrivilegedAction(...).toString()` rather than manually wiring `window.createBackendReq("requestPrivilegedAction", ...)`. Preset helpers are preferred for normal authoring, but the low-level transport helper is a better fit for `.toString()` embedding.
+
+For operator-style generation, prefer the packaged SDK references in this order:
+
+- `docs/OPERATOR_PLUGIN_PATTERNS.md`
+- `examples/fixtures/operator-kubernetes-plugin.fixture.ts`
+- `examples/fixtures/operator-terraform-plugin.fixture.ts`
+- `examples/fixtures/operator-custom-tool-plugin.fixture.ts`
+
+Operator-style plugins are a supported SDK pattern. That includes:
+
+- Docker Desktop-like plugins
+- Kubernetes dashboards or cluster consoles
+- Helm managers
+- Terraform or other infrastructure/operator consoles
+
+The assistant should recommend scoped host-mediated execution for those cases, not unrestricted shell access.
+
+Capability UX should describe operator permissions as:
+
+- broad capability: `system.process.exec`
+- narrow scope: `system.process.scope.<scope-id>`
+
+When denied, remediation should explain which capability is missing and whether the user should request a curated tool-family grant or a host-specific scope. Curated tool-family guidance should come before transport-level troubleshooting whenever a curated preset exists.
+
 ## Features
 
 The AI Coding Agent supports the following actions:
@@ -167,6 +228,23 @@ This plugin fails to render - TypeError: Cannot read property 'render' of undefi
 **Plan Code (Plugin Scaffold):**
 ```
 Create a weather dashboard plugin that displays current weather and a 5-day forecast
+```
+
+**Operator-Style Plugin Guidance:**
+```
+Build a Docker Desktop-like FDO plugin from the closest operator fixture and use requestOperatorTool("docker-cli", ...) with the matching curated capability preset
+```
+
+```
+Create a Kubernetes dashboard plugin from the closest operator fixture and use requestOperatorTool("kubectl", ...) instead of raw shell commands
+```
+
+```
+Show the recommended SDK pattern for a Helm manager plugin using curated helpers first and explain the broad capability plus narrow scope pair
+```
+
+```
+Show the low-level transport pattern for a non-curated action family using createProcessExecActionRequest(...) and requestPrivilegedAction(...)
 ```
 
 Or upload a UI mockup image and describe:

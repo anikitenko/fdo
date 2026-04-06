@@ -87,6 +87,10 @@ export const SnapshotProvider = ({children}) => {
     const unsubA = virtualFS.notifications.subscribe("treeVersionsUpdate", (v) => setVersions(v));
     const unsubB = virtualFS.notifications.subscribe("treeLoading", (l) => setLoading(l));
     const unsubRestore = virtualFS.notifications.subscribe("restoreLoading", (l) => setRestoreLoading(l));
+    const unsubSnapshotSaved = virtualFS.notifications.subscribe("snapshotSaved", () => {
+      resetUnsaved();
+      setCurrent(virtualFS.fs.version());
+    });
     const unsubC = virtualFS.notifications.subscribe("snapshotError", async (payload) => {
       (await AppToaster).show({message: payload?.message || "Snapshot error", intent: "danger"});
       console.error("snapshotError", payload);
@@ -103,6 +107,7 @@ export const SnapshotProvider = ({children}) => {
       unsubA();
       unsubB();
       unsubRestore();
+      unsubSnapshotSaved();
       unsubC();
       unsubD();
       unsubE();
@@ -207,6 +212,7 @@ export const SnapshotProvider = ({children}) => {
     const startedAt = Date.now();
     try {
       setSwitching(true);
+      virtualFS.fs.setRestoreLoading();
       virtualFS.fs.setRestorePhase("overlay-mounted");
       await waitForNextPaint();
       virtualFS.fs.setRestorePhase("restore-start");

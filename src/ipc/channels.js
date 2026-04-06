@@ -69,25 +69,32 @@ export const AiChatChannels = withPrefix('ai-chat', {
 })
 
 export const AiCodingAgentChannels = withPrefix('ai-coding-agent', {
+    ROUTE_JUDGE: 'route-judge',
     GENERATE_CODE: 'generate-code',
     EDIT_CODE: 'edit-code',
     EXPLAIN_CODE: 'explain-code',
     FIX_CODE: 'fix-code',
     SMART_MODE: 'smart-mode',
     PLAN_CODE: 'plan-code',
+    CANCEL_REQUEST: 'cancel-request',
     on_off: {
         STREAM_DELTA: 'stream-delta',
         STREAM_DONE: 'stream-done',
         STREAM_ERROR: 'stream-error',
+        STREAM_CANCELLED: 'stream-cancelled',
     }
 })
 
 export const SystemChannels = withPrefix('system', {
     OPEN_EXTERNAL_LINK: 'open-external-link',
+    OPEN_PLUGIN_LOGS: 'open-plugin-logs',
     GET_PLUGIN_METRIC: 'get-plugin-metric',
     OPEN_FILE_DIALOG: 'open-file-dialog',
     GET_MODULE_FILES: 'get-module-files',
     GET_FDO_SDK_TYPES: 'get-fdo-sdk-path',
+    GET_FDO_SDK_DOM_METADATA: 'get-fdo-sdk-dom-metadata',
+    GET_FDO_SDK_KNOWLEDGE: 'get-fdo-sdk-knowledge',
+    GET_EXTERNAL_REFERENCE_KNOWLEDGE: 'get-external-reference-knowledge',
     GET_BABEL_PATH: 'get-babel-path',
     OPEN_EDITOR_WINDOW: 'open-editor-window',
     OPEN_LIVE_UI_WINDOW: 'open-live-ui-window',
@@ -109,6 +116,7 @@ export const PluginChannels = withPrefix('plugin', {
     REMOVE: 'remove',
     GET_ALL: 'get-all',
     GET: 'get',
+    GET_SCOPE_POLICIES: 'get-scope-policies',
     GET_RUNTIME_STATUS: 'get-runtime-status',
     ACTIVATE: 'activate',
     DEACTIVATE: 'deactivate',
@@ -119,11 +127,15 @@ export const PluginChannels = withPrefix('plugin', {
     RENDER: 'render',
     UI_MESSAGE: 'ui-message',
     BUILD: 'build',
+    RUN_TESTS: 'run-tests',
     DEPLOY_FROM_EDITOR: 'deploy-from-editor',
     SAVE_FROM_EDITOR: 'save-from-editor',
     VERIFY_SIGNATURE: 'verify-signature',
     SIGN: 'sign',
     EXPORT: 'export',
+    SET_CAPABILITIES: 'set-capabilities',
+    GET_LOG_TAIL: 'get-log-tail',
+    GET_LOG_TRACE: 'get-log-trace',
     on_off: {
         UNLOADED: 'unloaded',
         READY: 'ready',

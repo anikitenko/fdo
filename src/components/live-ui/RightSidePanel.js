@@ -25,8 +25,6 @@ import cssData from 'mdn-data/css/properties.json';
 import * as styles from "../css/LiveUI.module.css"
 
 import PropTypes from "prop-types";
-
-import domMetadata from "@anikitenko/fdo-sdk/dist/dom-metadata.json"
 import {DOMMetadataParser} from "./utils/DOMMetadataParser";
 import {mapParamsToSchema} from "./utils/mapParamsToSchema";
 import {Bp5Theme} from "@anikitenko/bp5-rjsf-theme";
@@ -50,6 +48,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
         state.nodes.find((n) => n.data?.methodName === "createStyleKeyframe")
     )
     const Form = withTheme(Bp5Theme);
+    const [domMetadata, setDomMetadata] = useState([]);
     const parser = DOMMetadataParser(domMetadata);
 
     const [saveLoading, setSaveLoading] = useState(false)
@@ -78,6 +77,21 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
 
     const formConstructorRef = useRef(null);
     const formMethodRef = useRef(null);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        window.electron.system.getFdoSdkDomMetadata().then((result) => {
+            if (cancelled) return;
+            if (result?.success && Array.isArray(result.metadata)) {
+                setDomMetadata(result.metadata);
+            }
+        }).catch(() => {});
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const toCamelCase = (str) => {
         return str.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
@@ -254,7 +268,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     };
 
     useEffect(() => {
-        if (!node) return
+        if (!node || domMetadata.length === 0) return
         let className = parser.getClasses()[0]
 
         if (node?.data?.className) {
@@ -272,7 +286,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
         }
         setNodeClass(className)
         setNodeValue(node.data.label)
-    }, [node]);
+    }, [node, domMetadata]);
 
     useEffect(() => {
         if (!nodesKeyframe) return
@@ -285,7 +299,7 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
     }, [nodesKeyframe]);
 
     useEffect(() => {
-        if (!nodeClass || !node) return
+        if (!nodeClass || !node || domMetadata.length === 0) return
         const constructors = parser.getConstructors(nodeClass);
         if (constructors.length > 0) {
             setNodeClassConstructors(constructors.map((ctor, idx) => ({label: `Number #${idx}`, value: idx})));
@@ -300,12 +314,17 @@ export const RightSidePanel = ({setNodes, propsShow, setPropsShow, selectedNodeI
         const methods = parser.getMethods(nodeClass);
         setNodeClassMethods(methods.filter((m) => !m.uiSkip).map((m) => ({value: m.name, label: m.uiName})))
 
+        if (methods.length === 0) {
+            setSelectedMethod("")
+            return
+        }
+
         let methodName = methods[0].name
         if (node?.data?.methodName && methods.some((m) => m.name === node.data.methodName)) {
             methodName = node.data.methodName
         }
         setSelectedMethod(methodName)
-    }, [node, nodeClass, constructorIndex]);
+    }, [node, nodeClass, constructorIndex, domMetadata]);
 
     useEffect(() => {
         if (!selectedMethod) return;

@@ -1,0 +1,98 @@
+import {
+    applyCapabilityToggle,
+    buildScopeCapabilities,
+    getSelectedScopeCapabilities,
+    hasCapabilitySelectionChanges
+} from "../../src/utils/pluginCapabilitySelection";
+
+describe("pluginCapabilitySelection", () => {
+    test("buildScopeCapabilities maps host scope policy to UI shape", () => {
+        const result = buildScopeCapabilities([{
+            scope: "etc-hosts",
+            description: "Hosts updates",
+            allowedRoots: ["/etc"],
+            allowedOperationTypes: ["writeFile"],
+            requireConfirmation: true,
+        }]);
+
+        expect(result).toEqual([{
+            id: "etc-hosts",
+            kind: "filesystem",
+            description: "Hosts updates",
+            capability: "system.fs.scope.etc-hosts",
+            baseCapability: "system.hosts.write",
+            allowedRoots: ["/etc"],
+            allowedCwdRoots: [],
+            allowedOperationTypes: ["writeFile"],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: true,
+        }]);
+    });
+
+    test("maps process scope policies to UI shape", () => {
+        const result = buildScopeCapabilities([{
+            scope: "docker-cli",
+            kind: "process",
+            description: "Docker execution",
+            allowedCwdRoots: ["/tmp"],
+            allowedExecutables: ["/usr/local/bin/docker"],
+            allowedEnvKeys: ["DOCKER_CONTEXT"],
+            timeoutCeilingMs: 30000,
+            requireConfirmation: true,
+        }]);
+
+        expect(result).toEqual([{
+            id: "docker-cli",
+            kind: "process",
+            description: "Docker execution",
+            capability: "system.process.scope.docker-cli",
+            baseCapability: "system.process.exec",
+            allowedRoots: [],
+            allowedCwdRoots: ["/tmp"],
+            allowedOperationTypes: [],
+            allowedExecutables: ["/usr/local/bin/docker"],
+            allowedEnvKeys: ["DOCKER_CONTEXT"],
+            timeoutCeilingMs: 30000,
+            requireConfirmation: true,
+        }]);
+    });
+
+    test("disabling base capability removes scoped capabilities", () => {
+        const next = applyCapabilityToggle(
+            ["system.hosts.write", "system.fs.scope.etc-hosts"],
+            {capability: "system.hosts.write", checked: false}
+        );
+        expect(next).toEqual([]);
+    });
+
+    test("capability change detection ignores ordering", () => {
+        expect(hasCapabilitySelectionChanges(
+            ["system.fs.scope.etc-hosts", "system.hosts.write"],
+            ["system.hosts.write", "system.fs.scope.etc-hosts"]
+        )).toBe(false);
+
+        expect(hasCapabilitySelectionChanges(
+            ["system.hosts.write"],
+            ["system.hosts.write", "system.fs.scope.etc-hosts"]
+        )).toBe(true);
+    });
+
+    test("getSelectedScopeCapabilities returns only scope capabilities from draft", () => {
+        const scopes = buildScopeCapabilities([{scope: "etc-hosts"}]);
+        const selected = getSelectedScopeCapabilities(
+            ["system.hosts.write", "system.fs.scope.etc-hosts", "storage.json"],
+            scopes
+        );
+        expect(selected).toEqual(["system.fs.scope.etc-hosts"]);
+    });
+
+    test("disabling process base capability removes process scope capabilities", () => {
+        const next = applyCapabilityToggle(
+            ["system.process.exec", "system.process.scope.docker-cli"],
+            {capability: "system.process.exec", checked: false}
+        );
+        expect(next).toEqual([]);
+    });
+});
