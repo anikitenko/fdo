@@ -85,6 +85,23 @@ describe("PluginPage host contract", () => {
         );
     });
 
+    test("bridges Cmd/Ctrl+K to the host command bar", () => {
+        const postMessageSpy = jest.spyOn(window.parent, "postMessage").mockImplementation(() => {});
+
+        render(<PluginPage />);
+
+        const shortcutEvent = new KeyboardEvent("keydown", {
+            key: "k",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        window.dispatchEvent(shortcutEvent);
+
+        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_SHORTCUT", shortcut: "command-bar" }, "*");
+        postMessageSpy.mockRestore();
+    });
+
     test("blocks plugin-relative anchor navigation at the host page layer", () => {
         const addEventListenerSpy = jest.spyOn(document, "addEventListener");
 

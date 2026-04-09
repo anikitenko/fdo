@@ -49,6 +49,26 @@ try {
     runtimePolicy = { blockedModules: [] };
 }
 const blockedModules = new Set(Array.isArray(runtimePolicy.blockedModules) ? runtimePolicy.blockedModules : []);
+const backendBridgePending = new Map();
+const backendBridgeResponseType = "HOST_BACKEND_RESPONSE";
+const backendBridgeRequestType = "HOST_BACKEND_REQUEST";
+const backendPrivilegedActionHandler = "requestPrivilegedAction";
+
+function normalizeBackendBridgeMessage(type, data) {
+    if (type === "UI_MESSAGE" && data && typeof data === "object") {
+        const nestedHandler = typeof data.handler === "string" && data.handler.trim()
+            ? data.handler.trim()
+            : backendPrivilegedActionHandler;
+        return {
+            handler: nestedHandler,
+            content: Object.prototype.hasOwnProperty.call(data, "content") ? data.content : data,
+        };
+    }
+    return {
+        handler: typeof type === "string" && type.trim() ? type.trim() : backendPrivilegedActionHandler,
+        content: data,
+    };
+}
 
 let fallbackParentPort = null;
 if (!process.parentPort) {
@@ -72,6 +92,54 @@ if (!parentPort || typeof parentPort.on !== "function" || typeof parentPort.post
 }
 if (!process.parentPort && parentPort) {
     process.parentPort = parentPort;
+}
+
+parentPort.on("message", (message) => {
+    const data = message && typeof message === "object" && "data" in message
+        ? message.data
+        : message;
+    if (!data || typeof data !== "object" || data.message !== backendBridgeResponseType) {
+        return;
+    }
+    const requestId = typeof data.content?.requestId === "string" ? data.content.requestId : "";
+    if (!requestId || !backendBridgePending.has(requestId)) {
+        return;
+    }
+    const pending = backendBridgePending.get(requestId);
+    backendBridgePending.delete(requestId);
+    if (pending?.timeoutHandle) {
+        clearTimeout(pending.timeoutHandle);
+    }
+    if (data.content?.error) {
+        pending?.reject(new Error(data.content.error));
+        return;
+    }
+    pending?.resolve(data.content?.response);
+});
+
+const bridgeTarget = typeof globalThis.window === "object" && globalThis.window
+    ? globalThis.window
+    : globalThis;
+if (!globalThis.window) {
+    globalThis.window = bridgeTarget;
+}
+if (typeof bridgeTarget.createBackendReq !== "function") {
+    bridgeTarget.createBackendReq = function createBackendReq(type, data) {
+        return new Promise((resolve, reject) => {
+            const requestId = "backend-ui-message-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+            const timeoutHandle = setTimeout(() => {
+                backendBridgePending.delete(requestId);
+                reject(new Error("Timed out waiting for backend host bridge response."));
+            }, 30000);
+            backendBridgePending.set(requestId, {resolve, reject, timeoutHandle});
+            const normalizedMessage = normalizeBackendBridgeMessage(type, data);
+            parentPort.postMessage({
+                type: backendBridgeRequestType,
+                requestId,
+                message: normalizedMessage,
+            });
+        });
+    };
 }
 
 const hostNodePath = process.env.FDO_PLUGIN_NODE_PATH || process.env.NODE_PATH || "";

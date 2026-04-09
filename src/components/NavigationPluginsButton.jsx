@@ -2,6 +2,7 @@ import {Button, Card, Divider, Elevation, Icon, Popover, Tag} from "@blueprintjs
 import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
 import {lazy, Suspense, useEffect, useState} from "react";
+import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
 
 // Lazy load dialogs (only needed when opened)
 const CreatePluginDialog = lazy(() => import("./CreatePluginDialog.jsx").then(m => ({default: m.CreatePluginDialog})));
@@ -43,19 +44,19 @@ export const NavigationPluginsButton = ({
                 <Button variant={"minimal"} ref={buttonMenuRef}>
                     Plugins Activated: <Tag intent={"success"} round={true}>{active.length}</Tag> Installed: <Tag
                     intent={"primary"}
-                round={true}>{all.length}</Tag></Button>
-        </Popover>
-        <Suspense fallback={null}>
-            <CreatePluginDialog show={showCreateDialog}
-                                close={() => setShowCreateDialog(false)}
-            />
-            <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
-                                 selectPlugin={selectPlugin}
-                                 deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}
-                                 refreshPluginsState={refreshPluginsState}
-                                 focusRequest={capabilityFocusRequest}
-            />
-        </Suspense>
+                    round={true}>{all.length}</Tag></Button>
+            </Popover>
+            <Suspense fallback={null}>
+                <CreatePluginDialog show={showCreateDialog}
+                                    close={() => setShowCreateDialog(false)}
+                />
+                <ManagePluginsDialog plugins={all} activePlugins={active} show={showManageDialog} setShow={setShowManageDialog}
+                                     selectPlugin={selectPlugin}
+                                     deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}
+                                     refreshPluginsState={refreshPluginsState}
+                                     focusRequest={capabilityFocusRequest}
+                />
+            </Suspense>
         </div>
     );
 };
@@ -85,11 +86,13 @@ const PluginsCard = ({
                          setShowCreateDialog,
                          setShowManageDialog
                      }) => {
+    const panelWidth = "500px";
+
     return (
-        <>
-            <Card style={{background: "#2e2e2e", borderRadius: "10px 10px 0 0"}}>
+        <div style={{width: panelWidth, maxWidth: "calc(100vw - 96px)"}}>
+            <Card style={{background: "#2e2e2e", borderRadius: "10px 10px 0 0", width: "100%", overflow: "hidden"}}>
                 <div>
-                    <div style={{paddingLeft: "15px", paddingRight: "15px", paddingBottom: "5px"}}>
+                    <div style={{paddingLeft: "16px", paddingRight: "16px", paddingBottom: "8px", display: "flex", alignItems: "center", justifyContent: "space-between"}}>
                         <span className={"bp6-text-large bp6-heading"}>Installed Plugins</span>
                         {all.length > 0 && (
                             <Button
@@ -97,10 +100,11 @@ const PluginsCard = ({
                                 size={"small"}
                                 onClick={deselectAllPlugins}
                                 style={{
-                                    float: "right",
-                                    paddingRight: "5px",
-                                    color: "rgb(138 187 255)",  // A more "real" blue link color
+                                    minHeight: "24px",
+                                    padding: "0 6px",
+                                    color: "rgba(167, 182, 201, 0.72)",
                                     cursor: "pointer",
+                                    fontSize: "0.85rem",
                                 }}
                                 className={style["link-button"]}
                             >
@@ -111,15 +115,16 @@ const PluginsCard = ({
                 </div>
                 <Divider/>
                 <div style={{
-                    padding: "10px", marginTop: "10px", maxHeight: "300px",
-                    maxWidth: "500px",
+                    padding: "14px 14px 12px", marginTop: "4px", maxHeight: "300px",
+                    width: "100%",
                     overflowY: "auto",
+                    boxSizing: "border-box",
                 }}>
                     <div style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(2, 1fr)',
-                        gap: '10px',
-                        marginBottom: "10px",
+                        gap: '16px 12px',
+                        marginBottom: "12px",
                     }}>
                         {all.length === 0 && (
                             <div style={{textAlign: "center", color: "#6c757d"}}>
@@ -137,15 +142,15 @@ const PluginsCard = ({
                                               selectPlugin(plugin, {open: true})
                                           }
                                       }}
-                                      style={{background: "#2e2e2e", borderRadius: "10px"}} data-plugin={plugin.name}>
-                                    <div style={{display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '10px'}}>
+                                      style={{background: "#2e2e2e", borderRadius: "10px", padding: "4px"}} data-plugin={plugin.name}>
+                                    <div style={{display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px', padding: "6px"}}>
                                         <div>
                                             <Button variant={"outlined"} style={{borderRadius: "10px"}}>
-                                                <Icon icon={plugin.icon} style={{padding: "1px 5px"}} size={20}
+                                                <Icon icon={sanitizeBlueprintIcon(plugin.icon)} style={{padding: "1px 5px"}} size={20}
                                                       intent={"primary"}/>
                                             </Button>
                                         </div>
-                                        <div style={{display: 'grid', gap: '5px'}}>
+                                        <div style={{display: 'grid', gap: '7px'}}>
                                             <div>
                                                 <span className="bp6-heading">{plugin.name}</span>
                                             </div>
@@ -166,13 +171,23 @@ const PluginsCard = ({
                     </div>
                 </div>
             </Card>
-            <div style={{padding: "15px", display: "flex", justifyContent: "center"}}>
-                <Button text="Create plugin" intent={"success"} style={{borderRadius: "5px"}} variant={"outlined"}
-                        size={"large"} onClick={() => setShowCreateDialog(true)}/>
-                <Button text="Manage plugins" intent={"primary"} style={{borderRadius: "5px", marginLeft: "10px"}}
-                        variant={"outlined"} size={"large"} onClick={() => setShowManageDialog(true)}/>
+            <div style={{
+                padding: "14px",
+                display: "flex",
+                justifyContent: "center",
+                width: "100%",
+                boxSizing: "border-box",
+                background: "#2e2e2e",
+                borderRadius: "0 0 10px 10px",
+                borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)",
+            }}>
+                <Button text="Create plugin" intent={"success"} style={{borderRadius: "6px", minWidth: "132px"}} variant={"outlined"}
+                        size={"medium"} onClick={() => setShowCreateDialog(true)}/>
+                <Button text="Manage plugins" intent={"primary"} style={{borderRadius: "6px", minWidth: "132px", marginLeft: "10px"}}
+                        variant={"outlined"} size={"medium"} onClick={() => setShowManageDialog(true)}/>
             </div>
-        </>
+        </div>
     );
 }
 PluginsCard.propTypes = {

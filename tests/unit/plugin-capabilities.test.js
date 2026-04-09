@@ -8,9 +8,12 @@ describe("plugin capability registry", () => {
     test("normalizes capabilities to known unique values", () => {
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("storage.json")).toBe(true);
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.process.exec")).toBe(true);
+        expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.clipboard.read")).toBe(true);
+        expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.clipboard.write")).toBe(true);
         expect(normalizeCapabilityList(["storage.json", "storage.json", "unknown"])).toEqual(["storage.json"]);
         expect(normalizeCapabilityList(["system.fs.scope.etc-hosts"])).toEqual(["system.fs.scope.etc-hosts"]);
         expect(normalizeCapabilityList(["system.process.scope.docker-cli"])).toEqual(["system.process.scope.docker-cli"]);
+        expect(normalizeCapabilityList(["system.clipboard.read", "system.clipboard.write"])).toEqual(["system.clipboard.read", "system.clipboard.write"]);
         expect(normalizeCapabilityList(null)).toEqual([]);
     });
 

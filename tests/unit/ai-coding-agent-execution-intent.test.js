@@ -25,6 +25,13 @@ describe("ai coding agent execution intent", () => {
         })).toBe(false);
     });
 
+    test("keeps runtime log confirmation prompts out of workspace execution mode", () => {
+        expect(shouldExecuteWorkspacePlan({
+            prompt: 'check logs of this plugin to confirm that "Terraform operator fixture initialized" exists',
+            previousResponse: "",
+        })).toBe(false);
+    });
+
     test("builds an execution prompt with file-section contract", () => {
         const prompt = buildWorkspaceExecutionPlanPrompt({
             prompt: "please fix my current plugin implementation",

@@ -58,4 +58,52 @@ describe("parseMissingCapabilitiesFromError", () => {
             }),
         ]));
     });
+
+    test("parses missing required capabilities format from newer host responses", () => {
+        const result = parseMissingCapabilitiesFromError(
+            "Missing required capabilities: system.process.exec, system.process.scope.terraform."
+        );
+
+        expect(result).toEqual(["system.process.exec", "system.process.scope.terraform"]);
+    });
+
+    test("builds structured diagnostics for newer host missing required capabilities format", () => {
+        const result = parseMissingCapabilityDiagnosticsFromError(
+            "Missing required capabilities: system.process.exec, system.process.scope.terraform."
+        );
+
+        expect(result).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                capability: "system.process.exec",
+                label: "Allow Scoped Tool Execution",
+                source: "host",
+            }),
+            expect.objectContaining({
+                capability: "system.process.scope.terraform",
+                label: "Terraform Scope",
+                source: "host",
+            }),
+        ]));
+    });
+
+    test("parses clipboard read/write capability gaps with actionable remediation", () => {
+        const result = parseMissingCapabilityDiagnosticsFromError(
+            "Missing required capabilities: system.clipboard.read, system.clipboard.write."
+        );
+
+        expect(result).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                capability: "system.clipboard.read",
+                label: "Read Host Clipboard",
+                source: "host",
+                remediation: expect.stringContaining("system.clipboard.read"),
+            }),
+            expect.objectContaining({
+                capability: "system.clipboard.write",
+                label: "Write Host Clipboard",
+                source: "host",
+                remediation: expect.stringContaining("system.clipboard.write"),
+            }),
+        ]));
+    });
 });

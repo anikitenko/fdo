@@ -189,17 +189,11 @@ function systemOpenEditorWindow(data) {
             clearTimeout(editorCloseTimeoutId);
             editorCloseTimeoutId = null;
         }
-        
-        // Remove IPC handlers (they will be re-registered if another editor opens)
-        try {
-            ipcMain.removeHandler(SystemChannels.EDITOR_CLOSE_APPROVED);
-            ipcMain.removeHandler(SystemChannels.EDITOR_RELOAD_APPROVED);
-        } catch (error) {
-            // removeHandler can throw if handler doesn't exist, ignore
+
+        const trackedWindow = editorWindow.getWindow();
+        if (trackedWindow === editorWindowInstance) {
+            editorWindow.nullWindow();
         }
-        
-        // Null the window reference
-        editorWindow.nullWindow();
         console.info('[Editor Close] Window closed and cleanup completed');
     });
 
@@ -227,8 +221,18 @@ export function registerSystemHandlers() {
         }
     });
 
-    ipcMain.handle(SystemChannels.OPEN_PLUGIN_LOGS, async () => {
-        const logsDir = path.join(app.getPath("userData"), "logs");
+    ipcMain.handle(SystemChannels.OPEN_PLUGIN_LOGS, async (event, pluginId = "") => {
+        const normalizedPluginId = String(pluginId || "").trim();
+        const userDataPath = app.getPath("userData");
+        const pluginDataDir = normalizedPluginId
+            ? path.join(userDataPath, "plugin-data", normalizedPluginId)
+            : "";
+        const pluginLogsDir = pluginDataDir ? path.join(pluginDataDir, "logs") : "";
+        const logsDir = pickExistingDirectory([
+            pluginLogsDir,
+            pluginDataDir,
+            path.join(userDataPath, "logs"),
+        ]) || (pluginLogsDir || pluginDataDir || path.join(userDataPath, "logs"));
         try {
             const openError = await shell.openPath(logsDir);
             if (openError) {
@@ -430,9 +434,9 @@ export function registerSystemHandlers() {
         systemOpenEditorWindow(data)
     });
 
-    ipcMain.on(SystemChannels.EDITOR_CLOSE_APPROVED, () => {
+    ipcMain.on(SystemChannels.EDITOR_CLOSE_APPROVED, (event) => {
         console.info('[Editor Close] Close approved by user');
-        const editorWindowInstance = editorWindow.getWindow();
+        const editorWindowInstance = BrowserWindow.fromWebContents(event.sender);
         
         // Validate window before attempting to close
         if (!isWindowValid(editorWindowInstance)) {
@@ -467,9 +471,9 @@ export function registerSystemHandlers() {
         }
     });
 
-    ipcMain.on(SystemChannels.EDITOR_RELOAD_APPROVED, () => {
+    ipcMain.on(SystemChannels.EDITOR_RELOAD_APPROVED, (event) => {
         console.info('[Editor Reload] Reload approved by user');
-        const editorWindowInstance = editorWindow.getWindow();
+        const editorWindowInstance = BrowserWindow.fromWebContents(event.sender);
         
         // Validate window before attempting to reload
         if (!isWindowValid(editorWindowInstance)) {

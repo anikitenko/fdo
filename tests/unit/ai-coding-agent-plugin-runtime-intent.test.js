@@ -28,4 +28,11 @@ describe("detectAiPluginRuntimeIntent", () => {
         expect(result.wantsRestart).toBe(true);
         expect(result.wantsActivate).toBe(true);
     });
+
+    test("detects quoted plugin log inspection intent", () => {
+        const result = detectAiPluginRuntimeIntent('please checkout logs of "Fixture: Terraform Operator" plugin');
+        expect(result.shouldProbe).toBe(true);
+        expect(result.wantsLogs).toBe(true);
+        expect(result.wantsActivate).toBe(false);
+    });
 });

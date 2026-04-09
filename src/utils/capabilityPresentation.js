@@ -1,3 +1,5 @@
+import {isHostFallbackProcessScopeId} from "./processScopeCatalog";
+
 const CAPABILITY_RISK_LEVELS = Object.freeze({
     low: "low",
     medium: "medium",
@@ -24,9 +26,25 @@ export const CAPABILITY_PRESENTATION = Object.freeze({
     "system.process.exec": Object.freeze({
         id: "system.process.exec",
         title: "Allow Scoped Tool Execution",
-        description: "Broad capability for host-mediated operator tooling. Pair it with a narrow scope such as system.process.scope.docker-cli. This is not unrestricted shell access.",
+        description: "Broad capability for host-mediated operator tooling. Pair it with a narrow scope such as system.process.scope.docker-cli. Prefer operator fixtures, curated presets, and workflows first. Use host-specific fallback scopes only when no curated operator family fits. This is not unrestricted shell access.",
         risk: CAPABILITY_RISK_LEVELS.high,
         dependsOn: Object.freeze([]),
+        category: "system",
+    }),
+    "system.clipboard.read": Object.freeze({
+        id: "system.clipboard.read",
+        title: "Read Host Clipboard",
+        description: "Allows host-mediated clipboard reads. Treat as sensitive: read access can expose copied secrets and should be granted only to trusted plugins.",
+        risk: CAPABILITY_RISK_LEVELS.high,
+        dependsOn: Object.freeze(["system.hosts.write"]),
+        category: "system",
+    }),
+    "system.clipboard.write": Object.freeze({
+        id: "system.clipboard.write",
+        title: "Write Host Clipboard",
+        description: "Allows host-mediated clipboard writes. Separate from clipboard read so write-only plugins can be granted lower-sensitive clipboard access.",
+        risk: CAPABILITY_RISK_LEVELS.medium,
+        dependsOn: Object.freeze(["system.hosts.write"]),
         category: "system",
     }),
     "sudo.prompt": Object.freeze({
@@ -52,7 +70,58 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
     const cwdText = cwdRoots.length ? cwdRoots.join(", ") : "configured roots";
 
     if (kind === "process") {
+        if (scopePolicy?.userDefined === true) {
+            const scopeKindLabel = scopePolicy?.shared === true ? "Shared Scope" : "Plugin Scope";
+            return {
+                id: `system.process.scope.${scopeId}`,
+                title: scopePolicy?.title ? `${scopePolicy.title}` : `${scopeKindLabel}: ${scopeId}`,
+                description: scopePolicy?.description || `Host-managed ${scopePolicy?.shared === true ? "shared" : "plugin-specific"} process scope paired with broad capability system.process.exec. Use this when no curated operator family or built-in fallback scope fits.`,
+                risk: CAPABILITY_RISK_LEVELS.high,
+                dependsOn: ["system.process.exec"],
+                category: "process-scope",
+            };
+        }
         const knownProcessScopePresentation = {
+            "system-observe": {
+                title: "System Observe Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for OS-aware system observation commands when no curated operator tool family fits.",
+            },
+            "system-inspect": {
+                title: "System Inspect Scope",
+                description: "Legacy-compatible host-specific fallback scope paired with broad capability system.process.exec for read-oriented system inspection commands when no curated operator tool family fits.",
+            },
+            "network-diagnostics": {
+                title: "Network Diagnostics Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for OS-aware network inspection and connectivity diagnostics when no curated operator tool family fits.",
+            },
+            "service-management": {
+                title: "Service Management Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for OS-aware service inspection and controlled start/stop operations when no curated operator tool family fits.",
+            },
+            "archive-tools": {
+                title: "Archive Tools Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for archive and packaging commands when no curated operator tool family fits.",
+            },
+            homebrew: {
+                title: "Homebrew Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for Homebrew operations when no curated operator tool family fits.",
+            },
+            "package-management": {
+                title: "Package Management Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for package manager operations across common ecosystems when no curated operator tool family fits.",
+            },
+            "source-control": {
+                title: "Source Control Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for source control and forge CLI operations when no curated operator tool family fits.",
+            },
+            "build-tooling": {
+                title: "Build Tooling Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for build-system inspection and controlled build/test commands when no curated operator tool family fits.",
+            },
+            "task-runners": {
+                title: "Task Runner Scope",
+                description: "Host-specific fallback scope paired with broad capability system.process.exec for host task-runner commands when no curated operator tool family fits.",
+            },
             "docker-cli": {
                 title: "Docker CLI Scope",
                 description: "Narrow scope paired with broad capability system.process.exec for host-approved Docker CLI operations.",
@@ -114,7 +183,7 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
         return {
             id: `system.process.scope.${scopeId}`,
             title: known?.title || `Process Scope: ${scopeId}`,
-            description: known?.description || `Narrow scope paired with broad capability system.process.exec for host-approved process execution inside scope "${scopeId}".`,
+            description: known?.description || `${isHostFallbackProcessScopeId(scopeId) ? "Host-specific fallback scope" : "Narrow scope"} paired with broad capability system.process.exec for host-approved process execution inside scope "${scopeId}".`,
             risk: CAPABILITY_RISK_LEVELS.high,
             dependsOn: ["system.process.exec"],
             category: "process-scope",
@@ -147,6 +216,15 @@ export function getCapabilityPresentation(capabilityId, scopePolicies = []) {
         const scopeId = capabilityId.slice("system.process.scope.".length);
         const scopePolicy = (Array.isArray(scopePolicies) ? scopePolicies : [])
             .find((policy) => policy?.scope === scopeId);
+        if (!scopePolicy && scopeId.startsWith("user.")) {
+            return buildScopeCapabilityPresentation({
+                scope: scopeId,
+                kind: "process",
+                userDefined: true,
+                shared: false,
+                title: scopeId.slice("user.".length).replace(/[._-]+/g, " "),
+            });
+        }
         return buildScopeCapabilityPresentation(scopePolicy || {scope: scopeId, kind: "process"});
     }
 

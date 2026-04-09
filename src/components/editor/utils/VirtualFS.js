@@ -12,6 +12,7 @@ import {extractMetadata} from "../../../utils/extractMetadata";
 import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
 
 const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
+  export type PluginCapability = string;
   export interface PluginMetadata {
     name: string;
     version: string;
@@ -24,6 +25,7 @@ const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
     metadata: PluginMetadata;
     init(...args: any[]): any;
     render(...args: any[]): any;
+    declareCapabilities?(): PluginCapability[];
     [key: string]: any;
   }
   export class FDO_SDK {
@@ -62,6 +64,37 @@ const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
   export function requestPrivilegedAction<TResult = any, TRequest = any>(request: TRequest, options?: any): Promise<PrivilegedActionResponse<TResult>>;
   export function createScopedProcessExecActionRequest(scopeId: string, payload: any): any;
   export function requestScopedProcessExec<TResult = any>(scopeId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+  export type ScopedWorkflowKind = "process-sequence";
+  export type ScopedWorkflowStepPhase = "inspect" | "preview" | "mutate" | "apply" | "cleanup";
+  export type ScopedWorkflowStepErrorBehavior = "abort" | "continue";
+  export type ScopedWorkflowConfirmation = {
+    message: string;
+    requiredForStepIds?: string[];
+  };
+  export type ScopedWorkflowProcessStep = {
+    id: string;
+    title: string;
+    phase?: ScopedWorkflowStepPhase;
+    command: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    input?: string;
+    encoding?: "utf8" | "base64";
+    reason?: string;
+    onError?: ScopedWorkflowStepErrorBehavior;
+  };
+  export type ScopedWorkflowPayloadInput = {
+    kind: ScopedWorkflowKind;
+    title: string;
+    summary?: string;
+    dryRun?: boolean;
+    steps: ScopedWorkflowProcessStep[];
+    confirmation?: ScopedWorkflowConfirmation;
+  };
+  export function createScopedWorkflowRequest(scopeId: string, payload: ScopedWorkflowPayloadInput): any;
+  export function requestScopedWorkflow<TResult = ScopedWorkflowResult>(scopeId: string, payload: ScopedWorkflowPayloadInput, options?: any): Promise<PrivilegedActionResponse<TResult>>;
   export function getOperatorToolPreset(presetId: string): any;
   export function listOperatorToolPresets(): any[];
   export function createOperatorToolCapabilityPreset(presetId: string): string[];
@@ -91,6 +124,39 @@ const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
     code?: string;
   };
   export type PrivilegedActionResponse<TResult = any> = PrivilegedActionSuccessResponse<TResult> | PrivilegedActionErrorResponse;
+  export type ScopedWorkflowProcessStepResultData = {
+    command: string;
+    args: string[];
+    cwd?: string;
+    exitCode?: number | null;
+    stdout?: string;
+    stderr?: string;
+    durationMs?: number;
+    dryRun?: boolean;
+  };
+  export type ScopedWorkflowStepResult = {
+    stepId: string;
+    title: string;
+    status: "ok" | "error" | "skipped";
+    correlationId?: string;
+    result?: ScopedWorkflowProcessStepResultData;
+    error?: string;
+    code?: string;
+  };
+  export type ScopedWorkflowSummary = {
+    totalSteps: number;
+    completedSteps: number;
+    failedSteps: number;
+    skippedSteps: number;
+  };
+  export type ScopedWorkflowResult = {
+    workflowId: string;
+    scope: string;
+    kind: ScopedWorkflowKind;
+    status: "completed" | "partial" | "failed";
+    summary: ScopedWorkflowSummary;
+    steps: ScopedWorkflowStepResult[];
+  };
   export function isBlueprintV6IconName(name: string): boolean;
   export function formatDeprecationMessage(message: string, replacement?: string): string;
   export function emitDeprecationWarning(message: string, replacement?: string): void;

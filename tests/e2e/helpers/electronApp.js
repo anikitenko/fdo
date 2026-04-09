@@ -48,16 +48,38 @@ async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
 
 async function launchElectronApp(electron) {
   const userDataDir = ensureE2EUserDataDir();
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      FDO_E2E: '1',
-      FDO_E2E_MULTI_INSTANCE: '1',
-      FDO_E2E_USER_DATA_DIR: userDataDir,
-    },
-  });
+  let app = null;
+  let lastError = null;
+  const maxLaunchAttempts = Number(process.env.FDO_E2E_LAUNCH_RETRIES || 3);
+  for (let attempt = 1; attempt <= maxLaunchAttempts; attempt += 1) {
+    try {
+      app = await electron.launch({
+        args: ['.'],
+        env: {
+          ...process.env,
+          FDO_E2E: '1',
+          FDO_E2E_MULTI_INSTANCE: '1',
+          FDO_E2E_USER_DATA_DIR: userDataDir,
+        },
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxLaunchAttempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  if (!app) {
+    throw lastError || new Error("Electron app launch failed");
+  }
   const firstWindow = await app.firstWindow();
+  try {
+    await firstWindow.evaluate(() => {
+      window.__E2E__ = true;
+    });
+  } catch (_) {}
   const acceptAllDialogs = async (dialog) => {
     try {
       await dialog.accept();
@@ -67,6 +89,9 @@ async function launchElectronApp(electron) {
   firstWindow.on('dialog', acceptAllDialogs);
   app.on('window', (page) => {
     page.on('dialog', acceptAllDialogs);
+    page.evaluate(() => {
+      window.__E2E__ = true;
+    }).catch(() => {});
   });
 
   await firstWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });

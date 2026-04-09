@@ -86,8 +86,38 @@ jest.mock("../../src/utils/PluginManager", () => ({
         getLoadedPlugin: jest.fn(() => ({instance: {postMessage: jest.fn()}})),
         getLoadedPluginReady: jest.fn(() => true),
         getLoadedPluginInited: jest.fn(() => true),
+        getPluginDiagnostics: jest.fn(async () => ({
+            pluginId: "trace-plugin",
+            capabilities: {
+                declaration: {
+                    available: true,
+                    hasDeclaration: true,
+                    declared: ["system.process.exec", "system.process.scope.system-observe"],
+                    granted: ["system.process.exec", "system.process.scope.system-observe"],
+                    missingDeclared: [],
+                    undeclaredGranted: [],
+                },
+            },
+        })),
         getPluginEventTrace: jest.fn(() => [
             {ts: Date.parse("2026-03-29T10:00:00.000Z"), event: "runtime.ready", details: {}},
+        ]),
+        getPrivilegedAuditTrail: jest.fn(() => [
+            {
+                timestamp: "2026-03-29T10:00:10.000Z",
+                action: "system.workflow.run",
+                success: false,
+                scope: "terraform",
+                workflowId: "wf-trace-1",
+                workflowStatus: "failed",
+                correlationId: "corr-trace",
+                stepId: "apply",
+                stepStatus: "error",
+                error: {
+                    code: "STEP_FAILED",
+                    message: 'Workflow step "apply" exited with code 1.',
+                },
+            },
         ]),
         pluginRuntimeOutputTail: {
             "trace-plugin": ["[stdout] plugin says hi"],
@@ -100,6 +130,10 @@ jest.mock("../../src/utils/PluginManager", () => ({
             focus: jest.fn(),
             webContents: {send: jest.fn()},
         },
+        getLoadedPlugin: jest.fn(() => ({
+            instance: {postMessage: jest.fn()},
+            grantedCapabilities: ["system.process.exec", "system.process.scope.system-observe"],
+        })),
     },
 }));
 
@@ -181,6 +215,18 @@ jest.mock("../../src/utils/privilegedFsScopeRegistry", () => ({
 }));
 
 describe("plugin IPC log trace", () => {
+    afterEach(() => {
+        const fs = require("node:fs");
+        const fsPromises = require("node:fs/promises");
+        const {app} = require("electron");
+
+        fs.existsSync.mockImplementation(() => false);
+        fsPromises.readFile.mockReset();
+        fsPromises.readdir.mockReset();
+        fsPromises.stat.mockReset();
+        app.getPath.mockImplementation(() => "/tmp/fdo-user-data");
+    });
+
     test("returns combined plugin trace bundle with lifecycle and live output", async () => {
         jest.resetModules();
         const {ipcMain} = require("electron");
@@ -201,16 +247,130 @@ describe("plugin IPC log trace", () => {
                 loaded: true,
                 ready: true,
                 inited: true,
+                capabilityIntentSummary: expect.objectContaining({
+                    title: "Declared and granted aligned",
+                }),
             }),
             lifecycleEvents: expect.any(Array),
             liveOutputTail: expect.any(Array),
             notifications: expect.any(Array),
+            privilegedAuditEvents: expect.any(Array),
         }));
         expect(response.combined).toContain("Host lifecycle trace:");
+        expect(response.combined).toContain("capabilityIntent=Declared and granted aligned");
         expect(response.combined).toContain("runtime.ready");
+        expect(response.combined).toContain("Privileged audit trail:");
+        expect(response.combined).toContain("wf-trace-1");
+        expect(response.combined).toContain("STEP_FAILED");
         expect(response.combined).toContain("Live runtime output tail:");
         expect(response.combined).toContain("[stdout] plugin says hi");
         expect(response.combined).toContain("Related host notifications:");
         expect(response.combined).toContain("Plugin trace-plugin alert");
+    });
+
+    test("reads exact sdk log lines from the per-plugin logs directory under userData", async () => {
+        jest.resetModules();
+        const actualFs = jest.requireActual("node:fs");
+        const actualFsPromises = jest.requireActual("node:fs/promises");
+        const actualOs = jest.requireActual("node:os");
+        const actualPath = jest.requireActual("node:path");
+        const {ipcMain, app} = require("electron");
+        const fs = require("node:fs");
+        const fsPromises = require("node:fs/promises");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+
+        const userDataRoot = actualFs.mkdtempSync(actualPath.join(actualOs.tmpdir(), "fdo-log-trace-"));
+        const pluginId = "trace-plugin";
+        const logDir = actualPath.join(userDataRoot, "plugin-data", pluginId, "logs");
+        const infoLogPath = actualPath.join(logDir, "info-2026-04-06.log");
+        const exactLogLine = "Terraform preview completed with exitCode=0";
+
+        actualFs.mkdirSync(logDir, {recursive: true});
+        actualFs.writeFileSync(infoLogPath, `${exactLogLine}\nnext-line\n`, "utf8");
+
+        app.getPath.mockImplementation((name) => {
+            if (name === "userData") {
+                return userDataRoot;
+            }
+            return "/tmp/fdo-user-data";
+        });
+        fs.existsSync.mockImplementation(actualFs.existsSync);
+        fsPromises.readdir.mockImplementation((...args) => actualFsPromises.readdir(...args));
+        fsPromises.readFile.mockImplementation((...args) => actualFsPromises.readFile(...args));
+        fsPromises.stat.mockImplementation((...args) => actualFsPromises.stat(...args));
+
+        ipcMain.handle.mockClear();
+        registerPluginHandlers();
+        const handler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.GET_LOG_TRACE)?.[1];
+        expect(typeof handler).toBe("function");
+
+        const response = await handler({}, pluginId, {maxFiles: 1, maxChars: 4000});
+
+        expect(response.success).toBe(true);
+        expect(response.logTail.logDir).toBe(logDir);
+        expect(response.logTail.logs).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                file: "info-2026-04-06.log",
+            }),
+        ]));
+        expect(response.combined).toContain("Plugin runtime logs:");
+        expect(response.combined).toContain(exactLogLine);
+
+        actualFs.rmSync(userDataRoot, {recursive: true, force: true});
+    });
+
+    test("returns structured privileged audit events over IPC and exposes summary on runtime status", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+
+        ipcMain.handle.mockClear();
+        registerPluginHandlers();
+
+        const getAuditHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.GET_PRIVILEGED_AUDIT)?.[1];
+        const getRuntimeStatusHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.GET_RUNTIME_STATUS)?.[1];
+
+        expect(typeof getAuditHandler).toBe("function");
+        expect(typeof getRuntimeStatusHandler).toBe("function");
+
+        const auditResponse = await getAuditHandler({}, "trace-plugin", {limit: 5});
+        expect(auditResponse).toEqual(expect.objectContaining({
+            success: true,
+            pluginId: "trace-plugin",
+            events: expect.arrayContaining([
+                expect.objectContaining({
+                    workflowId: "wf-trace-1",
+                    stepId: "apply",
+                }),
+            ]),
+        }));
+
+        const runtimeResponse = await getRuntimeStatusHandler({}, ["trace-plugin"]);
+        expect(runtimeResponse.statuses[0]).toEqual(expect.objectContaining({
+            id: "trace-plugin",
+            trustTier: expect.objectContaining({
+                id: "high-trust-administrative",
+            }),
+            privilegedAuditCount: PluginManager.getPrivilegedAuditTrail("trace-plugin", {limit: 200}).length,
+            lastPrivilegedAudit: expect.objectContaining({
+                workflowId: "wf-trace-1",
+            }),
+            diagnosticsSummary: expect.objectContaining({
+                totalEvents: expect.any(Number),
+                failureCount: expect.any(Number),
+                latestFailureCode: expect.any(String),
+            }),
+            capabilityIntent: expect.objectContaining({
+                declared: ["system.process.exec", "system.process.scope.system-observe"],
+                missingDeclared: [],
+                undeclaredGranted: [],
+            }),
+            capabilityIntentSummary: expect.objectContaining({
+                title: "Declared and granted aligned",
+            }),
+        }));
     });
 });

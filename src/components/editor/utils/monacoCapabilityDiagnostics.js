@@ -1,4 +1,5 @@
 import {IconNames} from "@blueprintjs/icons";
+import {isCuratedOperatorProcessScopeId, isHostFallbackProcessScopeId} from "../../../utils/processScopeCatalog";
 
 function toLineColumn(text, index) {
     const safeText = typeof text === "string" ? text : "";
@@ -36,23 +37,6 @@ const BLUEPRINT_ICON_NAMES = Array.from(new Set(
 const BLUEPRINT_ICON_SET = new Set(BLUEPRINT_ICON_NAMES);
 
 const DEFAULT_ICON_SUGGESTIONS = ["cog", "application", "code", "wrench", "widget"];
-const KNOWN_OPERATOR_TOOL_SCOPE_IDS = new Set([
-    "docker-cli",
-    "kubectl",
-    "helm",
-    "terraform",
-    "ansible",
-    "aws-cli",
-    "gcloud",
-    "azure-cli",
-    "podman",
-    "kustomize",
-    "gh",
-    "git",
-    "vault",
-    "nomad",
-]);
-
 function toNormalizedIcon(value = "") {
     return String(value || "").trim().toLowerCase();
 }
@@ -318,6 +302,56 @@ function detectProcessExecUsage(source) {
     return matches;
 }
 
+function detectClipboardReadUsage(source) {
+    const matches = [];
+    const patterns = [
+        /requestClipboardRead\s*\(/g,
+        /createClipboardReadRequest\s*\(/g,
+        /createClipboardReadActionRequest\s*\(/g,
+        /["'`]system\.clipboard\.read["'`]/g,
+    ];
+    patterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(source)) !== null) {
+            matches.push({start: match.index, end: match.index + match[0].length});
+        }
+    });
+    return matches;
+}
+
+function detectClipboardWriteUsage(source) {
+    const matches = [];
+    const patterns = [
+        /requestClipboardWrite\s*\(/g,
+        /createClipboardWriteRequest\s*\(/g,
+        /createClipboardWriteActionRequest\s*\(/g,
+        /["'`]system\.clipboard\.write["'`]/g,
+    ];
+    patterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(source)) !== null) {
+            matches.push({start: match.index, end: match.index + match[0].length});
+        }
+    });
+    return matches;
+}
+
+function detectRawClipboardApiUsage(source) {
+    const matches = [];
+    const patterns = [
+        /\bnavigator\.clipboard\./g,
+        /\belectron\.clipboard\./g,
+        /\brequire\s*\(\s*["'`]electron["'`]\s*\)\.clipboard\./g,
+    ];
+    patterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(source)) !== null) {
+            matches.push({start: match.index, end: match.index + match[0].length});
+        }
+    });
+    return matches;
+}
+
 function detectLowLevelProcessExecRequests(source) {
     const matches = [];
     const pattern = /createProcessExecActionRequest\s*\(/g;
@@ -326,6 +360,37 @@ function detectLowLevelProcessExecRequests(source) {
         matches.push({start: match.index, end: match.index + match[0].length});
     }
     return matches;
+}
+
+function detectWorkflowCandidateRequests(source) {
+    const patterns = [
+        /requestScopedProcessExec\s*\(/g,
+        /requestOperatorTool\s*\(/g,
+        /createProcessExecActionRequest\s*\(/g,
+    ];
+    const workflowPatterns = [
+        /requestScopedWorkflow\s*\(/g,
+        /createScopedWorkflowRequest\s*\(/g,
+    ];
+
+    const requestMatches = [];
+    patterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(source)) !== null) {
+            requestMatches.push({start: match.index, end: match.index + match[0].length});
+        }
+    });
+    const hasWorkflowHelper = workflowPatterns.some((pattern) => pattern.test(source));
+    return hasWorkflowHelper ? [] : requestMatches;
+}
+
+function detectDeclareCapabilities(source) {
+    const match = /declareCapabilities\s*\(\s*\)\s*[:{]/.exec(source);
+    if (!match) return null;
+    return {
+        start: match.index,
+        end: match.index + match[0].length,
+    };
 }
 
 function detectScopes(source) {
@@ -436,9 +501,70 @@ export function computeCapabilityAndDeprecationMarkers({
     }
 
     const processExecs = detectProcessExecUsage(text);
+    const clipboardReads = detectClipboardReadUsage(text);
+    const clipboardWrites = detectClipboardWriteUsage(text);
+    const rawClipboardApi = detectRawClipboardApiUsage(text);
+    const clipboardUsage = [...clipboardReads, ...clipboardWrites];
+
+    if (clipboardUsage.length > 0 && !hasCapability(granted, "system.hosts.write")) {
+        clipboardUsage.forEach((match) => {
+            markers.push(createMarker(
+                text,
+                match.start,
+                match.end,
+                pluginPersisted
+                    ? 'Missing base capability: "system.hosts.write" is required for host-mediated clipboard access. Clipboard helpers require base host privileged access plus clipboard read/write child capability.'
+                    : 'Draft plugin requires base capability "system.hosts.write" for host-mediated clipboard actions. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
+                pluginPersisted ? 4 : 2,
+                "FDO_MISSING_SYSTEM_HOSTS_WRITE_FOR_CLIPBOARD"
+            ));
+        });
+    }
+
+    if (clipboardReads.length > 0 && !hasCapability(granted, "system.clipboard.read")) {
+        clipboardReads.forEach((match) => {
+            markers.push(createMarker(
+                text,
+                match.start,
+                match.end,
+                pluginPersisted
+                    ? 'Missing capability: "system.clipboard.read". Clipboard read is sensitive; grant only to trusted plugins that must read host clipboard data. Prefer requestClipboardRead(...) or createClipboardReadRequest(...) over raw transport.'
+                    : 'Draft plugin requires capability "system.clipboard.read" for host-mediated clipboard reads. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
+                pluginPersisted ? 4 : 2,
+                "FDO_MISSING_SYSTEM_CLIPBOARD_READ"
+            ));
+        });
+    }
+
+    if (clipboardWrites.length > 0 && !hasCapability(granted, "system.clipboard.write")) {
+        clipboardWrites.forEach((match) => {
+            markers.push(createMarker(
+                text,
+                match.start,
+                match.end,
+                pluginPersisted
+                    ? 'Missing capability: "system.clipboard.write". Keep write separate from read and grant the minimal permission required. Prefer requestClipboardWrite(...) or createClipboardWriteRequest(...) over raw transport.'
+                    : 'Draft plugin requires capability "system.clipboard.write" for host-mediated clipboard writes. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
+                pluginPersisted ? 4 : 2,
+                "FDO_MISSING_SYSTEM_CLIPBOARD_WRITE"
+            ));
+        });
+    }
+
+    rawClipboardApi.forEach((match) => {
+        markers.push(createMarker(
+            text,
+            match.start,
+            match.end,
+            "Raw clipboard API usage detected. For production plugins, route clipboard actions through the host-mediated SDK contract: requestClipboardRead(...) and requestClipboardWrite(...), with explicit read/write capabilities.",
+            2,
+            "FDO_RAW_CLIPBOARD_API"
+        ));
+    });
+
     if (processExecs.length > 0) {
         const scopes = detectScopes(text);
-        const knownScope = scopes.find((scope) => KNOWN_OPERATOR_TOOL_SCOPE_IDS.has(scope.id)) || null;
+        const knownScope = scopes.find((scope) => isCuratedOperatorProcessScopeId(scope.id)) || null;
         const lowLevelRequests = detectLowLevelProcessExecRequests(text);
         lowLevelRequests.forEach((match) => {
             const message = knownScope
@@ -477,17 +603,54 @@ export function computeCapabilityAndDeprecationMarkers({
                     scope.start,
                     scope.end,
                     pluginPersisted
-                        ? `${KNOWN_OPERATOR_TOOL_SCOPE_IDS.has(scope.id)
+                        ? `${isCuratedOperatorProcessScopeId(scope.id)
                             ? `Missing narrow scope: "${scopeCapability}". Keep broad capability "system.process.exec" enabled and request the curated tool-family grant for "${scope.id}". Prefer the closest operator fixture under examples/fixtures/, then createOperatorToolCapabilityPreset("${scope.id}"), createOperatorToolActionRequest("${scope.id}", ...), and requestOperatorTool("${scope.id}", ...). Use parseMissingCapabilityError(...) for runtime denial handling.`
-                            : `Missing narrow scope: "${scopeCapability}". Keep broad capability "system.process.exec" enabled and request a host-specific scope for "${scope.id}". Prefer the closest operator fixture under examples/fixtures/, then createProcessCapabilityBundle("${scope.id}"), createProcessScopeCapability("${scope.id}"), and requestScopedProcessExec("${scope.id}", ...). Use parseMissingCapabilityError(...) for runtime denial handling.`}`
-                        : `${KNOWN_OPERATOR_TOOL_SCOPE_IDS.has(scope.id)
+                            : isHostFallbackProcessScopeId(scope.id)
+                                ? `Missing narrow scope: "${scopeCapability}". Keep broad capability "system.process.exec" enabled and use "${scope.id}" only as a host-specific fallback scope when no curated operator tool family fits. Prefer the closest operator fixture under examples/fixtures/ first. If no curated preset exists, use createProcessCapabilityBundle("${scope.id}"), createProcessScopeCapability("${scope.id}"), and requestScopedProcessExec("${scope.id}", ...). Use parseMissingCapabilityError(...) for runtime denial handling.`
+                                : `Missing narrow scope: "${scopeCapability}". Keep broad capability "system.process.exec" enabled and request a host-specific scope for "${scope.id}". Prefer the closest operator fixture under examples/fixtures/, then createProcessCapabilityBundle("${scope.id}"), createProcessScopeCapability("${scope.id}"), and requestScopedProcessExec("${scope.id}", ...). Use parseMissingCapabilityError(...) for runtime denial handling.`}`
+                        : `${isCuratedOperatorProcessScopeId(scope.id)
                             ? `Draft plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request the curated tool-family grant and prefer createOperatorToolCapabilityPreset("${scope.id}").`
-                            : `Draft plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request a host-specific scope and prefer createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`}`,
+                            : isHostFallbackProcessScopeId(scope.id)
+                                ? `Draft plugin requires narrow scope "${scopeCapability}" for fallback host scope "${scope.id}". Save plugin first, prefer the closest operator fixture under examples/fixtures/, and use this fallback scope only when no curated operator family fits. Then request a host-specific scope with createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`
+                                : `Draft plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request a host-specific scope and prefer createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`}`,
                     pluginPersisted ? 4 : 2,
                     "FDO_MISSING_PROCESS_SCOPE_CAPABILITY"
                 ));
             }
         });
+    }
+
+    const workflowCandidates = detectWorkflowCandidateRequests(text);
+    const declaresCapabilities = detectDeclareCapabilities(text);
+    const usesPrivilegedOperatorPatterns = hostsWrites.length > 0
+        || mutates.length > 0
+        || processExecs.length > 0
+        || workflowCandidates.length > 0
+        || clipboardReads.length > 0
+        || clipboardWrites.length > 0;
+    if (usesPrivilegedOperatorPatterns && !declaresCapabilities) {
+        const anchor = processExecs[0] || mutates[0] || hostsWrites[0] || workflowCandidates[0];
+        if (anchor) {
+            markers.push(createMarker(
+                text,
+                anchor.start,
+                anchor.end,
+                'Privileged/operator plugins should implement `declareCapabilities(): PluginCapability[]` as an early intent manifest for host preflight and diagnostics. Treat it as additive UX only: keep runtime checks and granted-capability enforcement unchanged. For known tool families, return `createOperatorToolCapabilityPreset(...)`; for host-specific scoped execution, return `createProcessCapabilityBundle(...)`.',
+                2,
+                "FDO_DECLARE_CAPABILITIES_RECOMMENDED"
+            ));
+        }
+    }
+    if (workflowCandidates.length > 1) {
+        const second = workflowCandidates[1];
+        markers.push(createMarker(
+            text,
+            second.start,
+            second.end,
+            'This code appears to orchestrate multiple host-mediated process steps. Prefer `createScopedWorkflowRequest(...)` and `requestScopedWorkflow(...)` for preview/apply or inspect/act flows instead of plugin-private chaining. Keep the host-mediated trust boundary explicit and keep single-action helpers for single-step work.',
+            2,
+            "FDO_WORKFLOW_CANDIDATE"
+        ));
     }
 
     const deprecations = detectDeprecatedPatterns(text);

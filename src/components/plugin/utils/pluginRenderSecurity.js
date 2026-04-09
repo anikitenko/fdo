@@ -87,25 +87,61 @@ function parseSerializedRenderSegment(serialized, label) {
 }
 
 export function isTrustedPluginFrameEvent(event, pluginWindow) {
-    return Boolean(
-        pluginWindow &&
+    const hasStructuredPayload = Boolean(
         event &&
-        event.source === pluginWindow &&
         event.data &&
         typeof event.data === "object" &&
         typeof event.data.type === "string"
     );
+    if (!hasStructuredPayload) {
+        return false;
+    }
+
+    if (pluginWindow && event.source === pluginWindow) {
+        return true;
+    }
+
+    // In sandboxed iframe mode, WindowProxy identity can be unstable across lifecycle
+    // transitions. Keep trust constrained to known structured plugin bridge messages.
+    const type = String(event.data.type || "");
+    if (type === "OPEN_EXTERNAL_LINK") {
+        // External URL navigation should only be accepted from the active plugin iframe
+        // source identity; do not allow loose origin-based fallback for this path.
+        return false;
+    }
+    const allowedType = (
+        type === "PLUGIN_HELLO"
+        || type === "PLUGIN_STAGE"
+        || type === "PLUGIN_IFRAME_INTERACTION"
+        || type === "PLUGIN_SHORTCUT"
+        || type === "UI_MESSAGE_REQUEST"
+        || type === "UI_MESSAGE"
+        || type === "OPEN_EXTERNAL_LINK"
+    );
+    const sandboxLikeOrigin = event.origin === "null" || event.origin === "";
+    return Boolean(allowedType && sandboxLikeOrigin);
 }
 
 export function isTrustedParentPluginEvent(event, parentWindow) {
-    return Boolean(
-        parentWindow &&
+    const hasStructuredPayload = Boolean(
         event &&
-        event.source === parentWindow &&
         event.data &&
         typeof event.data === "object" &&
         typeof event.data.type === "string"
     );
+    if (!hasStructuredPayload) {
+        return false;
+    }
+
+    if (parentWindow && event.source === parentWindow) {
+        return true;
+    }
+
+    // Same rationale as above for sandboxed iframe: trust known host bridge message types.
+    const type = String(event.data.type || "");
+    const allowedType = type === "PLUGIN_RENDER" || type === "UI_MESSAGE_RESPONSE";
+    const sandboxLikeOrigin = event.origin === "null" || event.origin === "";
+    return Boolean(allowedType && sandboxLikeOrigin);
 }
 
 export function isValidPluginUiRequestMessage(message) {
@@ -151,8 +187,7 @@ function serializeInlineStyle(styleValue) {
         return "";
     }
 
-    const declarations = styleValue
-        .split(";")
+    const declarations = splitInlineStyleDeclarations(styleValue)
         .map((item) => item.trim())
         .filter(Boolean)
         .map((declaration) => {
@@ -175,4 +210,53 @@ function serializeInlineStyle(styleValue) {
         .filter(Boolean);
 
     return declarations.join(", ");
+}
+
+function splitInlineStyleDeclarations(styleValue) {
+    const parts = [];
+    let current = "";
+    let quote = "";
+    let parenDepth = 0;
+
+    for (let index = 0; index < styleValue.length; index += 1) {
+        const char = styleValue[index];
+        const prev = index > 0 ? styleValue[index - 1] : "";
+
+        if (quote) {
+            current += char;
+            if (char === quote && prev !== "\\") {
+                quote = "";
+            }
+            continue;
+        }
+
+        if (char === "'" || char === "\"") {
+            quote = char;
+            current += char;
+            continue;
+        }
+
+        if (char === "(") {
+            parenDepth += 1;
+            current += char;
+            continue;
+        }
+
+        if (char === ")" && parenDepth > 0) {
+            parenDepth -= 1;
+            current += char;
+            continue;
+        }
+
+        if (char === ";" && parenDepth === 0) {
+            parts.push(current);
+            current = "";
+            continue;
+        }
+
+        current += char;
+    }
+
+    parts.push(current);
+    return parts;
 }

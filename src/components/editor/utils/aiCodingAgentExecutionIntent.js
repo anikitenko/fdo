@@ -11,8 +11,15 @@ export function shouldExecuteWorkspacePlan({ prompt = "", previousResponse = "",
     const normalizedPrevious = String(previousResponse || "");
     const previousLooksExecutablePlan = /###\s*File:\s*\/[^\s]+/i.test(normalizedPrevious)
         || /```(?:[a-z]+)?[\s\S]*?```/i.test(normalizedPrevious);
+    const runtimeLogVerificationIntent =
+        /\b(log|logs|stderr|stdout|trace|runtime)\b/.test(normalizedPrompt)
+        && /\b(confirm|verify|check|whether|exists?|present|contains?|found)\b/.test(normalizedPrompt);
 
     if (hasHostAppFileReference([prompt, previousResponse].filter(Boolean).join("\n"), workspaceFiles)) {
+        return false;
+    }
+
+    if (runtimeLogVerificationIntent) {
         return false;
     }
 

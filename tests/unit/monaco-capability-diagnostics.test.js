@@ -53,6 +53,57 @@ describe("monaco capability diagnostics", () => {
         expect(markers.some((marker) => String(marker.message).includes("Missing narrow scope"))).toBe(true);
     });
 
+    test("treats generic host scopes as fallback scopes instead of curated operator families", () => {
+        const markers = computeCapabilityAndDeprecationMarkers({
+            source: `
+                const req = createProcessExecActionRequest({
+                  action: "system.process.exec",
+                  payload: { scope: "system-inspect", command: "/bin/ls", args: ["-la"] }
+                });
+            `,
+            grantedCapabilities: ["system.process.exec"],
+        });
+
+        expect(markers.some((marker) => String(marker.message).includes("host-specific fallback scope"))).toBe(true);
+        expect(markers.some((marker) => String(marker.message).includes("createOperatorToolCapabilityPreset(\"system-inspect\")"))).toBe(false);
+    });
+
+    test("recommends declareCapabilities for privileged operator code paths", () => {
+        const markers = computeCapabilityAndDeprecationMarkers({
+            source: `
+                async function runPlan() {
+                  return requestOperatorTool("terraform", {
+                    command: "/usr/local/bin/terraform",
+                    args: ["plan"],
+                  });
+                }
+            `,
+            grantedCapabilities: ["system.process.exec"],
+        });
+
+        expect(markers.some((marker) => marker.code === "FDO_DECLARE_CAPABILITIES_RECOMMENDED")).toBe(true);
+        expect(markers.some((marker) => String(marker.message).includes("declareCapabilities(): PluginCapability[]"))).toBe(true);
+    });
+
+    test("does not recommend declareCapabilities when privileged plugin already declares intent", () => {
+        const markers = computeCapabilityAndDeprecationMarkers({
+            source: `
+                declareCapabilities(): PluginCapability[] {
+                  return createOperatorToolCapabilityPreset("terraform");
+                }
+                async function runPlan() {
+                  return requestOperatorTool("terraform", {
+                    command: "/usr/local/bin/terraform",
+                    args: ["plan"],
+                  });
+                }
+            `,
+            grantedCapabilities: ["system.process.exec"],
+        });
+
+        expect(markers.some((marker) => marker.code === "FDO_DECLARE_CAPABILITIES_RECOMMENDED")).toBe(false);
+    });
+
     test("does not report process capability markers when required capabilities are granted", () => {
         const markers = computeCapabilityAndDeprecationMarkers({
             source: `
@@ -87,6 +138,37 @@ describe("monaco capability diagnostics", () => {
         });
 
         expect(markers.some((marker) => String(marker.code).startsWith("FDO_MISSING_"))).toBe(false);
+    });
+
+    test("flags missing clipboard read and write capabilities when clipboard helpers are used", () => {
+        const markers = computeCapabilityAndDeprecationMarkers({
+            source: `
+                async function readIt() {
+                  return requestClipboardRead({ reason: "Read selected secret" });
+                }
+                async function writeIt() {
+                  return requestClipboardWrite({ text: "copied", reason: "Copy command output" });
+                }
+            `,
+            grantedCapabilities: [],
+        });
+
+        expect(markers.some((marker) => marker.code === "FDO_MISSING_SYSTEM_CLIPBOARD_READ")).toBe(true);
+        expect(markers.some((marker) => marker.code === "FDO_MISSING_SYSTEM_CLIPBOARD_WRITE")).toBe(true);
+        expect(markers.some((marker) => marker.code === "FDO_MISSING_SYSTEM_HOSTS_WRITE_FOR_CLIPBOARD")).toBe(true);
+    });
+
+    test("warns when raw clipboard APIs are used instead of host-mediated helpers", () => {
+        const markers = computeCapabilityAndDeprecationMarkers({
+            source: `
+                async function copyRaw() {
+                  await navigator.clipboard.writeText("unsafe");
+                }
+            `,
+            grantedCapabilities: [],
+        });
+
+        expect(markers.some((marker) => marker.code === "FDO_RAW_CLIPBOARD_API")).toBe(true);
     });
 
     test("adds deprecation markers for legacy privileged channel and deprecated action", () => {
@@ -277,5 +359,22 @@ describe("monaco capability diagnostics", () => {
         expect(missingMarker).toBeTruthy();
         expect(String(missingMarker.message)).toContain("Draft plugin requires capability");
         expect(missingMarker.severity).toBe(2);
+    });
+
+    test("suggests workflow helper when code chains multiple host-mediated process requests", () => {
+        const markers = computeCapabilityAndDeprecationMarkers({
+            source: `
+                async function runFlow() {
+                    await requestScopedProcessExec("docker-cli", { command: "/usr/local/bin/docker", args: ["ps"] });
+                    await requestScopedProcessExec("docker-cli", { command: "/usr/local/bin/docker", args: ["pull", "alpine:latest"] });
+                }
+            `,
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+        });
+
+        const workflowMarker = markers.find((marker) => marker.code === "FDO_WORKFLOW_CANDIDATE");
+        expect(workflowMarker).toBeTruthy();
+        expect(String(workflowMarker.message)).toContain("requestScopedWorkflow");
+        expect(String(workflowMarker.message)).toContain("createScopedWorkflowRequest");
     });
 });

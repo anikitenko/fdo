@@ -29,6 +29,16 @@ Authoring priority order:
    - `createProcessExecActionRequest(...)`
    - `requestPrivilegedAction(...)`
 
+For shared multi-step operator flows, prefer:
+
+- `createScopedWorkflowRequest(...)`
+- `requestScopedWorkflow(...)`
+
+Use the workflow primitive for preview/apply and inspect/act flows when multiple host-mediated process steps are involved. Continue using single-action fixtures and helpers when only one host action is needed.
+Canonical workflow fixtures:
+- `examples/fixtures/operator-terraform-plugin.fixture.ts` for Terraform preview/apply
+- `examples/fixtures/operator-kubernetes-plugin.fixture.ts` for kubectl inspect/act
+
 For operator-style request/response handling, the preferred SDK pattern is:
 
 - start from the closest operator fixture under `examples/fixtures/`
@@ -65,7 +75,11 @@ Capability UX should describe operator permissions as:
 - broad capability: `system.process.exec`
 - narrow scope: `system.process.scope.<scope-id>`
 
+The first workflow slice should continue using that same capability pair. Do not introduce a separate broad workflow capability unless the trust model changes materially.
+
 When denied, remediation should explain which capability is missing and whether the user should request a curated tool-family grant or a host-specific scope. Curated tool-family guidance should come before transport-level troubleshooting whenever a curated preset exists.
+
+Workflow responses should be presented as inspectable step results with normalized summaries, not unstructured blobs. Preserve per-step correlation IDs for audit and troubleshooting.
 
 ## Features
 

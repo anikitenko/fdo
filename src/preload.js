@@ -18,19 +18,29 @@ const pluginListenerRegistry = {
     uiMessage: new Set(),
 };
 
-function resetPluginListeners(key, channel) {
-    for (const listener of pluginListenerRegistry[key]) {
-        ipcRenderer.removeListener(channel, listener);
-    }
-    pluginListenerRegistry[key].clear();
-    pluginListenerWrappers[key] = new WeakMap();
-}
-
 function addPluginListener(key, channel, callback, projector = (value) => value) {
-    // Keep at most one active listener per plugin event key.
-    // Rapid React mount/unmount cycles can otherwise accumulate proxy callbacks.
-    resetPluginListeners(key, channel);
-    const wrapped = (_, payload) => callback(projector(payload));
+    const existing = pluginListenerWrappers[key].get(callback);
+    if (existing) {
+        ipcRenderer.removeListener(channel, existing);
+        pluginListenerRegistry[key].delete(existing);
+    }
+    const wrapped = (_, payload) => {
+        if (key === "render") {
+            try {
+                console.info("[PRELOAD_PLUGIN_EVENT_RENDER]", JSON.stringify({
+                    channel,
+                    payloadId: payload?.id || "",
+                    hasContent: !!payload?.content,
+                    contentKeys: payload?.content && typeof payload.content === "object"
+                        ? Object.keys(payload.content)
+                        : [],
+                }));
+            } catch (_) {
+                // ignore logging errors
+            }
+        }
+        callback(projector(payload));
+    };
     pluginListenerWrappers[key].set(callback, wrapped);
     pluginListenerRegistry[key].add(wrapped);
     ipcRenderer.on(channel, wrapped);
@@ -39,11 +49,13 @@ function addPluginListener(key, channel, callback, projector = (value) => value)
 function removePluginListener(key, channel, callback) {
     const wrapped = pluginListenerWrappers[key].get(callback);
     if (!wrapped) {
-        // Fallback cleanup in case callback identity is not preserved across context bridge calls.
+        // Fallback cleanup for cross-context callback identity mismatches.
+        // This prevents listener leaks (duplicate event delivery) in long-running sessions.
         for (const listener of pluginListenerRegistry[key]) {
             ipcRenderer.removeListener(channel, listener);
         }
         pluginListenerRegistry[key].clear();
+        pluginListenerWrappers[key] = new WeakMap();
         return;
     }
     ipcRenderer.removeListener(channel, wrapped);
@@ -146,7 +158,7 @@ contextBridge.exposeInMainWorld('electron', {
     },
     system:{
         openExternal: (url) => ipcRenderer.send(SystemChannels.OPEN_EXTERNAL_LINK, url),
-        openPluginLogs: () => ipcRenderer.invoke(SystemChannels.OPEN_PLUGIN_LOGS),
+        openPluginLogs: (pluginId = "") => ipcRenderer.invoke(SystemChannels.OPEN_PLUGIN_LOGS, pluginId),
         getPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke(SystemChannels.GET_PLUGIN_METRIC, id, fromTime, toTime),
         openFileDialog: (params, multiple) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params, multiple),
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
@@ -178,7 +190,16 @@ contextBridge.exposeInMainWorld('electron', {
         remove: (id) => ipcRenderer.invoke(PluginChannels.REMOVE, id),
         getAll: () => ipcRenderer.invoke(PluginChannels.GET_ALL),
         get: (data) => ipcRenderer.invoke(PluginChannels.GET, data),
-        getScopePolicies: () => ipcRenderer.invoke(PluginChannels.GET_SCOPE_POLICIES),
+        getScopePolicies: (pluginId) => ipcRenderer.invoke(PluginChannels.GET_SCOPE_POLICIES, pluginId),
+        getSharedProcessScopes: () => ipcRenderer.invoke(PluginChannels.GET_SHARED_PROCESS_SCOPES),
+        upsertSharedProcessScope: (scope) => ipcRenderer.invoke(PluginChannels.UPSERT_SHARED_PROCESS_SCOPE, scope),
+        deleteSharedProcessScope: (scopeId) => ipcRenderer.invoke(PluginChannels.DELETE_SHARED_PROCESS_SCOPE, scopeId),
+        getPluginCustomProcessScopes: (pluginId) => ipcRenderer.invoke(PluginChannels.GET_PLUGIN_CUSTOM_PROCESS_SCOPES, pluginId),
+        upsertPluginCustomProcessScope: (pluginId, scope) => ipcRenderer.invoke(PluginChannels.UPSERT_PLUGIN_CUSTOM_PROCESS_SCOPE, pluginId, scope),
+        deletePluginCustomProcessScope: (pluginId, scopeId) => ipcRenderer.invoke(PluginChannels.DELETE_PLUGIN_CUSTOM_PROCESS_SCOPE, pluginId, scopeId),
+        getCustomProcessScopes: () => ipcRenderer.invoke(PluginChannels.GET_SHARED_PROCESS_SCOPES),
+        upsertCustomProcessScope: (scope) => ipcRenderer.invoke(PluginChannels.UPSERT_SHARED_PROCESS_SCOPE, scope),
+        deleteCustomProcessScope: (scopeId) => ipcRenderer.invoke(PluginChannels.DELETE_SHARED_PROCESS_SCOPE, scopeId),
         getRuntimeStatus: (ids) => ipcRenderer.invoke(PluginChannels.GET_RUNTIME_STATUS, ids),
         getActivated: () => ipcRenderer.invoke(PluginChannels.GET_ACTIVATED),
         activate: (id) => ipcRenderer.invoke(PluginChannels.ACTIVATE, id),
@@ -196,6 +217,7 @@ contextBridge.exposeInMainWorld('electron', {
         sign: (id, signerLabel) => ipcRenderer.invoke(PluginChannels.SIGN, id, signerLabel),
         export: (id) => ipcRenderer.invoke(PluginChannels.EXPORT, id),
         setCapabilities: (id, capabilities) => ipcRenderer.invoke(PluginChannels.SET_CAPABILITIES, id, capabilities),
+        getPrivilegedAudit: (id, options) => ipcRenderer.invoke(PluginChannels.GET_PRIVILEGED_AUDIT, id, options),
         getLogTail: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TAIL, id, options),
         getLogTrace: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TRACE, id, options),
         on: {

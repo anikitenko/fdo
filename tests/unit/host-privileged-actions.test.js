@@ -3,9 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import {
     executeHostPrivilegedAction,
+    HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
+    HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
     HOST_PRIVILEGED_ACTION_SYSTEM_FS_MUTATE,
     HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE,
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+    HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN,
 } from "../../src/utils/hostPrivilegedActions";
 
 function hostsRequest(payload = {}) {
@@ -39,6 +42,108 @@ function processExecRequest(payload = {}) {
             cwd: os.tmpdir(),
             env: {DOCKER_CONTEXT: "default"},
             timeoutMs: 1000,
+            ...payload,
+        },
+    };
+}
+
+function fallbackProcessExecRequest(payload = {}) {
+    return {
+        action: HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+        payload: {
+            scope: "system-observe",
+            command: "/usr/bin/hostname",
+            args: [],
+            cwd: os.tmpdir(),
+            env: {},
+            timeoutMs: 1000,
+            ...payload,
+        },
+    };
+}
+
+function workflowRequest(payload = {}) {
+    return {
+        action: HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN,
+        payload: {
+            kind: "process-sequence",
+            scope: "docker-cli",
+            title: "Inspect and apply docker workflow",
+            summary: "Inspect running containers before applying a follow-up action",
+            steps: [
+                {
+                    id: "inspect",
+                    title: "Inspect containers",
+                    command: "/usr/local/bin/docker",
+                    args: ["ps"],
+                    cwd: os.tmpdir(),
+                    env: {DOCKER_CONTEXT: "default"},
+                    timeoutMs: 1000,
+                    onError: "abort",
+                },
+                {
+                    id: "apply",
+                    title: "Pull image",
+                    command: "/usr/local/bin/docker",
+                    args: ["pull", "alpine:latest"],
+                    cwd: os.tmpdir(),
+                    env: {DOCKER_CONTEXT: "default"},
+                    timeoutMs: 1000,
+                    onError: "abort",
+                },
+            ],
+            confirmation: {
+                message: "Run the workflow?",
+                requiredForStepIds: ["apply"],
+            },
+            ...payload,
+        },
+    };
+}
+
+function fallbackWorkflowRequest(payload = {}) {
+    return {
+        action: HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN,
+        payload: {
+            kind: "process-sequence",
+            scope: "system-observe",
+            title: "Observe host basics",
+            summary: "Inspect basic host state before follow-up diagnostics",
+            steps: [
+                {
+                    id: "hostname",
+                    title: "Read hostname",
+                    command: "/usr/bin/hostname",
+                    args: [],
+                    cwd: os.tmpdir(),
+                    env: {},
+                    timeoutMs: 1000,
+                    onError: "abort",
+                },
+            ],
+            confirmation: {
+                message: "Run fallback workflow?",
+                requiredForStepIds: ["hostname"],
+            },
+            ...payload,
+        },
+    };
+}
+
+function clipboardReadRequest(payload = {}) {
+    return {
+        action: HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
+        payload: {
+            ...payload,
+        },
+    };
+}
+
+function clipboardWriteRequest(payload = {}) {
+    return {
+        action: HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
+        payload: {
+            text: "hello clipboard",
             ...payload,
         },
     };
@@ -226,6 +331,122 @@ describe("host privileged actions", () => {
         expect(events.some((event) => event.success === false && event.correlationId === "corr-audit-denied")).toBe(true);
     });
 
+    test("clipboard read returns host text and emits approval/audit trail", async () => {
+        const confirmPrivilegedAction = jest.fn(async () => true);
+        const audits = [];
+        const result = await executeHostPrivilegedAction(clipboardReadRequest({
+            reason: "Read copied plan",
+        }), {
+            pluginId: "clipboard-plugin",
+            correlationId: "corr-clipboard-read",
+            grantedCapabilities: ["system.hosts.write", "system.clipboard.read"],
+            confirmPrivilegedAction,
+            onAudit: (event) => audits.push(event),
+        }, {
+            readClipboardText: async () => "terraform plan output",
+            writeClipboardText: async () => undefined,
+        });
+
+        expect(result).toEqual({
+            ok: true,
+            correlationId: "corr-clipboard-read",
+            result: {
+                text: "terraform plan output",
+            },
+        });
+        expect(confirmPrivilegedAction).toHaveBeenCalledTimes(1);
+        expect(audits.some((event) => event.action === "system.clipboard.read" && event.confirmationDecision === "approved")).toBe(true);
+        expect(audits.some((event) => event.action === "system.clipboard.read" && event.success === true && event.result?.result?.textLength === 21)).toBe(true);
+    });
+
+    test("clipboard read denied when base capability is missing", async () => {
+        const result = await executeHostPrivilegedAction(clipboardReadRequest({
+            reason: "Need data",
+        }), {
+            pluginId: "clipboard-plugin",
+            correlationId: "corr-clipboard-read-denied",
+            grantedCapabilities: ["system.clipboard.read"],
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            ok: false,
+            code: "CAPABILITY_DENIED",
+            correlationId: "corr-clipboard-read-denied",
+            error: "Missing required capability: system.hosts.write.",
+        }));
+    });
+
+    test("clipboard write returns bytesWritten and is auditable", async () => {
+        const writes = [];
+        const audits = [];
+        const result = await executeHostPrivilegedAction(clipboardWriteRequest({
+            text: "k8s output",
+            reason: "Copy for terminal",
+        }), {
+            pluginId: "clipboard-plugin",
+            correlationId: "corr-clipboard-write",
+            grantedCapabilities: ["system.hosts.write", "system.clipboard.write"],
+            onAudit: (event) => audits.push(event),
+        }, {
+            readClipboardText: async () => "",
+            writeClipboardText: async (text) => {
+                writes.push(text);
+            },
+        });
+
+        expect(result).toEqual({
+            ok: true,
+            correlationId: "corr-clipboard-write",
+            result: {
+                bytesWritten: 10,
+            },
+        });
+        expect(writes).toEqual(["k8s output"]);
+        expect(audits.some((event) => event.action === "system.clipboard.write" && event.success === true)).toBe(true);
+    });
+
+    test("clipboard write validates non-empty text", async () => {
+        const result = await executeHostPrivilegedAction(clipboardWriteRequest({
+            text: "   ",
+        }), {
+            pluginId: "clipboard-plugin",
+            correlationId: "corr-clipboard-write-invalid",
+            grantedCapabilities: ["system.hosts.write", "system.clipboard.write"],
+        }, {
+            readClipboardText: async () => "",
+            writeClipboardText: async () => undefined,
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            ok: false,
+            code: "VALIDATION_FAILED",
+            correlationId: "corr-clipboard-write-invalid",
+        }));
+        expect(result.error).toContain("clipboard write field \"text\" must be a non-empty string");
+    });
+
+    test("clipboard operation surfaces unsupported host clipboard path", async () => {
+        const result = await executeHostPrivilegedAction(clipboardReadRequest(), {
+            pluginId: "clipboard-plugin",
+            correlationId: "corr-clipboard-unsupported",
+            grantedCapabilities: ["system.hosts.write", "system.clipboard.read"],
+            confirmPrivilegedAction: async () => true,
+        }, {
+            readClipboardText: async () => {
+                const error = new Error("Clipboard unsupported in this runtime");
+                error.code = "CLIPBOARD_UNSUPPORTED";
+                throw error;
+            },
+            writeClipboardText: async () => undefined,
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            ok: false,
+            code: "CLIPBOARD_UNSUPPORTED",
+            correlationId: "corr-clipboard-unsupported",
+        }));
+    });
+
     test("valid docker-cli execution request", async () => {
         const result = await executeHostPrivilegedAction(processExecRequest(), {
             pluginId: "docker-plugin",
@@ -251,8 +472,52 @@ describe("host privileged actions", () => {
                 timedOut: false,
                 command: "/usr/local/bin/docker",
                 args: ["version"],
+                cwd: os.tmpdir(),
+                durationMs: expect.any(Number),
+                dryRun: false,
             },
         });
+    });
+
+    test("reuses scoped process approval for the current plugin session", async () => {
+        const confirmPrivilegedAction = jest.fn(async () => true);
+        const approvalSessionStore = new Map();
+
+        const first = await executeHostPrivilegedAction(processExecRequest(), {
+            pluginId: "docker-plugin",
+            correlationId: "corr-docker-session-1",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction,
+            approvalSessionStore,
+        }, {
+            runProcess: async () => ({
+                exitCode: 0,
+                stdout: Buffer.from("ok"),
+                stderr: Buffer.from(""),
+                timedOut: false,
+            }),
+        });
+
+        const second = await executeHostPrivilegedAction(processExecRequest({
+            args: ["ps"],
+        }), {
+            pluginId: "docker-plugin",
+            correlationId: "corr-docker-session-2",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction,
+            approvalSessionStore,
+        }, {
+            runProcess: async () => ({
+                exitCode: 0,
+                stdout: Buffer.from("ok"),
+                stderr: Buffer.from(""),
+                timedOut: false,
+            }),
+        });
+
+        expect(first.ok).toBe(true);
+        expect(second.ok).toBe(true);
+        expect(confirmPrivilegedAction).toHaveBeenCalledTimes(1);
     });
 
     test("valid kubectl execution request", async () => {
@@ -292,6 +557,7 @@ describe("host privileged actions", () => {
             code: "CAPABILITY_DENIED",
             correlationId: "corr-proc-cap",
         }));
+        expect(result.error).toBe("Missing required capability: system.process.exec.");
     });
 
     test("missing scope capability", async () => {
@@ -306,6 +572,7 @@ describe("host privileged actions", () => {
             code: "CAPABILITY_DENIED",
             correlationId: "corr-proc-scope-cap",
         }));
+        expect(result.error).toBe("Missing required capability: system.process.scope.docker-cli.");
     });
 
     test("unknown scope", async () => {
@@ -454,7 +721,7 @@ describe("host privileged actions", () => {
         });
     });
 
-    test("stable error envelope mapping", async () => {
+    test("classifies missing executable as an explicit CLI-not-found failure", async () => {
         const result = await executeHostPrivilegedAction(processExecRequest(), {
             pluginId: "proc-plugin",
             correlationId: "corr-proc-os-error",
@@ -462,15 +729,205 @@ describe("host privileged actions", () => {
             confirmPrivilegedAction: async () => true,
         }, {
             runProcess: async () => {
-                throw new Error("spawn EPERM");
+                const error = new Error("spawn /usr/local/bin/docker ENOENT");
+                error.code = "ENOENT";
+                throw error;
             },
         });
 
-        expect(result).toEqual({
+        expect(result).toEqual(expect.objectContaining({
             ok: false,
-            code: "OS_ERROR",
-            error: "spawn EPERM",
+            code: "PROCESS_SPAWN_ENOENT",
             correlationId: "corr-proc-os-error",
+        }));
+        expect(result.error).toContain('Executable "/usr/local/bin/docker" was not found');
+    });
+
+    test("confirmation copy describes curated operator actions before approval", async () => {
+        let confirmPayload = null;
+        await executeHostPrivilegedAction(processExecRequest(), {
+            pluginId: "proc-plugin",
+            correlationId: "corr-curated-confirm",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction: async (payload) => {
+                confirmPayload = payload;
+                return false;
+            },
         });
+
+        expect(confirmPayload).toEqual(expect.objectContaining({
+            title: "Confirm Curated Operator Action",
+        }));
+        expect(confirmPayload.message).toContain('curated operator tool "docker"');
+        expect(confirmPayload.detail).toContain("Scope type: Curated operator scope");
+        expect(confirmPayload.detail).toContain("Broad capability: system.process.exec");
+        expect(confirmPayload.detail).toContain("Narrow scope: system.process.scope.docker-cli");
+    });
+
+    test("confirmation copy describes fallback host actions before approval", async () => {
+        let confirmPayload = null;
+        await executeHostPrivilegedAction(fallbackProcessExecRequest(), {
+            pluginId: "proc-plugin",
+            correlationId: "corr-fallback-confirm",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.system-observe"],
+            confirmPrivilegedAction: async (payload) => {
+                confirmPayload = payload;
+                return false;
+            },
+        });
+
+        expect(confirmPayload).toEqual(expect.objectContaining({
+            title: "Confirm Fallback Host Action",
+        }));
+        expect(confirmPayload.message).toContain('fallback host tool "hostname"');
+        expect(confirmPayload.detail).toContain("Scope type: Host-specific fallback scope");
+        expect(confirmPayload.detail).toContain("Prefer curated operator fixtures, presets, or workflows when they fit.");
+        expect(confirmPayload.detail).toContain("Narrow scope: system.process.scope.system-observe");
+    });
+
+    test("returns explicit failure for non-zero single-action process exit codes", async () => {
+        const result = await executeHostPrivilegedAction(processExecRequest(), {
+            pluginId: "proc-plugin",
+            correlationId: "corr-proc-exit-nonzero",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction: async () => true,
+        }, {
+            runProcess: async () => ({
+                exitCode: 2,
+                stdout: Buffer.from(""),
+                stderr: Buffer.from("terraform failed"),
+                timedOut: false,
+            }),
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            ok: false,
+            code: "PROCESS_EXIT_NON_ZERO",
+            correlationId: "corr-proc-exit-nonzero",
+        }));
+        expect(result.result).toEqual(expect.objectContaining({
+            exitCode: 2,
+            stderr: "terraform failed",
+            cwd: os.tmpdir(),
+            dryRun: false,
+        }));
+    });
+
+    test("workflow reuses process capability pair and returns typed per-step results with summary", async () => {
+        const audits = [];
+        const result = await executeHostPrivilegedAction(workflowRequest(), {
+            pluginId: "workflow-plugin",
+            correlationId: "corr-workflow",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction: async () => true,
+            onAudit: (event) => audits.push(event),
+        }, {
+            runProcess: async (plan) => ({
+                exitCode: 0,
+                stdout: Buffer.from(`${path.basename(plan.command)} ${plan.args.join(" ")}`),
+                stderr: Buffer.from(""),
+                timedOut: false,
+            }),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.result.workflowId).toEqual(expect.stringMatching(/^docker-cli-/));
+        expect(result.result.kind).toBe("process-sequence");
+        expect(result.result.status).toBe("completed");
+        expect(result.result.summary).toEqual(expect.objectContaining({
+            totalSteps: 2,
+            completedSteps: 2,
+            failedSteps: 0,
+            skippedSteps: 0,
+        }));
+        expect(result.result.steps[0]).toEqual(expect.objectContaining({
+            stepId: "inspect",
+            title: "Inspect containers",
+            status: "ok",
+            correlationId: expect.stringContaining("corr-workflow:step:1:inspect"),
+            result: expect.objectContaining({
+                command: "/usr/local/bin/docker",
+                args: ["ps"],
+                cwd: os.tmpdir(),
+                exitCode: 0,
+                stdout: "docker ps",
+                stderr: "",
+                durationMs: expect.any(Number),
+                dryRun: false,
+            }),
+        }));
+        expect(audits.some((event) => event.workflowId === result.result.workflowId)).toBe(true);
+        expect(audits.some((event) => event.stepId === "inspect" && event.stepTitle === "Inspect containers")).toBe(true);
+        expect(audits.some((event) => event.stepId === "apply" && event.stepTitle === "Pull image")).toBe(true);
+        expect(audits.some((event) => event.confirmationDecision === "approved")).toBe(true);
+    });
+
+    test("workflow returns explicit step failure details and stops on first failing step", async () => {
+        const result = await executeHostPrivilegedAction(workflowRequest(), {
+            pluginId: "workflow-plugin",
+            correlationId: "corr-workflow-fail",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction: async () => true,
+        }, {
+            runProcess: async (plan) => ({
+                exitCode: plan.args[0] === "pull" ? 2 : 0,
+                stdout: Buffer.from(""),
+                stderr: Buffer.from(plan.args[0] === "pull" ? "pull failed" : ""),
+                timedOut: false,
+            }),
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            ok: false,
+            code: "STEP_FAILED",
+            correlationId: "corr-workflow-fail",
+            details: expect.objectContaining({
+                workflowId: expect.stringMatching(/^docker-cli-/),
+                title: "Inspect and apply docker workflow",
+                status: "partial",
+                steps: expect.arrayContaining([
+                    expect.objectContaining({stepId: "inspect", status: "ok"}),
+                    expect.objectContaining({stepId: "apply", title: "Pull image", status: "error", code: "EXIT_CODE"}),
+                ]),
+                summary: expect.objectContaining({
+                    totalSteps: 2,
+                    completedSteps: 1,
+                    failedSteps: 1,
+                    skippedSteps: 0,
+                }),
+            }),
+        }));
+    });
+
+    test("workflow confirmation copy distinguishes curated and fallback workflows", async () => {
+        let curatedConfirm = null;
+        await executeHostPrivilegedAction(workflowRequest(), {
+            pluginId: "workflow-plugin",
+            correlationId: "corr-workflow-curated-confirm",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            confirmPrivilegedAction: async (payload) => {
+                curatedConfirm = payload;
+                return false;
+            },
+        });
+
+        expect(curatedConfirm.title).toBe("Confirm Curated Operator Workflow");
+        expect(curatedConfirm.detail).toContain("Scope type: Curated operator scope");
+
+        let fallbackConfirm = null;
+        await executeHostPrivilegedAction(fallbackWorkflowRequest(), {
+            pluginId: "workflow-plugin",
+            correlationId: "corr-workflow-fallback-confirm",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.system-observe"],
+            confirmPrivilegedAction: async (payload) => {
+                fallbackConfirm = payload;
+                return false;
+            },
+        });
+
+        expect(fallbackConfirm.title).toBe("Confirm Fallback Host Workflow");
+        expect(fallbackConfirm.detail).toContain("Scope type: Host-specific fallback scope");
+        expect(fallbackConfirm.detail).toContain("Broad capability: system.process.exec");
+        expect(fallbackConfirm.detail).toContain("Narrow scope: system.process.scope.system-observe");
     });
 });

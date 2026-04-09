@@ -25,6 +25,8 @@ export function createPrivilegedActionBackendRequest<TRequest = unknown>(request
 export function requestPrivilegedAction<TResult = unknown, TRequest = unknown>(request: TRequest, options?: any): Promise<PrivilegedActionResponse<TResult>>;
 export function createScopedProcessExecActionRequest(scopeId: string, payload: any): any;
 export function requestScopedProcessExec<TResult = unknown>(scopeId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+export function createScopedWorkflowRequest(scopeId: string, payload: any): any;
+export function requestScopedWorkflow<TResult = unknown>(scopeId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
 export function getOperatorToolPreset(presetId: string): any;
 export function listOperatorToolPresets(): any[];
 export function createOperatorToolCapabilityPreset(presetId: string): string[];
@@ -219,6 +221,10 @@ const response = requestScopedProcessExec("internal-runner", { args: ["status"],
         expect(shouldUseFdoSdkKnowledge({
             action: "fix",
             prompt: "Handle capability denied errors with parseMissingCapabilityError and describeCapability in my operator plugin",
+        })).toBe(true);
+        expect(shouldUseFdoSdkKnowledge({
+            action: "generate",
+            prompt: "Build a preview/apply operator flow with requestScopedWorkflow for multiple host-mediated steps",
         })).toBe(true);
     });
 

@@ -102,6 +102,9 @@ ipcMain.on(StartupChannels.LOG_METRIC, (event, metricEvent, metadata) => {
 
 // Constants for electron-builder (replaces Forge webpack entries)
 const isDev = !app.isPackaged;
+if (isDev) {
+    app.commandLine.appendSwitch("disable-http-cache");
+}
 const MAIN_WINDOW_WEBPACK_ENTRY = isDev
     ? nodeUrl.pathToFileURL(nodePath.join(__dirname, '..', '..', 'dist', 'renderer', 'index.html')).toString()
     : nodeUrl.pathToFileURL(nodePath.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'index.html')).toString();
@@ -449,6 +452,11 @@ const createWindow = async () => {
         },
     });
 
+    if (isDev) {
+        // In dev, force fresh loads from dist output to avoid stale renderer bundles.
+        mainWindow.webContents.session.clearCache().catch(() => {});
+    }
+
     if (process.env.FDO_E2E === "1") {
         mainWindow.on("close", (event) => {
             if (isAppShuttingDown) {
@@ -485,8 +493,29 @@ const createWindow = async () => {
         }, 150);
     });
 
-    // Capture renderer console errors
-    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    // Capture renderer console warnings/errors.
+    // Electron is deprecating the old variadic signature in favor of a single params object.
+    mainWindow.webContents.on('console-message', (...args) => {
+        let level = 0;
+        let message = "";
+        let line = 0;
+        let sourceId = "";
+
+        // New-style shape: (_, params)
+        if (args.length >= 2 && args[1] && typeof args[1] === "object" && !Array.isArray(args[1])) {
+            const params = args[1];
+            level = Number(params.level || 0);
+            message = String(params.message || "");
+            line = Number(params.lineNumber || params.line || 0);
+            sourceId = String(params.sourceId || params.source || "");
+        } else {
+            // Backward-compatible old shape: (event, level, message, line, sourceId)
+            level = Number(args[1] || 0);
+            message = String(args[2] || "");
+            line = Number(args[3] || 0);
+            sourceId = String(args[4] || "");
+        }
+
         if (level >= 2) { // 2 = warning, 3 = error
             debugLog(`[RENDERER ${level === 2 ? 'WARN' : 'ERROR'}] ${message} (${sourceId}:${line})`);
         }
@@ -548,7 +577,7 @@ app.whenReady().then(async () => {
             return new Response(data, {
                 headers: {
                     'Content-Type': mimeType,
-                    'Cache-Control': 'public, max-age=31536000, immutable',
+                    'Cache-Control': isDev ? 'no-store, no-cache, must-revalidate' : 'public, max-age=31536000, immutable',
                 },
             });
         } catch (err) {

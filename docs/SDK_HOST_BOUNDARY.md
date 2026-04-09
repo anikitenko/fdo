@@ -100,6 +100,7 @@ FDO host now supports scoped privileged process execution for operational plugin
 - base capability: `system.process.exec`
 - scoped capability: `system.process.scope.<scope-id>`
 - privileged action: `system.process.exec`
+- first-slice workflow action: `system.workflow.run` using process-oriented scoped sequences on the same trust model
 
 Authoring guidance should describe this as broad capability plus narrow scope, with the closest operator fixture under `examples/fixtures/` as the default starting point.
 
@@ -118,6 +119,7 @@ Important constraint:
 - editor diagnostics and AI guidance should steer plugin authors toward this scoped model instead of raw shell spawning
 - curated SDK operator presets are an authoring convenience only; host capability checks and scope policy enforcement remain the real security boundary
 - curated helper guidance should be presented before transport-level troubleshooting whenever a curated preset exists
+- multi-step operator workflows should remain scoped, auditable, and host-mediated, with per-step typed results and preserved step correlation IDs
 
 ## Residual Risk
 
