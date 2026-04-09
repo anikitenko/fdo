@@ -70,23 +70,31 @@ const renderAction = (action, { handleClick, modifiers, query }) => {
 };
 
 const SECTION_PRIORITY = {
-    "Installed Plugins": 0,
-    // You can add more special priorities here later
+    "installed plugins": 0,
+    "active plugin actions": 1,
+    "other": 99,
 };
+
+function normalizeSectionName(section) {
+    return String(section || "Other").trim().toLowerCase();
+}
 
 function groupActionsBySection(actions) {
     const grouped = actions.reduce((acc, action) => {
         const section = action.section || "Other";
         if (!acc[section]) {
-            acc[section] = [];
+            acc[section] = {
+                items: [],
+                priorityKey: action.sectionPriorityKey || section,
+            };
         }
-        acc[section].push(action);
+        acc[section].items.push(action);
         return acc;
     }, {});
 
     // Sort actions inside each section alphabetically by name
     Object.keys(grouped).forEach(section => {
-        grouped[section].sort((a, b) => a.name.localeCompare(b.name));
+        grouped[section].items.sort((a, b) => a.name.localeCompare(b.name));
     });
 
     return grouped;
@@ -127,18 +135,18 @@ function itemListRenderer({
     return (
         <Menu>
             {Object.entries(grouped)
-                .sort(([sectionA], [sectionB]) => {
-                    const priorityA = SECTION_PRIORITY[sectionA] ?? Infinity;
-                    const priorityB = SECTION_PRIORITY[sectionB] ?? Infinity;
+                .sort(([, groupA], [, groupB]) => {
+                    const priorityA = SECTION_PRIORITY[normalizeSectionName(groupA.priorityKey)] ?? Infinity;
+                    const priorityB = SECTION_PRIORITY[normalizeSectionName(groupB.priorityKey)] ?? Infinity;
                     if (priorityA !== priorityB) {
                         return priorityA - priorityB;
                     }
-                    return sectionA.localeCompare(sectionB);
+                    return String(groupA.priorityKey || "").localeCompare(String(groupB.priorityKey || ""));
                 })
-                .map(([section, sectionActions]) => (
+                .map(([section, group]) => (
                     <React.Fragment key={section}>
                         <MenuDivider title={section} />
-                        {sectionActions.map((action, index) => renderItem(action, index))}
+                        {group.items.map((action, index) => renderItem(action, index))}
                     </React.Fragment>
                 ))}
         </Menu>
@@ -151,19 +159,19 @@ function renderGroupedInitialContent(actions, onSelect) {
     return (
         <Menu>
             {Object.entries(grouped)
-                .sort(([sectionA], [sectionB]) => {
-                    const priorityA = SECTION_PRIORITY[sectionA] ?? Infinity;
-                    const priorityB = SECTION_PRIORITY[sectionB] ?? Infinity;
+                .sort(([, groupA], [, groupB]) => {
+                    const priorityA = SECTION_PRIORITY[normalizeSectionName(groupA.priorityKey)] ?? Infinity;
+                    const priorityB = SECTION_PRIORITY[normalizeSectionName(groupB.priorityKey)] ?? Infinity;
 
                     if (priorityA !== priorityB) {
                         return priorityA - priorityB;
                     }
-                    return sectionA.localeCompare(sectionB);
+                    return String(groupA.priorityKey || "").localeCompare(String(groupB.priorityKey || ""));
                 })
-                .map(([section, sectionActions]) => (
+                .map(([section, group]) => (
                     <React.Fragment key={section}>
                         <MenuDivider title={section} />
-                        {sectionActions.map(action => (
+                        {group.items.map(action => (
                             <MenuItem
                                 key={action.id}
                                 text={action.name}

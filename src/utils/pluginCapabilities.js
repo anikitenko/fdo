@@ -8,6 +8,12 @@ export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
     "system.process.exec": Object.freeze({
         description: "Allows host-mediated scoped process execution with explicit host-side policy checks.",
     }),
+    "system.clipboard.read": Object.freeze({
+        description: "Allows host-mediated clipboard reads through the trusted host boundary.",
+    }),
+    "system.clipboard.write": Object.freeze({
+        description: "Allows host-mediated clipboard writes through the trusted host boundary.",
+    }),
     "sudo.prompt": Object.freeze({
         description: "Allows elevated operations and privileged process modules.",
         grants: Object.freeze({

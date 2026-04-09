@@ -8,6 +8,12 @@ jest.mock("../../../src/components/plugin/utils/useBabelWorker", () => ({
     }),
 }));
 
+jest.mock("../../../src/components/AppToaster.jsx", () => ({
+    AppToaster: {
+        show: jest.fn(),
+    },
+}));
+
 describe("PluginContainer message hardening", () => {
     let uiMessageHandler;
     let renderHandler;
@@ -114,6 +120,31 @@ describe("PluginContainer message hardening", () => {
         expect(renderHandler).toEqual(expect.any(Function));
     });
 
+    test("opens the host command bar when the plugin iframe sends the shortcut message", async () => {
+        const onRequestCommandBar = jest.fn();
+        const { container } = render(<PluginContainer plugin="example-plugin" onRequestCommandBar={onRequestCommandBar} />);
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {
+            postMessage: jest.fn(),
+        };
+
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        window.dispatchEvent(new MessageEvent("message", {
+            data: { type: "PLUGIN_SHORTCUT", shortcut: "command-bar" },
+            source: iframeWindow,
+        }));
+
+        expect(onRequestCommandBar).toHaveBeenCalled();
+    });
+
     test("waits for plugin init before requesting render", async () => {
         runtimeStatusResponses = [
             { success: true, statuses: [{ id: "example-plugin", ready: true, inited: false }] },
@@ -208,5 +239,97 @@ describe("PluginContainer message hardening", () => {
         expect(heading.getAttribute("style")).toContain("color: rgb(31, 41, 51)");
         expect(screen.getByText(/Invalid plugin render payload/i).getAttribute("style"))
             .toContain("color: rgb(57, 75, 89)");
+    });
+
+    test("does not route non-privileged backend handler failures into capability-denied flow", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
+            ok: false,
+            code: "PLUGIN_BACKEND_HANDLER_FAILED",
+            error: "Simulated backend handler failure",
+            correlationId: "corr-handler-failed",
+        });
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-1",
+                    message: {handler: "simulateError", content: {}},
+                },
+                source: iframeWindow,
+            }));
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.uiMessage).toHaveBeenCalledWith("example-plugin", {
+                handler: "simulateError",
+                content: {},
+            });
+            expect(onCapabilityDenied).not.toHaveBeenCalled();
+            expect(iframeWindow.postMessage).toHaveBeenCalledWith({
+                type: "UI_MESSAGE_RESPONSE",
+                requestId: "req-1",
+                content: expect.objectContaining({
+                    ok: false,
+                    code: "PLUGIN_BACKEND_HANDLER_FAILED",
+                }),
+            }, "*");
+        });
+    });
+
+    test("routes capability-denied failures into capability-denied flow", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
+            ok: false,
+            code: "CAPABILITY_DENIED",
+            error: 'Missing capability "system.process.exec"',
+            correlationId: "corr-cap-denied",
+        });
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-2",
+                    message: {handler: "terraform.previewPlan", content: {}},
+                },
+                source: iframeWindow,
+            }));
+        });
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
+                pluginId: "example-plugin",
+                code: "CAPABILITY_DENIED",
+                correlationId: "corr-cap-denied",
+            }));
+        });
     });
 });

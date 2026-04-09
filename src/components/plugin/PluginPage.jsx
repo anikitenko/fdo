@@ -20,6 +20,8 @@ export const PluginPage = () => {
                 "default-src 'self'; " +
                 "script-src 'self' 'nonce-plugin-script-inject' blob: static://*; " +
                 "style-src 'unsafe-inline' 'self' static://*; " +
+                "img-src 'self' data: blob: static://*; " +
+                "font-src 'self' data: static://*; " +
                 "object-src 'none';";
 
             // Remove existing CSP to prevent duplicates
@@ -49,6 +51,15 @@ export const PluginPage = () => {
         const handlePointerDownBridge = () => bridgeInteractionToHost("pointerdown");
         const handleMouseDownBridge = () => bridgeInteractionToHost("mousedown");
         const handleTouchStartBridge = () => bridgeInteractionToHost("touchstart");
+        const handleKeyDownBridge = (event) => {
+            const key = String(event?.key || "").toLowerCase();
+            if (!(event.metaKey || event.ctrlKey) || key !== "k") {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            window.parent.postMessage({ type: "PLUGIN_SHORTCUT", shortcut: "command-bar" }, "*");
+        };
 
         const showPluginError = (message) => {
             const normalizedMessage = String(message || "The plugin failed to load.").trim();
@@ -72,6 +83,7 @@ export const PluginPage = () => {
 
             if (isValidPluginRenderMessage(event.data)) {
                 try {
+                    clearTimeout(pluginTimeout);
                     reportStage("iframe-render-message-received");
                     setPluginLoadError("");
                     const moduleURL = createESModule(event.data.content.code, event.data.content.onLoad);
@@ -173,6 +185,7 @@ export const PluginPage = () => {
         window.addEventListener("pointerdown", handlePointerDownBridge, true);
         window.addEventListener("mousedown", handleMouseDownBridge, true);
         window.addEventListener("touchstart", handleTouchStartBridge, true);
+        window.addEventListener("keydown", handleKeyDownBridge, true);
         document.addEventListener("click", blockPluginNavigation, true);
         document.addEventListener("submit", blockPluginFormSubmit, true);
         reportStage("iframe-listeners-ready");
@@ -189,6 +202,7 @@ export const PluginPage = () => {
             window.removeEventListener("pointerdown", handlePointerDownBridge, true);
             window.removeEventListener("mousedown", handleMouseDownBridge, true);
             window.removeEventListener("touchstart", handleTouchStartBridge, true);
+            window.removeEventListener("keydown", handleKeyDownBridge, true);
             document.removeEventListener("click", blockPluginNavigation, true);
             document.removeEventListener("submit", blockPluginFormSubmit, true);
             clearTimeout(pluginTimeout);
@@ -260,7 +274,20 @@ function createESModule(pluginCode, onLoad) {
             window.createBackendReq = function(type, data) {
                 return new Promise((resolve) => {
                     const requestId = "ui-message-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-                    const message = { type: "UI_MESSAGE_REQUEST", requestId, message: {handler: type, content: data} };
+                    const normalizedMessage = (
+                        type === "UI_MESSAGE" &&
+                        data &&
+                        typeof data === "object"
+                    )
+                        ? {
+                            handler: (typeof data.handler === "string" && data.handler.trim()) ? data.handler.trim() : "requestPrivilegedAction",
+                            content: Object.prototype.hasOwnProperty.call(data, "content") ? data.content : data,
+                        }
+                        : {
+                            handler: type,
+                            content: data,
+                        };
+                    const message = { type: "UI_MESSAGE_REQUEST", requestId, message: normalizedMessage };
                     window.parent.postMessage(message, "*");
     
                     const listener = (event) => {
@@ -382,11 +409,72 @@ function createESModule(pluginCode, onLoad) {
                 }
 
                 requestAnimationFrame(() => {
+                    if (document?.documentElement) {
+                        document.documentElement.style.setProperty("color-scheme", "light", "important");
+                        document.documentElement.style.setProperty("background", "#ffffff", "important");
+                        document.documentElement.style.setProperty("color", "#1c2127", "important");
+                        document.documentElement.style.setProperty("visibility", "visible", "important");
+                        document.documentElement.style.setProperty("opacity", "1", "important");
+                    }
                     const rootNode = pluginRootRef.current;
+                    if (document?.body) {
+                        document.body.style.margin = "0";
+                        document.body.style.setProperty("color-scheme", "light", "important");
+                        document.body.style.setProperty("background", "#ffffff", "important");
+                        document.body.style.setProperty("color", "#1c2127", "important");
+                        document.body.style.setProperty("visibility", "visible", "important");
+                        document.body.style.setProperty("opacity", "1", "important");
+                    }
+                    if (rootNode) {
+                        rootNode.style.setProperty("display", "block", "important");
+                        rootNode.style.setProperty("visibility", "visible", "important");
+                        rootNode.style.setProperty("opacity", "1", "important");
+                        rootNode.style.setProperty("position", "relative", "important");
+                        rootNode.style.setProperty("z-index", "1", "important");
+                        rootNode.style.setProperty("background", "#ffffff", "important");
+                        rootNode.style.setProperty("color", "#1c2127", "important");
+                        const rawTextLength = (rootNode.textContent || "").trim().length;
+                        const visibleTextLength = (rootNode.innerText || "").trim().length;
+                        if (rawTextLength > 0 && visibleTextLength === 0) {
+                            rootNode.style.setProperty("color", "#1c2127", "important");
+                            rootNode.style.setProperty("background", "#ffffff", "important");
+                        }
+                    }
+                    const rootRect = rootNode?.getBoundingClientRect?.() || null;
+                    const rootStyle = rootNode ? window.getComputedStyle(rootNode) : null;
+                    const probeEl = document.elementFromPoint(
+                        Math.max(0, Math.floor(window.innerWidth / 2)),
+                        Math.max(0, Math.floor(window.innerHeight / 2)),
+                    );
+
                     const domSummary = rootNode
-                        ? "children=" + rootNode.childElementCount + "; text=" + (rootNode.textContent || "").trim().length
-                        : "children=0; text=0";
+                        ? "children=" + rootNode.childElementCount
+                            + "; text=" + (rootNode.textContent || "").trim().length
+                            + "; visibleText=" + (rootNode.innerText || "").trim().length
+                            + "; rootRect=" + Math.round(rootRect?.width || 0) + "x" + Math.round(rootRect?.height || 0)
+                            + "; rootDisplay=" + String(rootStyle?.display || "")
+                            + "; rootVisibility=" + String(rootStyle?.visibility || "")
+                            + "; rootOpacity=" + String(rootStyle?.opacity || "")
+                            + "; probeTag=" + String(probeEl?.tagName || "")
+                        : "children=0; text=0; visibleText=0";
                     window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-dom-after-mount", message: domSummary }, "*");
+
+                    // Force a compositor repaint in packaged Electron when iframe content mounts
+                    // but the texture is not visually refreshed.
+                    if (document?.body) {
+                        document.body.style.setProperty("will-change", "transform, opacity", "important");
+                        document.body.style.setProperty("transform", "translateZ(0)", "important");
+                        document.body.style.setProperty("opacity", "0.999", "important");
+                        requestAnimationFrame(() => {
+                            if (!document?.body) return;
+                            document.body.style.setProperty("transform", "none", "important");
+                            document.body.style.setProperty("opacity", "1", "important");
+                            requestAnimationFrame(() => {
+                                if (!document?.body) return;
+                                document.body.style.setProperty("will-change", "auto", "important");
+                            });
+                        });
+                    }
                 });
     
                 return () => {

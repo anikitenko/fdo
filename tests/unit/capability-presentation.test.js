@@ -14,6 +14,49 @@ describe("capability presentation", () => {
             title: "Docker CLI Scope",
             description: expect.stringContaining("Narrow scope"),
         }));
+        expect(getCapabilityPresentation("system.process.scope.system-inspect", [{
+            scope: "system-inspect",
+            kind: "process",
+        }])).toEqual(expect.objectContaining({
+            title: "System Inspect Scope",
+            description: expect.stringContaining("host-specific fallback scope"),
+        }));
+        expect(getCapabilityPresentation("system.process.scope.system-observe", [{
+            scope: "system-observe",
+            kind: "process",
+        }]).title).toBe("System Observe Scope");
+        expect(getCapabilityPresentation("system.process.scope.network-diagnostics", [{
+            scope: "network-diagnostics",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.service-management", [{
+            scope: "service-management",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.archive-tools", [{
+            scope: "archive-tools",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.homebrew", [{
+            scope: "homebrew",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.package-management", [{
+            scope: "package-management",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.source-control", [{
+            scope: "source-control",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.build-tooling", [{
+            scope: "build-tooling",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
+        expect(getCapabilityPresentation("system.process.scope.task-runners", [{
+            scope: "task-runners",
+            kind: "process",
+        }]).description).toContain("Host-specific fallback scope");
         expect(getCapabilityPresentation("system.process.scope.ansible", [{
             scope: "ansible",
             kind: "process",
@@ -54,6 +97,16 @@ describe("capability presentation", () => {
             scope: "nomad",
             kind: "process",
         }]).title).toBe("Nomad Scope");
+        expect(getCapabilityPresentation("system.clipboard.read")).toEqual(expect.objectContaining({
+            title: "Read Host Clipboard",
+            description: expect.stringContaining("sensitive"),
+            dependsOn: ["system.hosts.write"],
+        }));
+        expect(getCapabilityPresentation("system.clipboard.write")).toEqual(expect.objectContaining({
+            title: "Write Host Clipboard",
+            description: expect.stringContaining("Separate from clipboard read"),
+            dependsOn: ["system.hosts.write"],
+        }));
     });
 
     test("renders generic fallback labels for unknown process scopes", () => {

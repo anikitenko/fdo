@@ -2,6 +2,11 @@ function normalizePrompt(prompt = "") {
     return String(prompt || "").trim().toLowerCase();
 }
 
+function hasQuotedPluginReference(prompt = "") {
+    const raw = String(prompt || "");
+    return /"[^"]+"\s+plugin\b/i.test(raw) || /'[^']+'\s+plugin\b/i.test(raw);
+}
+
 export function detectAiPluginRuntimeIntent(prompt = "") {
     const normalized = normalizePrompt(prompt);
     if (!normalized) {
@@ -16,13 +21,13 @@ export function detectAiPluginRuntimeIntent(prompt = "") {
         };
     }
 
-    const mentionsPlugin = /\bplugin\b/.test(normalized);
+    const mentionsPlugin = /\bplugin\b/.test(normalized) || hasQuotedPluginReference(prompt);
     const asksLifecycle =
         /\b(enable|activate|disable|deactivate|stop|restart|reload)\b/.test(normalized)
         || /\b(run|start|open)\s+(?:the\s+)?plugin\b(?!\s+tests?\b)/.test(normalized)
         || /\bplugin\s+(?:run|start|open)\b/.test(normalized);
     const asksVerification = /\b(check|verify|confirm|diagnos(?:e|is)|trace)\b/.test(normalized);
-    const asksLogs = /\b(log|logs|stderr|stdout|trace)\b/.test(normalized);
+    const asksLogs = /\b(log|logs|stderr|stdout|trace|checkout|check out|read|show|view)\b/.test(normalized);
     const asksRuntimeVerification = asksVerification && /\b(log|logs|trace|loaded|ready|init|render|ui|runtime)\b/.test(normalized);
 
     const wantsRestart = /\b(restart|reload)\b/.test(normalized);

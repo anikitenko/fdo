@@ -24,10 +24,157 @@ import {pluginTrace} from "./utils/pluginTrace";
 import {classifyPluginError} from "./utils/pluginErrorClassification";
 import {getCapabilityPresentation} from "./utils/capabilityPresentation";
 import {parseMissingCapabilityDiagnosticsFromError} from "./utils/parseMissingCapabilitiesFromError";
+import {classifyPrivilegedActionIssue, extractPrivilegedActionDiagnostics} from "./utils/privilegedActionIssuePresentation";
+import {getPluginTrustTier} from "./utils/pluginTrustTier";
+import {buildCapabilityDeclarationSummary} from "./utils/pluginCapabilityDeclaration";
+import {resolveBlueprintIcon, sanitizeBlueprintIcon} from "./utils/blueprintIcons";
 
 // Lazy load settings dialog (only needed when opened)
 const SettingsDialog = lazy(() => import("./components/settings/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
 const AiChatDialog = lazy(() => import("./components/ai-chat/AiChatDialog.jsx").then(m => ({default: m.AiChatDialog})));
+
+function summarizeWorkflowContracts(events = []) {
+    const workflowEvents = (Array.isArray(events) ? events : []).filter((event) => typeof event?.workflowId === "string" && event.workflowId.trim());
+    const grouped = workflowEvents.reduce((acc, event) => {
+        const workflowId = event.workflowId.trim();
+        if (!acc.has(workflowId)) {
+            acc.set(workflowId, []);
+        }
+        acc.get(workflowId).push(event);
+        return acc;
+    }, new Map());
+
+    return [...grouped.entries()].map(([workflowId, workflowEntries]) => {
+        const ordered = workflowEntries.slice().sort((left, right) => String(left?.timestamp || "").localeCompare(String(right?.timestamp || "")));
+        const latest = ordered[ordered.length - 1] || {};
+        const approvalEvent = ordered.find((entry) => typeof entry?.confirmationDecision === "string" && entry.confirmationDecision.trim());
+        const stepEvents = ordered.filter((entry) => entry?.stepId || entry?.stepTitle);
+        const stepMap = new Map();
+        stepEvents.forEach((entry) => {
+            const key = String(entry.stepId || entry.stepTitle || "").trim() || `step-${stepMap.size + 1}`;
+            stepMap.set(key, entry);
+        });
+        const steps = [...stepMap.values()];
+        const failedSteps = steps.filter((entry) => entry?.stepStatus === "error" || entry?.error?.code || entry?.error?.message);
+        const completedSteps = steps.filter((entry) => entry?.stepStatus === "ok");
+        return {
+            workflowId,
+            title: latest.workflowTitle || ordered.find((entry) => entry?.workflowTitle)?.workflowTitle || "",
+            kind: latest.workflowKind || ordered.find((entry) => entry?.workflowKind)?.workflowKind || "",
+            scope: latest.scope || ordered.find((entry) => entry?.scope)?.scope || "",
+            status: latest.workflowStatus || (latest.success === true ? "completed" : latest.success === false ? "failed" : ""),
+            approval: approvalEvent?.confirmationDecision || "",
+            startedAt: ordered[0]?.timestamp || "",
+            lastUpdatedAt: latest.timestamp || "",
+            steps,
+            completedStepCount: completedSteps.length,
+            failedStepCount: failedSteps.length,
+        };
+    }).sort((left, right) => String(right.lastUpdatedAt || "").localeCompare(String(left.lastUpdatedAt || "")));
+}
+
+function getCompactTrustTierLabel(trustTier = {}) {
+    switch (trustTier?.id) {
+        case "high-trust-administrative":
+            return "Admin";
+        case "scoped-operator":
+            return "Operator";
+        default:
+            return "Basic";
+    }
+}
+
+function getCompactCapabilityIntentLabel(summary = {}) {
+    switch (summary?.status) {
+        case "aligned":
+            return "Aligned";
+        case "missing":
+            return "Missing grants";
+        case "extra-grants":
+            return "Extra grants";
+        case "undeclared":
+            return "No intent";
+        default:
+            return "Intent";
+    }
+}
+
+function getPluginStatusChip(selectedPluginTrustTier = {}, selectedPluginCapabilityIntentSummary = null, hasCapabilityIntent = false) {
+    const trustLabel = getCompactTrustTierLabel(selectedPluginTrustTier);
+    if (!hasCapabilityIntent || !selectedPluginCapabilityIntentSummary) {
+        return {
+            intent: selectedPluginTrustTier.intent === "none" ? "primary" : selectedPluginTrustTier.intent,
+            label: trustLabel,
+            tooltip: selectedPluginTrustTier.title || trustLabel,
+        };
+    }
+
+    const chipIntent = selectedPluginCapabilityIntentSummary.intent && selectedPluginCapabilityIntentSummary.intent !== "none"
+        ? selectedPluginCapabilityIntentSummary.intent
+        : (selectedPluginTrustTier.intent === "none" ? "primary" : selectedPluginTrustTier.intent);
+    const capabilityLabel = getCompactCapabilityIntentLabel(selectedPluginCapabilityIntentSummary);
+    return {
+        intent: chipIntent,
+        label: `${trustLabel} · ${capabilityLabel}`,
+        tooltip: `${selectedPluginTrustTier.title}. ${selectedPluginCapabilityIntentSummary.title}. ${selectedPluginCapabilityIntentSummary.summary}`,
+    };
+}
+
+function shouldShowPluginStatusIndicator(summary = null, hasCapabilityIntent = false) {
+    if (!hasCapabilityIntent || !summary) {
+        return false;
+    }
+    return summary.status === "missing" || summary.status === "extra-grants" || summary.status === "undeclared";
+}
+
+function classifyValidationScenario(event = {}) {
+    const errorCode = String(event?.error?.code || "").trim();
+    if (errorCode === "CAPABILITY_DENIED") return "Capability denial";
+    if (errorCode === "PROCESS_SPAWN_ENOENT" || errorCode === "STEP_PROCESS_SPAWN_ENOENT") return "Missing CLI";
+    if (errorCode === "SCOPE_VIOLATION" || errorCode === "STEP_SCOPE_VIOLATION" || errorCode === "SCOPE_DENIED") return "Scope policy rejection";
+    if (errorCode === "CLIPBOARD_UNSUPPORTED") return "Clipboard unavailable";
+    if (errorCode === "CLIPBOARD_READ_FAILED" || errorCode === "CLIPBOARD_WRITE_FAILED") return "Clipboard operation failed";
+    if (errorCode === "CANCELLED" || String(event?.confirmationDecision || "") === "denied") return "Confirmation rejected";
+    if (event?.workflowId) {
+        if (event?.workflowStatus === "completed") return "Workflow success";
+        if (event?.workflowStatus === "partial") return "Workflow partial failure";
+        if (event?.workflowStatus === "failed") return "Workflow failure";
+        return "Workflow execution";
+    }
+    if (event?.action === "system.process.exec" && event?.success === true) return "Single action success";
+    if (event?.action === "system.process.exec" && event?.success === false) return "Single action failure";
+    if (event?.action === "system.clipboard.read" && event?.success === true) return "Clipboard read success";
+    if (event?.action === "system.clipboard.read" && event?.success === false) return "Clipboard read failure";
+    if (event?.action === "system.clipboard.write" && event?.success === true) return "Clipboard write success";
+    if (event?.action === "system.clipboard.write" && event?.success === false) return "Clipboard write failure";
+    if (event?.success === true) return "Privileged action success";
+    if (event?.success === false) return "Privileged action failure";
+    return "Observed activity";
+}
+
+function summarizeValidationScenarios(events = []) {
+    const grouped = new Map();
+    (Array.isArray(events) ? events : []).forEach((event) => {
+        const label = classifyValidationScenario(event);
+        if (!grouped.has(label)) {
+            grouped.set(label, []);
+        }
+        grouped.get(label).push(event);
+    });
+
+    return [...grouped.entries()].map(([label, scenarioEvents]) => {
+        const ordered = scenarioEvents.slice().sort((left, right) => String(right?.timestamp || "").localeCompare(String(left?.timestamp || "")));
+        const latest = ordered[0] || {};
+        return {
+            label,
+            count: ordered.length,
+            latest,
+            scopes: [...new Set(ordered.map((entry) => String(entry?.scope || "").trim()).filter(Boolean))],
+            workflows: [...new Set(ordered.map((entry) => String(entry?.workflowId || "").trim()).filter(Boolean))],
+            codes: [...new Set(ordered.map((entry) => String(entry?.error?.code || "").trim()).filter(Boolean))],
+        };
+    }).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
 
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
@@ -45,6 +192,8 @@ export const Home = () => {
     const [notifications, setNotifications] = useState([]);
     const [pluginReadiness, setPluginReadiness] = useState(new Map());
     const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
+    const [pluginRuntimeStatuses, setPluginRuntimeStatuses] = useState(new Map());
+    const [pluginRenderEpochs, setPluginRenderEpochs] = useState(new Map());
     const [sideBarActionItems, setSideBarActionItems] = useState([
         {id: "system-notifications", icon: "notifications", name: "Notifications", notifications},
         {id: "system-settings", icon: "settings", name: "Settings"},
@@ -60,6 +209,24 @@ export const Home = () => {
         missingCapabilities: [],
         missingCapabilityDiagnostics: [],
         details: "",
+        code: "",
+        correlationId: "",
+        extraDetails: null,
+    });
+    const [isGrantingMissingCapabilities, setIsGrantingMissingCapabilities] = useState(false);
+    const [privilegedAuditDialog, setPrivilegedAuditDialog] = useState({
+        open: false,
+        pluginId: "",
+        loading: false,
+        error: "",
+        events: [],
+    });
+    const [runtimeValidationDialog, setRuntimeValidationDialog] = useState({
+        open: false,
+        pluginId: "",
+        loading: false,
+        error: "",
+        events: [],
     });
 
     const buttonMenuRef = useRef(null)
@@ -69,6 +236,23 @@ export const Home = () => {
     const pendingActivationStartedAtRef = useRef(new Map());
     const pluginToastDedupRef = useRef(new Map());
     const pendingDeactivateTimersRef = useRef(new Map());
+    const stateRef = useRef(state);
+    const searchActionsRef = useRef(searchActions);
+    const sideBarActionItemsRef = useRef(sideBarActionItems);
+    const showRightSideBarRef = useRef(showRightSideBar);
+
+    useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
+    useEffect(() => {
+        searchActionsRef.current = searchActions;
+    }, [searchActions]);
+    useEffect(() => {
+        sideBarActionItemsRef.current = sideBarActionItems;
+    }, [sideBarActionItems]);
+    useEffect(() => {
+        showRightSideBarRef.current = showRightSideBar;
+    }, [showRightSideBar]);
 
     const deniedCapabilityItems = ((capabilityDeniedNotice.missingCapabilityDiagnostics || []).length > 0
         ? capabilityDeniedNotice.missingCapabilityDiagnostics
@@ -79,10 +263,101 @@ export const Home = () => {
             remediation: `Grant "${capability}" in Manage Plugins -> Capabilities.`,
             category: getCapabilityPresentation(capability).category,
             action: "",
-        }))).map((item) => ({
+    }))).map((item) => ({
         ...item,
         id: item.capability,
     }));
+    const privilegedIssuePresentation = classifyPrivilegedActionIssue({
+        code: capabilityDeniedNotice.code,
+        missingCapabilities: capabilityDeniedNotice.missingCapabilities,
+        details: capabilityDeniedNotice.details,
+        detailsText: capabilityDeniedNotice.details,
+        extraDetails: capabilityDeniedNotice.extraDetails,
+    });
+    const privilegedIssueDiagnostics = extractPrivilegedActionDiagnostics({
+        code: capabilityDeniedNotice.code,
+        details: capabilityDeniedNotice.details,
+        extraDetails: capabilityDeniedNotice.extraDetails,
+    });
+    const privilegedWorkflowContracts = summarizeWorkflowContracts(privilegedAuditDialog.events);
+    const runtimeValidationScenarios = summarizeValidationScenarios(runtimeValidationDialog.events);
+    const runtimeValidationStatus = runtimeValidationDialog.pluginId
+        ? (pluginRuntimeStatuses.get(runtimeValidationDialog.pluginId) || null)
+        : null;
+    const runtimeValidationSummary = runtimeValidationStatus?.diagnosticsSummary || null;
+    const getPluginDisplayName = useCallback((pluginId = "") => {
+        const resolvedId = String(pluginId || "").trim();
+        if (!resolvedId) {
+            return "Active plugin";
+        }
+        const pluginRecord = (stateRef.current?.plugins || []).find((item) => item?.id === resolvedId);
+        const name = String(pluginRecord?.name || "").trim();
+        return name || resolvedId;
+    }, []);
+
+    const openPrivilegedAuditDialog = useCallback(async (pluginId) => {
+        const targetPluginId = String(pluginId || "").trim();
+        if (!targetPluginId || typeof window?.electron?.plugin?.getPrivilegedAudit !== "function") {
+            return;
+        }
+        setPrivilegedAuditDialog({
+            open: true,
+            pluginId: targetPluginId,
+            loading: true,
+            error: "",
+            events: [],
+        });
+        try {
+            const result = await window.electron.plugin.getPrivilegedAudit(targetPluginId, {limit: 40});
+            setPrivilegedAuditDialog({
+                open: true,
+                pluginId: targetPluginId,
+                loading: false,
+                error: result?.success ? "" : (result?.error || "Could not load privileged audit trail."),
+                events: Array.isArray(result?.events) ? result.events : [],
+            });
+        } catch (error) {
+            setPrivilegedAuditDialog({
+                open: true,
+                pluginId: targetPluginId,
+                loading: false,
+                error: error?.message || String(error),
+                events: [],
+            });
+        }
+    }, []);
+
+    const openRuntimeValidationDialog = useCallback(async (pluginId) => {
+        const targetPluginId = String(pluginId || "").trim();
+        if (!targetPluginId || typeof window?.electron?.plugin?.getPrivilegedAudit !== "function") {
+            return;
+        }
+        setRuntimeValidationDialog({
+            open: true,
+            pluginId: targetPluginId,
+            loading: true,
+            error: "",
+            events: [],
+        });
+        try {
+            const result = await window.electron.plugin.getPrivilegedAudit(targetPluginId, {limit: 80});
+            setRuntimeValidationDialog({
+                open: true,
+                pluginId: targetPluginId,
+                loading: false,
+                error: result?.success ? "" : (result?.error || "Could not load runtime validation evidence."),
+                events: Array.isArray(result?.events) ? result.events : [],
+            });
+        } catch (error) {
+            setRuntimeValidationDialog({
+                open: true,
+                pluginId: targetPluginId,
+                loading: false,
+                error: error?.message || String(error),
+                events: [],
+            });
+        }
+    }, []);
 
     useEffect(() => {
         selectedPluginRef.current = plugin;
@@ -168,7 +443,7 @@ export const Home = () => {
                             }
                         }, 300);
                     },
-                    icon: <Icon icon={plugin.icon} size={24}/>,
+                    icon: <Icon icon={sanitizeBlueprintIcon(plugin.icon)} size={24}/>,
                     section: "Installed plugins",
                 }));
 
@@ -219,13 +494,21 @@ export const Home = () => {
         });
 
         setSearchActions((prev) => {
-            // Remove only "navigate-active-" actions for plugins that are no longer active
+            // Remove active plugin actions for plugins that are no longer active.
             const filteredActions = prev.filter(action =>
-                !action.id.startsWith("navigate-active-") ||
-                state.activePlugins.some(plugin => new RegExp(`^navigate-active-.*-${plugin.id}$`).test(action.id))
+                !(
+                    (action.id.startsWith("navigate-active-") || action.id.startsWith("plugin-action-")) &&
+                    !state.activePlugins.some(plugin =>
+                        action.pluginId
+                            ? action.pluginId === plugin.id
+                            : new RegExp(`^navigate-active-.*-${plugin.id}$`).test(action.id)
+                    )
+                )
             );
             if (state.activePlugins.length === 0) {
-                return filteredActions.filter(action => !action.id.startsWith("navigate-active-"));
+                return filteredActions.filter(
+                    action => !action.id.startsWith("navigate-active-") && !action.id.startsWith("plugin-action-")
+                );
             }
 
             // Add new actions for plugins that are not yet registered
@@ -238,6 +521,7 @@ export const Home = () => {
                     icon: <Icon icon={"share"} size={16}/>,
                     perform: () => handlePluginChange(plugin.id),
                     section: plugin.name,
+                    sectionPriorityKey: "Active plugin actions",
                 }));
 
             return [...filteredActions, ...newActionsOpen];
@@ -440,39 +724,107 @@ export const Home = () => {
         const ids = (activePlugins || []).map((item) => item.id).filter(Boolean);
         if (ids.length === 0) return;
 
-        const result = await window.electron.plugin.getRuntimeStatus(ids);
-        if (!result?.success || !Array.isArray(result.statuses)) return;
+        const hasRecentPendingActivation = (id) => {
+            const activationStartedAt = Number(pendingActivationStartedAtRef.current.get(id) || 0);
+            if (!(activationStartedAt > 0)) {
+                return false;
+            }
+            return (Date.now() - activationStartedAt) <= 12000;
+        };
+
+        const result = await window.electron.plugin.getRuntimeStatus(ids).catch(() => null);
+        if (!result?.success || !Array.isArray(result.statuses)) {
+            setState((prevState) => ({
+                ...prevState,
+                activePlugins: (() => {
+                    let changed = false;
+                    const nextActive = prevState.activePlugins.map((plugin) => {
+                        const nextLoading = hasRecentPendingActivation(plugin.id);
+                        if (plugin.loading !== nextLoading) {
+                            changed = true;
+                            return {
+                                ...plugin,
+                                loading: nextLoading,
+                            };
+                        }
+                        return plugin;
+                    });
+                    return changed ? nextActive : prevState.activePlugins;
+                })(),
+            }));
+            return;
+        }
 
         const statusById = new Map(result.statuses.map((item) => [item.id, item]));
+        setPluginRuntimeStatuses((prev) => {
+            if (prev.size !== statusById.size) {
+                return statusById;
+            }
+            for (const [id, nextStatus] of statusById.entries()) {
+                const prevStatus = prev.get(id);
+                if (
+                    !prevStatus
+                    || !!prevStatus.loading !== !!nextStatus.loading
+                    || !!prevStatus.loaded !== !!nextStatus.loaded
+                    || !!prevStatus.ready !== !!nextStatus.ready
+                    || !!prevStatus.inited !== !!nextStatus.inited
+                ) {
+                    return statusById;
+                }
+            }
+            return prev;
+        });
         setPluginReadiness((prev) => {
             const next = new Map(prev);
+            let changed = false;
             result.statuses.forEach((status) => {
-                if (status?.id && status.ready) {
+                if (status?.id && status.ready && next.get(status.id) !== true) {
                     next.set(status.id, true);
+                    changed = true;
                 }
             });
-            return next;
+            return changed ? next : prev;
         });
         setPluginInitStatus((prev) => {
             const next = new Map(prev);
+            let changed = false;
             result.statuses.forEach((status) => {
-                if (status?.id && status.inited) {
+                if (status?.id && status.inited && next.get(status.id) !== true) {
                     next.set(status.id, true);
+                    changed = true;
                 }
             });
-            return next;
+            return changed ? next : prev;
         });
-        setState(prevState => ({
-            ...prevState,
-            activePlugins: prevState.activePlugins.map((plugin) => {
+        setState(prevState => {
+            let changed = false;
+            const nextActive = prevState.activePlugins.map((plugin) => {
                 const runtimeStatus = statusById.get(plugin.id);
                 if (!runtimeStatus) return plugin;
-                return {
-                    ...plugin,
-                    loading: !!runtimeStatus.loading || (!runtimeStatus.loaded && !runtimeStatus.ready),
-                };
-            })
-        }));
+                if (runtimeStatus.loaded || runtimeStatus.ready || runtimeStatus.inited) {
+                    pendingActivationStartedAtRef.current.delete(plugin.id);
+                }
+                const activationStartedAt = Number(pendingActivationStartedAtRef.current.get(plugin.id) || 0);
+                const activationAgeMs = activationStartedAt > 0 ? Date.now() - activationStartedAt : Number.POSITIVE_INFINITY;
+                const withinActivationWindow = activationAgeMs <= 12000;
+                const nextLoading = withinActivationWindow && (!!runtimeStatus.loading || (!runtimeStatus.loaded && !runtimeStatus.ready));
+                if (plugin.loading !== nextLoading) {
+                    changed = true;
+                    return {
+                        ...plugin,
+                        loading: nextLoading,
+                    };
+                }
+                return plugin;
+            });
+            if (!changed) {
+                return prevState;
+            }
+            return {
+                ...prevState,
+                activePlugins: nextActive,
+            };
+        });
     };
 
     const pluginsInitialLoad = useRef(false);
@@ -482,13 +834,79 @@ export const Home = () => {
             window.electron.plugin.getActivated(),
         ]);
 
+        const activatedIds = new Set(activePlugins?.plugins || []);
+        const activePluginIds = [...activatedIds].filter(Boolean);
+        const runtimeStatusResult = activePluginIds.length > 0
+            ? await window.electron.plugin.getRuntimeStatus(activePluginIds).catch(() => null)
+            : null;
+        const runtimeStatusById = new Map(
+            Array.isArray(runtimeStatusResult?.statuses)
+                ? runtimeStatusResult.statuses.map((status) => [status.id, status])
+                : []
+        );
+
         const allPluginRecords = (allPlugins?.plugins || []).map((plugin) => ({
             ...plugin,
             ...plugin.metadata,
             capabilities: Array.isArray(plugin.capabilities) ? plugin.capabilities : [],
-            loading: true,
+            loading: activatedIds.has(plugin.id)
+                ? (() => {
+                    const runtimeStatus = runtimeStatusById.get(plugin.id);
+                    if (!runtimeStatus) return false;
+                    if (runtimeStatus.loading && !pendingActivationStartedAtRef.current.get(plugin.id)) {
+                        pendingActivationStartedAtRef.current.set(plugin.id, Date.now());
+                    }
+                    if (runtimeStatus.loaded || runtimeStatus.ready || runtimeStatus.inited) {
+                        pendingActivationStartedAtRef.current.delete(plugin.id);
+                    }
+                    const activationStartedAt = Number(pendingActivationStartedAtRef.current.get(plugin.id) || 0);
+                    const activationAgeMs = activationStartedAt > 0 ? Date.now() - activationStartedAt : Number.POSITIVE_INFINITY;
+                    const withinActivationWindow = activationAgeMs <= 12000;
+                    return withinActivationWindow && (!!runtimeStatus.loading || (!runtimeStatus.loaded && !runtimeStatus.ready));
+                })()
+                : false,
         }));
-        const activatedIds = new Set(activePlugins?.plugins || []);
+
+        setPluginRuntimeStatuses((prev) => {
+            if (prev.size !== runtimeStatusById.size) {
+                return runtimeStatusById;
+            }
+            for (const [id, nextStatus] of runtimeStatusById.entries()) {
+                const prevStatus = prev.get(id);
+                if (
+                    !prevStatus
+                    || !!prevStatus.loading !== !!nextStatus.loading
+                    || !!prevStatus.loaded !== !!nextStatus.loaded
+                    || !!prevStatus.ready !== !!nextStatus.ready
+                    || !!prevStatus.inited !== !!nextStatus.inited
+                ) {
+                    return runtimeStatusById;
+                }
+            }
+            return prev;
+        });
+        setPluginReadiness((prev) => {
+            const next = new Map(prev);
+            let changed = false;
+            runtimeStatusById.forEach((status, id) => {
+                if (status?.ready && next.get(id) !== true) {
+                    next.set(id, true);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+        setPluginInitStatus((prev) => {
+            const next = new Map(prev);
+            let changed = false;
+            runtimeStatusById.forEach((status, id) => {
+                if (status?.inited && next.get(id) !== true) {
+                    next.set(id, true);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
 
         setState((prevState) => ({
             ...prevState,
@@ -504,22 +922,55 @@ export const Home = () => {
 
     }, [refreshPluginsState]);
 
+    const activePluginIdsKey = state.activePlugins.map((item) => item.id).filter(Boolean).join("|");
+    const activePluginsLoadingKey = state.activePlugins.map((item) => `${item.id}:${item.loading ? 1 : 0}`).join("|");
+
     useEffect(() => {
         syncActivePluginLoadingState(state.activePlugins);
-    }, [state.activePlugins.length]);
+    }, [activePluginIdsKey]);
 
     useEffect(() => {
-        if (selectedPluginStatusMessage) return;
+        if (state.activePlugins.length === 0) {
+            return;
+        }
 
+        let cancelled = false;
+        let intervalId = null;
+
+        const poll = async () => {
+            if (cancelled) return;
+            await syncActivePluginLoadingState(state.activePlugins);
+        };
+
+        // Immediate reconciliation after active set changes.
+        poll().catch(() => {});
+
+        // Keep reconciling while any plugin still reports loading to prevent stale spinners.
+        if (state.activePlugins.some((item) => item.loading)) {
+            intervalId = window.setInterval(() => {
+                poll().catch(() => {});
+            }, 900);
+        }
+
+        return () => {
+            cancelled = true;
+            if (intervalId) {
+                window.clearInterval(intervalId);
+            }
+        };
+    }, [activePluginIdsKey, activePluginsLoadingKey]);
+
+    useEffect(() => {
         const activeIds = state.activePlugins.map((item) => item.id).filter(Boolean);
         if (activeIds.length === 0) {
             return;
         }
 
-        if (!plugin) {
+        const hasSelectedActivePlugin = !!plugin && activeIds.includes(plugin);
+        if (!hasSelectedActivePlugin) {
             handlePluginChange(activeIds[0]);
         }
-    }, [plugin, state.activePlugins, selectedPluginStatusMessage]);
+    }, [plugin, activePluginIdsKey]);
 
     useEffect(() => {
         if (!plugin) return;
@@ -574,7 +1025,7 @@ export const Home = () => {
         const pluginRecord = state.plugins.find((item) => item.id === pluginId);
 
         const openLogs = async () => {
-            const result = await window.electron.system.openPluginLogs();
+            const result = await window.electron.system.openPluginLogs(pluginId);
             if (!result?.success) {
                 (await AppToaster).show({
                     message: `Could not open logs folder: ${result?.error || "unknown error"}`,
@@ -591,6 +1042,7 @@ export const Home = () => {
                 `Reason: ${reason}`,
                 `Details: ${details || ""}`,
                 `Runtime status: ${runtimeStatus ? JSON.stringify(runtimeStatus) : "unavailable"}`,
+                `Latest privileged audit: ${runtimeStatus?.lastPrivilegedAudit ? JSON.stringify(runtimeStatus.lastPrivilegedAudit) : "none"}`,
                 `Timestamp: ${new Date().toISOString()}`,
             ].join("\n");
             try {
@@ -678,42 +1130,71 @@ export const Home = () => {
         const onPluginInit = (response) => {
             const {id, quickActions, sidePanelActions} = response
             markPluginInitComplete(id)
-            if (quickActions) {
-                quickActions.forEach((action) => {
-                    setSearchActions((prev) => {
-                        if (prev.some(a => a.id === `navigate-active-${generateActionId(action.name)}-${id}`)) return prev;
-
-                        return [
-                            ...prev,
-                            {
-                                id: `navigate-active-${generateActionId(action.name)}-${id}`,
-                                name: action.name,
-                                subtitle: action.subtitle,
-                                keywords: action.name + action.subtitle,
-                                icon: <Icon icon={action.icon ? action.icon : "dot"} size={16}/>,
-                                perform: () => {
-                                    console.log(action.message_type)
-                                },
-                                section: state.activePlugins.some(item => item.id === id).name,
-                            }
-                        ];
-                    });
-                })
+            if (id && !selectedPluginRef.current) {
+                handlePluginChange(id);
             }
-            if (sidePanelActions) {
-                setSideBarActionItems((prevState) => {
-                    if (prevState.some(a => a.id === id)) return prevState;
-                    return [
-                        ...prevState,
-                        {
-                            id,
-                            icon: sidePanelActions.icon,
-                            name: sidePanelActions.label,
-                            submenu_list: sidePanelActions.submenu_list
-                        }
-                    ]
-                })
-            }
+            const pluginSection = getPluginDisplayName(id);
+            setSearchActions((prev) => {
+                const base = prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === id));
+                if (!Array.isArray(quickActions) || quickActions.length === 0) {
+                    return base;
+                }
+                const mapped = quickActions.map((action) => {
+                    const actionName = String(action?.name || "").trim() || "Action";
+                    const actionSubtitle = String(action?.subtitle || "").trim();
+                    return {
+                        id: `plugin-action-${id}-${generateActionId(actionName)}`,
+                        name: actionName,
+                        subtitle: actionSubtitle,
+                        keywords: [actionName, actionSubtitle].filter(Boolean).join(" "),
+                        icon: <Icon icon={sanitizeBlueprintIcon(action?.icon, "dot")} size={16}/>,
+                        perform: () => {
+                            console.log(action?.message_type);
+                        },
+                        section: pluginSection,
+                        sectionPriorityKey: "Active plugin actions",
+                        pluginId: id,
+                        source: "plugin-init",
+                    };
+                });
+                return [...base, ...mapped];
+            });
+            setSideBarActionItems((prevState) => {
+                const base = prevState.filter((item) => item.id !== id);
+                if (!sidePanelActions) {
+                    return base;
+                }
+                const resolvedSidePanelIcon = resolveBlueprintIcon(sidePanelActions.icon, "panel-stats");
+                if (resolvedSidePanelIcon.usedFallback && typeof sidePanelActions.icon === "string" && sidePanelActions.icon.trim()) {
+                    const dedupeKey = `invalid-sidepanel-icon:${id}:${String(sidePanelActions.icon).trim().toLowerCase()}`;
+                    const lastAt = pluginToastDedupRef.current.get(dedupeKey) || 0;
+                    const now = Date.now();
+                    if (now - lastAt > TOAST_DEDUP_MS) {
+                        pluginToastDedupRef.current.set(dedupeKey, now);
+                        pluginTrace("home.plugin.invalid_sidepanel_icon", {
+                            pluginId: id,
+                            providedIcon: sidePanelActions.icon,
+                            fallbackIcon: resolvedSidePanelIcon.icon,
+                            reason: resolvedSidePanelIcon.reason,
+                        });
+                        Promise.resolve(AppToaster).then((toaster) => {
+                            toaster.show({
+                                intent: "warning",
+                                message: `${getPluginDisplayName(id)} uses unsupported side panel icon "${sidePanelActions.icon}". Fallback "${resolvedSidePanelIcon.icon}" was applied.`,
+                            });
+                        });
+                    }
+                }
+                return [
+                    ...base,
+                    {
+                        id,
+                        icon: resolvedSidePanelIcon.icon,
+                        name: sidePanelActions.label,
+                        submenu_list: sidePanelActions.submenu_list
+                    }
+                ];
+            });
         }
 
         const onPluginLoaded = (loadedPlugin) => {
@@ -722,26 +1203,54 @@ export const Home = () => {
             if (loadedPlugin) {
                 window.electron.plugin.get(loadedPlugin).then((loadedPlugin) => {
                     const newPlugin = {...loadedPlugin.plugin, ...loadedPlugin.plugin.metadata, loading: true};
+                    setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === newPlugin.id)));
+                    setSideBarActionItems((prev) => prev.filter((item) => item.id !== newPlugin.id));
+                    setPluginReadiness((prev) => {
+                        const next = new Map(prev);
+                        next.set(newPlugin.id, false);
+                        return next;
+                    });
+                    setPluginInitStatus((prev) => {
+                        const next = new Map(prev);
+                        next.set(newPlugin.id, false);
+                        return next;
+                    });
+                    setPluginRenderEpochs((prev) => {
+                        const next = new Map(prev);
+                        next.set(newPlugin.id, (next.get(newPlugin.id) || 0) + 1);
+                        return next;
+                    });
                     setState(prevState => {
-                        // Check if plugin already exists
                         const pluginExists = prevState.plugins.some(item => item.id === newPlugin.id);
-
-                        if (pluginExists) {
-                            // Keep UX stable when plugin is redeployed from editor:
-                            // don't force a deselect/reselect cycle that can blank the view.
-                            selectPlugin(newPlugin, {open: true});
-                            return prevState;
-                        }
-
+                        const nextPlugins = pluginExists
+                            ? prevState.plugins.map((item) => item.id === newPlugin.id ? {...item, ...newPlugin} : item)
+                            : [...prevState.plugins, newPlugin];
+                        const nextActivePlugins = prevState.activePlugins.some((item) => item.id === newPlugin.id)
+                            ? prevState.activePlugins.map((item) => item.id === newPlugin.id ? {...item, ...newPlugin, loading: true} : item)
+                            : prevState.activePlugins;
                         selectPlugin(newPlugin, {open: true});
                         return {
                             ...prevState,
-                            plugins: [...prevState.plugins, newPlugin]
+                            plugins: nextPlugins,
+                            activePlugins: nextActivePlugins,
                         };
                     });
-                })
+                    const wasActive = stateRef.current.activePlugins.some((item) => item.id === newPlugin.id);
+                    if (wasActive) {
+                        window.setTimeout(() => {
+                            if (typeof window.electron.plugin.init === "function") {
+                                window.electron.plugin.init(newPlugin.id).catch(() => {});
+                            }
+                            if (typeof window.electron.plugin.render === "function") {
+                                window.electron.plugin.render(newPlugin.id).catch(() => {});
+                            }
+                        }, 0);
+                    }
+                }).finally(() => {
+                    isProcessingPluginFromEditor.current = false;
+                });
+                return;
             }
-
             isProcessingPluginFromEditor.current = false;
         }
 
@@ -775,6 +1284,13 @@ export const Home = () => {
                 }
 
                 if (unloadedPluginId) {
+                    setPluginRenderEpochs((prev) => {
+                        const next = new Map(prev);
+                        next.set(unloadedPluginId, (next.get(unloadedPluginId) || 0) + 1);
+                        return next;
+                    });
+                    setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === unloadedPluginId)));
+                    setSideBarActionItems((prev) => prev.filter((item) => item.id !== unloadedPluginId));
                     const activatedAt = pluginLastActivationMsRef.current.get(unloadedPluginId) || 0;
                     const pendingActivationAt = pendingActivationStartedAtRef.current.get(unloadedPluginId) || 0;
                     const openedRecently = activatedAt > 0 && (Date.now() - activatedAt) < UNEXPECTED_MANUAL_UNLOAD_IGNORE_WINDOW_MS;
@@ -908,7 +1424,7 @@ export const Home = () => {
         };
     }, []);
 
-    const handlePluginChange = (newPlugin) => {
+    const handlePluginChange = (newPlugin, actionId = "") => {
         pluginTrace("home.handlePluginChange", {next: newPlugin || "", prev: selectedPluginRef.current || ""});
         setSelectedPluginStatusMessage("");
         if (!newPlugin) {
@@ -927,6 +1443,18 @@ export const Home = () => {
             return newPlugin;
         });
         syncActivePluginLoadingState(state.activePlugins.filter((item) => item.id === newPlugin));
+
+        if (actionId === "plugin-audit") {
+            openPrivilegedAuditDialog(newPlugin);
+        } else if (actionId === "plugin-validate") {
+            openRuntimeValidationDialog(newPlugin);
+        } else if (actionId === "plugin-capabilities") {
+            setCapabilityFocusRequest({
+                requestId: `${Date.now()}`,
+                pluginId: newPlugin,
+                capabilityIds: [],
+            });
+        }
     };
 
     useEffect(() => {
@@ -934,6 +1462,29 @@ export const Home = () => {
             openPluginById: (pluginId) => handlePluginChange(pluginId),
             getSelectedPlugin: () => selectedPluginRef.current,
             getActivePluginIds: () => state.activePlugins.map((item) => item.id),
+            getSearchActionsSnapshot: () => searchActionsRef.current.map((action) => ({
+                id: action?.id || "",
+                name: action?.name || "",
+                subtitle: action?.subtitle || "",
+                section: action?.section || "",
+                sectionPriorityKey: action?.sectionPriorityKey || "",
+                pluginId: action?.pluginId || "",
+                source: action?.source || "",
+                keywords: action?.keywords || "",
+            })),
+            getRightSidebarItemsSnapshot: () => sideBarActionItemsRef.current.map((item) => ({
+                id: item?.id || "",
+                icon: item?.icon || "",
+                name: item?.name || "",
+                submenu_list: Array.isArray(item?.submenu_list)
+                    ? item.submenu_list.map((subItem) => ({
+                        id: subItem?.id || "",
+                        name: subItem?.name || "",
+                        message_type: subItem?.message_type || "",
+                    }))
+                    : [],
+            })),
+            isRightSidebarVisible: () => !!showRightSideBarRef.current,
             selectPluginById: (pluginId, options = {open: true}) => {
                 const target = state.plugins.find((item) => item.id === pluginId);
                 if (!target) return false;
@@ -1005,10 +1556,111 @@ export const Home = () => {
         }
     };
 
+    const handleGrantMissingCapabilitiesFromDenied = async () => {
+        const pluginId = String(capabilityDeniedNotice.pluginId || "").trim();
+        if (!pluginId) {
+            return;
+        }
+        const missingCapabilities = [...new Set(
+            (Array.isArray(capabilityDeniedNotice.missingCapabilities) ? capabilityDeniedNotice.missingCapabilities : [])
+                .map((item) => String(item || "").trim())
+                .filter(Boolean)
+        )];
+        if (missingCapabilities.length === 0) {
+            (await AppToaster).show({
+                message: "No missing capabilities were detected for this request.",
+                intent: "warning",
+            });
+            return;
+        }
+
+        const pluginRecord = stateRef.current.plugins.find((item) => item.id === pluginId)
+            || stateRef.current.activePlugins.find((item) => item.id === pluginId)
+            || null;
+        const existingCapabilities = Array.isArray(pluginRecord?.capabilities) ? pluginRecord.capabilities : [];
+        const nextCapabilities = [...new Set([...existingCapabilities, ...missingCapabilities])];
+        const hasNewCapabilities = nextCapabilities.length !== existingCapabilities.length;
+        if (!hasNewCapabilities) {
+            (await AppToaster).show({
+                message: "All listed capabilities are already granted.",
+                intent: "primary",
+            });
+            return;
+        }
+
+        setIsGrantingMissingCapabilities(true);
+        try {
+            const result = await window.electron.plugin.setCapabilities(pluginId, nextCapabilities);
+            if (!result?.success) {
+                (await AppToaster).show({
+                    message: `Failed to grant missing capabilities: ${result?.error || "unknown error"}`,
+                    intent: "danger",
+                });
+                return;
+            }
+
+            await refreshPluginsState?.();
+            await syncActivePluginLoadingState(stateRef.current.activePlugins);
+            setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+            (await AppToaster).show({
+                message: `Granted ${missingCapabilities.length} capability${missingCapabilities.length > 1 ? "ies" : "y"} for ${pluginId}.`,
+                intent: "success",
+            });
+        } finally {
+            setIsGrantingMissingCapabilities(false);
+        }
+    };
+
     const selectedPluginRecord = state.activePlugins.find((item) => item.id === plugin)
         || state.plugins.find((item) => item.id === plugin)
         || null;
-    const selectedPluginLabel = selectedPluginRecord?.name || plugin || "";
+    const selectedPluginIsActive = state.activePlugins.some((item) => item.id === plugin);
+    const activePluginSidebarItems = state.activePlugins.map((pluginItem) => {
+        const runtimeStatus = pluginRuntimeStatuses.get(pluginItem.id) || null;
+        const diagnosticsSummary = runtimeStatus?.diagnosticsSummary || {};
+        const capabilityIntentSummary = buildCapabilityDeclarationSummary(runtimeStatus?.capabilityIntent || {});
+        const trustTier = getPluginTrustTier(pluginItem?.capabilities || []);
+        const statusChip = getPluginStatusChip(trustTier, capabilityIntentSummary, !!runtimeStatus?.capabilityIntent);
+        const capabilityNeedsAttention = shouldShowPluginStatusIndicator(
+            capabilityIntentSummary,
+            !!runtimeStatus?.capabilityIntent
+        );
+        const runtimeNeedsReview = Number(diagnosticsSummary?.failureCount || 0) > 0;
+        const sidebarIntent = runtimeNeedsReview
+            ? "warning"
+            : "none";
+
+        return {
+            ...pluginItem,
+            intent: sidebarIntent,
+            tooltip: runtimeNeedsReview
+                ? "Runtime issues detected. Open Runtime Validation."
+                : (capabilityNeedsAttention
+                    ? "Capability intent differs from current grants. Review in Capabilities."
+                    : pluginItem.name),
+            popupActions: [
+                {
+                    id: "plugin-validate",
+                    icon: "endorsed",
+                    name: "Runtime Validation",
+                    labelElement: runtimeNeedsReview ? <Tag minimal intent="warning">Needs review</Tag> : null,
+                },
+                {
+                    id: "plugin-capabilities",
+                    icon: "shield",
+                    name: "Capabilities",
+                    labelElement: capabilityNeedsAttention ? <Tag minimal intent={statusChip.intent || "primary"}>Review</Tag> : null,
+                },
+                {
+                    id: "plugin-audit",
+                    icon: "history",
+                    name: "Audit Trail",
+                },
+            ],
+        };
+    });
+    const pluginContextBarHeight = 50;
+    const rightSidebarMenuItems = [...sideBarActionItems];
 
     return (
         <HotkeysTarget
@@ -1026,7 +1678,13 @@ export const Home = () => {
             <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
             <div className={classNames("bp6-dark", styles["main-container"])}>
                 {state.activePlugins.length > 0 && (
-                    <SideBar position={"left"} menuItems={state.activePlugins} click={handlePluginChange} activeItemId={plugin}/>
+                    <SideBar
+                        position={"left"}
+                        menuItems={activePluginSidebarItems}
+                        click={handlePluginChange}
+                        activeItemId={plugin}
+                        topOffset={pluginContextBarHeight}
+                    />
                 )}
                 <Navbar fixedToTop={true}>
                     <NavbarGroup className={styles["nav-center"]}>
@@ -1038,18 +1696,6 @@ export const Home = () => {
                                                  refreshPluginsState={refreshPluginsState}
                                                  capabilityFocusRequest={capabilityFocusRequest}
                         />
-                        {selectedPluginLabel && (
-                            <Tag
-                                minimal={true}
-                                intent="primary"
-                                icon={selectedPluginRecord?.icon || "cube"}
-                                className={styles["active-plugin-tag"]}
-                                title={`Loaded plugin: ${selectedPluginLabel}`}
-                                data-active-plugin={plugin}
-                            >
-                                {selectedPluginLabel}
-                            </Tag>
-                        )}
                     </NavbarGroup>
                     <NavbarGroup align={Alignment.END}>
                         <InputGroup
@@ -1075,83 +1721,395 @@ export const Home = () => {
                     </NavbarGroup>
                 </Navbar>
                 {showRightSideBar && (
-                    <SideBar position={"right"} menuItems={sideBarActionItems} click={handleSideBarItemsClick}/>
+                    <SideBar
+                        position={"right"}
+                        menuItems={rightSidebarMenuItems}
+                        click={handleSideBarItemsClick}
+                        topOffset={pluginContextBarHeight}
+                    />
                 )}
                 <div style={{
                     marginLeft: (state.plugins.length > 0 ? "50px" : ""),
-                    marginRight: (showRightSideBar ? "50px" : "")
+                    marginRight: (showRightSideBar ? "50px" : ""),
+                    marginTop: "0"
                 }}>
-                    {plugin && <PluginContainer
-                        key={plugin}
-                        plugin={plugin}
-                        onStageChange={setSelectedPluginLifecycleStage}
-                        onCapabilityDenied={(payload) => {
-                            const missingCapabilities = Array.isArray(payload?.missingCapabilities)
-                                ? payload.missingCapabilities
-                                : [];
-                            const missingCapabilityDiagnostics = Array.isArray(payload?.missingCapabilityDiagnostics)
-                                ? payload.missingCapabilityDiagnostics
-                                : parseMissingCapabilityDiagnosticsFromError(payload?.details || payload?.error || "");
-                            const details = String(payload?.details || payload?.error || "Capability denied.");
-                            setCapabilityDeniedNotice({
-                                open: true,
-                                pluginId: payload?.pluginId || plugin,
-                                missingCapabilities,
-                                missingCapabilityDiagnostics,
-                                details,
-                            });
-                        }}
-                    />}
+                    <div className={styles["plugin-workspace"]}>
+                        {plugin && selectedPluginIsActive && <PluginContainer
+                            key={`${plugin}:${pluginRenderEpochs.get(plugin) || 0}`}
+                            plugin={plugin}
+                            onStageChange={setSelectedPluginLifecycleStage}
+                            onRequestCommandBar={() => setShowCommandSearch(true)}
+                            onCapabilityDenied={(payload) => {
+                                const structuredMissingCapabilities = Array.isArray(payload?.extraDetails?.missingCapabilities)
+                                    ? payload.extraDetails.missingCapabilities
+                                    : [];
+                                const missingCapabilities = [...new Set([
+                                    ...(Array.isArray(payload?.missingCapabilities) ? payload.missingCapabilities : []),
+                                    ...structuredMissingCapabilities,
+                                ].filter((item) => typeof item === "string" && item.trim()))];
+                                const parsedMissingCapabilityDiagnostics = Array.isArray(payload?.missingCapabilityDiagnostics)
+                                    ? payload.missingCapabilityDiagnostics
+                                    : parseMissingCapabilityDiagnosticsFromError(payload?.details || payload?.error || "");
+                                const missingCapabilityDiagnostics = parsedMissingCapabilityDiagnostics.length > 0
+                                    ? parsedMissingCapabilityDiagnostics
+                                    : parseMissingCapabilityDiagnosticsFromError(
+                                        structuredMissingCapabilities.length > 0
+                                            ? `Missing required capabilities: ${structuredMissingCapabilities.join(", ")}.`
+                                            : ""
+                                    );
+                                const details = String(payload?.details || payload?.error || "Capability denied.");
+                                setCapabilityDeniedNotice({
+                                    open: true,
+                                    pluginId: payload?.pluginId || plugin,
+                                    missingCapabilities,
+                                    missingCapabilityDiagnostics,
+                                    details,
+                                    code: String(payload?.code || ""),
+                                    correlationId: String(payload?.correlationId || ""),
+                                    extraDetails: payload?.extraDetails || null,
+                                });
+                            }}
+                        />}
+                    </div>
                 </div>
             <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
             <Dialog
                 isOpen={capabilityDeniedNotice.open}
                 onClose={() => setCapabilityDeniedNotice((prev) => ({...prev, open: false}))}
-                title="Permission Required"
+                title={privilegedIssuePresentation.title}
                 canEscapeKeyClose={true}
                 canOutsideClickClose={true}
             >
                 <div className="bp6-dialog-body">
                     <p>
-                        Plugin <code>{capabilityDeniedNotice.pluginId || "unknown"}</code> requested a privileged action that is not currently granted.
+                        Plugin <code>{capabilityDeniedNotice.pluginId || "unknown"}</code>: {privilegedIssuePresentation.summary}
                     </p>
                     <p className="bp6-text-muted" style={{marginBottom: "8px"}}>
-                        Missing capabilities:
+                        Fix: {privilegedIssuePresentation.remediation}
                     </p>
-                    <div style={{display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px"}}>
-                        {deniedCapabilityItems.map(({id, label, description, remediation, action}) => (
-                            <div key={id}>
-                                <Tag intent="warning" minimal>{label}</Tag>
-                                <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
-                                    {description}
-                                </div>
-                                <div className="bp6-text-small bp6-text-muted">
-                                    Technical ID: <code>{id}</code>
-                                </div>
-                                {action ? (
-                                    <div className="bp6-text-small bp6-text-muted">
-                                        Required for: {action}
+                    {deniedCapabilityItems.length > 0 ? (
+                        <>
+                            <p className="bp6-text-muted" style={{marginBottom: "8px"}}>
+                                Missing capabilities:
+                            </p>
+                            <div style={{display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px"}}>
+                                {deniedCapabilityItems.map(({id, label, description, remediation, action}) => (
+                                    <div key={id}>
+                                        <Tag intent="warning" minimal>{label}</Tag>
+                                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                                            {description}
+                                        </div>
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Technical ID: <code>{id}</code>
+                                        </div>
+                                        {action ? (
+                                            <div className="bp6-text-small bp6-text-muted">
+                                                Required for: {action}
+                                            </div>
+                                        ) : null}
+                                        {remediation ? (
+                                            <div className="bp6-text-small bp6-text-muted">
+                                                Fix: {remediation}
+                                            </div>
+                                        ) : null}
                                     </div>
-                                ) : null}
-                                {remediation ? (
-                                    <div className="bp6-text-small bp6-text-muted">
-                                        Fix: {remediation}
-                                    </div>
-                                ) : null}
+                                ))}
                             </div>
-                        ))}
-                        {capabilityDeniedNotice.missingCapabilities?.length === 0 && (
-                            <Tag minimal>Not parsed from host message</Tag>
-                        )}
-                    </div>
+                        </>
+                    ) : null}
                     <div className="bp6-text-small bp6-text-muted">
                         {capabilityDeniedNotice.details}
                     </div>
+                    {privilegedIssueDiagnostics.command ? (
+                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "8px"}}>
+                            Requested command: <code>{privilegedIssueDiagnostics.command.text || privilegedIssueDiagnostics.command.command}</code>
+                            {privilegedIssueDiagnostics.command.cwd ? (
+                                <>
+                                    {" "}in <code>{privilegedIssueDiagnostics.command.cwd}</code>
+                                </>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {privilegedIssueDiagnostics.command?.allowlistedExecutables?.length > 0 ? (
+                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                            Allowlisted paths: <code>{privilegedIssueDiagnostics.command.allowlistedExecutables.join(", ")}</code>
+                        </div>
+                    ) : null}
+                    {privilegedIssueDiagnostics.workflow ? (
+                        <div style={{marginTop: "12px"}}>
+                            <Tag minimal intent="primary">Workflow</Tag>
+                            <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                                ID: <code>{privilegedIssueDiagnostics.workflow.workflowId || "unknown"}</code>
+                                {privilegedIssueDiagnostics.workflow.title ? (
+                                    <> | Title: <code>{privilegedIssueDiagnostics.workflow.title}</code></>
+                                ) : null}
+                                {privilegedIssueDiagnostics.workflow.kind ? (
+                                    <> | Kind: <code>{privilegedIssueDiagnostics.workflow.kind}</code></>
+                                ) : null}
+                                {privilegedIssueDiagnostics.workflow.scope ? (
+                                    <> | Scope: <code>{privilegedIssueDiagnostics.workflow.scope}</code></>
+                                ) : null}
+                                {privilegedIssueDiagnostics.workflow.status ? (
+                                    <> | Status: <code>{privilegedIssueDiagnostics.workflow.status}</code></>
+                                ) : null}
+                            </div>
+                            {privilegedIssueDiagnostics.workflow.summary ? (
+                                <div className="bp6-text-small bp6-text-muted">
+                                    Steps: {privilegedIssueDiagnostics.workflow.summary.completedSteps || 0} completed, {privilegedIssueDiagnostics.workflow.summary.failedSteps || 0} failed, {privilegedIssueDiagnostics.workflow.summary.skippedSteps || 0} skipped, {privilegedIssueDiagnostics.workflow.summary.totalSteps || 0} total.
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {privilegedIssueDiagnostics.steps.length > 0 ? (
+                        <div style={{marginTop: "12px"}}>
+                            <Tag minimal intent="danger">Step failures</Tag>
+                            <div style={{display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px"}}>
+                                {privilegedIssueDiagnostics.steps.map((step) => (
+                                    <div key={`${step.stepId}-${step.correlationId || step.command || step.title}`}>
+                                        <div className="bp6-text-small">
+                                            <strong>{step.title || step.stepId || "Step"}</strong>
+                                            {step.stepId ? <> (<code>{step.stepId}</code>)</> : null}
+                                            {step.status ? <> | status: <code>{step.status}</code></> : null}
+                                            {step.code ? <> | code: <code>{step.code}</code></> : null}
+                                        </div>
+                                        {step.command ? (
+                                            <div className="bp6-text-small bp6-text-muted">
+                                                Command: <code>{step.command}</code>
+                                                {step.cwd ? <> | cwd: <code>{step.cwd}</code></> : null}
+                                            </div>
+                                        ) : null}
+                                        {step.exitCode !== null && step.exitCode !== undefined ? (
+                                            <div className="bp6-text-small bp6-text-muted">
+                                                Exit code: <code>{String(step.exitCode)}</code>
+                                                {step.durationMs !== null ? <> | Duration: <code>{String(step.durationMs)}ms</code></> : null}
+                                                {step.dryRun ? <> | Dry run</> : null}
+                                            </div>
+                                        ) : null}
+                                        {step.error ? (
+                                            <div className="bp6-text-small bp6-text-muted">{step.error}</div>
+                                        ) : null}
+                                        {step.correlationId ? (
+                                            <div className="bp6-text-small bp6-text-muted">
+                                                Step correlation ID: <code>{step.correlationId}</code>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                    {capabilityDeniedNotice.correlationId ? (
+                        <div className="bp6-text-small bp6-text-muted">
+                            Correlation ID: <code>{capabilityDeniedNotice.correlationId}</code>
+                        </div>
+                    ) : null}
                 </div>
                 <div className="bp6-dialog-footer">
                     <div className="bp6-dialog-footer-actions">
                         <Button onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
-                        <Button intent="primary" onClick={handleOpenCapabilitiesFromDenied}>Open Capabilities</Button>
+                        {capabilityDeniedNotice.pluginId ? (
+                            <Button onClick={() => openPrivilegedAuditDialog(capabilityDeniedNotice.pluginId)}>Open Audit Trail</Button>
+                        ) : null}
+                        {capabilityDeniedNotice.pluginId ? (
+                            <Button onClick={() => openRuntimeValidationDialog(capabilityDeniedNotice.pluginId)}>Open Validation</Button>
+                        ) : null}
+                        {privilegedIssuePresentation.showCapabilitiesButton ? (
+                            <>
+                                <Button
+                                    intent="success"
+                                    onClick={handleGrantMissingCapabilitiesFromDenied}
+                                    loading={isGrantingMissingCapabilities}
+                                    disabled={isGrantingMissingCapabilities}
+                                >
+                                    Grant Missing Capabilities
+                                </Button>
+                                <Button intent="primary" onClick={handleOpenCapabilitiesFromDenied}>Open Capabilities</Button>
+                            </>
+                        ) : (
+                            <Button intent="primary" onClick={() => setCapabilityDeniedNotice((prev) => ({...prev, open: false}))}>Close</Button>
+                        )}
+                    </div>
+                </div>
+            </Dialog>
+            <Dialog
+                isOpen={runtimeValidationDialog.open}
+                onClose={() => setRuntimeValidationDialog((prev) => ({...prev, open: false}))}
+                title={`Runtime Validation${runtimeValidationDialog.pluginId ? `: ${runtimeValidationDialog.pluginId}` : ""}`}
+                canEscapeKeyClose={true}
+                canOutsideClickClose={true}
+            >
+                <div className="bp6-dialog-body">
+                    {runtimeValidationDialog.loading ? (
+                        <p className="bp6-text-muted">Loading runtime validation evidence...</p>
+                    ) : null}
+                    {!runtimeValidationDialog.loading && runtimeValidationDialog.error ? (
+                        <p className="bp6-text-muted">{runtimeValidationDialog.error}</p>
+                    ) : null}
+                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
+                        <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                            Events: <code>{String(runtimeValidationSummary?.totalEvents || 0)}</code>
+                            {" | "}
+                            Failures: <code>{String(runtimeValidationSummary?.failureCount || 0)}</code>
+                            {" | "}
+                            Last failure code: <code>{runtimeValidationSummary?.latestFailureCode || "none"}</code>
+                        </div>
+                    ) : null}
+                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
+                        <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                            Note: runtime validation history is reset when plugin capabilities are changed.
+                        </p>
+                    ) : null}
+                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error && runtimeValidationScenarios.length === 0 ? (
+                        <p className="bp6-text-muted">
+                            No privileged runtime evidence recorded yet. Trigger a privileged action (process/workflow/clipboard) and reopen this view.
+                        </p>
+                    ) : null}
+                    {!runtimeValidationDialog.loading && runtimeValidationScenarios.length > 0 ? (
+                        <div style={{display: "flex", flexDirection: "column", gap: "12px"}}>
+                            {runtimeValidationScenarios.map((scenario) => (
+                                <div key={scenario.label} style={{border: "1px solid #eef0f2", borderRadius: "6px", padding: "10px", background: "#fafbfc"}}>
+                                    <div className="bp6-text-small">
+                                        <strong>{scenario.label}</strong> | occurrences: <code>{String(scenario.count)}</code>
+                                    </div>
+                                    <div className="bp6-text-small bp6-text-muted">
+                                        Latest action: <code>{scenario.latest.action || "unknown"}</code>
+                                        {scenario.latest.timestamp ? <> | Last seen: <code>{scenario.latest.timestamp}</code></> : null}
+                                        {typeof scenario.latest.success === "boolean" ? <> | Latest outcome: <code>{scenario.latest.success ? "success" : "failure"}</code></> : null}
+                                    </div>
+                                    {scenario.scopes.length > 0 ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Scopes: <code>{scenario.scopes.join(", ")}</code>
+                                        </div>
+                                    ) : null}
+                                    {scenario.workflows.length > 0 ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Workflows: <code>{scenario.workflows.join(", ")}</code>
+                                        </div>
+                                    ) : null}
+                                    {scenario.codes.length > 0 ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Error codes: <code>{scenario.codes.join(", ")}</code>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+                <div className="bp6-dialog-footer">
+                    <div className="bp6-dialog-footer-actions">
+                        <Button intent="primary" onClick={() => setRuntimeValidationDialog((prev) => ({...prev, open: false}))}>Close</Button>
+                    </div>
+                </div>
+            </Dialog>
+            <Dialog
+                isOpen={privilegedAuditDialog.open}
+                onClose={() => setPrivilegedAuditDialog((prev) => ({...prev, open: false}))}
+                title={`Privileged Audit Trail${privilegedAuditDialog.pluginId ? `: ${privilegedAuditDialog.pluginId}` : ""}`}
+                canEscapeKeyClose={true}
+                canOutsideClickClose={true}
+            >
+                <div className="bp6-dialog-body">
+                    {privilegedAuditDialog.loading ? (
+                        <p className="bp6-text-muted">Loading privileged audit events...</p>
+                    ) : null}
+                    {!privilegedAuditDialog.loading && privilegedAuditDialog.error ? (
+                        <p className="bp6-text-muted">{privilegedAuditDialog.error}</p>
+                    ) : null}
+                    {!privilegedAuditDialog.loading && !privilegedAuditDialog.error && privilegedAuditDialog.events.length === 0 ? (
+                        <p className="bp6-text-muted">No privileged audit events recorded for this plugin yet.</p>
+                    ) : null}
+                    {!privilegedAuditDialog.loading && privilegedWorkflowContracts.length > 0 ? (
+                        <div style={{marginBottom: "16px"}}>
+                            <Tag minimal intent="primary">Workflow Contracts</Tag>
+                            <div style={{display: "flex", flexDirection: "column", gap: "12px", marginTop: "8px"}}>
+                                {privilegedWorkflowContracts.map((workflow) => (
+                                    <div key={workflow.workflowId} style={{border: "1px solid #eef0f2", borderRadius: "6px", padding: "10px", background: "#fafbfc"}}>
+                                        <div className="bp6-text-small">
+                                            <strong>{workflow.title || workflow.workflowId}</strong>
+                                            {workflow.scope ? <> | scope: <code>{workflow.scope}</code></> : null}
+                                            {workflow.kind ? <> | kind: <code>{workflow.kind}</code></> : null}
+                                            {workflow.status ? <> | status: <code>{workflow.status}</code></> : null}
+                                            {workflow.approval ? <> | approval: <code>{workflow.approval}</code></> : null}
+                                        </div>
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Workflow ID: <code>{workflow.workflowId}</code>
+                                            {workflow.startedAt ? <> | Started: <code>{workflow.startedAt}</code></> : null}
+                                            {workflow.lastUpdatedAt ? <> | Updated: <code>{workflow.lastUpdatedAt}</code></> : null}
+                                        </div>
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Steps: <code>{String(workflow.completedStepCount)}</code> completed, <code>{String(workflow.failedStepCount)}</code> failed, <code>{String(workflow.steps.length)}</code> total
+                                        </div>
+                                        {workflow.steps.length > 0 ? (
+                                            <div style={{display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px"}}>
+                                                {workflow.steps.map((step) => (
+                                                    <div key={`${workflow.workflowId}-${step.stepId || step.stepTitle || "step"}`} className="bp6-text-small bp6-text-muted">
+                                                        <strong>{step.stepTitle || step.stepId || "Step"}</strong>
+                                                        {step.stepId ? <> (<code>{step.stepId}</code>)</> : null}
+                                                        {step.stepStatus ? <> | status: <code>{step.stepStatus}</code></> : null}
+                                                        {step.stepCorrelationId ? <> | correlation: <code>{step.stepCorrelationId}</code></> : null}
+                                                        {step.error?.code ? <> | code: <code>{step.error.code}</code></> : null}
+                                                        {step.error?.message ? <> | {step.error.message}</> : null}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                    {!privilegedAuditDialog.loading && privilegedAuditDialog.events.length > 0 ? (
+                        <div style={{display: "flex", flexDirection: "column", gap: "12px"}}>
+                            <Tag minimal>Audit Events</Tag>
+                            {privilegedAuditDialog.events.map((event, index) => (
+                                <div key={`${event.timestamp || "ts"}-${event.correlationId || "corr"}-${index}`}>
+                                    <div className="bp6-text-small">
+                                        <strong>{event.action || "unknown action"}</strong>
+                                        {event.scope ? <> | scope: <code>{event.scope}</code></> : null}
+                                        {typeof event.success === "boolean" ? <> | outcome: <code>{event.success ? "success" : "failure"}</code></> : null}
+                                        {event.confirmationDecision ? <> | approval: <code>{event.confirmationDecision}</code></> : null}
+                                    </div>
+                                    <div className="bp6-text-small bp6-text-muted">
+                                        Timestamp: <code>{event.timestamp || "unknown"}</code>
+                                        {event.correlationId ? <> | Correlation ID: <code>{event.correlationId}</code></> : null}
+                                    </div>
+                                    {event.workflowId ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Workflow: <code>{event.workflowId}</code>
+                                            {event.workflowTitle ? <> | Title: <code>{event.workflowTitle}</code></> : null}
+                                            {event.workflowKind ? <> | Kind: <code>{event.workflowKind}</code></> : null}
+                                            {event.workflowStatus ? <> | Status: <code>{event.workflowStatus}</code></> : null}
+                                        </div>
+                                    ) : null}
+                                    {event.stepId || event.stepTitle ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Step: <code>{event.stepId || "unknown"}</code>
+                                            {event.stepTitle ? <> | Title: <code>{event.stepTitle}</code></> : null}
+                                            {event.stepStatus ? <> | Status: <code>{event.stepStatus}</code></> : null}
+                                            {event.stepCorrelationId ? <> | Step correlation ID: <code>{event.stepCorrelationId}</code></> : null}
+                                        </div>
+                                    ) : null}
+                                    {event.command ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Command: <code>{[event.command, ...(Array.isArray(event.args) ? event.args : [])].join(" ").trim()}</code>
+                                            {event.cwd ? <> | cwd: <code>{event.cwd}</code></> : null}
+                                        </div>
+                                    ) : null}
+                                    {event.error?.code || event.error?.message ? (
+                                        <div className="bp6-text-small bp6-text-muted">
+                                            Error: <code>{event.error?.code || "unknown"}</code>
+                                            {event.error?.message ? <> | {event.error.message}</> : null}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+                <div className="bp6-dialog-footer">
+                    <div className="bp6-dialog-footer-actions">
+                        <Button intent="primary" onClick={() => setPrivilegedAuditDialog((prev) => ({...prev, open: false}))}>Close</Button>
                     </div>
                 </div>
             </Dialog>

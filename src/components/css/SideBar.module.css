@@ -2,13 +2,11 @@
     width: 200px;
     background: #252a31;
     color: white;
-    height: calc(100% - 50px);
     display: flex;
     flex-direction: column;
     transition: width 0.3s ease;
     overflow: visible;
     position: fixed;
-    top: 50px;
     z-index: 1;
 }
 
@@ -50,6 +48,11 @@
 .menu-item-active {
     background: rgba(45, 114, 210, 0.22);
     border-left: 2px solid #2d72d2;
+}
+
+.menu-item-warning {
+    background: rgba(255, 171, 64, 0.08);
+    border-left: 2px solid rgba(255, 171, 64, 0.6);
 }
 
 .menu-text {

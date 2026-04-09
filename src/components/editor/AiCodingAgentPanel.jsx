@@ -268,12 +268,52 @@ export function isInformationalOnlyPrompt(prompt = "") {
     const hasScaffoldIntent = /\bplugin\s+like\b/.test(normalizedPrompt)
         || /\bi\s+want\s+(?:a|an)\s+plugin\b/.test(normalizedPrompt);
     const informationalVerificationIntent =
-        /\b(confirm|confirmation|verify|verification|check|validate|explain|clarify)\b/.test(normalizedPrompt)
+        /\b(confirm|confirmation|verify|verification|check|checkout|check out|validate|explain|clarify|show|view|read)\b/.test(normalizedPrompt)
         || /\b(is|does|can)\b.+\b(work|working|correct|correctly|logged|logging)\b/.test(normalizedPrompt)
+        || /\b(log|logs|stderr|stdout|trace)\b/.test(normalizedPrompt)
         || /\bwhy\b/.test(normalizedPrompt)
         || /\bwhat\b.+\bmean|means|difference\b/.test(normalizedPrompt);
 
     return informationalVerificationIntent && !hasExplicitChangeIntent && !hasScaffoldIntent;
+}
+
+function extractQuotedPromptSnippets(prompt = "") {
+    return [
+        ...String(prompt || "").matchAll(/"([^"]+)"/g),
+        ...String(prompt || "").matchAll(/'([^']+)'/g),
+    ]
+        .map((match) => String(match?.[1] || "").trim())
+        .filter(Boolean);
+}
+
+function buildPluginRuntimeVerificationContext({
+    prompt = "",
+    runtimeIntent = null,
+} = {}) {
+    const normalizedPrompt = String(prompt || "").trim().toLowerCase();
+    const asksEvidenceCheck =
+        /\b(confirm|verify|check|whether|exists?|present|contains?|found)\b/.test(normalizedPrompt)
+        || /\blook\s+for\b/.test(normalizedPrompt);
+    const quotedSnippets = extractQuotedPromptSnippets(prompt);
+    if (!(runtimeIntent?.shouldProbe || runtimeIntent?.wantsLogs) || (!asksEvidenceCheck && quotedSnippets.length === 0)) {
+        return "";
+    }
+
+    const lines = [
+        "Runtime verification instructions:",
+        "Use the provided plugin runtime trace/log context as the primary evidence source.",
+        "Answer the runtime/log verification request directly before suggesting any code or documentation changes.",
+    ];
+
+    if (quotedSnippets.length > 0) {
+        lines.push(`Look specifically for these quoted strings in the runtime trace/logs: ${quotedSnippets.map((value) => `"${value}"`).join(", ")}.`);
+    }
+
+    lines.push("If the requested text is present in the available plugin logs, say so directly and cite the matching evidence.");
+    lines.push("If the requested text is absent, say it was not found in the available logs.");
+    lines.push("Do not respond with file patches, scaffolds, or documentation unless the user explicitly asks for code or docs changes.");
+
+    return `${lines.join("\n")}\n\n`;
 }
 
 export function shouldAutoApplySingleFileResponse({
@@ -986,6 +1026,41 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             return parsePluginName(hash.slice(hashQueryIndex));
         } catch (_) {
             return "";
+        }
+    };
+
+    const resolvePluginIdFromPrompt = async (promptText = "") => {
+        const fallbackId = getCurrentPluginId();
+        const pluginApi = window?.electron?.plugin;
+        if (!pluginApi || typeof pluginApi.getAll !== "function") {
+            return fallbackId;
+        }
+
+        const rawPrompt = String(promptText || "");
+        const quotedCandidates = [
+            ...rawPrompt.matchAll(/"([^"]+)"/g),
+            ...rawPrompt.matchAll(/'([^']+)'/g),
+        ]
+            .map((match) => String(match?.[1] || "").trim())
+            .filter(Boolean);
+
+        if (quotedCandidates.length === 0) {
+            return fallbackId;
+        }
+
+        try {
+            const all = await pluginApi.getAll();
+            const plugins = Array.isArray(all?.plugins) ? all.plugins : [];
+            const normalizedCandidates = quotedCandidates.map((value) => value.toLowerCase());
+            const match = plugins.find((plugin) => {
+                const id = String(plugin?.id || "").trim();
+                const metadataName = String(plugin?.metadata?.name || "").trim();
+                const values = [id, metadataName].filter(Boolean).map((value) => value.toLowerCase());
+                return normalizedCandidates.some((candidate) => values.includes(candidate));
+            });
+            return String(match?.id || "").trim() || fallbackId;
+        } catch (_) {
+            return fallbackId;
         }
     };
 
@@ -2469,6 +2544,7 @@ Rules:
                 });
             }
 
+            const runtimeIntentForAction = detectAiPluginRuntimeIntent(finalPrompt);
             const effectiveAction = isInformationalOnlyPrompt(finalPrompt) && routingDecision.action !== "plan"
                 ? "smart"
                 : routingDecision.action;
@@ -2520,8 +2596,8 @@ Rules:
             const currentFilePath = getCurrentFilePath();
             const problemsContext = getProblemsContext();
             const buildOutputContext = getBuildOutputContext(refreshedProjectFiles);
-            const currentPluginId = getCurrentPluginId();
-            const runtimeIntent = detectAiPluginRuntimeIntent(finalPrompt);
+            const runtimeIntent = runtimeIntentForAction;
+            const currentPluginId = await resolvePluginIdFromPrompt(finalPrompt);
             const runtimeProbeResult = runtimeIntent.shouldProbe
                 ? await runPluginRuntimeProbe({
                     promptText: finalPrompt,
@@ -2614,7 +2690,11 @@ Rules:
             const diagnosisContext = includeIssueDiagnosis && issueScope.summary
                 ? `${issueScope.summary}\nTreat this as a ${issueScope.kind} issue unless the provided code or diagnostics prove otherwise.\n\n`
                 : "";
-            const finalEnhancedContext = `${diagnosisContext}${enhancedContext}`;
+            const pluginRuntimeVerificationContext = buildPluginRuntimeVerificationContext({
+                prompt: finalPrompt,
+                runtimeIntent,
+            });
+            const finalEnhancedContext = `${pluginRuntimeVerificationContext}${diagnosisContext}${enhancedContext}`;
             const mainPluginFilePath = virtualFS.DEFAULT_FILE_MAIN || "/index.ts";
             const defaultPluginTargetFile = (
                 !effectiveSelectedCode

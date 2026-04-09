@@ -15,6 +15,7 @@ import * as styles from './css/CreatePluginDialog.module.css'
 import {AppToaster} from "./AppToaster.jsx";
 import {Select} from "@blueprintjs/select";
 import PropTypes from "prop-types";
+import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
 
 export const CreatePluginDialog = ({show, close}) => {
     const [uploadLoading, setUploadLoading] = useState(false);
@@ -196,7 +197,7 @@ export const CreatePluginDialog = ({show, close}) => {
                     }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
                             <span style={{ fontSize: "1.5rem" }}>🧩</span>
-                            <Icon icon={pluginMetadata.icon} intent="primary" size={24} />
+                            <Icon icon={sanitizeBlueprintIcon(pluginMetadata.icon)} intent="primary" size={24} />
                             <span style={{ fontWeight: "bold", fontSize: "1.2rem" }}>{pluginMetadata.name}</span>
                         </div>
 

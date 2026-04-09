@@ -41,6 +41,49 @@ describe("plugin runtime security", () => {
         expect(result.codeWrite).toBe("blocked");
         expect(result.homeWrite).toBe("allowed");
     });
+
+    test("exposes SDK-compatible createBackendReq bridge in backend runtime", () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "fdo-plugin-bridge-"));
+        try {
+            const bootstrapPath = path.join(tempRoot, "bootstrap.cjs");
+            const runtimeEntry = path.join(tempRoot, "plugin-entry.cjs");
+            fs.writeFileSync(bootstrapPath, buildPluginRuntimeBootstrapSource(), "utf8");
+            fs.writeFileSync(runtimeEntry, `
+process.stdout.write(JSON.stringify({
+  hasWindow: typeof globalThis.window === "object",
+  hasCreateBackendReq: typeof globalThis.window?.createBackendReq === "function"
+}));
+`, "utf8");
+
+            const execution = spawnSync(process.execPath, [bootstrapPath], {
+                encoding: "utf8",
+                env: {
+                    ...process.env,
+                    FDO_PLUGIN_RUNTIME_ENTRY: runtimeEntry,
+                    FDO_PLUGIN_CAPABILITIES: "storage.json",
+                    FDO_PLUGIN_POLICY_JSON: JSON.stringify(buildRuntimeSecurityPolicy(["storage.json"])),
+                    FDO_PLUGIN_ALLOW_MISSING_PARENT_PORT: "1",
+                    PLUGIN_HOME: path.join(tempRoot, "plugin-home"),
+                    PLUGIN_CODE_HOME: path.join(tempRoot, "plugin-code"),
+                },
+            });
+
+            expect(execution.status).toBe(0);
+            expect(JSON.parse((execution.stdout || "").trim())).toEqual({
+                hasWindow: true,
+                hasCreateBackendReq: true,
+            });
+        } finally {
+            fs.rmSync(tempRoot, {recursive: true, force: true});
+        }
+    });
+
+    test("backend bridge preserves nested UI_MESSAGE handler payloads", () => {
+        const source = buildPluginRuntimeBootstrapSource();
+        expect(source).toContain('type === "UI_MESSAGE"');
+        expect(source).toContain("data.handler");
+        expect(source).toContain('Object.prototype.hasOwnProperty.call(data, "content")');
+    });
 });
 
 function runBootstrapPolicy(capabilitiesCsv) {

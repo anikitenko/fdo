@@ -5,6 +5,12 @@ export default class UserORM extends JSONORM {
         super(filePath); // Call the base class
         if (!this.data.config) this.data.config = {};
         if (!this.data.config.plugins) this.data.config.plugins = [];
+        if (!Array.isArray(this.data.config.sharedProcessScopes)) {
+            this.data.config.sharedProcessScopes = Array.isArray(this.data.config.customProcessScopes)
+                ? this.data.config.customProcessScopes
+                : [];
+        }
+        if (!Array.isArray(this.data.config.customProcessScopes)) this.data.config.customProcessScopes = [];
     }
 
     activatePlugin(id) {
@@ -25,5 +31,25 @@ export default class UserORM extends JSONORM {
 
     getActivatedPlugins() {
         return this.data.config.plugins;
+    }
+
+    getSharedProcessScopes() {
+        return Array.isArray(this.data.config.sharedProcessScopes)
+            ? this.data.config.sharedProcessScopes
+            : [];
+    }
+
+    setSharedProcessScopes(scopes = []) {
+        this.data.config.sharedProcessScopes = Array.isArray(scopes) ? scopes : [];
+        this._save();
+        return this.getSharedProcessScopes();
+    }
+
+    getCustomProcessScopes() {
+        return this.getSharedProcessScopes();
+    }
+
+    setCustomProcessScopes(scopes = []) {
+        return this.setSharedProcessScopes(scopes);
     }
 }

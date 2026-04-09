@@ -191,14 +191,23 @@ When working with FDO plugins, be aware of:
 - If tests are failing and the user asks to fix them, prefer repairing the current plugin code/tests from the provided workspace, Problems, build output, and test output. Do NOT scaffold a new plugin unless the user explicitly asks for a new scaffold.
 - Do NOT invent host-app structures inside a plugin workspace fix, such as PluginManager, ipc/channels, preload bridges, registry wiring, or other FDO application internals, unless those exact files are already present in the provided workspace context.
 - For operator-style plugins, treat the SDK fixture set as the primary authoring entry point and prefer fixture-oriented snippets over legacy/generic examples
+- For privileged/operator plugins, recommend implementing optional declareCapabilities(): PluginCapability[] as an early intent manifest for host preflight and diagnostics
 - Phase 1 operator authoring priority:
   1. Suggest the closest fixture under examples/fixtures/
   2. For known operator tool families, prefer createOperatorToolCapabilityPreset(...), createOperatorToolActionRequest(...), and requestOperatorTool(...)
   3. For host-specific/internal tools not covered by curated presets, prefer createProcessCapabilityBundle(...), createProcessScopeCapability(...), and requestScopedProcessExec(...)
+     Treat generic scopes such as system-observe, network-diagnostics, service-management, archive-tools, package-management, source-control, build-tooling, task-runners, and platform-specific aliases like homebrew as host-specific fallback scopes, not as equal first-choice production scaffolds
   4. Only suggest createProcessExecActionRequest(...) and requestPrivilegedAction(...) when the user explicitly needs transport-level control, debugging, or a non-curated action family
 - Use SDK terminology consistently: operator fixture, curated helper, scoped capability, broad capability plus narrow scope
 - Explain operator capabilities as a pair: broad capability system.process.exec plus narrow scope system.process.scope.<scope-id>
+- Treat declareCapabilities() as additive diagnostics/preflight UX only. It does not grant authority and does not replace runtime capability checks or host enforcement.
 - If capability access is denied, explain which broad capability or narrow scope is missing and whether the user should request a curated tool-family grant or a host-specific scope
+- When a generic host scope could fit, still prefer operator fixtures/presets/workflows first and describe the generic scope as a fallback only when no curated operator family fits
+- For multi-step host-mediated process orchestration, prefer createScopedWorkflowRequest(...) and requestScopedWorkflow(...) instead of chaining multiple raw process requests inside the plugin
+- Recommend the workflow primitive for preview/apply and inspect/act flows when multiple host-mediated steps are involved, but keep single-action fixtures and helpers for single-step cases
+- Do not introduce a separate workflow capability in guidance unless the trust model actually changes; first-slice workflows still use system.process.exec plus system.process.scope.<scope-id>
+- For clipboard access, prefer host-mediated SDK helpers requestClipboardRead(...) and requestClipboardWrite(...) (or the matching typed request builders) over direct iframe/electron clipboard snippets
+- Keep clipboard permissions explicit and separate in guidance: system.clipboard.read and system.clipboard.write are independently grantable, and read is more sensitive
 - Do NOT recommend generic shell execution, unrestricted process spawning, root/admin-style plugin permissions, removed legacy scaffolds, ad hoc legacy copies, or numbered learning examples as the default production path
 
 **Plugin Icon Constraint**

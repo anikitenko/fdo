@@ -13,8 +13,12 @@ export function buildScopeCapabilities(scopePolicies = []) {
     const scopes = Array.isArray(scopePolicies) ? scopePolicies : [];
     return scopes.map((scope) => ({
         id: scope.scope,
+        title: typeof scope.title === "string" ? scope.title : "",
         kind: scope.kind === "process" ? "process" : "filesystem",
+        category: typeof scope.category === "string" && scope.category.trim() ? scope.category.trim() : (scope.kind === "process" ? "Other Process Tools" : "Filesystem"),
         description: scope.description || "",
+        fallback: scope.fallback === true,
+        userDefined: scope.userDefined === true,
         capability: `${getScopeCapabilityPrefix(scope)}${scope.scope}`,
         baseCapability: scope.kind === "process" ? "system.process.exec" : "system.hosts.write",
         allowedRoots: Array.isArray(scope.allowedRoots) ? scope.allowedRoots : [],

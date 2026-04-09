@@ -54,6 +54,7 @@ function TestHarness({ codeEditor }) {
 let streamHandlers;
 
 beforeEach(() => {
+    jest.clearAllMocks();
     window.location.hash = "";
     mockAppToasterShow.mockReset();
     streamHandlers = {
@@ -76,10 +77,27 @@ beforeEach(() => {
         ]),
     };
 
+    virtualFS.listModels = jest.fn(() => []);
+    virtualFS.getLatestContent = jest.fn(() => ({}));
+    virtualFS.getFileName = jest.fn(() => "/index.ts");
+    virtualFS.setFileContent = jest.fn();
+    virtualFS.createFile = jest.fn();
+    virtualFS.createFolder = jest.fn();
+    virtualFS.fs.version = jest.fn(() => ({ version: "" }));
+    virtualFS.fs.create = jest.fn(() => ({ version: "snapshot-1" }));
+    virtualFS.tabs.get = jest.fn(() => []);
+    virtualFS.build.getHistory = jest.fn(() => []);
+    runPluginTests.mockReset();
+
     window.electron.system.getFdoSdkKnowledge = jest.fn().mockResolvedValue({ success: true, results: [] });
     window.electron.system.getExternalReferenceKnowledge = jest.fn().mockResolvedValue({ success: true, results: [] });
     window.electron.plugin = {
         ...(window.electron.plugin || {}),
+        getAll: jest.fn().mockResolvedValue({
+            plugins: [
+                { id: "demo", metadata: { name: "Demo Plugin" } },
+            ],
+        }),
         getRuntimeStatus: jest.fn().mockResolvedValue({
             success: true,
             statuses: [{ id: "demo", loading: false, loaded: true, ready: true, inited: true }],
@@ -153,7 +171,6 @@ beforeEach(() => {
         error: "Plugin tests failed with exit code 1.",
         output: "ReferenceError in /tests/unit/plugin.test.ts: describe is not defined",
     });
-    virtualFS.getFileName = jest.fn(() => "/index.ts");
 });
 
 describe("AiCodingAgentPanel auto-apply patch flow", () => {
@@ -295,7 +312,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
         await waitFor(() => {
-            expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalled();
+            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
         });
 
         expect(window.electron.aiCodingAgent.fixCode).not.toHaveBeenCalled();
@@ -366,7 +383,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
         await waitFor(() => {
-            expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalled();
+            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
         });
 
         expect(await screen.findByText(/Diagnostic response|Replaced/)).toBeTruthy();
@@ -416,7 +433,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             return [];
         });
 
-        window.electron.aiCodingAgent.generateCode.mockImplementationOnce(async ({ requestId }) => {
+        window.electron.aiCodingAgent.smartMode.mockImplementationOnce(async ({ requestId }) => {
             const content = "```ts\nimport PropTypes from \"prop-types\";\nexport default class Replaced {}\n```";
             Promise.resolve().then(() => {
                 streamHandlers.done?.({ requestId, fullContent: content });
@@ -438,7 +455,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
         await waitFor(() => {
-            expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalled();
+            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
         });
 
         expect(await screen.findByText(/PropTypes/)).toBeTruthy();
@@ -612,7 +629,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(currentValue).toBe(rewrittenFile);
         });
 
-        expect(await screen.findByText(/Applied the generated single-file change by replacing the current file/i)).toBeTruthy();
+        expect(await screen.findByText(/Applied to \/index\.ts/i)).toBeTruthy();
     });
 
     test("does not replace the active file with prose-only rename guidance", async () => {
@@ -985,7 +1002,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             "/render.tsx": "export const render = () => null;",
         });
 
-        window.electron.aiCodingAgent.smartMode.mockImplementationOnce(async ({ requestId }) => {
+        window.electron.aiCodingAgent.generateCode.mockImplementationOnce(async ({ requestId }) => {
             const metadataBlockResponse = [
                 'Update /index.ts so metadata.name is no longer "undefined".',
                 "",
@@ -1026,7 +1043,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
         await waitFor(() => {
-            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
+            expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalled();
         });
 
         expect(virtualFS.setFileContent).toHaveBeenCalledWith(
@@ -1859,6 +1876,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
     });
 
     test("reads plugin logs when editor route carries plugin data in hash query", async () => {
+        const exactLogLine = "Terraform preview completed with exitCode=0";
         const payload = encodeURIComponent(JSON.stringify({
             name: "hash-plugin-id",
             template: "basic",
@@ -1874,7 +1892,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
                 "lastUnload=none",
                 "",
                 "Plugin runtime logs:",
-                "Log file: runtime.log\n```\\nReferenceError: broken\\n```",
+                `Log file: runtime.log\n\`\`\`\n${exactLogLine}\n\`\`\``,
             ].join("\n"),
         });
 
@@ -1918,6 +1936,125 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         const call = window.electron.aiCodingAgent.smartMode.mock.calls.at(-1)?.[0] || {};
         const serializedPayload = JSON.stringify(call);
         expect(serializedPayload).toContain("runtime.log");
+        expect(serializedPayload).toContain(exactLogLine);
+    });
+
+    test("uses runtime verification guidance for quoted log confirmation prompts", async () => {
+        const exactLogLine = "Terraform operator fixture initialized";
+        const payload = encodeURIComponent(JSON.stringify({
+            name: "hash-plugin-id",
+            template: "basic",
+            dir: "/tmp/hash-plugin-id",
+        }));
+        window.location.hash = `#/editor?data=${payload}`;
+
+        window.electron.plugin.getLogTrace = jest.fn().mockResolvedValue({
+            success: true,
+            combined: [
+                'Runtime status for "hash-plugin-id":',
+                "loading=false; loaded=true; ready=true; inited=true",
+                "lastUnload=none",
+                "",
+                "Plugin runtime logs:",
+                `Log file: info-2026-04-06.log\n\`\`\`\n${exactLogLine}\n\`\`\``,
+            ].join("\n"),
+        });
+
+        const codeEditor = {
+            getSelection: jest.fn(() => null),
+            getModel: jest.fn(() => ({
+                getLanguageId: jest.fn(() => "typescript"),
+                getValue: jest.fn(() => "export {};"),
+                getValueInRange: jest.fn(() => ""),
+            })),
+            focus: jest.fn(),
+        };
+
+        window.electron.aiCodingAgent.smartMode.mockImplementation(async ({ requestId }) => {
+            const content = "Confirmed from logs.";
+            Promise.resolve().then(() => {
+                streamHandlers.done?.({ requestId, fullContent: content });
+            });
+            return { success: true, requestId, content };
+        });
+
+        render(<TestHarness codeEditor={codeEditor} />);
+
+        await waitFor(() => {
+            expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
+        });
+
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: { value: 'check logs of this plugin to confirm that "Terraform operator fixture initialized" exists' },
+        });
+        fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.getLogTrace).toHaveBeenCalledWith("hash-plugin-id", expect.any(Object));
+            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
+        });
+
+        const call = window.electron.aiCodingAgent.smartMode.mock.calls.at(-1)?.[0] || {};
+        const serializedPayload = JSON.stringify(call);
+        expect(serializedPayload).toContain(exactLogLine);
+        expect(serializedPayload).toContain("Runtime verification instructions:");
+        expect(serializedPayload).toContain("Do not respond with file patches, scaffolds, or documentation");
+    });
+
+    test("resolves quoted plugin name in prompt before fetching logs", async () => {
+        window.electron.plugin.getAll = jest.fn().mockResolvedValue({
+            plugins: [
+                {
+                    id: "terraform-fixture-id",
+                    metadata: { name: "Fixture: Terraform Operator" },
+                },
+            ],
+        });
+        window.electron.plugin.getRuntimeStatus.mockResolvedValue({
+            success: true,
+            statuses: [{ id: "terraform-fixture-id", loading: false, loaded: true, ready: true, inited: true }],
+        });
+        window.electron.plugin.getLogTrace = jest.fn().mockResolvedValue({
+            success: true,
+            combined: 'Runtime status for "terraform-fixture-id":\nloading=false; loaded=true; ready=true; inited=true\n',
+        });
+
+        const codeEditor = {
+            getSelection: jest.fn(() => null),
+            getModel: jest.fn(() => ({
+                getLanguageId: jest.fn(() => "typescript"),
+                getValue: jest.fn(() => "export {};"),
+                getValueInRange: jest.fn(() => ""),
+            })),
+            focus: jest.fn(),
+        };
+
+        window.electron.aiCodingAgent.smartMode.mockImplementation(async ({ requestId }) => {
+            const content = "log summary";
+            Promise.resolve().then(() => {
+                streamHandlers.done?.({ requestId, fullContent: content });
+            });
+            return { success: true, requestId, content };
+        });
+
+        render(<TestHarness codeEditor={codeEditor} />);
+
+        await waitFor(() => {
+            expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
+        });
+
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: { value: 'please checkout logs of "Fixture: Terraform Operator" plugin' },
+        });
+        fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.getAll).toHaveBeenCalled();
+            expect(window.electron.plugin.getLogTrace).toHaveBeenCalledWith("terraform-fixture-id", expect.any(Object));
+            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
+        });
     });
 
     test("shows native toaster warning when plugin trace fetch fails", async () => {
@@ -2623,7 +2760,7 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
             "```",
         ].join("\n");
 
-        window.electron.aiCodingAgent.smartMode
+        window.electron.aiCodingAgent.generateCode
             .mockImplementationOnce(async ({ requestId }) => {
                 Promise.resolve().then(() => {
                     streamHandlers.done?.({
@@ -2663,7 +2800,7 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
         await waitFor(() => {
-            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2);
+            expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalledTimes(2);
         });
         await waitFor(() => {
             expect(screen.queryByText(/Plugin Scope Enforced/i)).toBeNull();
@@ -2880,7 +3017,7 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
         const firstInvalid = "Change src/components/editor/utils/createVirtualFile.js to populate metadata.name.";
         const secondInvalid = "File: /Users/alexvwan/dev/fdo/src/components/editor/utils/virtualTemplates.js";
 
-        window.electron.aiCodingAgent.smartMode
+        window.electron.aiCodingAgent.generateCode
             .mockImplementationOnce(async ({ requestId }) => {
                 Promise.resolve().then(() => {
                     streamHandlers.done?.({
@@ -2920,7 +3057,7 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
         await waitFor(() => {
-            expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2);
+            expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalledTimes(2);
         });
         await waitFor(() => {
             expect(screen.getByText(/Plugin Scope Enforced/i)).toBeTruthy();

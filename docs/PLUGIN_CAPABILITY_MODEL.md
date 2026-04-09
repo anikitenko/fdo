@@ -101,6 +101,7 @@ These are editor UX markers only. Host-side enforcement remains authoritative.
 - Keep deny-by-default (`[]`) as the default.
 - Grant capabilities explicitly per plugin.
 - Explain operator execution as broad capability plus narrow scope: `system.process.exec` + `system.process.scope.<scope-id>`.
+- First-slice shared workflows (`system.workflow.run` using `process-sequence`) should reuse that same capability pair rather than introducing a separate broad workflow capability.
 - Start operator authoring from the closest fixture under `examples/fixtures/`.
 - For known operator tool families, prefer SDK presets such as `createOperatorToolCapabilityPreset("terraform")`.
 - For known operator tool families, prefer `createOperatorToolActionRequest(...)` and `requestOperatorTool(...)` before low-level request building.
@@ -113,3 +114,4 @@ These are editor UX markers only. Host-side enforcement remains authoritative.
 - For known DevOps/SRE tool families, AI assistants should prefer curated SDK helpers such as `requestOperatorTool(...)` and `createOperatorToolCapabilityPreset(...)`.
 - For unknown or internal tools, AI assistants should prefer generic scoped helpers such as `requestScopedProcessExec(...)`, backed by `createProcessCapabilityBundle(...)` and `createProcessScopeCapability(...)`.
 - For capability-denied handling, AI assistants should prefer structured SDK diagnostics such as `parseMissingCapabilityError(...)` and `describeCapability(...)`.
+- For multi-step host-mediated process orchestration, AI assistants should prefer `createScopedWorkflowRequest(...)` and `requestScopedWorkflow(...)` over plugin-private chaining.

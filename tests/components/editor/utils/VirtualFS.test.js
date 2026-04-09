@@ -151,6 +151,8 @@ describe('VirtualFS snapshots', () => {
     expect(fallbackTypes).toContain('requestPrivilegedAction');
     expect(fallbackTypes).toContain('createScopedProcessExecActionRequest');
     expect(fallbackTypes).toContain('requestScopedProcessExec');
+    expect(fallbackTypes).toContain('createScopedWorkflowRequest');
+    expect(fallbackTypes).toContain('requestScopedWorkflow');
     expect(fallbackTypes).toContain('getOperatorToolPreset');
     expect(fallbackTypes).toContain('listOperatorToolPresets');
     expect(fallbackTypes).toContain('createOperatorToolCapabilityPreset');
@@ -167,5 +169,9 @@ describe('VirtualFS snapshots', () => {
     expect(fallbackTypes).toContain('export type PrivilegedActionResponse');
     expect(fallbackTypes).toContain('export type PrivilegedActionSuccessResponse');
     expect(fallbackTypes).toContain('export type PrivilegedActionErrorResponse');
+    expect(fallbackTypes).toContain('export type ScopedWorkflowProcessStepResultData');
+    expect(fallbackTypes).toContain('export type ScopedWorkflowStepResult');
+    expect(fallbackTypes).toContain('export type ScopedWorkflowResult');
+    expect(fallbackTypes).toContain('export type ScopedWorkflowSummary');
   });
 });

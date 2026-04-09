@@ -2,6 +2,8 @@ import React from "react";
 import {fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {Home} from "../../src/Home.jsx";
 
+const pluginContainerMounts = [];
+
 jest.mock("../../src/components/NavigationPluginsButton.jsx", () => ({
     NavigationPluginsButton: () => <div data-testid="nav-plugins-button" />,
 }));
@@ -29,8 +31,9 @@ jest.mock("../../src/components/plugin/PluginPage.jsx", () => ({
 jest.mock("../../src/components/PluginContainer.jsx", () => ({
     PluginContainer: ({ plugin, onStageChange }) => {
         require("react").useEffect(() => {
+            pluginContainerMounts.push(plugin);
             onStageChange?.("mock-mounted");
-        }, [onStageChange]);
+        }, [plugin, onStageChange]);
         return <div data-testid="plugin-container">{plugin}</div>;
     },
 }));
@@ -49,6 +52,7 @@ jest.mock("../../src/components/SideBar.jsx", () => ({
 
 describe("Home plugin runtime backfill", () => {
     beforeEach(() => {
+        pluginContainerMounts.length = 0;
         window.electron.notifications = {
             get: jest.fn().mockResolvedValue([]),
             on: {
@@ -182,6 +186,40 @@ describe("Home plugin runtime backfill", () => {
         });
     });
 
+    test("keeps polling runtime status while plugin is marked loading, even if already inited", async () => {
+        window.electron.plugin.getRuntimeStatus
+            .mockResolvedValueOnce({
+                success: true,
+                statuses: [
+                    {
+                        id: "plugin-1",
+                        loading: true,
+                        loaded: true,
+                        ready: true,
+                        inited: true,
+                    },
+                ],
+            })
+            .mockResolvedValue({
+                success: true,
+                statuses: [
+                    {
+                        id: "plugin-1",
+                        loading: false,
+                        loaded: true,
+                        ready: true,
+                        inited: true,
+                    },
+                ],
+            });
+
+        render(<Home />);
+
+        await waitFor(() => {
+            expect(window.electron.plugin.getRuntimeStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
+        });
+    });
+
     test("ignores stale unload events while runtime status still reports the plugin as active", async () => {
         let unloadedHandler = null;
         window.electron.plugin.on.unloaded.mockImplementation((handler) => {
@@ -207,6 +245,29 @@ describe("Home plugin runtime backfill", () => {
         await waitFor(() => {
             expect(screen.queryByText("Plugin Closed")).toBeNull();
             expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+    });
+
+    test("remounts the selected plugin container when deploy-from-editor updates the same plugin", async () => {
+        let deployFromEditorHandler = null;
+        window.electron.plugin.on.deployFromEditor.mockImplementation((handler) => {
+            deployFromEditorHandler = handler;
+        });
+
+        render(<Home />);
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        const mountCountBeforeDeploy = pluginContainerMounts.length;
+        deployFromEditorHandler?.("plugin-1");
+
+        await waitFor(() => {
+            expect(pluginContainerMounts.length).toBeGreaterThan(mountCountBeforeDeploy);
         });
     });
 

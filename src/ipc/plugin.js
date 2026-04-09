@@ -1,4 +1,4 @@
-import {app, dialog, ipcMain} from "electron";
+import {app, BrowserWindow, dialog, ipcMain} from "electron";
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
 import {rmSync, chmodSync, existsSync, statSync} from "node:fs";
 import {readFile, readdir, stat} from 'node:fs/promises';
@@ -30,10 +30,23 @@ import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/p
 import {
     executeHostPrivilegedAction,
     HOST_PRIVILEGED_HANDLER,
+    HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
+    HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
 } from "../utils/hostPrivilegedActions";
 import {HOST_FS_SCOPE_REGISTRY} from "../utils/privilegedFsScopeRegistry";
-import {HOST_PROCESS_SCOPE_REGISTRY} from "../utils/privilegedProcessScopeRegistry";
+import {
+    getAllHostProcessScopePolicies,
+    getHostPluginCustomProcessScopes,
+    getHostSharedProcessScopes,
+    normalizeCustomProcessScope,
+    removeHostPluginCustomProcessScopes,
+    sanitizeCustomProcessScopeId,
+    setHostPluginCustomProcessScopes,
+    setHostSharedProcessScopes,
+} from "../utils/privilegedProcessScopeRegistry";
+import {getPluginTrustTier, summarizePrivilegedRuntime} from "../utils/pluginTrustTier";
+import {buildCapabilityDeclarationSummary, extractCapabilityDeclarationComparison} from "../utils/pluginCapabilityDeclaration";
 
 function buildHostPluginMessage(message, content = undefined) {
     const envelope = { message };
@@ -44,6 +57,292 @@ function buildHostPluginMessage(message, content = undefined) {
         ...envelope,
         data: envelope,
     };
+}
+
+const pluginUiBridgeQueues = new Map();
+const PLUGIN_UI_BRIDGE_TIMEOUT_MS = 15000;
+const SDK_DIAGNOSTICS_HANDLER = "__sdk.getDiagnostics";
+const SDK_PRIVILEGED_ACTION_HANDLER = "requestPrivilegedAction";
+
+function buildPluginUiBridgeQueueKey(pluginId, pluginSessionId = "") {
+    const normalizedPluginId = String(pluginId || "").trim() || "__unknown_plugin__";
+    const normalizedSessionId = String(pluginSessionId || "").trim();
+    return normalizedSessionId ? `${normalizedPluginId}::${normalizedSessionId}` : normalizedPluginId;
+}
+
+function enqueuePluginUiBridge(pluginId, pluginSessionId, task) {
+    const key = buildPluginUiBridgeQueueKey(pluginId, pluginSessionId);
+    const previous = pluginUiBridgeQueues.get(key) || Promise.resolve();
+    const next = previous
+        .catch(() => undefined)
+        .then(() => task());
+    pluginUiBridgeQueues.set(key, next.finally(() => {
+        if (pluginUiBridgeQueues.get(key) === next) {
+            pluginUiBridgeQueues.delete(key);
+        }
+    }));
+    return next;
+}
+
+function getPluginRuntimeSessionId(pluginId, loadedPlugin = null) {
+    if (loadedPlugin && typeof loadedPlugin?.sessionId === "string" && loadedPlugin.sessionId.trim()) {
+        return loadedPlugin.sessionId.trim();
+    }
+    if (typeof PluginManager.getLoadedPluginSessionId === "function") {
+        return String(PluginManager.getLoadedPluginSessionId(pluginId) || "").trim();
+    }
+    return "";
+}
+
+function normalizePluginUiBridgeResponse(response, { handlerName = "" } = {}) {
+    if (response === undefined || response === null) {
+        return {
+            ok: false,
+            error: `Plugin backend handler "${handlerName || "unknown"}" returned no response.`,
+            code: "PLUGIN_BACKEND_EMPTY_RESPONSE",
+        };
+    }
+
+    if (typeof response !== "object") {
+        return response;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(response, "ok")) {
+        return response;
+    }
+
+    if (typeof response.error === "string" && response.error.trim()) {
+        return {
+            ok: false,
+            code: response.code || "PLUGIN_BACKEND_ERROR",
+            ...response,
+        };
+    }
+
+    return response;
+}
+
+function sanitizeScopePolicy(policy = {}) {
+    return {
+        scope: typeof policy.scope === "string" ? policy.scope : "",
+        kind: typeof policy.kind === "string" ? policy.kind : "",
+        title: typeof policy.title === "string" ? policy.title : "",
+        category: typeof policy.category === "string" ? policy.category : "",
+        description: typeof policy.description === "string" ? policy.description : "",
+        fallback: policy.fallback === true,
+        userDefined: policy.userDefined === true,
+        shared: policy.shared === true,
+        ownerType: typeof policy.ownerType === "string" ? policy.ownerType : "",
+        ownerPluginId: typeof policy.ownerPluginId === "string" ? policy.ownerPluginId : "",
+        requireConfirmation: policy.requireConfirmation === true,
+        allowedRoots: Array.isArray(policy.allowedRoots) ? [...policy.allowedRoots] : undefined,
+        allowedOperationTypes: Array.isArray(policy.allowedOperationTypes) ? [...policy.allowedOperationTypes] : undefined,
+        allowedExecutables: Array.isArray(policy.allowedExecutables) ? [...policy.allowedExecutables] : undefined,
+        allowedCwdRoots: Array.isArray(policy.allowedCwdRoots) ? [...policy.allowedCwdRoots] : undefined,
+        allowedEnvKeys: Array.isArray(policy.allowedEnvKeys) ? [...policy.allowedEnvKeys] : undefined,
+        timeoutCeilingMs: Number.isFinite(policy.timeoutCeilingMs) ? Number(policy.timeoutCeilingMs) : undefined,
+    };
+}
+
+function formatPrivilegedAuditEventText(event = {}) {
+    const isoTs = typeof event?.timestamp === "string" && event.timestamp.trim() ? event.timestamp : "unknown-ts";
+    const parts = [`- [${isoTs}] action=${event?.action || "unknown"}`];
+    if (event?.success === true) parts.push("outcome=success");
+    else if (event?.success === false) parts.push("outcome=failure");
+    if (event?.scope) parts.push(`scope=${event.scope}`);
+    if (event?.confirmationDecision) parts.push(`approval=${event.confirmationDecision}`);
+    if (event?.workflowId) parts.push(`workflowId=${event.workflowId}`);
+    if (event?.workflowStatus) parts.push(`workflowStatus=${event.workflowStatus}`);
+    if (event?.stepId) parts.push(`stepId=${event.stepId}`);
+    if (event?.stepStatus) parts.push(`stepStatus=${event.stepStatus}`);
+    if (event?.correlationId) parts.push(`correlationId=${event.correlationId}`);
+    if (event?.stepCorrelationId) parts.push(`stepCorrelationId=${event.stepCorrelationId}`);
+    if (event?.error?.code) parts.push(`code=${event.error.code}`);
+    const lines = [parts.join(" | ")];
+    if (event?.workflowTitle) lines.push(`  workflowTitle=${event.workflowTitle}`);
+    if (event?.stepTitle) lines.push(`  stepTitle=${event.stepTitle}`);
+    if (event?.command) {
+        const args = Array.isArray(event?.args) ? event.args.join(" ") : "";
+        lines.push(`  command=${[event.command, args].filter(Boolean).join(" ").trim()}`);
+    }
+    if (event?.cwd) lines.push(`  cwd=${event.cwd}`);
+    if (event?.error?.message) lines.push(`  error=${event.error.message}`);
+    return lines.join("\n");
+}
+
+async function postPluginUiMessageAndAwaitResult(child, pluginId, content, options = {}) {
+    const handlerName = String(content?.handler || "").trim() || "unknown";
+    const timeoutMs = Math.max(500, Math.min(60000, Number(options?.timeoutMs || PLUGIN_UI_BRIDGE_TIMEOUT_MS)));
+
+    return new Promise((resolve) => {
+        let settled = false;
+        let timeoutHandle = null;
+
+        const finish = (payload) => {
+            if (settled) return;
+            settled = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+            child.off("message", onMessage);
+            resolve(payload);
+        };
+
+        const onMessage = (message) => {
+            if (!message || message.type !== "UI_MESSAGE") {
+                return;
+            }
+            finish(message.response);
+        };
+
+        child.on("message", onMessage);
+        timeoutHandle = setTimeout(() => {
+            finish({
+                ok: false,
+                error: `Timed out waiting for plugin backend handler "${handlerName}" response.`,
+                code: "PLUGIN_BACKEND_TIMEOUT",
+            });
+        }, timeoutMs);
+
+        try {
+            child.postMessage(buildHostPluginMessage("UI_MESSAGE", content));
+        } catch (error) {
+            finish({
+                ok: false,
+                error: error?.message || String(error),
+                code: "PLUGIN_BACKEND_DISPATCH_FAILED",
+            });
+        }
+    });
+}
+
+async function fetchPluginBackendDiagnostics(child, pluginId) {
+    try {
+        return await postPluginUiMessageAndAwaitResult(child, pluginId, {
+            handler: SDK_DIAGNOSTICS_HANDLER,
+            content: {
+                notificationsLimit: 5,
+            },
+        }, {
+            timeoutMs: 2500,
+        });
+    } catch (_) {
+        return null;
+    }
+}
+
+function enrichEmptyPluginUiBridgeResponse(handlerName, diagnostics) {
+    const registeredHandlers = Array.isArray(diagnostics?.capabilities?.registeredHandlers)
+        ? diagnostics.capabilities.registeredHandlers.filter((entry) => typeof entry === "string" && entry.trim())
+        : [];
+    const lastErrorMessage = typeof diagnostics?.health?.lastErrorMessage === "string"
+        ? diagnostics.health.lastErrorMessage.trim()
+        : "";
+    const pluginId = typeof diagnostics?.pluginId === "string" ? diagnostics.pluginId.trim() : "";
+
+    if (registeredHandlers.length > 0 && !registeredHandlers.includes(handlerName)) {
+        return {
+            ok: false,
+            error: `Plugin backend handler "${handlerName}" is not registered.${pluginId ? ` Plugin scope: ${pluginId}.` : ""} Registered handlers: ${registeredHandlers.join(", ")}.`,
+            code: "PLUGIN_BACKEND_HANDLER_NOT_REGISTERED",
+            details: {
+                registeredHandlers,
+                pluginId,
+            },
+        };
+    }
+
+    if (lastErrorMessage) {
+        return {
+            ok: false,
+            error: `Plugin backend handler "${handlerName}" failed before returning a response. ${lastErrorMessage}`,
+            code: "PLUGIN_BACKEND_HANDLER_FAILED",
+            details: {
+                pluginId,
+                lastErrorMessage,
+            },
+        };
+    }
+
+    return {
+        ok: false,
+        error: `Plugin backend handler "${handlerName}" returned no response. Check that the handler is registered and returns the result of the SDK request helper.`,
+        code: "PLUGIN_BACKEND_EMPTY_RESPONSE",
+        details: {
+            pluginId,
+            registeredHandlers,
+        },
+    };
+}
+
+async function dispatchPluginUiMessageAndAwaitResult(pluginId, plugin, content, options = {}) {
+    const handlerName = String(content?.handler || "").trim() || "unknown";
+    const timeoutMs = Math.max(500, Math.min(60000, Number(options?.timeoutMs || PLUGIN_UI_BRIDGE_TIMEOUT_MS)));
+    const child = plugin?.instance;
+    const requestedSessionId = getPluginRuntimeSessionId(pluginId, plugin);
+
+    if (!child || typeof child.postMessage !== "function") {
+        return {
+            ok: false,
+            error: `Plugin "${pluginId}" backend bridge is unavailable.`,
+            code: "PLUGIN_BACKEND_UNAVAILABLE",
+        };
+    }
+
+    if (typeof child.on !== "function" || typeof child.off !== "function") {
+        return {
+            ok: false,
+            error: `Plugin "${pluginId}" backend bridge does not support response waiting.`,
+            code: "PLUGIN_BACKEND_UNSUPPORTED_BRIDGE",
+        };
+    }
+
+    return enqueuePluginUiBridge(pluginId, requestedSessionId, async () => {
+        console.info("[PLUGIN_UI_BRIDGE_REQUEST]", JSON.stringify({
+            pluginId,
+            sessionId: requestedSessionId,
+            handler: handlerName,
+            timeoutMs,
+        }));
+
+        const rawResponse = await postPluginUiMessageAndAwaitResult(child, pluginId, content, {timeoutMs});
+        const activePlugin = PluginManager.getLoadedPlugin(pluginId);
+        const activeSessionId = getPluginRuntimeSessionId(pluginId, activePlugin);
+        if (activePlugin?.instance !== child || (requestedSessionId && activeSessionId !== requestedSessionId)) {
+            console.warn("[PLUGIN_UI_BRIDGE_STALE_SESSION]", JSON.stringify({
+                pluginId,
+                requestedSessionId,
+                activeSessionId,
+                handler: handlerName,
+            }));
+            return {
+                ok: false,
+                error: `Plugin "${pluginId}" backend response was ignored because runtime session changed during request.`,
+                code: "PLUGIN_BACKEND_STALE_SESSION",
+                details: {
+                    requestedSessionId,
+                    activeSessionId,
+                },
+            };
+        }
+        let normalized = normalizePluginUiBridgeResponse(rawResponse, { handlerName });
+
+        if (normalized?.code === "PLUGIN_BACKEND_EMPTY_RESPONSE" && handlerName !== SDK_DIAGNOSTICS_HANDLER) {
+            const diagnostics = await fetchPluginBackendDiagnostics(child, pluginId);
+            normalized = enrichEmptyPluginUiBridgeResponse(handlerName, diagnostics);
+        }
+
+        console.info("[PLUGIN_UI_BRIDGE_RESPONSE]", JSON.stringify({
+            pluginId,
+            sessionId: activeSessionId || requestedSessionId,
+            handler: handlerName,
+            ok: normalized?.ok,
+            code: normalized?.code || "",
+            correlationId: normalized?.correlationId || "",
+        }));
+        return normalized;
+    });
 }
 
 export async function buildUsingEsbuild(virtualData) {
@@ -179,15 +478,25 @@ async function getPluginLogTail(pluginId, options = {}) {
 async function getPluginLogTrace(pluginId, options = {}) {
     const maxNotifications = Math.max(1, Math.min(20, Number(options?.maxNotifications || 8)));
     const maxLifecycleEvents = Math.max(5, Math.min(200, Number(options?.maxLifecycleEvents || 80)));
+    const diagnostics = typeof PluginManager.getPluginDiagnostics === "function"
+        ? await PluginManager.getPluginDiagnostics(pluginId, {refreshIfMissing: true, timeoutMs: 1800})
+        : null;
+    const capabilityIntent = diagnostics?.capabilities?.declaration || null;
+    const capabilityIntentSummary = buildCapabilityDeclarationSummary(capabilityIntent || {});
     const runtimeStatus = {
         loading: !!PluginManager.loadingPlugins?.[pluginId],
         loaded: !!PluginManager.getLoadedPlugin(pluginId),
         ready: !!PluginManager.getLoadedPluginReady(pluginId),
         inited: !!PluginManager.getLoadedPluginInited(pluginId),
         lastUnload: PluginManager.lastUnloadByPlugin?.[pluginId] || null,
+        capabilityIntent,
+        capabilityIntentSummary,
     };
     const lifecycleEvents = typeof PluginManager.getPluginEventTrace === "function"
         ? PluginManager.getPluginEventTrace(pluginId, {limit: maxLifecycleEvents})
+        : [];
+    const privilegedAuditEvents = typeof PluginManager.getPrivilegedAuditTrail === "function"
+        ? PluginManager.getPrivilegedAuditTrail(pluginId, {limit: 40})
         : [];
     const liveOutputTail = Array.isArray(PluginManager.pluginRuntimeOutputTail?.[pluginId])
         ? PluginManager.pluginRuntimeOutputTail[pluginId]
@@ -225,6 +534,9 @@ async function getPluginLogTrace(pluginId, options = {}) {
         runtimeStatus.lastUnload
             ? `lastUnload=${JSON.stringify(runtimeStatus.lastUnload)}`
             : "lastUnload=none",
+        capabilityIntentSummary?.title
+            ? `capabilityIntent=${capabilityIntentSummary.title}; declared=${capabilityIntent?.declared?.length || 0}; missingDeclared=${capabilityIntent?.missingDeclared?.length || 0}; undeclaredGranted=${capabilityIntent?.undeclaredGranted?.length || 0}`
+            : "capabilityIntent=unavailable",
     ].join("\n");
     const lifecycleText = lifecycleEvents.length > 0
         ? lifecycleEvents.map((entry) => {
@@ -235,12 +547,18 @@ async function getPluginLogTrace(pluginId, options = {}) {
     const liveOutputText = liveOutputTail.length > 0
         ? liveOutputTail.join("\n")
         : "No active runtime stdout/stderr tail available.";
+    const privilegedAuditText = privilegedAuditEvents.length > 0
+        ? privilegedAuditEvents.map((entry) => formatPrivilegedAuditEventText(entry)).join("\n\n")
+        : "No in-memory privileged audit trail available.";
 
     const combined = [
         runtimeText,
         "",
         "Host lifecycle trace:",
         lifecycleText,
+        "",
+        "Privileged audit trail:",
+        privilegedAuditText,
         "",
         "Live runtime output tail:",
         liveOutputText,
@@ -257,6 +575,7 @@ async function getPluginLogTrace(pluginId, options = {}) {
         pluginId,
         runtimeStatus,
         lifecycleEvents,
+        privilegedAuditEvents,
         liveOutputTail,
         notifications: relatedNotifications,
         logTail: tail,
@@ -265,7 +584,20 @@ async function getPluginLogTrace(pluginId, options = {}) {
 }
 
 export function registerPluginHandlers() {
+    const userORM = new UserORM(USER_CONFIG_FILE);
+    const syncProcessScopeRegistries = () => {
+        const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+        setHostSharedProcessScopes(userORM.getSharedProcessScopes());
+        for (const plugin of pluginORM.getAllPlugins()) {
+            setHostPluginCustomProcessScopes(plugin.id, plugin.customProcessScopes || []);
+        }
+    };
+    syncProcessScopeRegistries();
+
     const emitPrivilegedAudit = (event) => {
+        if (event?.pluginId) {
+            PluginManager.recordPrivilegedAudit(event.pluginId, event);
+        }
         console.info("[PLUGIN_PRIVILEGED_AUDIT]", JSON.stringify(event));
     };
 
@@ -280,23 +612,49 @@ export function registerPluginHandlers() {
             correlationId,
             grantedCapabilities: loadedPlugin?.grantedCapabilities || [],
             onAudit: emitPrivilegedAudit,
+            approvalSessionStore: typeof PluginManager.getPrivilegedApprovalSession === "function"
+                ? PluginManager.getPrivilegedApprovalSession(pluginId)
+                : null,
             confirmPrivilegedAction: async ({title, message, detail, confirmLabel, cancelLabel, action}) => {
+                if (process.env.FDO_E2E === "1") {
+                    const confirmMode = String(process.env.FDO_E2E_PRIVILEGED_CONFIRM_MODE || "").toLowerCase().trim();
+                    if (confirmMode === "approve") {
+                        return true;
+                    }
+                    if (confirmMode === "deny") {
+                        return false;
+                    }
+                    if (process.env.FDO_E2E_AUTO_APPROVE_PRIVILEGED !== "0") {
+                        return true;
+                    }
+                }
                 const defaultTitle = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
                     ? "Confirm Scoped Process Execution"
-                    : "Confirm Privileged Plugin Action";
+                    : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ
+                        ? "Confirm Clipboard Read"
+                        : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE
+                            ? "Confirm Clipboard Write"
+                            : "Confirm Privileged Plugin Action";
                 const defaultMessage = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
                     ? "Plugin requests running an approved external tool"
-                    : "Plugin requests a privileged host action";
-                const result = await dialog.showMessageBox({
-                    type: "warning",
-                    title: title || defaultTitle,
-                    message: message || defaultMessage,
-                    detail: detail || "",
-                    buttons: [cancelLabel || "Cancel", confirmLabel || "Apply"],
-                    cancelId: 0,
-                    defaultId: 1,
-                    noLink: true,
-                });
+                    : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ
+                        ? "Plugin requests reading host clipboard text"
+                        : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE
+                            ? "Plugin requests writing host clipboard text"
+                            : "Plugin requests a privileged host action";
+                const result = await Promise.race([
+                    dialog.showMessageBox({
+                        type: "warning",
+                        title: title || defaultTitle,
+                        message: message || defaultMessage,
+                        detail: detail || "",
+                        buttons: [cancelLabel || "Cancel", confirmLabel || "Apply"],
+                        cancelId: 0,
+                        defaultId: 1,
+                        noLink: true,
+                    }),
+                    new Promise((resolve) => setTimeout(() => resolve({response: 0}), 45000)),
+                ]);
                 return result.response === 1;
             },
         });
@@ -418,6 +776,7 @@ export function registerPluginHandlers() {
             const plugin = pluginORM.getPlugin(id)
             rmSync(plugin.home, {recursive: true, force: true})
             pluginORM.removePlugin(plugin.id)
+            removeHostPluginCustomProcessScopes(plugin.id)
             return {success: true};
         } catch (error) {
             return {success: false, error: error.message};
@@ -444,34 +803,242 @@ export function registerPluginHandlers() {
         }
     });
 
-    ipcMain.handle(PluginChannels.GET_SCOPE_POLICIES, async () => {
+    ipcMain.handle(PluginChannels.GET_SCOPE_POLICIES, async (_event, pluginId = "") => {
         try {
             return {
                 success: true,
                 scopes: [
-                    ...Object.values(HOST_FS_SCOPE_REGISTRY || {}),
-                    ...Object.values(HOST_PROCESS_SCOPE_REGISTRY || {}),
-                ],
+                    ...Object.values(HOST_FS_SCOPE_REGISTRY || {}).map((policy) => sanitizeScopePolicy(policy)),
+                    ...Object.values(getAllHostProcessScopePolicies({pluginId}) || {}).map((policy) => sanitizeScopePolicy(policy)),
+                ].filter((policy) => policy.scope),
             };
         } catch (error) {
             return {success: false, error: error.message, scopes: []};
         }
     });
 
+    ipcMain.handle(PluginChannels.GET_SHARED_PROCESS_SCOPES, async () => {
+        try {
+            const scopes = userORM.getSharedProcessScopes().map((scope) => sanitizeScopePolicy(normalizeCustomProcessScope(scope, {shared: true})));
+            setHostSharedProcessScopes(scopes);
+            return {success: true, scopes};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.UPSERT_SHARED_PROCESS_SCOPE, async (_event, scope) => {
+        try {
+            const existing = userORM.getSharedProcessScopes();
+            const normalized = normalizeCustomProcessScope(scope, {shared: true});
+            const nextScopes = [
+                ...existing.filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalized.scope),
+                normalized,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            userORM.setSharedProcessScopes(nextScopes);
+            setHostSharedProcessScopes(nextScopes);
+            return {
+                success: true,
+                scope: sanitizeScopePolicy(normalized),
+                scopes: getHostSharedProcessScopes().map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.DELETE_SHARED_PROCESS_SCOPE, async (_event, scopeId) => {
+        try {
+            const normalizedScopeId = sanitizeCustomProcessScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Custom process scope id is required.", scopes: []};
+            }
+            const nextScopes = userORM.getSharedProcessScopes()
+                .filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalizedScopeId);
+            userORM.setSharedProcessScopes(nextScopes);
+            setHostSharedProcessScopes(nextScopes);
+            return {
+                success: true,
+                scopes: getHostSharedProcessScopes().map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_PLUGIN_CUSTOM_PROCESS_SCOPES, async (_event, pluginId = "") => {
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const scopes = pluginORM.getPluginCustomProcessScopes(pluginId)
+                .map((scope) => sanitizeScopePolicy(normalizeCustomProcessScope(scope, {pluginId})));
+            setHostPluginCustomProcessScopes(pluginId, scopes);
+            return {success: true, scopes};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.UPSERT_PLUGIN_CUSTOM_PROCESS_SCOPE, async (_event, pluginId = "", scope) => {
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const existing = pluginORM.getPluginCustomProcessScopes(pluginId);
+            const normalized = normalizeCustomProcessScope(scope, {pluginId});
+            const nextScopes = [
+                ...existing.filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalized.scope),
+                normalized,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            const result = pluginORM.setPluginCustomProcessScopes(pluginId, nextScopes);
+            if (!result.success) {
+                return {success: false, error: result.error, scopes: []};
+            }
+            setHostPluginCustomProcessScopes(pluginId, nextScopes);
+            return {
+                success: true,
+                scope: sanitizeScopePolicy(normalized),
+                scopes: getHostPluginCustomProcessScopes(pluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.DELETE_PLUGIN_CUSTOM_PROCESS_SCOPE, async (_event, pluginId = "", scopeId) => {
+        try {
+            const normalizedScopeId = sanitizeCustomProcessScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Custom process scope id is required.", scopes: []};
+            }
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const nextScopes = pluginORM.getPluginCustomProcessScopes(pluginId)
+                .filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalizedScopeId);
+            const result = pluginORM.setPluginCustomProcessScopes(pluginId, nextScopes);
+            if (!result.success) {
+                return {success: false, error: result.error, scopes: []};
+            }
+            setHostPluginCustomProcessScopes(pluginId, nextScopes);
+            return {
+                success: true,
+                scopes: getHostPluginCustomProcessScopes(pluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_CUSTOM_PROCESS_SCOPES, async () => {
+        try {
+            const scopes = userORM.getSharedProcessScopes().map((scope) => sanitizeScopePolicy(normalizeCustomProcessScope(scope, {shared: true})));
+            setHostSharedProcessScopes(scopes);
+            return {success: true, scopes};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+    ipcMain.handle(PluginChannels.UPSERT_CUSTOM_PROCESS_SCOPE, async (_event, scope) => {
+        try {
+            const existing = userORM.getSharedProcessScopes();
+            const normalized = normalizeCustomProcessScope(scope, {shared: true});
+            const nextScopes = [
+                ...existing.filter((item) => String(item?.scope || "").trim() !== normalized.scope),
+                normalized,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            userORM.setSharedProcessScopes(nextScopes);
+            setHostSharedProcessScopes(nextScopes);
+            return {
+                success: true,
+                scope: sanitizeScopePolicy(normalized),
+                scopes: getHostSharedProcessScopes().map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+    ipcMain.handle(PluginChannels.DELETE_CUSTOM_PROCESS_SCOPE, async (_event, scopeId) => {
+        try {
+            const normalizedScopeId = sanitizeCustomProcessScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Custom process scope id is required.", scopes: []};
+            }
+            const nextScopes = userORM.getSharedProcessScopes()
+                .filter((item) => String(item?.scope || "").trim() !== normalizedScopeId);
+            userORM.setSharedProcessScopes(nextScopes);
+            setHostSharedProcessScopes(nextScopes);
+            return {
+                success: true,
+                scopes: getHostSharedProcessScopes().map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
     ipcMain.handle(PluginChannels.GET_RUNTIME_STATUS, async (event, ids = []) => {
         try {
+            if (typeof PluginManager.pruneStaleLoadingPlugins === "function") {
+                PluginManager.pruneStaleLoadingPlugins(15000);
+            }
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
             const requestedIds = Array.isArray(ids) ? ids : [];
-            const statuses = requestedIds.map((id) => ({
-                id,
-                loading: !!PluginManager.loadingPlugins?.[id],
-                loaded: !!PluginManager.getLoadedPlugin(id),
-                ready: !!PluginManager.getLoadedPluginReady(id),
-                inited: !!PluginManager.getLoadedPluginInited(id),
-                lastUnload: PluginManager.lastUnloadByPlugin?.[id] || null,
+            const statuses = await Promise.all(requestedIds.map(async (id) => {
+                const diagnostics = typeof PluginManager.getPluginDiagnostics === "function"
+                    ? await PluginManager.getPluginDiagnostics(id, {refreshIfMissing: true, timeoutMs: 1800})
+                    : null;
+                const persistedPlugin = pluginORM.getPlugin(id);
+                const persistedCapabilities = Array.isArray(persistedPlugin?.capabilities)
+                    ? persistedPlugin.capabilities
+                    : [];
+                const loadedPluginCapabilities = Array.isArray(PluginManager.getLoadedPlugin(id)?.grantedCapabilities)
+                    ? PluginManager.getLoadedPlugin(id).grantedCapabilities
+                    : null;
+                const currentGrantedCapabilities = loadedPluginCapabilities ?? persistedCapabilities;
+                const capabilityIntent = extractCapabilityDeclarationComparison(diagnostics, currentGrantedCapabilities);
+                return {
+                    id,
+                    loading: !!PluginManager.loadingPlugins?.[id] && !PluginManager.getLoadedPluginReady(id) && !PluginManager.getLoadedPluginInited(id),
+                    loaded: !!PluginManager.getLoadedPlugin(id),
+                    ready: !!PluginManager.getLoadedPluginReady(id),
+                    inited: !!PluginManager.getLoadedPluginInited(id),
+                    diagnosticsLastError: typeof diagnostics?.health?.lastErrorMessage === "string"
+                        ? diagnostics.health.lastErrorMessage
+                        : "",
+                    lastUnload: PluginManager.lastUnloadByPlugin?.[id] || null,
+                    trustTier: getPluginTrustTier(currentGrantedCapabilities),
+                    privilegedAuditCount: typeof PluginManager.getPrivilegedAuditTrail === "function"
+                        ? PluginManager.getPrivilegedAuditTrail(id, {limit: 200}).length
+                        : 0,
+                    lastPrivilegedAudit: typeof PluginManager.getPrivilegedAuditTrail === "function"
+                        ? (PluginManager.getPrivilegedAuditTrail(id, {limit: 1})[0] || null)
+                        : null,
+                    diagnosticsSummary: typeof PluginManager.getPrivilegedAuditTrail === "function"
+                        ? summarizePrivilegedRuntime(PluginManager.getPrivilegedAuditTrail(id, {limit: 80}))
+                        : summarizePrivilegedRuntime([]),
+                    capabilityIntent,
+                    capabilityIntentSummary: buildCapabilityDeclarationSummary(capabilityIntent || {}),
+                };
             }));
             return { success: true, statuses };
         } catch (error) {
             return { success: false, error: error.message, statuses: [] };
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_PRIVILEGED_AUDIT, async (_event, id, options = {}) => {
+        try {
+            const events = typeof PluginManager.getPrivilegedAuditTrail === "function"
+                ? PluginManager.getPrivilegedAuditTrail(id, options)
+                : [];
+            return {
+                success: true,
+                pluginId: id,
+                events,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                pluginId: id,
+                error: error?.message || String(error),
+                events: [],
+            };
         }
     });
 
@@ -492,7 +1059,7 @@ export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.DEACTIVATE, async (event, id) => {
         const userORM = new UserORM(USER_CONFIG_FILE);
         try {
-            PluginManager.unLoadPlugin(id)
+            PluginManager.unLoadPlugin(id, {force: true, reason: "manual_unload"})
             userORM.deactivatePlugin(id)
             return {success: true};
         } catch (error) {
@@ -535,20 +1102,47 @@ export function registerPluginHandlers() {
         if (!plugin.ready) {
             return {success: false, error: `Plugin "${id}" is not ready`};
         }
-        plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_INIT", {
-            ...buildPluginInitPayload(plugin.grantedCapabilities || resolveHostGrantedCapabilities()),
-        }))
-        return {success: true};
+        // Idempotent init: avoid duplicate init/render cascades when multiple
+        // renderer paths request init during startup reconciliation.
+        if (plugin.inited) {
+            return {success: true, alreadyInited: true};
+        }
+        if (plugin.initRequested) {
+            return {success: true, initInFlight: true};
+        }
+        plugin.initRequested = true;
+        try {
+            plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_INIT", {
+                ...buildPluginInitPayload(plugin.grantedCapabilities || resolveHostGrantedCapabilities()),
+            }))
+            return {success: true};
+        } catch (error) {
+            plugin.initRequested = false;
+            return {success: false, error: error?.message || String(error)};
+        }
     })
 
     ipcMain.handle(PluginChannels.RENDER, async (event, id) => {
         const plugin = PluginManager.getLoadedPlugin(id)
         if (!plugin) {
+            console.warn("[PLUGIN_RENDER_REQUEST_REJECTED]", JSON.stringify({
+                pluginId: id,
+                reason: "not_loaded",
+            }));
             return {success: false, error: `Plugin "${id}" is not loaded`};
         }
         if (!plugin.ready) {
+            console.warn("[PLUGIN_RENDER_REQUEST_REJECTED]", JSON.stringify({
+                pluginId: id,
+                reason: "not_ready",
+                sessionId: getPluginRuntimeSessionId(id, plugin),
+            }));
             return {success: false, error: `Plugin "${id}" is not ready`};
         }
+        console.info("[PLUGIN_RENDER_REQUEST]", JSON.stringify({
+            pluginId: id,
+            sessionId: getPluginRuntimeSessionId(id, plugin),
+        }));
         plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_RENDER"))
         return {success: true};
     })
@@ -561,11 +1155,46 @@ export function registerPluginHandlers() {
         if (!plugin.ready) {
             return {success: false, error: `Plugin "${id}" is not ready`};
         }
-        if (content?.handler === HOST_PRIVILEGED_HANDLER) {
-            return handlePrivilegedAction(id, plugin, content?.content || {});
+        const sessionId = getPluginRuntimeSessionId(id, plugin);
+        console.info("[PLUGIN_UI_MESSAGE_RESOLVE]", JSON.stringify({
+            pluginId: id,
+            sessionId,
+            handler: String(content?.handler || "").trim(),
+        }));
+        if (content?.handler === HOST_PRIVILEGED_HANDLER || content?.handler === SDK_PRIVILEGED_ACTION_HANDLER) {
+            try {
+                const response = await handlePrivilegedAction(id, plugin, content?.content || {});
+                console.info("[PLUGIN_UI_BRIDGE_PRIVILEGED_RESULT]", JSON.stringify({
+                    pluginId: id,
+                    sessionId,
+                    handler: content?.handler || HOST_PRIVILEGED_HANDLER,
+                    ok: response?.ok,
+                    code: response?.code || "",
+                    correlationId: response?.correlationId || "",
+                }));
+                return response;
+            } catch (error) {
+                const correlationId = typeof content?.content?.correlationId === "string"
+                    ? content.content.correlationId
+                    : `priv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                const failure = {
+                    ok: false,
+                    correlationId,
+                    error: error?.message || String(error),
+                    code: error?.code || "HOST_ACTION_FAILED",
+                };
+                console.warn("[PLUGIN_UI_BRIDGE_PRIVILEGED_ERROR]", JSON.stringify({
+                    pluginId: id,
+                    sessionId,
+                    handler: content?.handler || HOST_PRIVILEGED_HANDLER,
+                    code: failure.code,
+                    correlationId: failure.correlationId,
+                    error: failure.error,
+                }));
+                return failure;
+            }
         }
-        plugin.instance.postMessage(buildHostPluginMessage("UI_MESSAGE", content))
-        return {success: true};
+        return await dispatchPluginUiMessageAndAwaitResult(id, plugin, content);
     })
 
     ipcMain.handle(PluginChannels.BUILD, async (event, data) => {
@@ -590,6 +1219,7 @@ export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.DEPLOY_FROM_EDITOR, async (event, data) => {
         try {
             const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const userORM = new UserORM(USER_CONFIG_FILE);
             const plugin = pluginORM.getPlugin(data.name);
             let pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
             if (plugin) {
@@ -605,6 +1235,14 @@ export function registerPluginHandlers() {
             }
             const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : (plugin?.capabilities || []);
             pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true, capabilities)
+            const shouldReload = !!PluginManager.getLoadedPlugin(data.name) || userORM.getActivatedPlugins().includes(data.name);
+            if (shouldReload) {
+                PluginManager.unLoadPlugin(data.name, {force: true});
+                const reloadResult = await PluginManager.loadPlugin(data.name);
+                if (!reloadResult?.success) {
+                    return {success: false, error: reloadResult?.error || `Failed to reload plugin "${data.name}" after deploy.`};
+                }
+            }
 
             const mainWindow = PluginManager.mainWindow
             if (mainWindow) {
@@ -645,9 +1283,14 @@ export function registerPluginHandlers() {
                 mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
             }
 
-            const editorWindowInstance = editorWindow.getWindow()
-            if (editorWindowInstance) {
-                editorWindowInstance.destroy();
+            const senderWindow = BrowserWindow.fromWebContents(event.sender);
+            if (senderWindow && !senderWindow.isDestroyed()) {
+                senderWindow.destroy();
+            } else {
+                const editorWindowInstance = editorWindow.getWindow();
+                if (editorWindowInstance && !editorWindowInstance.isDestroyed()) {
+                    editorWindowInstance.destroy();
+                }
             }
 
             return {success: true}
@@ -709,6 +1352,20 @@ export function registerPluginHandlers() {
                 return result;
             }
             const plugin = pluginORM.getPlugin(id);
+            if (PluginManager.getLoadedPlugin(id)) {
+                PluginManager.getLoadedPlugin(id).grantedCapabilities = Array.isArray(result.capabilities)
+                    ? [...result.capabilities]
+                    : [];
+                if (typeof PluginManager.clearPrivilegedApprovalSession === "function") {
+                    PluginManager.clearPrivilegedApprovalSession(id);
+                }
+                if (typeof PluginManager.clearPrivilegedAuditTrail === "function") {
+                    PluginManager.clearPrivilegedAuditTrail(id);
+                }
+                if (typeof PluginManager.refreshPluginDiagnostics === "function") {
+                    void PluginManager.refreshPluginDiagnostics(id, {timeoutMs: 1800});
+                }
+            }
             return {success: true, capabilities: result.capabilities, plugin};
         } catch (error) {
             return {success: false, error: error?.message || String(error)};

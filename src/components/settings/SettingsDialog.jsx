@@ -12,6 +12,7 @@ import PropTypes from "prop-types";
 import {GeneralPanel} from "./panels/GeneralPanel.jsx";
 import {CertificatePanel} from "./panels/CertificatePanel.jsx";
 import AIAssistantsPanel from "./panels/AIAssistantsPanel";
+import SharedProcessScopesPanel from "./panels/SharedProcessScopesPanel.jsx";
 
 export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
     const [activeTab, setActiveTab] = useState(localStorage.getItem("activeSettingsTab") || "general");
@@ -107,6 +108,27 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                      panelClassName={styles["panel"]}
                      panel={
                          <AIAssistantsPanel/>
+                     }/>
+                <Tab id={"shared-process-scopes"}
+                     title={
+                         <div style={{verticalAlign: "center", width: "180px"}}
+                              className={"bp6-text-overflow-ellipsis"}>
+                             <Icon icon={"flows"} intent={"primary"}/>
+                             <span style={{
+                                 marginLeft: "5px",
+                                 fontSize: "0.8rem",
+                                 lineHeight: "10px",
+                                 textOverflow: "ellipsis"
+                             }}
+                                   className={classNames("bp6-text-muted")}>Shared Scopes</span>
+                         </div>
+                     }
+                     style={{
+                         borderBottom: "solid 1px #d4d5d7",
+                     }}
+                     panelClassName={styles["panel"]}
+                     panel={
+                         <SharedProcessScopesPanel/>
                      }/>
             </Tabs>
         </Dialog>

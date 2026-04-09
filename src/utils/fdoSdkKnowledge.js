@@ -28,6 +28,19 @@ function isOperatorStyleQuery(query = "") {
         "createoperatortoolcapabilitypreset",
         "createoperatortoolactionrequest",
         "requestoperatortool",
+        "declarecapabilities",
+        "createscopedworkflowrequest",
+        "requestscopedworkflow",
+        "system.workflow.run",
+        "process-sequence",
+        "createclipboardreadactionrequest",
+        "createclipboardwriteactionrequest",
+        "createclipboardreadrequest",
+        "createclipboardwriterequest",
+        "requestclipboardread",
+        "requestclipboardwrite",
+        "system.clipboard.read",
+        "system.clipboard.write",
         "describecapability",
         "parsemissingcapabilityerror",
         "isprivilegedactionsuccessresponse",
@@ -102,6 +115,10 @@ function getOperatorFixtureBoost(entryPath = "", query = "") {
     }
     if (/terraform/.test(normalizedQuery) && /operator-terraform-plugin\.fixture\.ts$/i.test(pathText)) {
         score += transportLevelQuery ? 16 : 40;
+    }
+    if (/(preview\/apply|preview apply|inspect\/act|inspect act|workflow)/.test(normalizedQuery)
+        && /operator-(kubernetes|terraform)-plugin\.fixture\.ts$/i.test(pathText)) {
+        score += transportLevelQuery ? 10 : 36;
     }
     if (/(internal|custom|host-specific|host specific|internal-runner)/.test(normalizedQuery) && /operator-custom-tool-plugin\.fixture\.ts$/i.test(pathText)) {
         score += transportLevelQuery ? 16 : 40;
@@ -255,6 +272,10 @@ export function shouldUseFdoSdkKnowledge({ action = "", prompt = "", code = "", 
         "requestoperatortool",
         "createoperatortoolactionrequest",
         "createoperatortoolcapabilitypreset",
+        "createscopedworkflowrequest",
+        "requestscopedworkflow",
+        "system.workflow.run",
+        "process-sequence",
         "requestscopedprocessexec",
         "createscopedprocessexecactionrequest",
         "createcapabilitybundle",
@@ -274,6 +295,8 @@ export function shouldUseFdoSdkKnowledge({ action = "", prompt = "", code = "", 
         "metadata",
         "init()",
         "render()",
+        "operator",
+        "workflow",
     ];
     const operatorSignals = [
         "system.process.exec",
@@ -291,6 +314,18 @@ export function shouldUseFdoSdkKnowledge({ action = "", prompt = "", code = "", 
         "createoperatortoolcapabilitypreset",
         "createoperatortoolactionrequest",
         "requestoperatortool",
+        "createscopedworkflowrequest",
+        "requestscopedworkflow",
+        "system.workflow.run",
+        "process-sequence",
+        "createclipboardreadactionrequest",
+        "createclipboardwriteactionrequest",
+        "createclipboardreadrequest",
+        "createclipboardwriterequest",
+        "requestclipboardread",
+        "requestclipboardwrite",
+        "system.clipboard.read",
+        "system.clipboard.write",
         "createcapabilitybundle",
         "createfilesystemcapabilitybundle",
         "createprocesscapabilitybundle",
@@ -327,6 +362,9 @@ export function shouldUseFdoSdkKnowledge({ action = "", prompt = "", code = "", 
         "scoped execution",
         "scoped tool execution",
         "host-mediated execution",
+        "multi-step operator workflow",
+        "preview/apply",
+        "inspect/act",
     ];
     const bestPracticeSignals = [
         "best practice",

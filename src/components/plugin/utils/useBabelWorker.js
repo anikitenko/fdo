@@ -8,16 +8,9 @@ function getBabelWorkerUrl() {
         return "/assets/js/babelWorker.js";
     }
 
-    if (currentUrl.startsWith("plugin://")) {
-        // Plugin page loaded via plugin:// protocol
-        return "static://assets/js/babelWorker.js";
-    }
-
-    // Production mode (file:// protocol for main window)
-    return currentUrl.replace(
-        /renderer\/index\.html$/,
-        "renderer/assets/js/babelWorker.js"
-    );
+    // Prefer static protocol for packaged/runtime builds.
+    // This is stable across file://, app:// and custom protocols.
+    return "static://host/assets/js/babelWorker.js";
 }
 
 export function useBabelWorker() {
@@ -30,17 +23,54 @@ export function useBabelWorker() {
             }
 
             const worker = workerRef.current;
+            const timeoutMs = 6000;
+            let settled = false;
+            let timeoutId = null;
+
+            const cleanup = () => {
+                worker.removeEventListener("message", handleMessage);
+                worker.removeEventListener("error", handleError);
+                worker.removeEventListener("messageerror", handleMessageError);
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+            };
 
             const handleMessage = (e) => {
+                if (settled) return;
+                settled = true;
                 if (e.data.success) {
                     resolve(e.data.code);
                 } else {
                     reject(new Error(e.data.error));
                 }
-                worker.removeEventListener("message", handleMessage);
+                cleanup();
+            };
+
+            const handleError = (event) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(new Error(event?.message || "Babel worker failed to load."));
+            };
+
+            const handleMessageError = () => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(new Error("Babel worker message deserialization failed."));
             };
 
             worker.addEventListener("message", handleMessage);
+            worker.addEventListener("error", handleError);
+            worker.addEventListener("messageerror", handleMessageError);
+            timeoutId = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(new Error("Babel worker transform timed out."));
+            }, timeoutMs);
             worker.postMessage({ code, options });
         });
     }

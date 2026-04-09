@@ -137,6 +137,49 @@ describe("plugin IPC privileged action transport", () => {
         expect(postMessage).not.toHaveBeenCalled();
     });
 
+    test("routes SDK requestPrivilegedAction handler alias to the same host privileged transport", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+
+        const postMessage = jest.fn();
+        PluginManager.getLoadedPlugin.mockReturnValue({
+            ready: true,
+            grantedCapabilities: ["system.process.exec", "system.process.scope.terraform"],
+            instance: {postMessage},
+        });
+
+        ipcMain.handle.mockClear();
+        registerPluginHandlers();
+        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
+
+        const response = await uiHandler({}, "plugin-x", {
+            handler: "requestPrivilegedAction",
+            content: {
+                correlationId: "corr-sdk-alias",
+                request: {
+                    action: "system.process.exec",
+                    payload: {
+                        scope: "terraform",
+                        command: "/usr/local/bin/terraform",
+                        args: ["plan"],
+                        cwd: "/tmp",
+                    },
+                },
+            },
+        });
+
+        expect(executeHostPrivilegedAction).toHaveBeenCalledTimes(1);
+        expect(response).toEqual(expect.objectContaining({
+            ok: true,
+            correlationId: "corr-sdk-alias",
+        }));
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
     test("routes process privileged action with correlation id and returns response payload", async () => {
         jest.resetModules();
         const {ipcMain} = require("electron");
@@ -190,6 +233,93 @@ describe("plugin IPC privileged action transport", () => {
             correlationId: "corr-proc",
             result: expect.objectContaining({
                 command: "/usr/local/bin/docker",
+            }),
+        }));
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    test("routes workflow privileged action with correlation id and returns response payload", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+
+        executeHostPrivilegedAction.mockResolvedValueOnce({
+            ok: true,
+            correlationId: "corr-workflow",
+            result: {
+                workflowId: "wf-1",
+                kind: "process-sequence",
+                scope: "docker-cli",
+                status: "completed",
+                steps: [{
+                    stepId: "inspect",
+                    title: "Inspect containers",
+                    status: "ok",
+                    correlationId: "corr-workflow:step:1:inspect",
+                    result: {
+                        command: "/usr/local/bin/docker",
+                        args: ["ps"],
+                        cwd: "/tmp",
+                        exitCode: 0,
+                        stdout: "docker ps",
+                        stderr: "",
+                        durationMs: 12,
+                        dryRun: false,
+                    },
+                }],
+                summary: {
+                    totalSteps: 1,
+                    completedSteps: 1,
+                    failedSteps: 0,
+                    skippedSteps: 0,
+                },
+            },
+        });
+        const postMessage = jest.fn();
+        PluginManager.getLoadedPlugin.mockReturnValue({
+            ready: true,
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+            instance: {postMessage},
+        });
+
+        ipcMain.handle.mockClear();
+        registerPluginHandlers();
+        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
+
+        const response = await uiHandler({}, "plugin-x", {
+            handler: "__host.privilegedAction",
+            content: {
+                correlationId: "corr-workflow",
+                request: {
+                    action: "system.workflow.run",
+                    payload: {
+                        kind: "process-sequence",
+                        scope: "docker-cli",
+                        title: "Inspect and apply docker workflow",
+                        steps: [{
+                            id: "inspect",
+                            title: "Inspect containers",
+                            command: "/usr/local/bin/docker",
+                            args: ["ps"],
+                            cwd: "/tmp",
+                        }],
+                    },
+                },
+            },
+        });
+
+        expect(executeHostPrivilegedAction).toHaveBeenCalledTimes(1);
+        expect(response).toEqual(expect.objectContaining({
+            ok: true,
+            correlationId: "corr-workflow",
+            result: expect.objectContaining({
+                workflowId: "wf-1",
+                kind: "process-sequence",
+                scope: "docker-cli",
+                status: "completed",
             }),
         }));
         expect(postMessage).not.toHaveBeenCalled();

@@ -71,6 +71,7 @@ This must be:
   - `system.process.scope.<scope-id>`
 - Explain the pair as broad capability plus narrow scope.
 - Treat `examples/fixtures/` as the primary authoring entry point for operator-style plugins.
+- For shared multi-step operator flows, recommend `createScopedWorkflowRequest(...)` + `requestScopedWorkflow(...)` instead of plugin-private chaining.
 - AI guidance should recommend scoped Docker/kubectl/Helm/Terraform execution patterns instead of raw shell spawning.
 - Prefer the SDK operator-response helpers over ad hoc response-shape checks:
   - `createPrivilegedActionCorrelationId(...)`
@@ -85,6 +86,12 @@ This must be:
   - `createProcessCapabilityBundle(...)`
   - `createProcessScopeCapability(...)`
   - `requestScopedProcessExec(...)`
+- Prefer shared workflow helpers for multi-step host-mediated process orchestration:
+  - `createScopedWorkflowRequest(...)`
+  - `requestScopedWorkflow(...)`
+- Treat these as canonical workflow fixtures:
+  - `examples/fixtures/operator-terraform-plugin.fixture.ts`
+  - `examples/fixtures/operator-kubernetes-plugin.fixture.ts`
 - Prefer structured capability and denial helpers:
   - `createCapabilityBundle(...)`
   - `createFilesystemCapabilityBundle(...)`
