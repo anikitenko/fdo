@@ -103,7 +103,7 @@ function isPrivilegedFailureCode(code = "") {
 }
 
 export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRequestCommandBar}) => {
-    const BUILD_MARKER = "plugin-container-2026-04-09-iframe-visibility-fix-v4";
+    const BUILD_MARKER = "plugin-container-2026-04-10-iframe-layout-recovery-v8";
     const iframeRef = useRef(null);
     const [iframeReady, setIframeReady] = useState(false);
     const [iframeHelloNonce, setIframeHelloNonce] = useState(0);
@@ -141,6 +141,7 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
     const lastRenderPostAtRef = useRef(0);
     const lastRenderStageAtRef = useRef(0);
     const renderStageWatchdogRecoveryAttemptsRef = useRef(0);
+    const iframeCollapsedLayoutRecoveryAttemptsRef = useRef(0);
     const onCapabilityDeniedRef = useRef(onCapabilityDenied);
     const onRequestCommandBarRef = useRef(onRequestCommandBar);
     const iframeStyleLockTimerRef = useRef(null);
@@ -149,10 +150,15 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
         if (!iframeNode) return;
         iframeNode.style.setProperty("position", "static", "important");
         iframeNode.style.setProperty("inset", "auto", "important");
-        iframeNode.style.setProperty("display", "inline-block", "important");
+        iframeNode.style.setProperty("display", "block", "important");
+        iframeNode.style.setProperty("width", "100%", "important");
+        iframeNode.style.setProperty("height", "100%", "important");
+        iframeNode.style.setProperty("min-width", "1px", "important");
+        iframeNode.style.setProperty("min-height", "1px", "important");
+        iframeNode.style.setProperty("flex", "1 1 auto", "important");
+        iframeNode.style.setProperty("vertical-align", "top", "important");
         iframeNode.style.setProperty("visibility", "visible", "important");
         iframeNode.style.setProperty("opacity", "1", "important");
-        iframeNode.style.setProperty("color-scheme", "light", "important");
         iframeNode.style.setProperty("background", "#ffffff", "important");
         try {
             const computed = window.getComputedStyle(iframeNode);
@@ -306,6 +312,7 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
         lastRenderPostAtRef.current = 0;
         lastRenderStageAtRef.current = 0;
         renderStageWatchdogRecoveryAttemptsRef.current = 0;
+        iframeCollapsedLayoutRecoveryAttemptsRef.current = 0;
         latestRenderPayloadRef.current = null;
         setPluginCanRender(false);
         setIframeMounted(false);
@@ -346,7 +353,16 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
         };
 
         const handlePluginMessages = (event) => {
-            if (!isTrustedPluginFrameEvent(event, iframeRef.current?.contentWindow)) {
+            const activeIframeWindow = iframeRef.current?.contentWindow;
+            const strictSourceMatch = Boolean(activeIframeWindow && event?.source === activeIframeWindow);
+            if (!strictSourceMatch && isTrustedPluginFrameEvent(event, activeIframeWindow)) {
+                console.info("[PLUGIN_CONTAINER_IFRAME_EVENT_IGNORED]", JSON.stringify({
+                    plugin,
+                    reason: "source_mismatch",
+                    type: String(event?.data?.type || ""),
+                }));
+            }
+            if (!strictSourceMatch) {
                 return;
             }
 
@@ -376,6 +392,22 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
                     || event.data.stage === "iframe-dom-after-mount"
                 ) {
                     lastRenderStageAtRef.current = Date.now();
+                }
+                if (event.data.stage === "iframe-dom-after-mount") {
+                    const stageMessage = String(event.data.message || "");
+                    const collapsedLayout = (
+                        stageMessage.includes("rootRect=0x0")
+                        || stageMessage.includes("docElRect=0x0")
+                        || stageMessage.includes("bodyRect=0x0")
+                    );
+                    if (!collapsedLayout) {
+                        iframeCollapsedLayoutRecoveryAttemptsRef.current = 0;
+                    } else if (iframeCollapsedLayoutRecoveryAttemptsRef.current < 2) {
+                        iframeCollapsedLayoutRecoveryAttemptsRef.current += 1;
+                        setDebugStage("iframe-layout-collapsed-retry");
+                        setRenderAttempt((prev) => prev + 1);
+                        return;
+                    }
                 }
                 if (event.data.stage === "iframe-dom-after-mount") {
                     setIframeMounted(true);
@@ -918,9 +950,13 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
     return (
         <div id={"plugin-container"} style={{
             position: "relative",
-            display: "block",
+            display: "flex",
+            alignItems: "stretch",
+            justifyContent: "stretch",
             height: "100%",
             width: "100%",
+            minHeight: 0,
+            minWidth: 0,
             margin: 0,
             padding: 0,
             overflow: "hidden",
@@ -981,16 +1017,19 @@ export const PluginContainer = ({plugin, onStageChange, onCapabilityDenied, onRe
                 style={{
                     width: "100%",
                     height: "100%",
+                    minWidth: "1px",
+                    minHeight: "1px",
+                    display: "block",
+                    flex: "1 1 auto",
+                    verticalAlign: "top",
                     border: "none",
                     position: "static",
                     inset: "auto",
-                    display: "inline-block",
                     visibility: "visible",
                     opacity: 1,
                     overflow: "hidden",
                     boxSizing: "border-box",
                     background: "#ffffff",
-                    colorScheme: "light",
                     zIndex: 2,
                 }}
             />
