@@ -427,6 +427,10 @@ function createESModule(pluginCode, onLoad) {
                     }
                     if (rootNode) {
                         rootNode.style.setProperty("display", "block", "important");
+                        rootNode.style.setProperty("width", "100%", "important");
+                        rootNode.style.setProperty("height", "100%", "important");
+                        rootNode.style.setProperty("min-width", "1px", "important");
+                        rootNode.style.setProperty("min-height", "1px", "important");
                         rootNode.style.setProperty("visibility", "visible", "important");
                         rootNode.style.setProperty("opacity", "1", "important");
                         rootNode.style.setProperty("position", "relative", "important");
@@ -440,8 +444,55 @@ function createESModule(pluginCode, onLoad) {
                             rootNode.style.setProperty("background", "#ffffff", "important");
                         }
                     }
-                    const rootRect = rootNode?.getBoundingClientRect?.() || null;
+                    const viewportW = Math.round(window.innerWidth || 0);
+                    const viewportH = Math.round(window.innerHeight || 0);
+                    let rootRect = rootNode?.getBoundingClientRect?.() || null;
+                    let docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
+                    let bodyRect = document?.body?.getBoundingClientRect?.() || null;
                     const rootStyle = rootNode ? window.getComputedStyle(rootNode) : null;
+                    let viewportFallbackApplied = false;
+                    const collapsedLayout = (
+                        viewportW > 0
+                        && viewportH > 0
+                        && (
+                            Math.round(docElRect?.width || 0) === 0
+                            || Math.round(docElRect?.height || 0) === 0
+                            || Math.round(bodyRect?.width || 0) === 0
+                            || Math.round(bodyRect?.height || 0) === 0
+                            || (rootNode && (
+                                Math.round(rootRect?.width || 0) === 0
+                                || Math.round(rootRect?.height || 0) === 0
+                            ))
+                        )
+                    );
+                    if (collapsedLayout) {
+                        viewportFallbackApplied = true;
+                        if (document?.documentElement) {
+                            document.documentElement.style.setProperty("display", "block", "important");
+                            document.documentElement.style.setProperty("width", viewportW + "px", "important");
+                            document.documentElement.style.setProperty("height", viewportH + "px", "important");
+                            document.documentElement.style.setProperty("min-width", viewportW + "px", "important");
+                            document.documentElement.style.setProperty("min-height", viewportH + "px", "important");
+                            document.documentElement.style.setProperty("overflow", "auto", "important");
+                        }
+                        if (document?.body) {
+                            document.body.style.setProperty("display", "block", "important");
+                            document.body.style.setProperty("width", viewportW + "px", "important");
+                            document.body.style.setProperty("height", viewportH + "px", "important");
+                            document.body.style.setProperty("min-width", viewportW + "px", "important");
+                            document.body.style.setProperty("min-height", viewportH + "px", "important");
+                            document.body.style.setProperty("overflow", "auto", "important");
+                        }
+                        if (rootNode) {
+                            rootNode.style.setProperty("width", viewportW + "px", "important");
+                            rootNode.style.setProperty("height", viewportH + "px", "important");
+                            rootNode.style.setProperty("min-width", viewportW + "px", "important");
+                            rootNode.style.setProperty("min-height", viewportH + "px", "important");
+                        }
+                        docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
+                        bodyRect = document?.body?.getBoundingClientRect?.() || null;
+                        rootRect = rootNode?.getBoundingClientRect?.() || null;
+                    }
                     const probeEl = document.elementFromPoint(
                         Math.max(0, Math.floor(window.innerWidth / 2)),
                         Math.max(0, Math.floor(window.innerHeight / 2)),
@@ -455,6 +506,10 @@ function createESModule(pluginCode, onLoad) {
                             + "; rootDisplay=" + String(rootStyle?.display || "")
                             + "; rootVisibility=" + String(rootStyle?.visibility || "")
                             + "; rootOpacity=" + String(rootStyle?.opacity || "")
+                            + "; viewport=" + viewportW + "x" + viewportH
+                            + "; docElRect=" + Math.round(docElRect?.width || 0) + "x" + Math.round(docElRect?.height || 0)
+                            + "; bodyRect=" + Math.round(bodyRect?.width || 0) + "x" + Math.round(bodyRect?.height || 0)
+                            + "; viewportFallback=" + String(viewportFallbackApplied)
                             + "; probeTag=" + String(probeEl?.tagName || "")
                         : "children=0; text=0; visibleText=0";
                     window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-dom-after-mount", message: domSummary }, "*");
