@@ -1,5 +1,8 @@
+import {HOST_WRITE_CAPABILITY, HOST_WRITE_CAPABILITY_LEGACY, toCanonicalCapabilityId} from "./pluginCapabilities";
+
 const SCOPE_PREFIX_BY_BASE = Object.freeze({
-    "system.hosts.write": "system.fs.scope.",
+    [HOST_WRITE_CAPABILITY]: "system.fs.scope.",
+    [HOST_WRITE_CAPABILITY_LEGACY]: "system.fs.scope.",
     "system.process.exec": "system.process.scope.",
 });
 
@@ -20,7 +23,7 @@ export function buildScopeCapabilities(scopePolicies = []) {
         fallback: scope.fallback === true,
         userDefined: scope.userDefined === true,
         capability: `${getScopeCapabilityPrefix(scope)}${scope.scope}`,
-        baseCapability: scope.kind === "process" ? "system.process.exec" : "system.hosts.write",
+        baseCapability: scope.kind === "process" ? "system.process.exec" : HOST_WRITE_CAPABILITY,
         allowedRoots: Array.isArray(scope.allowedRoots) ? scope.allowedRoots : [],
         allowedCwdRoots: Array.isArray(scope.allowedCwdRoots) ? scope.allowedCwdRoots : [],
         allowedOperationTypes: Array.isArray(scope.allowedOperationTypes) ? scope.allowedOperationTypes : [],
@@ -34,17 +37,19 @@ export function buildScopeCapabilities(scopePolicies = []) {
 export function applyCapabilityToggle(previousCapabilities = [], {
     capability,
     checked,
-    baseCapability = "system.hosts.write",
+    baseCapability = HOST_WRITE_CAPABILITY,
 } = {}) {
-    const effectiveBaseCapability = Object.prototype.hasOwnProperty.call(SCOPE_PREFIX_BY_BASE, capability)
-        ? capability
-        : baseCapability;
+    const normalizedCapability = toCanonicalCapabilityId(capability);
+    const normalizedBaseCapability = toCanonicalCapabilityId(baseCapability);
+    const effectiveBaseCapability = Object.prototype.hasOwnProperty.call(SCOPE_PREFIX_BY_BASE, normalizedCapability)
+        ? normalizedCapability
+        : normalizedBaseCapability;
     const current = Array.isArray(previousCapabilities) ? previousCapabilities : [];
     let next = checked
-        ? [...new Set([...current, capability])]
-        : current.filter((item) => item !== capability);
+        ? [...new Set([...current, normalizedCapability])]
+        : current.filter((item) => toCanonicalCapabilityId(item) !== normalizedCapability);
 
-    if (capability === effectiveBaseCapability && !checked) {
+    if (normalizedCapability === effectiveBaseCapability && !checked) {
         const prefix = SCOPE_PREFIX_BY_BASE[effectiveBaseCapability] || "";
         next = prefix ? next.filter((item) => !item.startsWith(prefix)) : next;
     }

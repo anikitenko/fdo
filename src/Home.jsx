@@ -32,6 +32,7 @@ import {classifyPrivilegedActionIssue, extractPrivilegedActionDiagnostics} from 
 import {getPluginTrustTier} from "./utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "./utils/pluginCapabilityDeclaration";
 import {resolveBlueprintIcon, sanitizeBlueprintIcon} from "./utils/blueprintIcons";
+import {toCanonicalCapabilityId} from "./utils/pluginCapabilities";
 
 // Lazy load settings dialog (only needed when opened)
 const SettingsDialog = lazy(() => import("./components/settings/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
@@ -354,7 +355,7 @@ export const Home = () => {
     const missingProcessScopeIds = collectMissingProcessScopeIds(capabilityDeniedNotice);
     const normalizedMissingCapabilities = [...new Set(
         (Array.isArray(capabilityDeniedNotice.missingCapabilities) ? capabilityDeniedNotice.missingCapabilities : [])
-            .map((item) => String(item || "").trim())
+            .map((item) => toCanonicalCapabilityId(item))
             .filter(Boolean)
     )];
     const missingScopedCapabilities = normalizedMissingCapabilities.filter((item) => isScopedCapability(item));
@@ -1927,7 +1928,8 @@ export const Home = () => {
                                 const missingCapabilities = [...new Set([
                                     ...(Array.isArray(payload?.missingCapabilities) ? payload.missingCapabilities : []),
                                     ...structuredMissingCapabilities,
-                                ].filter((item) => typeof item === "string" && item.trim()))];
+                                ].map((item) => toCanonicalCapabilityId(item))
+                                    .filter((item) => typeof item === "string" && item.trim()))];
                                 const parsedMissingCapabilityDiagnostics = Array.isArray(payload?.missingCapabilityDiagnostics)
                                     ? payload.missingCapabilityDiagnostics
                                     : parseMissingCapabilityDiagnosticsFromError(payload?.details || payload?.error || "");

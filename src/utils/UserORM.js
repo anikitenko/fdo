@@ -11,6 +11,12 @@ export default class UserORM extends JSONORM {
                 : [];
         }
         if (!Array.isArray(this.data.config.customProcessScopes)) this.data.config.customProcessScopes = [];
+        if (!Array.isArray(this.data.config.sharedFilesystemScopes)) {
+            this.data.config.sharedFilesystemScopes = Array.isArray(this.data.config.customFilesystemScopes)
+                ? this.data.config.customFilesystemScopes
+                : [];
+        }
+        if (!Array.isArray(this.data.config.customFilesystemScopes)) this.data.config.customFilesystemScopes = [];
     }
 
     activatePlugin(id) {
@@ -51,5 +57,25 @@ export default class UserORM extends JSONORM {
 
     setCustomProcessScopes(scopes = []) {
         return this.setSharedProcessScopes(scopes);
+    }
+
+    getSharedFilesystemScopes() {
+        return Array.isArray(this.data.config.sharedFilesystemScopes)
+            ? this.data.config.sharedFilesystemScopes
+            : [];
+    }
+
+    setSharedFilesystemScopes(scopes = []) {
+        this.data.config.sharedFilesystemScopes = Array.isArray(scopes) ? scopes : [];
+        this._save();
+        return this.getSharedFilesystemScopes();
+    }
+
+    getCustomFilesystemScopes() {
+        return this.getSharedFilesystemScopes();
+    }
+
+    setCustomFilesystemScopes(scopes = []) {
+        return this.setSharedFilesystemScopes(scopes);
     }
 }

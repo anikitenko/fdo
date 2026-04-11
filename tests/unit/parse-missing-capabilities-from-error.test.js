@@ -6,12 +6,12 @@ import {
 describe("parseMissingCapabilitiesFromError", () => {
     test("parses single capability requirement format", () => {
         const result = parseMissingCapabilitiesFromError('Capability "system.hosts.write" is required.');
-        expect(result).toEqual(["system.hosts.write"]);
+        expect(result).toEqual(["system.host.write"]);
     });
 
     test("parses multiple capability requirement format", () => {
         const result = parseMissingCapabilitiesFromError('Capabilities "system.hosts.write" and "system.fs.scope.etc-hosts" are required.');
-        expect(result).toEqual(["system.hosts.write", "system.fs.scope.etc-hosts"]);
+        expect(result).toEqual(["system.host.write", "system.fs.scope.etc-hosts"]);
     });
 
     test("parses system.process.exec requirement", () => {
@@ -47,7 +47,7 @@ describe("parseMissingCapabilitiesFromError", () => {
 
         expect(result).toEqual(expect.arrayContaining([
             expect.objectContaining({
-                capability: "system.hosts.write",
+                capability: "system.host.write",
                 label: "Privileged host actions",
                 source: "host",
             }),

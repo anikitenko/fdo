@@ -35,6 +35,7 @@ import {
     hasCapabilitySelectionChanges
 } from "../utils/pluginCapabilitySelection";
 import {getCapabilityPresentation} from "../utils/capabilityPresentation";
+import {hasCapability as hasGrantedCapability, HOST_WRITE_CAPABILITY} from "../utils/pluginCapabilities";
 import {getPluginTrustTier} from "../utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "../utils/pluginCapabilityDeclaration";
 import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
@@ -71,6 +72,22 @@ const CUSTOM_SCOPE_TOKEN_FIELDS = Object.freeze([
     "allowedCwdRoots",
     "allowedEnvKeys",
 ]);
+
+const FILESYSTEM_OPERATION_OPTIONS = Object.freeze([
+    "writeFile",
+    "appendFile",
+    "mkdir",
+    "rename",
+    "remove",
+]);
+
+const FILESYSTEM_OPERATION_LABELS = Object.freeze({
+    writeFile: "Write file",
+    appendFile: "Append file",
+    mkdir: "Create directory",
+    rename: "Rename path",
+    remove: "Remove path",
+});
 
 function uniqueNormalizedTokens(values = []) {
     return [...new Set((Array.isArray(values) ? values : [])
@@ -554,8 +571,16 @@ const SelectPluginPanel = ({
         timeoutCeilingMs: "30000",
         requireConfirmation: true,
     };
+    const emptyCustomFilesystemScopeDraft = {
+        scope: "",
+        title: "",
+        description: "",
+        allowedRoots: [],
+        allowedOperationTypes: [...FILESYSTEM_OPERATION_OPTIONS],
+        requireConfirmation: true,
+    };
     const BASE_PRIVILEGED_CAPABILITIES = [
-        "system.hosts.write",
+        HOST_WRITE_CAPABILITY,
         "system.process.exec",
     ];
     const [metrics, setMetrics] = useState([]);
@@ -600,6 +625,15 @@ const SelectPluginPanel = ({
     const [scopeSetupSuggestion, setScopeSetupSuggestion] = useState(null);
     const [suppressSuggestedScopeAutoOpen, setSuppressSuggestedScopeAutoOpen] = useState(false);
     const pluginScopesCardRef = useRef(null);
+    const [customFilesystemScopes, setCustomFilesystemScopes] = useState([]);
+    const [customFilesystemScopesLoaded, setCustomFilesystemScopesLoaded] = useState(false);
+    const [showCustomFilesystemScopeEditor, setShowCustomFilesystemScopeEditor] = useState(false);
+    const [customFilesystemScopeDraft, setCustomFilesystemScopeDraft] = useState(emptyCustomFilesystemScopeDraft);
+    const [customFilesystemScopeError, setCustomFilesystemScopeError] = useState("");
+    const [customFilesystemScopeSaving, setCustomFilesystemScopeSaving] = useState(false);
+    const [editingCustomFilesystemScopeId, setEditingCustomFilesystemScopeId] = useState("");
+    const [customFilesystemScopeRootInput, setCustomFilesystemScopeRootInput] = useState("");
+    const [customFilesystemScopeRootInputError, setCustomFilesystemScopeRootInputError] = useState("");
 
     const [pluginVerification, setPluginVerification] = useState(null)
 
@@ -652,10 +686,35 @@ const SelectPluginPanel = ({
     }, [plugin?.id]);
 
     useEffect(() => {
+        let cancelled = false;
+        setCustomFilesystemScopesLoaded(false);
+        if (typeof window?.electron?.plugin?.getPluginCustomFilesystemScopes !== "function") {
+            setCustomFilesystemScopes([]);
+            setCustomFilesystemScopesLoaded(true);
+            return () => {
+                cancelled = true;
+            };
+        }
+        window.electron.plugin.getPluginCustomFilesystemScopes(plugin?.id).then((result) => {
+            if (cancelled) return;
+            setCustomFilesystemScopes(result?.success && Array.isArray(result?.scopes) ? result.scopes : []);
+            setCustomFilesystemScopesLoaded(true);
+        }).catch(() => {
+            if (!cancelled) {
+                setCustomFilesystemScopes([]);
+                setCustomFilesystemScopesLoaded(true);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [plugin?.id]);
+
+    useEffect(() => {
         setScopeSetupSuggestion(null);
     }, [plugin?.id]);
 
-    const hasCapability = (capability) => capabilitiesDraft.includes(capability);
+    const hasCapability = (capability) => hasGrantedCapability(capabilitiesDraft, capability);
     const resetCustomScopeDraft = () => {
         setCustomScopeDraft(emptyCustomScopeDraft);
         setCustomScopeError("");
@@ -677,6 +736,17 @@ const SelectPluginPanel = ({
         if (suppressAutoOpen) {
             setSuppressSuggestedScopeAutoOpen(true);
         }
+    };
+    const resetCustomFilesystemScopeDraft = () => {
+        setCustomFilesystemScopeDraft(emptyCustomFilesystemScopeDraft);
+        setCustomFilesystemScopeError("");
+        setEditingCustomFilesystemScopeId("");
+        setCustomFilesystemScopeRootInput("");
+        setCustomFilesystemScopeRootInputError("");
+    };
+    const closeCustomFilesystemScopeEditor = () => {
+        setShowCustomFilesystemScopeEditor(false);
+        resetCustomFilesystemScopeDraft();
     };
 
     const groupedCustomProcessScopes = useMemo(() => {
@@ -774,6 +844,40 @@ const SelectPluginPanel = ({
         });
         openSuggestedScopeDraft(firstScopeId, "");
     };
+    const handleCreateDraftForMissingDeclaredFilesystemScope = () => {
+        const firstScopeId = unresolvedDeclaredFilesystemScopeIds[0] || "";
+        if (!firstScopeId) {
+            return;
+        }
+        setEditingCustomFilesystemScopeId("");
+        setCustomFilesystemScopeError("");
+        setCustomFilesystemScopeRootInput("");
+        setCustomFilesystemScopeRootInputError("");
+        setCustomFilesystemScopeDraft({
+            ...emptyCustomFilesystemScopeDraft,
+            scope: normalizeCustomScopeSlugInput(firstScopeId),
+            title: toScopeTitle(firstScopeId),
+            description: "Host-approved filesystem scope required by plugin runtime request.",
+        });
+        setShowCustomFilesystemScopeEditor(true);
+    };
+    const handleCreateDraftForUnresolvedGrantedFilesystemScope = () => {
+        const firstScopeId = unresolvedGrantedFilesystemScopeIds[0] || "";
+        if (!firstScopeId) {
+            return;
+        }
+        setEditingCustomFilesystemScopeId("");
+        setCustomFilesystemScopeError("");
+        setCustomFilesystemScopeRootInput("");
+        setCustomFilesystemScopeRootInputError("");
+        setCustomFilesystemScopeDraft({
+            ...emptyCustomFilesystemScopeDraft,
+            scope: normalizeCustomScopeSlugInput(firstScopeId),
+            title: toScopeTitle(firstScopeId),
+            description: "Host-approved filesystem scope required by previously granted plugin capability.",
+        });
+        setShowCustomFilesystemScopeEditor(true);
+    };
     const handleRemoveUnresolvedGrantedScopes = () => {
         if (unresolvedGrantedProcessScopeCapabilities.length === 0) {
             return;
@@ -793,6 +897,10 @@ const SelectPluginPanel = ({
     const capabilityPreviewId = useMemo(
         () => `system.process.scope.${toCustomScopeIdFromSlug(customScopeDraft.scope) || "<scope-id>"}`,
         [customScopeDraft.scope]
+    );
+    const filesystemCapabilityPreviewId = useMemo(
+        () => `system.fs.scope.${toCustomScopeIdFromSlug(customFilesystemScopeDraft.scope) || "<scope-id>"}`,
+        [customFilesystemScopeDraft.scope]
     );
 
     const addCustomScopeToken = (field) => {
@@ -819,6 +927,150 @@ const SelectPluginPanel = ({
             [field]: (prev[field] || []).filter((value) => value !== token),
         }));
     };
+    const addFilesystemRootToken = () => {
+        const nextToken = String(customFilesystemScopeRootInput || "").trim().replace(/,$/, "");
+        if (!nextToken) {
+            return;
+        }
+        if (!isAbsoluteLikePath(nextToken)) {
+            setCustomFilesystemScopeRootInputError("Use an absolute path.");
+            return;
+        }
+        setCustomFilesystemScopeDraft((prev) => ({
+            ...prev,
+            allowedRoots: uniqueNormalizedTokens([...(prev.allowedRoots || []), nextToken]),
+        }));
+        setCustomFilesystemScopeRootInput("");
+        setCustomFilesystemScopeRootInputError("");
+    };
+    const removeFilesystemRootToken = (token) => {
+        setCustomFilesystemScopeDraft((prev) => ({
+            ...prev,
+            allowedRoots: (prev.allowedRoots || []).filter((value) => value !== token),
+        }));
+    };
+    const toggleFilesystemOperation = (operationType, checked) => {
+        setCustomFilesystemScopeDraft((prev) => {
+            const currentOperations = new Set(Array.isArray(prev.allowedOperationTypes) ? prev.allowedOperationTypes : []);
+            if (checked) {
+                currentOperations.add(operationType);
+            } else {
+                currentOperations.delete(operationType);
+            }
+            return {
+                ...prev,
+                allowedOperationTypes: [...currentOperations],
+            };
+        });
+    };
+    const handleSaveCustomFilesystemScope = async () => {
+        if (typeof window?.electron?.plugin?.upsertPluginCustomFilesystemScope !== "function") {
+            return;
+        }
+        const normalizedScopeId = toCustomScopeIdFromSlug(customFilesystemScopeDraft.scope);
+        if (!normalizedScopeId) {
+            setCustomFilesystemScopeError("Scope ID is required.");
+            return;
+        }
+        const allowedRoots = uniqueNormalizedTokens(customFilesystemScopeDraft.allowedRoots || [])
+            .filter((entry) => isAbsoluteLikePath(entry));
+        if (allowedRoots.length === 0) {
+            setCustomFilesystemScopeError("Add at least one absolute root path.");
+            return;
+        }
+        const allowedOperationTypes = uniqueNormalizedTokens(customFilesystemScopeDraft.allowedOperationTypes || [])
+            .filter((operation) => FILESYSTEM_OPERATION_OPTIONS.includes(operation));
+        if (allowedOperationTypes.length === 0) {
+            setCustomFilesystemScopeError("Select at least one allowed filesystem operation.");
+            return;
+        }
+        setCustomFilesystemScopeSaving(true);
+        setCustomFilesystemScopeError("");
+        try {
+            const payload = {
+                scope: normalizedScopeId,
+                title: customFilesystemScopeDraft.title,
+                description: customFilesystemScopeDraft.description,
+                allowedRoots,
+                allowedOperationTypes,
+                requireConfirmation: customFilesystemScopeDraft.requireConfirmation !== false,
+            };
+            const result = await window.electron.plugin.upsertPluginCustomFilesystemScope(plugin?.id, payload);
+            if (!result?.success) {
+                setCustomFilesystemScopeError(result?.error || "Could not save filesystem scope.");
+                return;
+            }
+            await refreshRuntimeStatuses?.([plugin.id]);
+            setCustomFilesystemScopes(Array.isArray(result?.scopes) ? result.scopes : []);
+            await reloadScopePolicies?.(plugin?.id);
+            resetCustomFilesystemScopeDraft();
+            setShowCustomFilesystemScopeEditor(false);
+        } finally {
+            setCustomFilesystemScopeSaving(false);
+        }
+    };
+    const handleEditCustomFilesystemScope = (scope = {}) => {
+        setEditingCustomFilesystemScopeId(scope.scope || "");
+        setCustomFilesystemScopeError("");
+        setCustomFilesystemScopeRootInput("");
+        setCustomFilesystemScopeRootInputError("");
+        setCustomFilesystemScopeDraft({
+            scope: scope.scope || "",
+            title: scope.title || "",
+            description: scope.description || "",
+            allowedRoots: uniqueNormalizedTokens(scope.allowedRoots || []),
+            allowedOperationTypes: uniqueNormalizedTokens(scope.allowedOperationTypes || []),
+            requireConfirmation: scope.requireConfirmation !== false,
+        });
+        setShowCustomFilesystemScopeEditor(true);
+    };
+    const handleDeleteCustomFilesystemScope = async (scopeId = "") => {
+        const normalizedScopeId = toCustomScopeIdFromSlug(scopeId);
+        if (!normalizedScopeId || typeof window?.electron?.plugin?.deletePluginCustomFilesystemScope !== "function") {
+            return;
+        }
+        const scopeCapabilityToRemove = `system.fs.scope.${normalizedScopeId}`;
+        const result = await window.electron.plugin.deletePluginCustomFilesystemScope(plugin?.id, normalizedScopeId);
+        if (!result?.success) {
+            (AppToaster).show({
+                message: result?.error || "Could not delete filesystem scope.",
+                intent: "danger",
+            });
+            return;
+        }
+        if (scopeCapabilityToRemove && typeof window?.electron?.plugin?.setCapabilities === "function") {
+            const nextCapabilities = [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
+                .filter((capability) => capability !== scopeCapabilityToRemove))];
+            const hasChanges = JSON.stringify([...new Set(capabilitiesDraft)].sort()) !== JSON.stringify([...nextCapabilities].sort());
+            if (hasChanges) {
+                const capabilitiesResult = await window.electron.plugin.setCapabilities(plugin?.id, nextCapabilities);
+                if (capabilitiesResult?.success) {
+                    setCapabilitiesDraft(Array.isArray(capabilitiesResult?.capabilities)
+                        ? capabilitiesResult.capabilities
+                        : nextCapabilities);
+                    await refreshPluginsState?.();
+                    await refreshRuntimeStatuses?.([plugin.id]);
+                    const wasActive = activePlugins?.some((item) => item.id === plugin.id);
+                    const wasSelected = selectedTabId === plugin.id;
+                    if (wasActive) {
+                        window.setTimeout(() => {
+                            selectPlugin(plugin, {open: wasSelected});
+                        }, 0);
+                    }
+                }
+            }
+        }
+        await refreshRuntimeStatuses?.([plugin.id]);
+        setCustomFilesystemScopes(Array.isArray(result?.scopes) ? result.scopes : []);
+        await reloadScopePolicies?.(plugin?.id);
+        if (editingCustomFilesystemScopeId === normalizedScopeId) {
+            closeCustomFilesystemScopeEditor();
+        }
+        (await AppToaster).show({
+            message: `Filesystem scope deleted for ${plugin?.id || "plugin"}.`,
+            intent: "success",
+        });
+    };
 
     const scopeCapabilities = useMemo(() => buildScopeCapabilities(scopePolicies), [scopePolicies]);
     const availableScopeCapabilityIds = useMemo(
@@ -835,7 +1087,7 @@ const SelectPluginPanel = ({
             fallback: false,
             userDefined: false,
             capability: "system.clipboard.read",
-            baseCapability: "system.hosts.write",
+            baseCapability: HOST_WRITE_CAPABILITY,
             allowedRoots: [],
             allowedCwdRoots: [],
             allowedOperationTypes: [],
@@ -853,7 +1105,7 @@ const SelectPluginPanel = ({
             fallback: false,
             userDefined: false,
             capability: "system.clipboard.write",
-            baseCapability: "system.hosts.write",
+            baseCapability: HOST_WRITE_CAPABILITY,
             allowedRoots: [],
             allowedCwdRoots: [],
             allowedOperationTypes: [],
@@ -872,7 +1124,7 @@ const SelectPluginPanel = ({
     const capabilityChildrenByBase = useMemo(() => {
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             const scopeChildren = scopeCapabilitiesByBase[baseCapability] || [];
-            const extraChildren = baseCapability === "system.hosts.write" ? clipboardCapabilityChildren : [];
+            const extraChildren = baseCapability === HOST_WRITE_CAPABILITY ? clipboardCapabilityChildren : [];
             groups[baseCapability] = [...scopeChildren, ...extraChildren];
             return groups;
         }, {});
@@ -1791,7 +2043,7 @@ const SelectPluginPanel = ({
                         ) : null}
                         {unresolvedDeclaredFilesystemScopeCapabilities.length > 0 ? (
                             <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
-                                Filesystem scopes are host-defined. Add matching host scope policies (for example <code>{unresolvedDeclaredFilesystemScopeIds[0]}</code>) to make them selectable.
+                                Filesystem scopes can be created below for this plugin using the same scope IDs (for example <code>{unresolvedDeclaredFilesystemScopeIds[0]}</code>).
                             </div>
                         ) : null}
                         <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
@@ -1807,12 +2059,10 @@ const SelectPluginPanel = ({
                             {unresolvedDeclaredFilesystemScopeCapabilities.length > 0 ? (
                                 <Button
                                     small
-                                    minimal
-                                    onClick={() => {
-                                        void reloadScopePolicies?.(plugin?.id);
-                                    }}
+                                    intent="primary"
+                                    onClick={handleCreateDraftForMissingDeclaredFilesystemScope}
                                 >
-                                    Refresh Host Scope Policies
+                                    Create Missing Filesystem Scope Draft
                                 </Button>
                             ) : null}
                         </div>
@@ -2012,6 +2262,104 @@ const SelectPluginPanel = ({
                     </div>
                 )}
             </Card>
+            <Card style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
+                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap"}}>
+                    <div>
+                        <div className={"bp6-heading"} style={{fontSize: "0.95rem"}}>Plugin-Specific Filesystem Scopes</div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            Host-managed filesystem scopes for this plugin when broad host write access must be restricted to exact roots and operations.
+                        </div>
+                    </div>
+                    <Button
+                        small
+                        icon="add"
+                        onClick={() => {
+                            resetCustomFilesystemScopeDraft();
+                            setShowCustomFilesystemScopeEditor(true);
+                        }}
+                    >
+                        Add Filesystem Scope
+                    </Button>
+                </div>
+                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
+                    Keep broad capability <code>{HOST_WRITE_CAPABILITY}</code> granted in Capabilities, then grant matching <code>system.fs.scope.&lt;scope-id&gt;</code> entries.
+                </div>
+                {unresolvedGrantedFilesystemScopeCapabilities.length > 0 ? (
+                    <Card style={{marginTop: "12px", border: "1px solid #f6d667", background: "#fff8db"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                            Previously Granted Filesystem Scope References Need A Real Host Policy
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                            These filesystem scope capability IDs were granted earlier, but this host does not currently have matching scope definitions. Create matching filesystem scope policies below or remove stale grants.
+                        </div>
+                        <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
+                            {unresolvedGrantedFilesystemScopeCapabilities.map((capability) => (
+                                <Tag key={capability} minimal intent="warning">
+                                    <code>{capability}</code>
+                                </Tag>
+                            ))}
+                        </div>
+                        <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
+                            <Button
+                                small
+                                intent="primary"
+                                onClick={handleCreateDraftForUnresolvedGrantedFilesystemScope}
+                            >
+                                Create Missing Filesystem Scope Draft
+                            </Button>
+                            <Button
+                                small
+                                minimal
+                                intent="warning"
+                                onClick={handleRemoveUnresolvedGrantedFilesystemScopes}
+                            >
+                                Remove Stale Filesystem Scope Grants
+                            </Button>
+                        </div>
+                    </Card>
+                ) : null}
+                {customFilesystemScopesLoaded && customFilesystemScopes.length > 0 ? (
+                    <div style={{display: "flex", flexDirection: "column", gap: "8px", marginTop: "12px"}}>
+                        {customFilesystemScopes.map((scope) => (
+                            <Card key={scope.scope} style={{border: "1px solid #eef0f2", background: "#fafbfc"}}>
+                                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap"}}>
+                                    <div>
+                                        <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                                            {scope.title || scope.scope}
+                                        </div>
+                                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                            Capability: <code>{`system.fs.scope.${scope.scope}`}</code>
+                                        </div>
+                                    </div>
+                                    <div style={{display: "flex", gap: "6px", alignItems: "center"}}>
+                                        <Button small minimal icon="edit" onClick={() => handleEditCustomFilesystemScope(scope)}>Edit</Button>
+                                        <Button small minimal intent="danger" icon="trash" onClick={() => handleDeleteCustomFilesystemScope(scope.scope)}>Delete</Button>
+                                    </div>
+                                </div>
+                                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                    {scope.description}
+                                </div>
+                                <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
+                                    <Tag minimal>{(scope.allowedRoots || []).length} root{(scope.allowedRoots || []).length === 1 ? "" : "s"}</Tag>
+                                    <Tag minimal>{(scope.allowedOperationTypes || []).length} operation{(scope.allowedOperationTypes || []).length === 1 ? "" : "s"}</Tag>
+                                    <Tag minimal>confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
+                                    <Tag minimal intent="primary">Plugin-owned scope</Tag>
+                                </div>
+                                {Array.isArray(scope.allowedRoots) && scope.allowedRoots.length > 0 ? (
+                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
+                                        Allowed roots: {scope.allowedRoots.slice(0, 3).join(", ")}
+                                        {scope.allowedRoots.length > 3 ? ` +${scope.allowedRoots.length - 3} more` : ""}
+                                    </div>
+                                ) : null}
+                            </Card>
+                        ))}
+                    </div>
+                ) : (
+                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "12px"}}>
+                        No plugin-specific filesystem scopes yet. Add one when this plugin needs restricted filesystem writes.
+                    </div>
+                )}
+            </Card>
             <Dialog
                 isOpen={showCustomScopeEditor}
                 onClose={() => {
@@ -2162,6 +2510,160 @@ const SelectPluginPanel = ({
                         }}>Cancel</Button>
                         <Button intent="primary" loading={customScopeSaving} onClick={handleSaveCustomScope}>
                             {editingCustomScopeId ? "Save Changes" : "Save Scope"}
+                        </Button>
+                    </div>
+                </div>
+            </Dialog>
+            <Dialog
+                isOpen={showCustomFilesystemScopeEditor}
+                onClose={closeCustomFilesystemScopeEditor}
+                title={editingCustomFilesystemScopeId ? "Edit Plugin-Specific Filesystem Scope" : "Create Plugin-Specific Filesystem Scope"}
+                canEscapeKeyClose={true}
+                canOutsideClickClose={!customFilesystemScopeSaving}
+                style={{width: "680px", maxWidth: "calc(100vw - 80px)"}}
+            >
+                <div className="bp6-dialog-body">
+                    <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "10px", flexWrap: "wrap"}}>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            Define exact filesystem roots and operation types approved for this plugin-owned scope.
+                        </div>
+                        <Tag minimal>{editingCustomFilesystemScopeId ? "Existing scope" : "New scope"}</Tag>
+                    </div>
+                    <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginBottom: "10px"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                            How to fill this from plugin code
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            1. <strong>Scope ID</strong> must match <code>scope</code> used in filesystem mutate requests.
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            2. <strong>Allowed roots</strong> must include absolute paths for all requested file operations.
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            3. Keep only the minimum <strong>operation types</strong> required by this plugin.
+                        </div>
+                    </Card>
+                    <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px"}}>
+                        <Tag minimal>Broad grant: <code>{HOST_WRITE_CAPABILITY}</code></Tag>
+                        <Tag minimal intent="primary">Narrow grant: <code>{filesystemCapabilityPreviewId}</code></Tag>
+                        <Tag minimal intent="warning">Visible only to this plugin</Tag>
+                    </div>
+                    <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px"}}>
+                        <FormGroup
+                            label="Scope ID"
+                            helperText="Use any scope ID (for example: internal-runner). Do not paste full capability IDs."
+                        >
+                            <InputGroup
+                                placeholder="internal-runner"
+                                value={customFilesystemScopeDraft.scope}
+                                onChange={(event) => {
+                                    setCustomFilesystemScopeDraft((prev) => ({
+                                        ...prev,
+                                        scope: normalizeCustomScopeSlugInput(event.target.value),
+                                    }));
+                                }}
+                            />
+                        </FormGroup>
+                        <FormGroup label="Display name">
+                            <InputGroup
+                                placeholder="Restricted Workspace Writes"
+                                value={customFilesystemScopeDraft.title}
+                                onChange={(event) => setCustomFilesystemScopeDraft((prev) => ({...prev, title: event.target.value}))}
+                            />
+                        </FormGroup>
+                    </div>
+                    <FormGroup label="Description">
+                        <InputGroup
+                            placeholder="Explain where and why this plugin may write."
+                            value={customFilesystemScopeDraft.description}
+                            onChange={(event) => setCustomFilesystemScopeDraft((prev) => ({...prev, description: event.target.value}))}
+                        />
+                    </FormGroup>
+                    <FormGroup
+                        label="Allowed roots"
+                        helperText="Use absolute paths. Press Enter or comma to add."
+                    >
+                        <InputGroup
+                            placeholder="/Users/alexvwan/dev/fdo/workspace"
+                            value={customFilesystemScopeRootInput}
+                            intent={customFilesystemScopeRootInputError ? "danger" : "none"}
+                            onChange={(event) => {
+                                setCustomFilesystemScopeRootInput(event.target.value);
+                                setCustomFilesystemScopeRootInputError("");
+                            }}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === ",") {
+                                    event.preventDefault();
+                                    addFilesystemRootToken();
+                                }
+                            }}
+                            onBlur={() => {
+                                if (String(customFilesystemScopeRootInput || "").trim()) {
+                                    addFilesystemRootToken();
+                                }
+                            }}
+                        />
+                        {customFilesystemScopeRootInputError ? (
+                            <div className={classNames("bp6-text-small")} style={{color: "#c23030", marginTop: "4px"}}>
+                                {customFilesystemScopeRootInputError}
+                            </div>
+                        ) : null}
+                        {customFilesystemScopeDraft.allowedRoots.length > 0 ? (
+                            <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
+                                {customFilesystemScopeDraft.allowedRoots.map((token) => (
+                                    <Tag
+                                        key={`filesystem-root-${token}`}
+                                        minimal
+                                        interactive
+                                        onRemove={() => removeFilesystemRootToken(token)}
+                                    >
+                                        {token}
+                                    </Tag>
+                                ))}
+                            </div>
+                        ) : null}
+                    </FormGroup>
+                    <FormGroup
+                        label="Allowed operation types"
+                        helperText="Select only operations required by this plugin."
+                    >
+                        <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "6px"}}>
+                            {FILESYSTEM_OPERATION_OPTIONS.map((operationType) => (
+                                <Checkbox
+                                    key={`filesystem-operation-${operationType}`}
+                                    checked={(customFilesystemScopeDraft.allowedOperationTypes || []).includes(operationType)}
+                                    label={FILESYSTEM_OPERATION_LABELS[operationType] || operationType}
+                                    onChange={(event) => toggleFilesystemOperation(operationType, event.target.checked)}
+                                />
+                            ))}
+                        </div>
+                    </FormGroup>
+                    <FormGroup
+                        label="Approval policy"
+                        helperText="Turn this on when operators should explicitly approve filesystem operations in this scope."
+                    >
+                        <Switch
+                            checked={customFilesystemScopeDraft.requireConfirmation}
+                            label="Require confirmation before filesystem operations"
+                            onChange={(event) => setCustomFilesystemScopeDraft((prev) => ({...prev, requireConfirmation: event.target.checked}))}
+                        />
+                    </FormGroup>
+                    {customFilesystemScopeError ? (
+                        <div className={classNames("bp6-text-small")} style={{color: "#c23030", marginTop: "8px"}}>
+                            {customFilesystemScopeError}
+                        </div>
+                    ) : null}
+                </div>
+                <div className="bp6-dialog-footer">
+                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{paddingBottom: "8px"}}>
+                        Plugin request ID:{" "}
+                        <code>{filesystemCapabilityPreviewId}</code>.
+                        {" "}This is a host-managed plugin-specific scope reference. Using it in plugin code does not grant permission by itself, and other plugins cannot use it.
+                    </div>
+                    <div className="bp6-dialog-footer-actions">
+                        <Button minimal onClick={closeCustomFilesystemScopeEditor}>Cancel</Button>
+                        <Button intent="primary" loading={customFilesystemScopeSaving} onClick={handleSaveCustomFilesystemScope}>
+                            {editingCustomFilesystemScopeId ? "Save Changes" : "Save Scope"}
                         </Button>
                     </div>
                 </div>

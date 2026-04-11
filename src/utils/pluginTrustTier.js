@@ -1,4 +1,5 @@
 import {isHostFallbackProcessScopeId} from "./processScopeCatalog";
+import {hasCapability, HOST_WRITE_CAPABILITY} from "./pluginCapabilities";
 
 const BASIC_TIER = Object.freeze({
     id: "basic-ui-data",
@@ -33,11 +34,11 @@ export function getPluginTrustTier(capabilities = []) {
         .map((capability) => capability.slice("system.process.scope.".length));
 
     const hasPrivilegedBroad = capabilitySet.has("system.process.exec")
-        || capabilitySet.has("system.hosts.write")
+        || hasCapability(normalized, HOST_WRITE_CAPABILITY)
         || capabilitySet.has("system.clipboard.read")
         || capabilitySet.has("system.clipboard.write");
     const hasHighTrustSignals = capabilitySet.has("sudo.prompt")
-        || capabilitySet.has("system.hosts.write")
+        || hasCapability(normalized, HOST_WRITE_CAPABILITY)
         || capabilitySet.has("system.clipboard.read")
         || processScopes.some((scopeId) => isHostFallbackProcessScopeId(scopeId));
 

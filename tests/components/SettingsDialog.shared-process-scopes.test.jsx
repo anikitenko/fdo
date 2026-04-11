@@ -49,10 +49,35 @@ describe("SettingsDialog shared process scopes", () => {
                             name: "Plugin A",
                             capabilities: ["system.process.scope.shared-monitoring"],
                         },
+                        {
+                            id: "plugin-b",
+                            name: "Plugin B",
+                            capabilities: ["system.fs.scope.shared-workspace-write"],
+                        },
                     ],
                 }),
                 upsertSharedProcessScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
                 deleteSharedProcessScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
+                getSharedFilesystemScopes: jest.fn().mockResolvedValue({
+                    success: true,
+                    scopes: [
+                        {
+                            scope: "shared-workspace-write",
+                            title: "Shared Workspace Write",
+                            kind: "filesystem",
+                            category: "Shared Filesystem Scopes",
+                            userDefined: true,
+                            shared: true,
+                            ownerType: "shared",
+                            description: "Shared workspace filesystem scope.",
+                            allowedRoots: ["/tmp/workspace"],
+                            allowedOperationTypes: ["writeFile", "appendFile"],
+                            requireConfirmation: true,
+                        },
+                    ],
+                }),
+                upsertSharedFilesystemScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
+                deleteSharedFilesystemScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
             },
             settings: {
                 certificates: {
@@ -71,13 +96,26 @@ describe("SettingsDialog shared process scopes", () => {
     test("shows shared scopes under Settings", async () => {
         render(<SettingsDialog showSettingsDialog={true} setShowSettingsDialog={jest.fn()}/>);
 
-        fireEvent.click(screen.getByRole("tab", {name: /Shared Scopes/i}));
+        fireEvent.click(screen.getByRole("tab", {name: /Shared Process Scopes/i}));
 
         await waitFor(() => {
-            expect(screen.getByText("Shared Process Scopes")).toBeInTheDocument();
+            expect(screen.getByText("Shared Monitoring")).toBeInTheDocument();
         });
 
         expect(screen.getByText("Shared Monitoring")).toBeInTheDocument();
+        expect(screen.getByText(/Granted to plugins: 1/)).toBeInTheDocument();
+    });
+
+    test("shows shared filesystem scopes under Settings", async () => {
+        render(<SettingsDialog showSettingsDialog={true} setShowSettingsDialog={jest.fn()}/>);
+
+        fireEvent.click(screen.getByRole("tab", {name: /Shared FS Scopes/i}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Shared Filesystem Scopes")).toBeInTheDocument();
+        });
+
+        expect(screen.getByText("Shared Workspace Write")).toBeInTheDocument();
         expect(screen.getByText(/Granted to plugins: 1/)).toBeInTheDocument();
     });
 });

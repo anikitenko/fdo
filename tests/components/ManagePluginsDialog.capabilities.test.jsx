@@ -122,11 +122,34 @@ describe("ManagePluginsDialog capability UX", () => {
                     },
                 ],
             }),
+            getPluginCustomFilesystemScopes: jest.fn().mockResolvedValue({
+                success: true,
+                scopes: [
+                    {
+                        scope: "workspace-write",
+                        title: "Workspace Writes",
+                        kind: "filesystem",
+                        category: "Plugin-Specific Filesystem Scopes",
+                        userDefined: true,
+                        ownerType: "plugin",
+                        ownerPluginId: "plugin-a",
+                        description: "Scoped workspace writes.",
+                        allowedRoots: ["/tmp"],
+                        allowedOperationTypes: ["writeFile", "appendFile"],
+                        requireConfirmation: true,
+                    },
+                ],
+            }),
             upsertPluginCustomProcessScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
             deletePluginCustomProcessScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
+            upsertPluginCustomFilesystemScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
+            deletePluginCustomFilesystemScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
             getSharedProcessScopes: jest.fn().mockResolvedValue({success: true, scopes: []}),
             upsertSharedProcessScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
             deleteSharedProcessScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
+            getSharedFilesystemScopes: jest.fn().mockResolvedValue({success: true, scopes: []}),
+            upsertSharedFilesystemScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
+            deleteSharedFilesystemScope: jest.fn().mockResolvedValue({success: true, scopes: []}),
             verifySignature: jest.fn().mockResolvedValue({
                 success: true,
                 signed: true,
@@ -194,7 +217,7 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(screen.getAllByText("Allow Scoped Tool Execution").length).toBeGreaterThan(0);
         expect(screen.getByText(/Trust tier: Basic|Trust tier: Operator|Trust tier: Admin/)).toBeInTheDocument();
         expect(screen.getAllByText(/Technical ID:/).length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText("system.hosts.write").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText("system.host.write").length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
     });
 
@@ -564,12 +587,45 @@ describe("ManagePluginsDialog capability UX", () => {
         });
 
         expect(screen.getAllByText("system.fs.scope.etc-motd").length).toBeGreaterThan(0);
-        expect(screen.getByRole("button", {name: "Remove Stale Filesystem Scope Grants"})).toBeInTheDocument();
+        expect(screen.getAllByRole("button", {name: "Remove Stale Filesystem Scope Grants"}).length).toBeGreaterThan(0);
 
-        fireEvent.click(screen.getByRole("button", {name: "Remove Stale Filesystem Scope Grants"}));
+        fireEvent.click(screen.getAllByRole("button", {name: "Remove Stale Filesystem Scope Grants"})[0]);
 
         await waitFor(() => {
             expect(screen.queryByText("Granted Filesystem Scopes Missing Host Policy Definitions")).not.toBeInTheDocument();
+        });
+    });
+
+    test("creates and saves plugin-specific filesystem scopes", async () => {
+        renderDialog();
+
+        await waitFor(() => {
+            expect(screen.getByText("Plugin-Specific Filesystem Scopes")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Add Filesystem Scope"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Create Plugin-Specific Filesystem Scope")).toBeInTheDocument();
+        });
+
+        fireEvent.change(screen.getByPlaceholderText("internal-runner"), {target: {value: "internal runner"}});
+        fireEvent.change(
+            screen.getByPlaceholderText("/Users/alexvwan/dev/fdo/workspace"),
+            {target: {value: "/tmp/workspace"}}
+        );
+        fireEvent.keyDown(screen.getByPlaceholderText("/Users/alexvwan/dev/fdo/workspace"), {key: "Enter"});
+
+        fireEvent.click(screen.getByRole("button", {name: "Save Scope"}));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.upsertPluginCustomFilesystemScope).toHaveBeenCalledWith(
+                "plugin-a",
+                expect.objectContaining({
+                    scope: "internal-runner",
+                    allowedRoots: ["/tmp/workspace"],
+                })
+            );
         });
     });
 
@@ -629,10 +685,10 @@ describe("ManagePluginsDialog capability UX", () => {
 
         await waitFor(() => {
             expect(screen.getByText("Process Monitoring")).toBeInTheDocument();
-            expect(screen.getByRole("button", {name: "Delete"})).toBeInTheDocument();
+            expect(screen.getAllByRole("button", {name: "Delete"}).length).toBeGreaterThan(0);
         });
 
-        fireEvent.click(screen.getByRole("button", {name: "Delete"}));
+        fireEvent.click(screen.getAllByRole("button", {name: "Delete"})[0]);
 
         await waitFor(() => {
             expect(window.electron.plugin.deletePluginCustomProcessScope).toHaveBeenCalledWith("plugin-a", "process-monitoring");

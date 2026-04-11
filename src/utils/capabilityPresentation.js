@@ -1,4 +1,5 @@
 import {isHostFallbackProcessScopeId} from "./processScopeCatalog";
+import {HOST_WRITE_CAPABILITY, HOST_WRITE_CAPABILITY_LEGACY, toCanonicalCapabilityId} from "./pluginCapabilities";
 
 const CAPABILITY_RISK_LEVELS = Object.freeze({
     low: "low",
@@ -15,8 +16,8 @@ export const CAPABILITY_PRESENTATION = Object.freeze({
         dependsOn: Object.freeze([]),
         category: "data",
     }),
-    "system.hosts.write": Object.freeze({
-        id: "system.hosts.write",
+    [HOST_WRITE_CAPABILITY]: Object.freeze({
+        id: HOST_WRITE_CAPABILITY,
         title: "Privileged host actions",
         description: "Allows host-mediated privileged mutations with explicit host-side checks.",
         risk: CAPABILITY_RISK_LEVELS.high,
@@ -36,7 +37,7 @@ export const CAPABILITY_PRESENTATION = Object.freeze({
         title: "Read Host Clipboard",
         description: "Allows host-mediated clipboard reads. Treat as sensitive: read access can expose copied secrets and should be granted only to trusted plugins.",
         risk: CAPABILITY_RISK_LEVELS.high,
-        dependsOn: Object.freeze(["system.hosts.write"]),
+        dependsOn: Object.freeze([HOST_WRITE_CAPABILITY]),
         category: "system",
     }),
     "system.clipboard.write": Object.freeze({
@@ -44,7 +45,7 @@ export const CAPABILITY_PRESENTATION = Object.freeze({
         title: "Write Host Clipboard",
         description: "Allows host-mediated clipboard writes. Separate from clipboard read so write-only plugins can be granted lower-sensitive clipboard access.",
         risk: CAPABILITY_RISK_LEVELS.medium,
-        dependsOn: Object.freeze(["system.hosts.write"]),
+        dependsOn: Object.freeze([HOST_WRITE_CAPABILITY]),
         category: "system",
     }),
     "sudo.prompt": Object.freeze({
@@ -195,25 +196,31 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
         title: `Filesystem Scope: ${scopeId}`,
         description: scopePolicy.description || `Allows host-approved filesystem access inside scope "${scopeId}".`,
         risk: CAPABILITY_RISK_LEVELS.high,
-        dependsOn: ["system.hosts.write"],
+        dependsOn: [HOST_WRITE_CAPABILITY],
         category: "filesystem-scope",
     };
 }
 
 export function getCapabilityPresentation(capabilityId, scopePolicies = []) {
-    if (CAPABILITY_PRESENTATION[capabilityId]) {
-        return CAPABILITY_PRESENTATION[capabilityId];
+    const normalizedCapabilityId = toCanonicalCapabilityId(capabilityId);
+
+    if (CAPABILITY_PRESENTATION[normalizedCapabilityId]) {
+        return CAPABILITY_PRESENTATION[normalizedCapabilityId];
     }
 
-    if (typeof capabilityId === "string" && capabilityId.startsWith("system.fs.scope.")) {
-        const scopeId = capabilityId.slice("system.fs.scope.".length);
+    if (normalizedCapabilityId === HOST_WRITE_CAPABILITY_LEGACY) {
+        return CAPABILITY_PRESENTATION[HOST_WRITE_CAPABILITY];
+    }
+
+    if (typeof normalizedCapabilityId === "string" && normalizedCapabilityId.startsWith("system.fs.scope.")) {
+        const scopeId = normalizedCapabilityId.slice("system.fs.scope.".length);
         const scopePolicy = (Array.isArray(scopePolicies) ? scopePolicies : [])
             .find((policy) => policy?.scope === scopeId);
         return buildScopeCapabilityPresentation(scopePolicy || {scope: scopeId});
     }
 
-    if (typeof capabilityId === "string" && capabilityId.startsWith("system.process.scope.")) {
-        const scopeId = capabilityId.slice("system.process.scope.".length);
+    if (typeof normalizedCapabilityId === "string" && normalizedCapabilityId.startsWith("system.process.scope.")) {
+        const scopeId = normalizedCapabilityId.slice("system.process.scope.".length);
         const scopePolicy = (Array.isArray(scopePolicies) ? scopePolicies : [])
             .find((policy) => policy?.scope === scopeId);
         if (!scopePolicy && scopeId.startsWith("user.")) {
@@ -229,8 +236,8 @@ export function getCapabilityPresentation(capabilityId, scopePolicies = []) {
     }
 
     return {
-        id: capabilityId,
-        title: capabilityId,
+        id: normalizedCapabilityId,
+        title: normalizedCapabilityId,
         description: "No presentation metadata available.",
         risk: CAPABILITY_RISK_LEVELS.medium,
         dependsOn: [],

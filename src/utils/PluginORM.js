@@ -16,6 +16,7 @@ export default class PluginORM extends JSONORM {
             ...plugin,
             capabilities: normalizeCapabilityList(plugin.capabilities),
             customProcessScopes: Array.isArray(plugin.customProcessScopes) ? plugin.customProcessScopes : [],
+            customFilesystemScopes: Array.isArray(plugin.customFilesystemScopes) ? plugin.customFilesystemScopes : [],
         };
     }
 
@@ -32,6 +33,7 @@ export default class PluginORM extends JSONORM {
                 entry,
                 capabilities,
                 customProcessScopes: existingPlugin?.customProcessScopes || [],
+                customFilesystemScopes: existingPlugin?.customFilesystemScopes || [],
             }));
             this._save();
         }
@@ -77,6 +79,24 @@ export default class PluginORM extends JSONORM {
         });
         this._save();
         return {success: true, scopes: this.getPluginCustomProcessScopes(pluginName)};
+    }
+
+    getPluginCustomFilesystemScopes(pluginName) {
+        const plugin = this.getPlugin(pluginName);
+        return Array.isArray(plugin?.customFilesystemScopes) ? plugin.customFilesystemScopes : [];
+    }
+
+    setPluginCustomFilesystemScopes(pluginName, scopes = []) {
+        const index = this.data.plugins.findIndex((plugin) => plugin.id === pluginName);
+        if (index < 0) {
+            return {success: false, error: `Plugin "${pluginName}" not found.`};
+        }
+        this.data.plugins[index] = this.normalizePluginRecord({
+            ...this.data.plugins[index],
+            customFilesystemScopes: Array.isArray(scopes) ? scopes : [],
+        });
+        this._save();
+        return {success: true, scopes: this.getPluginCustomFilesystemScopes(pluginName)};
     }
 
     // Remove a plugin
