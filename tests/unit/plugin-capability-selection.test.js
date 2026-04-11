@@ -24,7 +24,7 @@ describe("pluginCapabilitySelection", () => {
             fallback: false,
             userDefined: false,
             capability: "system.fs.scope.etc-hosts",
-            baseCapability: "system.hosts.write",
+            baseCapability: "system.host.write",
             allowedRoots: ["/etc"],
             allowedCwdRoots: [],
             allowedOperationTypes: ["writeFile"],
@@ -69,28 +69,28 @@ describe("pluginCapabilitySelection", () => {
 
     test("disabling base capability removes scoped capabilities", () => {
         const next = applyCapabilityToggle(
-            ["system.hosts.write", "system.fs.scope.etc-hosts"],
-            {capability: "system.hosts.write", checked: false}
+            ["system.host.write", "system.fs.scope.etc-hosts"],
+            {capability: "system.host.write", checked: false}
         );
         expect(next).toEqual([]);
     });
 
     test("capability change detection ignores ordering", () => {
         expect(hasCapabilitySelectionChanges(
-            ["system.fs.scope.etc-hosts", "system.hosts.write"],
-            ["system.hosts.write", "system.fs.scope.etc-hosts"]
+            ["system.fs.scope.etc-hosts", "system.host.write"],
+            ["system.host.write", "system.fs.scope.etc-hosts"]
         )).toBe(false);
 
         expect(hasCapabilitySelectionChanges(
-            ["system.hosts.write"],
-            ["system.hosts.write", "system.fs.scope.etc-hosts"]
+            ["system.host.write"],
+            ["system.host.write", "system.fs.scope.etc-hosts"]
         )).toBe(true);
     });
 
     test("getSelectedScopeCapabilities returns only scope capabilities from draft", () => {
         const scopes = buildScopeCapabilities([{scope: "etc-hosts"}]);
         const selected = getSelectedScopeCapabilities(
-            ["system.hosts.write", "system.fs.scope.etc-hosts", "storage.json"],
+            ["system.host.write", "system.fs.scope.etc-hosts", "storage.json"],
             scopes
         );
         expect(selected).toEqual(["system.fs.scope.etc-hosts"]);

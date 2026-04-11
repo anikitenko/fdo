@@ -344,7 +344,7 @@ describe("Home capability denied flow", () => {
 
         await waitFor(() => {
             expect(screen.getByText("Permission Required")).toBeInTheDocument();
-            expect(screen.getByText("system.hosts.write")).toBeInTheDocument();
+            expect(screen.getByText("system.host.write")).toBeInTheDocument();
             expect(screen.getByText("system.fs.scope.etc-hosts")).toBeInTheDocument();
         });
 
@@ -353,7 +353,7 @@ describe("Home capability denied flow", () => {
         await waitFor(() => {
             const requestText = screen.getByTestId("capability-focus-request").textContent || "";
             expect(requestText).toContain("\"pluginId\":\"plugin-1\"");
-            expect(requestText).toContain("system.hosts.write");
+            expect(requestText).toContain("system.host.write");
             expect(requestText).toContain("system.fs.scope.etc-hosts");
         });
     });

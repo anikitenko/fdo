@@ -372,7 +372,7 @@ describe("host privileged actions", () => {
             ok: false,
             code: "CAPABILITY_DENIED",
             correlationId: "corr-clipboard-read-denied",
-            error: "Missing required capability: system.hosts.write.",
+            error: "Missing required capability: system.host.write.",
         }));
     });
 

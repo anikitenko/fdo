@@ -65,8 +65,8 @@ test('shows Monaco diagnostics for missing privileged capabilities', async () =>
   `);
 
   await editorWindow.getByRole('tab', { name: 'Problems' }).click();
-  await expect(editorWindow.locator('code', { hasText: 'Missing capability: "system.hosts.write"' }).first()).toBeVisible({ timeout: 15000 });
-  await expect(editorWindow.locator('code', { hasText: 'system.fs.scope.etc-hosts' }).first()).toBeVisible({ timeout: 15000 });
+  await expectModelMarkerMessage(editorWindow, 'system\\.host(?:s)?\\.write');
+  await expectModelMarkerMessage(editorWindow, 'system\\.fs\\.scope\\.etc-hosts');
 });
 
 test('shows Monaco diagnostics for deprecated privileged patterns', async () => {

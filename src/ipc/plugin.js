@@ -34,7 +34,16 @@ import {
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
 } from "../utils/hostPrivilegedActions";
-import {HOST_FS_SCOPE_REGISTRY} from "../utils/privilegedFsScopeRegistry";
+import {
+    getAllHostFilesystemScopePolicies,
+    getHostPluginCustomFilesystemScopes,
+    getHostSharedFilesystemScopes,
+    normalizeCustomFilesystemScope,
+    removeHostPluginCustomFilesystemScopes,
+    sanitizeCustomFilesystemScopeId,
+    setHostPluginCustomFilesystemScopes,
+    setHostSharedFilesystemScopes,
+} from "../utils/privilegedFsScopeRegistry";
 import {
     getAllHostProcessScopePolicies,
     getHostPluginCustomProcessScopes,
@@ -585,14 +594,22 @@ async function getPluginLogTrace(pluginId, options = {}) {
 
 export function registerPluginHandlers() {
     const userORM = new UserORM(USER_CONFIG_FILE);
-    const syncProcessScopeRegistries = () => {
+    const syncScopeRegistries = () => {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
-        setHostSharedProcessScopes(userORM.getSharedProcessScopes());
+        const sharedProcessScopes = typeof userORM.getSharedProcessScopes === "function"
+            ? userORM.getSharedProcessScopes()
+            : [];
+        const sharedFilesystemScopes = typeof userORM.getSharedFilesystemScopes === "function"
+            ? userORM.getSharedFilesystemScopes()
+            : (typeof userORM.getCustomFilesystemScopes === "function" ? userORM.getCustomFilesystemScopes() : []);
+        setHostSharedProcessScopes(sharedProcessScopes);
+        setHostSharedFilesystemScopes(sharedFilesystemScopes);
         for (const plugin of pluginORM.getAllPlugins()) {
             setHostPluginCustomProcessScopes(plugin.id, plugin.customProcessScopes || []);
+            setHostPluginCustomFilesystemScopes(plugin.id, plugin.customFilesystemScopes || []);
         }
     };
-    syncProcessScopeRegistries();
+    syncScopeRegistries();
 
     const emitPrivilegedAudit = (event) => {
         if (event?.pluginId) {
@@ -777,6 +794,7 @@ export function registerPluginHandlers() {
             rmSync(plugin.home, {recursive: true, force: true})
             pluginORM.removePlugin(plugin.id)
             removeHostPluginCustomProcessScopes(plugin.id)
+            removeHostPluginCustomFilesystemScopes(plugin.id)
             return {success: true};
         } catch (error) {
             return {success: false, error: error.message};
@@ -808,7 +826,7 @@ export function registerPluginHandlers() {
             return {
                 success: true,
                 scopes: [
-                    ...Object.values(HOST_FS_SCOPE_REGISTRY || {}).map((policy) => sanitizeScopePolicy(policy)),
+                    ...Object.values(getAllHostFilesystemScopePolicies({pluginId}) || {}).map((policy) => sanitizeScopePolicy(policy)),
                     ...Object.values(getAllHostProcessScopePolicies({pluginId}) || {}).map((policy) => sanitizeScopePolicy(policy)),
                 ].filter((policy) => policy.scope),
             };
@@ -860,6 +878,55 @@ export function registerPluginHandlers() {
             return {
                 success: true,
                 scopes: getHostSharedProcessScopes().map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_SHARED_FILESYSTEM_SCOPES, async () => {
+        try {
+            const scopes = userORM.getSharedFilesystemScopes().map((scope) => sanitizeScopePolicy(normalizeCustomFilesystemScope(scope, {shared: true})));
+            setHostSharedFilesystemScopes(scopes);
+            return {success: true, scopes};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.UPSERT_SHARED_FILESYSTEM_SCOPE, async (_event, scope) => {
+        try {
+            const existing = userORM.getSharedFilesystemScopes();
+            const normalized = normalizeCustomFilesystemScope(scope, {shared: true});
+            const nextScopes = [
+                ...existing.filter((item) => sanitizeCustomFilesystemScopeId(String(item?.scope || "").trim()) !== normalized.scope),
+                normalized,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            userORM.setSharedFilesystemScopes(nextScopes);
+            setHostSharedFilesystemScopes(nextScopes);
+            return {
+                success: true,
+                scope: sanitizeScopePolicy(normalized),
+                scopes: getHostSharedFilesystemScopes().map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.DELETE_SHARED_FILESYSTEM_SCOPE, async (_event, scopeId) => {
+        try {
+            const normalizedScopeId = sanitizeCustomFilesystemScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Custom filesystem scope id is required.", scopes: []};
+            }
+            const nextScopes = userORM.getSharedFilesystemScopes()
+                .filter((item) => sanitizeCustomFilesystemScopeId(String(item?.scope || "").trim()) !== normalizedScopeId);
+            userORM.setSharedFilesystemScopes(nextScopes);
+            setHostSharedFilesystemScopes(nextScopes);
+            return {
+                success: true,
+                scopes: getHostSharedFilesystemScopes().map((item) => sanitizeScopePolicy(item)),
             };
         } catch (error) {
             return {success: false, error: error?.message || String(error), scopes: []};
@@ -919,6 +986,65 @@ export function registerPluginHandlers() {
             return {
                 success: true,
                 scopes: getHostPluginCustomProcessScopes(pluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.GET_PLUGIN_CUSTOM_FILESYSTEM_SCOPES, async (_event, pluginId = "") => {
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const scopes = pluginORM.getPluginCustomFilesystemScopes(pluginId)
+                .map((scope) => sanitizeScopePolicy(normalizeCustomFilesystemScope(scope, {pluginId})));
+            setHostPluginCustomFilesystemScopes(pluginId, scopes);
+            return {success: true, scopes};
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.UPSERT_PLUGIN_CUSTOM_FILESYSTEM_SCOPE, async (_event, pluginId = "", scope) => {
+        try {
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const existing = pluginORM.getPluginCustomFilesystemScopes(pluginId);
+            const normalized = normalizeCustomFilesystemScope(scope, {pluginId});
+            const nextScopes = [
+                ...existing.filter((item) => sanitizeCustomFilesystemScopeId(String(item?.scope || "").trim()) !== normalized.scope),
+                normalized,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            const result = pluginORM.setPluginCustomFilesystemScopes(pluginId, nextScopes);
+            if (!result.success) {
+                return {success: false, error: result.error, scopes: []};
+            }
+            setHostPluginCustomFilesystemScopes(pluginId, nextScopes);
+            return {
+                success: true,
+                scope: sanitizeScopePolicy(normalized),
+                scopes: getHostPluginCustomFilesystemScopes(pluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.DELETE_PLUGIN_CUSTOM_FILESYSTEM_SCOPE, async (_event, pluginId = "", scopeId) => {
+        try {
+            const normalizedScopeId = sanitizeCustomFilesystemScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Custom filesystem scope id is required.", scopes: []};
+            }
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const nextScopes = pluginORM.getPluginCustomFilesystemScopes(pluginId)
+                .filter((item) => sanitizeCustomFilesystemScopeId(String(item?.scope || "").trim()) !== normalizedScopeId);
+            const result = pluginORM.setPluginCustomFilesystemScopes(pluginId, nextScopes);
+            if (!result.success) {
+                return {success: false, error: result.error, scopes: []};
+            }
+            setHostPluginCustomFilesystemScopes(pluginId, nextScopes);
+            return {
+                success: true,
+                scopes: getHostPluginCustomFilesystemScopes(pluginId).map((item) => sanitizeScopePolicy(item)),
             };
         } catch (error) {
             return {success: false, error: error?.message || String(error), scopes: []};

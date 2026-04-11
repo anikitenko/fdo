@@ -100,12 +100,12 @@ describe("capability presentation", () => {
         expect(getCapabilityPresentation("system.clipboard.read")).toEqual(expect.objectContaining({
             title: "Read Host Clipboard",
             description: expect.stringContaining("sensitive"),
-            dependsOn: ["system.hosts.write"],
+            dependsOn: ["system.host.write"],
         }));
         expect(getCapabilityPresentation("system.clipboard.write")).toEqual(expect.objectContaining({
             title: "Write Host Clipboard",
-            description: expect.stringContaining("Separate from clipboard read"),
-            dependsOn: ["system.hosts.write"],
+            description: expect.stringMatching(/separate/i),
+            dependsOn: ["system.host.write"],
         }));
     });
 

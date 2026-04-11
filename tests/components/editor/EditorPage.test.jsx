@@ -385,7 +385,7 @@ describe("EditorPage baseline snapshot", () => {
             {
                 markers: [{
                     code: "FDO_MISSING_SYSTEM_HOSTS_WRITE",
-                    message: 'Missing capability: "system.hosts.write".',
+                    message: 'Missing capability: "system.host.write".',
                     startLineNumber: 1,
                     startColumn: 1,
                     endLineNumber: 1,

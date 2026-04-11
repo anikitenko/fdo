@@ -7,16 +7,28 @@ import path from "node:path";
 import {getHostFsScopePolicy} from "./privilegedFsScopeRegistry";
 import {getHostProcessScopePolicy} from "./privilegedProcessScopeRegistry";
 import {isCuratedOperatorProcessScopeId, isHostFallbackProcessScopeId} from "./processScopeCatalog";
+import {
+    hasCapability,
+    HOST_WRITE_CAPABILITY,
+    HOST_WRITE_CAPABILITY_LEGACY,
+    toCanonicalCapabilityId,
+} from "./pluginCapabilities";
 
 export const HOSTS_FILE_PATH = "/etc/hosts";
 export const HOST_PRIVILEGED_HANDLER = "__host.privilegedAction";
-export const HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE = "system.hosts.write";
+export const HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE = HOST_WRITE_CAPABILITY;
+export const HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE = HOST_WRITE_CAPABILITY_LEGACY;
 export const HOST_PRIVILEGED_ACTION_SYSTEM_FS_MUTATE = "system.fs.mutate";
 export const HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC = "system.process.exec";
 export const HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN = "system.workflow.run";
 export const HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ = "system.clipboard.read";
 export const HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE = "system.clipboard.write";
 export const DEFAULT_HOSTS_TAG = "default";
+
+function isHostWriteAction(action = "") {
+    return action === HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE
+        || action === HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE;
+}
 
 function nowIso() {
     return new Date().toISOString();
@@ -41,8 +53,9 @@ function errorEnvelope(code, message, correlationId, extra = {}) {
 }
 
 function missingCapabilitiesFor(required = [], granted = []) {
-    const grantedSet = new Set(Array.isArray(granted) ? granted : []);
-    return required.filter((capability) => !grantedSet.has(capability));
+    return required
+        .map((capability) => toCanonicalCapabilityId(capability))
+        .filter((capability) => !hasCapability(granted, capability));
 }
 
 function formatMissingCapabilitiesMessage(capabilities = []) {
@@ -119,7 +132,7 @@ function validateHostPrivilegedActionRequestCompat(payload) {
         throw new Error("Host privileged action request must be an object.");
     }
 
-    if (payload.action === HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE) {
+    if (isHostWriteAction(payload.action)) {
         if (!isRecord(payload.payload)) {
             throw new Error('Host privileged action "payload" must be an object.');
         }
@@ -359,7 +372,7 @@ function validateHostPrivilegedActionRequestCompat(payload) {
     }
 
     throw new Error(
-        `Host privileged action "action" must be "${HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE}", "${HOST_PRIVILEGED_ACTION_SYSTEM_FS_MUTATE}", "${HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC}", "${HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN}", "${HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ}", or "${HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE}".`
+        `Host privileged action "action" must be "${HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE}", "${HOST_PRIVILEGED_ACTION_SYSTEM_FS_MUTATE}", "${HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC}", "${HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN}", "${HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ}", or "${HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE}".`
     );
 }
 
@@ -829,7 +842,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
 
     if (action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ) {
         const requiredCapabilities = [
-            HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE,
+            HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE,
             HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
         ];
         const reason = typeof validated?.payload?.reason === "string" ? validated.payload.reason.trim() : "";
@@ -925,7 +938,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
 
     if (action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE) {
         const requiredCapabilities = [
-            HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE,
+            HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE,
             HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
         ];
         const reason = typeof validated?.payload?.reason === "string" ? validated.payload.reason.trim() : "";
@@ -979,11 +992,11 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
         }
     }
 
-    if (action === HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE) {
-        if (!grantedCapabilities.includes(HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE)) {
+    if (isHostWriteAction(action)) {
+        if (!hasCapability(grantedCapabilities, HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE)) {
             const denied = errorEnvelope(
                 "CAPABILITY_DENIED",
-                `Capability "${HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE}" is required.`,
+                `Capability "${HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE}" is required.`,
                 correlationId
             );
             audit({action, scope: "", dryRun, operationCount: validated.payload.records.length, success: false, error: denied});
@@ -1055,16 +1068,16 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
         const scope = validated.payload.scope;
         const scopeCap = `system.fs.scope.${scope}`;
         const operations = validated.payload.operations || [];
-        const broadGranted = grantedCapabilities.includes(HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE);
+        const broadGranted = hasCapability(grantedCapabilities, HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE);
         const scopeGranted = grantedCapabilities.includes(scopeCap);
 
         if (!broadGranted || !scopeGranted) {
-            const denied = errorEnvelope("CAPABILITY_DENIED", `Capabilities "${HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE}" and "${scopeCap}" are required.`, correlationId);
+            const denied = errorEnvelope("CAPABILITY_DENIED", `Capabilities "${HOST_PRIVILEGED_ACTION_SYSTEM_HOST_WRITE}" and "${scopeCap}" are required.`, correlationId);
             audit({action, scope, dryRun, operationCount: operations.length, success: false, error: denied});
             return denied;
         }
 
-        const policy = getHostFsScopePolicy(scope);
+        const policy = getHostFsScopePolicy(scope, {pluginId});
         if (!policy) {
             const unknown = errorEnvelope("SCOPE_DENIED", `Unknown or unsupported filesystem scope "${scope}".`, correlationId);
             audit({action, scope, dryRun, operationCount: operations.length, success: false, error: unknown});

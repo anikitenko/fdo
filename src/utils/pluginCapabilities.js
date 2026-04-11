@@ -1,9 +1,23 @@
+export const HOST_WRITE_CAPABILITY = "system.host.write";
+export const HOST_WRITE_CAPABILITY_LEGACY = "system.hosts.write";
+
+const CAPABILITY_ALIAS_TO_CANONICAL = Object.freeze({
+    [HOST_WRITE_CAPABILITY_LEGACY]: HOST_WRITE_CAPABILITY,
+});
+
+const CANONICAL_TO_ALIAS = Object.freeze(
+    Object.entries(CAPABILITY_ALIAS_TO_CANONICAL).reduce((acc, [alias, canonical]) => {
+        acc[canonical] = Array.isArray(acc[canonical]) ? [...acc[canonical], alias] : [alias];
+        return acc;
+    }, {})
+);
+
 export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
     "storage.json": Object.freeze({
         description: "Allows persistent JSON storage usage in SDK.",
     }),
-    "system.hosts.write": Object.freeze({
-        description: "Allows host-mediated tagged updates to /etc/hosts.",
+    [HOST_WRITE_CAPABILITY]: Object.freeze({
+        description: "Allows host-mediated privileged filesystem and host-side write actions.",
     }),
     "system.process.exec": Object.freeze({
         description: "Allows host-mediated scoped process execution with explicit host-side policy checks.",
@@ -24,14 +38,44 @@ export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
 
 export const KNOWN_PLUGIN_CAPABILITIES = Object.freeze(Object.keys(PLUGIN_CAPABILITY_DEFINITIONS));
 
+export function toCanonicalCapabilityId(capability = "") {
+    const normalizedCapability = String(capability || "").trim();
+    if (!normalizedCapability) {
+        return "";
+    }
+    return CAPABILITY_ALIAS_TO_CANONICAL[normalizedCapability] || normalizedCapability;
+}
+
+export function getCapabilityAliases(canonicalCapability = "") {
+    const normalizedCanonicalCapability = toCanonicalCapabilityId(canonicalCapability);
+    if (!normalizedCanonicalCapability) {
+        return [];
+    }
+    return CANONICAL_TO_ALIAS[normalizedCanonicalCapability] || [];
+}
+
+export function hasCapability(capabilities = [], targetCapability = "") {
+    const normalizedTargetCapability = toCanonicalCapabilityId(targetCapability);
+    if (!normalizedTargetCapability) {
+        return false;
+    }
+    return (Array.isArray(capabilities) ? capabilities : [])
+        .some((capability) => toCanonicalCapabilityId(capability) === normalizedTargetCapability);
+}
+
 export function normalizeCapabilityList(input) {
     const requested = Array.isArray(input)
         ? input.filter((entry) => typeof entry === "string")
         : [];
-    const unique = [...new Set(requested.map((entry) => entry.trim()).filter(Boolean))];
+    const unique = [...new Set(
+        requested
+            .map((entry) => toCanonicalCapabilityId(entry))
+            .filter(Boolean)
+    )];
     return unique.filter((capability) => (
-        KNOWN_PLUGIN_CAPABILITIES.includes(capability) || capability.startsWith("system.fs.scope.")
-            || capability.startsWith("system.process.scope.")
+        KNOWN_PLUGIN_CAPABILITIES.includes(capability)
+        || capability.startsWith("system.fs.scope.")
+        || capability.startsWith("system.process.scope.")
     ));
 }
 

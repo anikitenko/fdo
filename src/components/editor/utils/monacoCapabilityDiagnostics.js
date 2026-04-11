@@ -1,5 +1,6 @@
 import {IconNames} from "@blueprintjs/icons";
 import {isCuratedOperatorProcessScopeId, isHostFallbackProcessScopeId} from "../../../utils/processScopeCatalog";
+import {hasCapability as hasGrantedCapability, HOST_WRITE_CAPABILITY} from "../../../utils/pluginCapabilities";
 
 function toLineColumn(text, index) {
     const safeText = typeof text === "string" ? text : "";
@@ -27,7 +28,7 @@ function createMarker(source, startIndex, endIndex, message, severity = 4, code 
 }
 
 function hasCapability(granted, capabilityId) {
-    return granted.has(capabilityId);
+    return hasGrantedCapability([...granted], capabilityId);
 }
 
 const BLUEPRINT_ICON_NAMES = Array.from(new Set(
@@ -261,6 +262,7 @@ function detectHostsWriteUsage(source) {
     const matches = [];
     const patterns = [
         /createHostsWriteActionRequest\s*\(/g,
+        /["'`]system\.host\.write["'`]/g,
         /["'`]system\.hosts\.write["'`]/g,
     ];
     patterns.forEach((pattern) => {
@@ -450,15 +452,15 @@ export function computeCapabilityAndDeprecationMarkers({
     const markers = [];
 
     const hostsWrites = detectHostsWriteUsage(text);
-    if (hostsWrites.length > 0 && !hasCapability(granted, "system.hosts.write")) {
+    if (hostsWrites.length > 0 && !hasCapability(granted, HOST_WRITE_CAPABILITY)) {
         hostsWrites.forEach((match) => {
             markers.push(createMarker(
                 text,
                 match.start,
                 match.end,
                 pluginPersisted
-                    ? 'Missing capability: "system.hosts.write". Open Manage Plugins -> Capabilities to grant privileged host actions.'
-                    : 'Draft plugin requires capability "system.hosts.write". Save plugin first, then grant in Manage Plugins -> Capabilities.',
+                    ? `Missing capability: "${HOST_WRITE_CAPABILITY}". Open Manage Plugins -> Capabilities to grant privileged host actions.`
+                    : `Draft plugin requires capability "${HOST_WRITE_CAPABILITY}". Save plugin first, then grant in Manage Plugins -> Capabilities.`,
                 pluginPersisted ? 4 : 2,
                 "FDO_MISSING_SYSTEM_HOSTS_WRITE"
             ));
@@ -467,15 +469,15 @@ export function computeCapabilityAndDeprecationMarkers({
 
     const mutates = detectMutateUsage(text);
     if (mutates.length > 0) {
-        if (!hasCapability(granted, "system.hosts.write")) {
+        if (!hasCapability(granted, HOST_WRITE_CAPABILITY)) {
             mutates.forEach((match) => {
                 markers.push(createMarker(
                     text,
                     match.start,
                     match.end,
                     pluginPersisted
-                        ? 'Missing capability: "system.hosts.write" is required for "system.fs.mutate". Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.'
-                        : 'Draft plugin requires capability "system.hosts.write" for "system.fs.mutate". Save plugin first, then grant capability. Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.',
+                        ? `Missing capability: "${HOST_WRITE_CAPABILITY}" is required for "system.fs.mutate". Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.`
+                        : `Draft plugin requires capability "${HOST_WRITE_CAPABILITY}" for "system.fs.mutate". Save plugin first, then grant capability. Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.`,
                     pluginPersisted ? 4 : 2,
                     "FDO_MISSING_BASE_CAPABILITY"
                 ));
@@ -506,15 +508,15 @@ export function computeCapabilityAndDeprecationMarkers({
     const rawClipboardApi = detectRawClipboardApiUsage(text);
     const clipboardUsage = [...clipboardReads, ...clipboardWrites];
 
-    if (clipboardUsage.length > 0 && !hasCapability(granted, "system.hosts.write")) {
+    if (clipboardUsage.length > 0 && !hasCapability(granted, HOST_WRITE_CAPABILITY)) {
         clipboardUsage.forEach((match) => {
             markers.push(createMarker(
                 text,
                 match.start,
                 match.end,
                 pluginPersisted
-                    ? 'Missing base capability: "system.hosts.write" is required for host-mediated clipboard access. Clipboard helpers require base host privileged access plus clipboard read/write child capability.'
-                    : 'Draft plugin requires base capability "system.hosts.write" for host-mediated clipboard actions. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
+                    ? `Missing base capability: "${HOST_WRITE_CAPABILITY}" is required for host-mediated clipboard access. Clipboard helpers require base host privileged access plus clipboard read/write child capability.`
+                    : `Draft plugin requires base capability "${HOST_WRITE_CAPABILITY}" for host-mediated clipboard actions. Save plugin first, then grant capability in Manage Plugins -> Capabilities.`,
                 pluginPersisted ? 4 : 2,
                 "FDO_MISSING_SYSTEM_HOSTS_WRITE_FOR_CLIPBOARD"
             ));
@@ -837,7 +839,7 @@ export function buildCapabilityAndDeprecationCodeActions({
         const guidanceFix = buildCapabilityGuidanceCommentFix({
             source,
             marker,
-            capability: requiredCapability || "system.hosts.write",
+            capability: requiredCapability || HOST_WRITE_CAPABILITY,
         });
         if (guidanceFix) {
             fixes.push(guidanceFix);
