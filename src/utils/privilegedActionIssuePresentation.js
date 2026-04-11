@@ -103,6 +103,8 @@ export function classifyPrivilegedActionIssue(payload = {}) {
     const details = payload?.extraDetails || payload?.details || {};
     const errorText = String(payload?.detailsText || payload?.details || payload?.error || "").trim();
     const missingCapabilities = uniqueList(payload?.missingCapabilities);
+    const unknownProcessScopeMatch = errorText.match(/Unknown or unsupported process scope "([a-zA-Z0-9._-]+)"/i);
+    const requestedScope = String(details?.scope || unknownProcessScopeMatch?.[1] || "").trim();
 
     if (code === "CAPABILITY_DENIED" || missingCapabilities.length > 0) {
         return {
@@ -121,6 +123,16 @@ export function classifyPrivilegedActionIssue(payload = {}) {
             title: "Tool Not Installed",
             summary: "The host could not find the requested executable for this plugin action.",
             remediation: buildToolNotInstalledRemediation(details, errorText),
+            intent: "warning",
+            showCapabilitiesButton: false,
+        };
+    }
+
+    if (code === "SCOPE_DENIED" && requestedScope) {
+        return {
+            title: "Process Scope Not Configured",
+            summary: "The plugin requested a host-defined process scope that is granted but not configured on this host yet.",
+            remediation: `Add scope "${requestedScope}" under Plugin-Specific Process Scopes or Shared Process Scopes, then allow the exact executable path the plugin needs.`,
             intent: "warning",
             showCapabilitiesButton: false,
         };

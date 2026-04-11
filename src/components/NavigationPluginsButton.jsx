@@ -12,14 +12,64 @@ export const NavigationPluginsButton = ({
                                             active,
                                             all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin, setSearchActions, refreshPluginsState,
                                             capabilityFocusRequest,
+                                            onCapabilityFocusRequestConsumed,
+                                            pendingPluginScopeSuggestions,
+                                            onPendingPluginScopeSuggestionResolved,
                                         }) => {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [showManageDialog, setShowManageDialog] = useState(false);
+    const [showPluginsPopover, setShowPluginsPopover] = useState(false);
+
+    useEffect(() => {
+        if (!showPluginsPopover || typeof window === "undefined" || typeof document === "undefined") {
+            return;
+        }
+
+        const closeIfIframeFocused = () => {
+            const activeElement = document.activeElement;
+            if (activeElement?.tagName === "IFRAME") {
+                setShowPluginsPopover(false);
+            }
+        };
+        const handlePointerDownCapture = (event) => {
+            const target = event?.target;
+            if (target?.tagName === "IFRAME") {
+                setShowPluginsPopover(false);
+            }
+        };
+        const handleWindowBlur = () => {
+            setTimeout(closeIfIframeFocused, 0);
+        };
+        const handlePluginIframeInteraction = () => {
+            setShowPluginsPopover(false);
+        };
+        const handlePluginIframeMessage = (event) => {
+            if (event?.data?.type === "PLUGIN_IFRAME_INTERACTION") {
+                setShowPluginsPopover(false);
+            }
+        };
+
+        const focusPollId = window.setInterval(closeIfIframeFocused, 150);
+        document.addEventListener("pointerdown", handlePointerDownCapture, true);
+        document.addEventListener("focusin", closeIfIframeFocused, true);
+        window.addEventListener("blur", handleWindowBlur, true);
+        window.addEventListener("fdo:plugin-iframe-interaction", handlePluginIframeInteraction);
+        window.addEventListener("message", handlePluginIframeMessage);
+        return () => {
+            window.clearInterval(focusPollId);
+            document.removeEventListener("pointerdown", handlePointerDownCapture, true);
+            document.removeEventListener("focusin", closeIfIframeFocused, true);
+            window.removeEventListener("blur", handleWindowBlur, true);
+            window.removeEventListener("fdo:plugin-iframe-interaction", handlePluginIframeInteraction);
+            window.removeEventListener("message", handlePluginIframeMessage);
+        };
+    }, [showPluginsPopover]);
 
     useEffect(() => {
         if (!capabilityFocusRequest?.pluginId) {
             return;
         }
+        setShowPluginsPopover(false);
         setShowManageDialog(true);
     }, [capabilityFocusRequest?.requestId, capabilityFocusRequest?.pluginId]);
 
@@ -32,9 +82,12 @@ export const NavigationPluginsButton = ({
                                       deselectAllPlugins={deselectAllPlugins}
                                       setShowCreateDialog={setShowCreateDialog}
                                       setShowManageDialog={setShowManageDialog}
+                                      closePopover={() => setShowPluginsPopover(false)}
                 />}
                 popoverClassName={style["plugins-popover"]}
                 interactionKind={"click"}
+                isOpen={showPluginsPopover}
+                onInteraction={setShowPluginsPopover}
                 modifiers={{
                     arrow: {enabled: true},
                     flip: {enabled: true},
@@ -55,6 +108,9 @@ export const NavigationPluginsButton = ({
                                      deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}
                                      refreshPluginsState={refreshPluginsState}
                                      focusRequest={capabilityFocusRequest}
+                                     onFocusRequestConsumed={onCapabilityFocusRequestConsumed}
+                                     pendingPluginScopeSuggestions={pendingPluginScopeSuggestions}
+                                     onPendingPluginScopeSuggestionResolved={onPendingPluginScopeSuggestionResolved}
                 />
             </Suspense>
         </div>
@@ -74,7 +130,16 @@ NavigationPluginsButton.propTypes = {
         requestId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
         pluginId: PropTypes.string,
         capabilityIds: PropTypes.array,
+        focusSection: PropTypes.string,
+        scopeIds: PropTypes.array,
+        suggestedScope: PropTypes.shape({
+            scopeId: PropTypes.string,
+            commandPath: PropTypes.string,
+        }),
     }),
+    onCapabilityFocusRequestConsumed: PropTypes.func,
+    pendingPluginScopeSuggestions: PropTypes.object,
+    onPendingPluginScopeSuggestionResolved: PropTypes.func,
 }
 
 const PluginsCard = ({
@@ -84,7 +149,8 @@ const PluginsCard = ({
                          deselectPlugin,
                          deselectAllPlugins,
                          setShowCreateDialog,
-                         setShowManageDialog
+                         setShowManageDialog,
+                         closePopover,
                      }) => {
     const panelWidth = "500px";
 
@@ -136,6 +202,7 @@ const PluginsCard = ({
                                 <Card key={plugin.id} interactive={true} elevation={Elevation.ONE}
                                       selected={active.some((p) => p.id === plugin.id)}
                                       onClick={() => {
+                                          closePopover?.();
                                           if (active.some((p) => p.id === plugin.id)) {
                                               deselectPlugin(plugin)
                                           } else {
@@ -183,9 +250,15 @@ const PluginsCard = ({
                 boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)",
             }}>
                 <Button text="Create plugin" intent={"success"} style={{borderRadius: "6px", minWidth: "132px"}} variant={"outlined"}
-                        size={"medium"} onClick={() => setShowCreateDialog(true)}/>
+                        size={"medium"} onClick={() => {
+                            closePopover?.();
+                            setShowCreateDialog(true);
+                        }}/>
                 <Button text="Manage plugins" intent={"primary"} style={{borderRadius: "6px", minWidth: "132px", marginLeft: "10px"}}
-                        variant={"outlined"} size={"medium"} onClick={() => setShowManageDialog(true)}/>
+                        variant={"outlined"} size={"medium"} onClick={() => {
+                            closePopover?.();
+                            setShowManageDialog(true);
+                        }}/>
             </div>
         </div>
     );
@@ -197,5 +270,6 @@ PluginsCard.propTypes = {
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,
     deselectAllPlugins: PropTypes.func,
-    setShowManageDialog: PropTypes.func
+    setShowManageDialog: PropTypes.func,
+    closePopover: PropTypes.func,
 }

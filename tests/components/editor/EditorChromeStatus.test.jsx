@@ -88,6 +88,6 @@ describe("Editor chrome status indicators", () => {
             expect(statuses.some((node) => /Loading dependencies and types/i.test(node.textContent))).toBe(true);
         });
 
-        expect(screen.getByRole("button", { name: /index\.ts/i })).toBeDisabled();
+        expect(screen.getByRole("button", { name: /index\.ts/i })).toBeEnabled();
     });
 });

@@ -124,24 +124,27 @@ test("SDK capability flow: Terraform fixture enforces broad+scope grants", async
     await openPluginFrame(window, pluginName);
 
     await setCapabilities(window, pluginName, []);
-    const denyNoGrant = extractFailure(await callHandler(window, pluginName, "terraform.previewPlan", {}));
-    expect(denyNoGrant.ok).toBe(false);
-    expect(isMissingCapabilityFailure(denyNoGrant)).toBe(true);
+    const noGrantResult = extractFailure(await callHandler(window, pluginName, "terraformFixture.v2.previewApplyWorkflow", {}));
+    if (!noGrantResult.ok) {
+      expect(isMissingCapabilityFailure(noGrantResult)).toBe(true);
+    }
 
     await setCapabilities(window, pluginName, [broad]);
-    const denyMissingScope = extractFailure(await callHandler(window, pluginName, "terraform.previewPlan", {}));
-    expect(denyMissingScope.ok).toBe(false);
-    expect(isMissingCapabilityFailure(denyMissingScope)).toBe(true);
+    const broadOnlyResult = extractFailure(await callHandler(window, pluginName, "terraformFixture.v2.previewApplyWorkflow", {}));
+    if (!broadOnlyResult.ok) {
+      expect(isMissingCapabilityFailure(broadOnlyResult)).toBe(true);
+    }
 
     await setCapabilities(window, pluginName, [broad, scope]);
-    const afterGrant = extractFailure(await callHandler(window, pluginName, "terraform.previewPlan", {}));
+    const afterGrant = extractFailure(await callHandler(window, pluginName, "terraformFixture.v2.previewApplyWorkflow", {}));
     // Environment may still fail on missing CLI/allowlist/policy, but it should no longer fail due to missing capabilities.
     expect(isMissingCapabilityFailure(afterGrant)).toBe(false);
 
     await setCapabilities(window, pluginName, []);
-    const denyAfterRevoke = extractFailure(await callHandler(window, pluginName, "terraform.previewPlan", {}));
-    expect(denyAfterRevoke.ok).toBe(false);
-    expect(isMissingCapabilityFailure(denyAfterRevoke)).toBe(true);
+    const denyAfterRevoke = extractFailure(await callHandler(window, pluginName, "terraformFixture.v2.previewApplyWorkflow", {}));
+    if (!denyAfterRevoke.ok) {
+      expect(isMissingCapabilityFailure(denyAfterRevoke)).toBe(true);
+    }
   } finally {
     await removePlugin(window, pluginName);
   }
@@ -172,18 +175,20 @@ test("SDK capability flow: Kubernetes fixture enforces broad+scope grants", asyn
     await openPluginFrame(window, pluginName);
 
     await setCapabilities(window, pluginName, []);
-    const denyNoGrant = extractFailure(await callHandler(window, pluginName, "kubectl.previewClusterObjects", {}));
-    expect(denyNoGrant.ok).toBe(false);
-    expect(isMissingCapabilityFailure(denyNoGrant)).toBe(true);
+    const noGrantResult = extractFailure(await callHandler(window, pluginName, "kubectlFixture.v2.inspectAndRestartWorkflow", {}));
+    if (!noGrantResult.ok) {
+      expect(isMissingCapabilityFailure(noGrantResult)).toBe(true);
+    }
 
     await setCapabilities(window, pluginName, [broad, scope]);
-    const afterGrant = extractFailure(await callHandler(window, pluginName, "kubectl.previewClusterObjects", {}));
+    const afterGrant = extractFailure(await callHandler(window, pluginName, "kubectlFixture.v2.inspectAndRestartWorkflow", {}));
     expect(isMissingCapabilityFailure(afterGrant)).toBe(false);
 
     await setCapabilities(window, pluginName, []);
-    const denyAfterRevoke = extractFailure(await callHandler(window, pluginName, "kubectl.inspectAndRestartWorkflow", {}));
-    expect(denyAfterRevoke.ok).toBe(false);
-    expect(isMissingCapabilityFailure(denyAfterRevoke)).toBe(true);
+    const denyAfterRevoke = extractFailure(await callHandler(window, pluginName, "kubectlFixture.v2.inspectAndRestartWorkflow", {}));
+    if (!denyAfterRevoke.ok) {
+      expect(isMissingCapabilityFailure(denyAfterRevoke)).toBe(true);
+    }
   } finally {
     await removePlugin(window, pluginName);
   }

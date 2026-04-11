@@ -235,6 +235,12 @@ function buildScopeSummary(scopeItem = {}) {
     return parts.join(" | ");
 }
 
+function isScopeCapabilityId(capabilityId = "") {
+    const normalizedCapabilityId = String(capabilityId || "").trim();
+    return normalizedCapabilityId.startsWith("system.process.scope.")
+        || normalizedCapabilityId.startsWith("system.fs.scope.");
+}
+
 export const ManagePluginsDialog = ({
                                         show,
                                         setShow,
@@ -246,11 +252,18 @@ export const ManagePluginsDialog = ({
                                         setSearchActions,
                                         refreshPluginsState,
                                         focusRequest,
+                                        onFocusRequestConsumed,
+                                        pendingPluginScopeSuggestions,
+                                        onPendingPluginScopeSuggestionResolved,
                                     }) => {
     const [selectedTabId, setSelectedTabId] = useState(null);
     const [sortedPlugins, setSortedPlugins] = useState([]);
     const [scopePolicies, setScopePolicies] = useState([]);
     const [runtimeStatusByPluginId, setRuntimeStatusByPluginId] = useState(new Map());
+    const pendingScopePluginId = useMemo(
+        () => sortedPlugins.find((plugin) => pendingPluginScopeSuggestions?.[plugin.id])?.id || null,
+        [sortedPlugins, pendingPluginScopeSuggestions]
+    );
 
     const reloadScopePolicies = useCallback(async (pluginId = "") => {
         try {
@@ -355,6 +368,47 @@ export const ManagePluginsDialog = ({
         setSelectedTabId(focusRequest.pluginId);
     }, [show, focusRequest?.pluginId, focusRequest?.requestId]);
 
+    useEffect(() => {
+        if (!show || focusRequest?.pluginId || !pendingScopePluginId) {
+            return;
+        }
+        if (selectedTabId && pendingPluginScopeSuggestions?.[selectedTabId]) {
+            return;
+        }
+        setSelectedTabId(pendingScopePluginId);
+    }, [show, focusRequest?.pluginId, pendingPluginScopeSuggestions, pendingScopePluginId, selectedTabId]);
+
+    const handleDialogClose = useCallback(() => {
+        const pluginIdsToResolve = new Set();
+        const focusedPluginId = String(focusRequest?.pluginId || "").trim();
+        const selectedPluginId = String(selectedTabId || "").trim();
+
+        if (focusedPluginId && pendingPluginScopeSuggestions?.[focusedPluginId]) {
+            pluginIdsToResolve.add(focusedPluginId);
+        }
+        if (selectedPluginId && pendingPluginScopeSuggestions?.[selectedPluginId]) {
+            pluginIdsToResolve.add(selectedPluginId);
+        }
+
+        pluginIdsToResolve.forEach((pluginId) => {
+            onPendingPluginScopeSuggestionResolved?.(pluginId);
+        });
+
+        if (focusRequest?.requestId) {
+            onFocusRequestConsumed?.(focusRequest.requestId);
+        }
+
+        setShow(false);
+    }, [
+        focusRequest?.pluginId,
+        focusRequest?.requestId,
+        onFocusRequestConsumed,
+        onPendingPluginScopeSuggestionResolved,
+        pendingPluginScopeSuggestions,
+        selectedTabId,
+        setShow,
+    ]);
+
     return (
         <Dialog
             autoFocus={true}
@@ -362,7 +416,7 @@ export const ManagePluginsDialog = ({
             canOutsideClickClose={true}
             isOpen={show}
             isCloseButtonShown={true}
-            onClose={() => setShow(false)}
+            onClose={handleDialogClose}
             className={styles["manage-plugins"]}
             title={<><Icon icon={"cube"} intent={"primary"} size={20}/><span className={"bp6-heading"}
                                                                              style={{fontSize: "1.2rem"}}>Manage Plugins</span></>}
@@ -411,12 +465,17 @@ export const ManagePluginsDialog = ({
                                                     runtimeStatus={runtimeStatusByPluginId.get(plugin.id) || null}
                                                     refreshPluginsState={refreshPluginsState}
                                                     reloadScopePolicies={reloadScopePolicies}
-                                                     highlightedCapabilityIds={
+                                                    highlightedCapabilityIds={
                                                         focusRequest?.pluginId === plugin.id
                                                             ? (Array.isArray(focusRequest?.capabilityIds) ? focusRequest.capabilityIds : [])
                                                             : []
                                                     }
+                                                    focusRequest={focusRequest?.pluginId === plugin.id ? focusRequest : null}
+                                                    persistentScopeSuggestion={pendingPluginScopeSuggestions?.[plugin.id] || null}
+                                                    resolvePersistentScopeSuggestion={() => onPendingPluginScopeSuggestionResolved?.(plugin.id)}
+                                                    consumeFocusRequest={onFocusRequestConsumed}
                                                     refreshRuntimeStatuses={refreshRuntimeStatuses}
+                                                    dialogOpen={show}
                                  />
                              }/>
                     )
@@ -451,7 +510,16 @@ ManagePluginsDialog.propTypes = {
         requestId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
         pluginId: PropTypes.string,
         capabilityIds: PropTypes.array,
+        focusSection: PropTypes.string,
+        scopeIds: PropTypes.array,
+        suggestedScope: PropTypes.shape({
+            scopeId: PropTypes.string,
+            commandPath: PropTypes.string,
+        }),
     }),
+    onFocusRequestConsumed: PropTypes.func,
+    pendingPluginScopeSuggestions: PropTypes.object,
+    onPendingPluginScopeSuggestionResolved: PropTypes.func,
 }
 
 const SelectPluginPanel = ({
@@ -470,6 +538,11 @@ const SelectPluginPanel = ({
                            reloadScopePolicies,
                            refreshRuntimeStatuses,
                            highlightedCapabilityIds,
+                           focusRequest,
+                           persistentScopeSuggestion,
+                           resolvePersistentScopeSuggestion,
+                           consumeFocusRequest,
+                           dialogOpen,
                        }) => {
     const emptyCustomScopeDraft = {
         scope: "",
@@ -507,6 +580,7 @@ const SelectPluginPanel = ({
     const [showCapabilityIntent, setShowCapabilityIntent] = useState(false);
     const [showCapabilitiesPanel, setShowCapabilitiesPanel] = useState(false);
     const [customProcessScopes, setCustomProcessScopes] = useState([]);
+    const [customProcessScopesLoaded, setCustomProcessScopesLoaded] = useState(false);
     const [showCustomScopeEditor, setShowCustomScopeEditor] = useState(false);
     const [customScopeDraft, setCustomScopeDraft] = useState(emptyCustomScopeDraft);
     const [customScopeError, setCustomScopeError] = useState("");
@@ -523,6 +597,9 @@ const SelectPluginPanel = ({
         allowedCwdRoots: "",
         allowedEnvKeys: "",
     });
+    const [scopeSetupSuggestion, setScopeSetupSuggestion] = useState(null);
+    const [suppressSuggestedScopeAutoOpen, setSuppressSuggestedScopeAutoOpen] = useState(false);
+    const pluginScopesCardRef = useRef(null);
 
     const [pluginVerification, setPluginVerification] = useState(null)
 
@@ -551,8 +628,10 @@ const SelectPluginPanel = ({
 
     useEffect(() => {
         let cancelled = false;
+        setCustomProcessScopesLoaded(false);
         if (typeof window?.electron?.plugin?.getPluginCustomProcessScopes !== "function") {
             setCustomProcessScopes([]);
+            setCustomProcessScopesLoaded(true);
             return () => {
                 cancelled = true;
             };
@@ -560,14 +639,20 @@ const SelectPluginPanel = ({
         window.electron.plugin.getPluginCustomProcessScopes(plugin?.id).then((result) => {
             if (cancelled) return;
             setCustomProcessScopes(result?.success && Array.isArray(result?.scopes) ? result.scopes : []);
+            setCustomProcessScopesLoaded(true);
         }).catch(() => {
             if (!cancelled) {
                 setCustomProcessScopes([]);
+                setCustomProcessScopesLoaded(true);
             }
         });
         return () => {
             cancelled = true;
         };
+    }, [plugin?.id]);
+
+    useEffect(() => {
+        setScopeSetupSuggestion(null);
     }, [plugin?.id]);
 
     const hasCapability = (capability) => capabilitiesDraft.includes(capability);
@@ -585,6 +670,13 @@ const SelectPluginPanel = ({
             allowedCwdRoots: "",
             allowedEnvKeys: "",
         });
+    };
+    const closeCustomScopeEditor = ({suppressAutoOpen = false} = {}) => {
+        setShowCustomScopeEditor(false);
+        resetCustomScopeDraft();
+        if (suppressAutoOpen) {
+            setSuppressSuggestedScopeAutoOpen(true);
+        }
     };
 
     const groupedCustomProcessScopes = useMemo(() => {
@@ -605,6 +697,99 @@ const SelectPluginPanel = ({
         () => normalizeCustomScopeSlugInput(customScopeDraft.scope),
         [customScopeDraft.scope]
     );
+    const persistentSuggestedScopeIds = useMemo(
+        () => (Array.isArray(persistentScopeSuggestion?.scopeIds) ? persistentScopeSuggestion.scopeIds : [])
+            .map((scopeId) => String(scopeId || "").trim())
+            .filter(Boolean),
+        [persistentScopeSuggestion?.scopeIds]
+    );
+    const persistentSuggestedScopeId = String(
+        persistentScopeSuggestion?.suggestedScope?.scopeId
+        || persistentSuggestedScopeIds[0]
+        || ""
+    ).trim();
+    const persistentSuggestedCommandPath = String(
+        persistentScopeSuggestion?.suggestedScope?.commandPath || ""
+    ).trim();
+    const toScopeTitle = (scopeId = "") => String(scopeId || "")
+        .replace(/^user\./, "")
+        .replace(/[._-]+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+    const openSuggestedScopeDraft = (suggestedScopeId = "", suggestedCommandPath = "") => {
+        const normalizedSuggestedScopeId = String(suggestedScopeId || "").trim();
+        const normalizedSuggestedCommandPath = String(suggestedCommandPath || "").trim();
+        if (!normalizedSuggestedScopeId) {
+            return;
+        }
+        setSuppressSuggestedScopeAutoOpen(false);
+        setEditingCustomScopeId("");
+        setCustomScopeError("");
+        setCustomScopeInputs({
+            allowedExecutables: "",
+            allowedCwdRoots: "",
+            allowedEnvKeys: "",
+        });
+        setCustomScopeInputErrors({
+            allowedExecutables: "",
+            allowedCwdRoots: "",
+            allowedEnvKeys: "",
+        });
+        setCustomScopeDraft({
+            ...emptyCustomScopeDraft,
+            scope: normalizeCustomScopeSlugInput(normalizedSuggestedScopeId),
+            title: toScopeTitle(normalizedSuggestedScopeId),
+            description: "Host-approved command family required by plugin runtime request.",
+            allowedExecutables: normalizedSuggestedCommandPath
+                ? uniqueNormalizedTokens([normalizedSuggestedCommandPath])
+                : [],
+        });
+        setShowCustomScopeEditor(true);
+    };
+    const dismissScopeSetupSuggestion = () => {
+        setScopeSetupSuggestion(null);
+        resolvePersistentScopeSuggestion?.();
+    };
+    const handleCreateDraftForUnresolvedGrantedScope = () => {
+        const firstScopeId = unresolvedGrantedProcessScopeIds[0] || "";
+        if (!firstScopeId) {
+            return;
+        }
+        setScopeSetupSuggestion({
+            scopeId: firstScopeId,
+            commandPath: "",
+            scopeIds: unresolvedGrantedProcessScopeIds,
+        });
+        openSuggestedScopeDraft(firstScopeId, "");
+    };
+    const handleCreateDraftForMissingDeclaredScope = () => {
+        const firstScopeId = unresolvedDeclaredProcessScopeIds[0] || "";
+        if (!firstScopeId) {
+            return;
+        }
+        setScopeSetupSuggestion({
+            scopeId: firstScopeId,
+            commandPath: "",
+            scopeIds: unresolvedDeclaredProcessScopeIds,
+        });
+        openSuggestedScopeDraft(firstScopeId, "");
+    };
+    const handleRemoveUnresolvedGrantedScopes = () => {
+        if (unresolvedGrantedProcessScopeCapabilities.length === 0) {
+            return;
+        }
+        setCapabilitiesDraft((prev) => (Array.isArray(prev) ? prev : []).filter(
+            (capability) => !unresolvedGrantedProcessScopeCapabilities.includes(capability)
+        ));
+    };
+    const handleRemoveUnresolvedGrantedFilesystemScopes = () => {
+        if (unresolvedGrantedFilesystemScopeCapabilities.length === 0) {
+            return;
+        }
+        setCapabilitiesDraft((prev) => (Array.isArray(prev) ? prev : []).filter(
+            (capability) => !unresolvedGrantedFilesystemScopeCapabilities.includes(capability)
+        ));
+    };
     const capabilityPreviewId = useMemo(
         () => `system.process.scope.${toCustomScopeIdFromSlug(customScopeDraft.scope) || "<scope-id>"}`,
         [customScopeDraft.scope]
@@ -636,6 +821,10 @@ const SelectPluginPanel = ({
     };
 
     const scopeCapabilities = useMemo(() => buildScopeCapabilities(scopePolicies), [scopePolicies]);
+    const availableScopeCapabilityIds = useMemo(
+        () => new Set(scopeCapabilities.map((item) => item.capability)),
+        [scopeCapabilities]
+    );
     const clipboardCapabilityChildren = useMemo(() => ([
         {
             id: "clipboard-read",
@@ -688,6 +877,33 @@ const SelectPluginPanel = ({
             return groups;
         }, {});
     }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren]);
+    const unresolvedGrantedScopeCapabilities = useMemo(
+        () => [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
+            .map((capability) => String(capability || "").trim())
+            .filter((capability) => isScopeCapabilityId(capability))
+            .filter((capability) => !availableScopeCapabilityIds.has(capability)))],
+        [capabilitiesDraft, availableScopeCapabilityIds]
+    );
+    const unresolvedGrantedProcessScopeCapabilities = useMemo(
+        () => unresolvedGrantedScopeCapabilities.filter((capability) => capability.startsWith("system.process.scope.")),
+        [unresolvedGrantedScopeCapabilities]
+    );
+    const unresolvedGrantedFilesystemScopeCapabilities = useMemo(
+        () => unresolvedGrantedScopeCapabilities.filter((capability) => capability.startsWith("system.fs.scope.")),
+        [unresolvedGrantedScopeCapabilities]
+    );
+    const unresolvedGrantedProcessScopeIds = useMemo(
+        () => unresolvedGrantedProcessScopeCapabilities
+            .map((capability) => capability.slice("system.process.scope.".length))
+            .filter(Boolean),
+        [unresolvedGrantedProcessScopeCapabilities]
+    );
+    const unresolvedGrantedFilesystemScopeIds = useMemo(
+        () => unresolvedGrantedFilesystemScopeCapabilities
+            .map((capability) => capability.slice("system.fs.scope.".length))
+            .filter(Boolean),
+        [unresolvedGrantedFilesystemScopeCapabilities]
+    );
     const setCapability = (capability, checked) => {
         const childItem = Object.values(capabilityChildrenByBase).flat().find((item) => item.capability === capability);
         setCapabilitiesDraft((prev) => {
@@ -734,6 +950,33 @@ const SelectPluginPanel = ({
     const capabilityIntentSummary = useMemo(
         () => buildCapabilityDeclarationSummary(capabilityIntent || {}),
         [capabilityIntent]
+    );
+    const unresolvedDeclaredScopeCapabilities = useMemo(
+        () => [...new Set((Array.isArray(capabilityIntent?.declared) ? capabilityIntent.declared : [])
+            .map((capability) => String(capability || "").trim())
+            .filter((capability) => isScopeCapabilityId(capability))
+            .filter((capability) => !availableScopeCapabilityIds.has(capability)))],
+        [capabilityIntent, availableScopeCapabilityIds]
+    );
+    const unresolvedDeclaredProcessScopeCapabilities = useMemo(
+        () => unresolvedDeclaredScopeCapabilities.filter((capability) => capability.startsWith("system.process.scope.")),
+        [unresolvedDeclaredScopeCapabilities]
+    );
+    const unresolvedDeclaredProcessScopeIds = useMemo(
+        () => unresolvedDeclaredProcessScopeCapabilities
+            .map((capability) => capability.slice("system.process.scope.".length))
+            .filter(Boolean),
+        [unresolvedDeclaredProcessScopeCapabilities]
+    );
+    const unresolvedDeclaredFilesystemScopeCapabilities = useMemo(
+        () => unresolvedDeclaredScopeCapabilities.filter((capability) => capability.startsWith("system.fs.scope.")),
+        [unresolvedDeclaredScopeCapabilities]
+    );
+    const unresolvedDeclaredFilesystemScopeIds = useMemo(
+        () => unresolvedDeclaredFilesystemScopeCapabilities
+            .map((capability) => capability.slice("system.fs.scope.".length))
+            .filter(Boolean),
+        [unresolvedDeclaredFilesystemScopeCapabilities]
     );
     const selectedScopeCount = useMemo(
         () => getSelectedScopeCapabilities(capabilitiesDraft, Object.values(capabilityChildrenByBase).flat()).length,
@@ -788,6 +1031,117 @@ const SelectPluginPanel = ({
             setShowCapabilitiesPanel(capabilityPanelBeforeFilterRef.current);
         }
     }, [normalizedCapabilityFilter, showCapabilitiesPanel]);
+
+    useEffect(() => {
+        if (!focusRequest?.requestId) return;
+        if (focusRequest.focusSection === "capabilities" || focusRequest.focusSection === "pluginScopes") {
+            setShowCapabilitiesPanel(true);
+        }
+        if (focusRequest.focusSection === "pluginScopes") {
+            if (!customProcessScopesLoaded) {
+                return;
+            }
+            const suggestedScopeIds = (Array.isArray(focusRequest?.scopeIds) ? focusRequest.scopeIds : [])
+                .map((scopeId) => String(scopeId || "").trim())
+                .filter(Boolean);
+            const suggestedScopeId = String(focusRequest?.suggestedScope?.scopeId || suggestedScopeIds[0] || "").trim();
+            const suggestedCommandPath = String(focusRequest?.suggestedScope?.commandPath || "").trim();
+            const scopeAlreadyExists = suggestedScopeId
+                ? customProcessScopes.some((scope) => String(scope?.scope || "").trim() === suggestedScopeId)
+                : false;
+            if (suggestedScopeId && !scopeAlreadyExists) {
+                window.setTimeout(() => {
+                    pluginScopesCardRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+                }, 120);
+                setScopeSetupSuggestion({
+                    scopeId: suggestedScopeId,
+                    commandPath: suggestedCommandPath,
+                    scopeIds: suggestedScopeIds.length > 0 ? suggestedScopeIds : [suggestedScopeId],
+                });
+                openSuggestedScopeDraft(suggestedScopeId, suggestedCommandPath);
+            } else {
+                setScopeSetupSuggestion(null);
+            }
+            consumeFocusRequest?.(focusRequest.requestId);
+            return;
+        }
+        setScopeSetupSuggestion(null);
+        consumeFocusRequest?.(focusRequest.requestId);
+    }, [
+        customProcessScopes,
+        customProcessScopesLoaded,
+        focusRequest?.requestId,
+        focusRequest?.focusSection,
+        focusRequest?.scopeIds,
+        focusRequest?.suggestedScope?.scopeId,
+        focusRequest?.suggestedScope?.commandPath,
+        consumeFocusRequest,
+    ]);
+
+    useEffect(() => {
+        if (!persistentSuggestedScopeId) {
+            return;
+        }
+        if (!customProcessScopesLoaded) {
+            return;
+        }
+        setShowCapabilitiesPanel(true);
+        const scopeAlreadyExists = customProcessScopes.some((scope) => String(scope?.scope || "").trim() === persistentSuggestedScopeId);
+        if (scopeAlreadyExists) {
+            resolvePersistentScopeSuggestion?.();
+            return;
+        }
+        if (suppressSuggestedScopeAutoOpen) {
+            return;
+        }
+        if (scopeSetupSuggestion?.scopeId === persistentSuggestedScopeId && showCustomScopeEditor) {
+            return;
+        }
+        window.setTimeout(() => {
+            pluginScopesCardRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+        }, 120);
+        setScopeSetupSuggestion({
+            scopeId: persistentSuggestedScopeId,
+            commandPath: persistentSuggestedCommandPath,
+            scopeIds: persistentSuggestedScopeIds.length > 0 ? persistentSuggestedScopeIds : [persistentSuggestedScopeId],
+        });
+        openSuggestedScopeDraft(persistentSuggestedScopeId, persistentSuggestedCommandPath);
+    }, [
+        customProcessScopes,
+        customProcessScopesLoaded,
+        persistentSuggestedScopeId,
+        persistentSuggestedCommandPath,
+        persistentSuggestedScopeIds,
+        resolvePersistentScopeSuggestion,
+        scopeSetupSuggestion?.scopeId,
+        suppressSuggestedScopeAutoOpen,
+        showCustomScopeEditor,
+    ]);
+
+    useEffect(() => {
+        setSuppressSuggestedScopeAutoOpen(false);
+    }, [focusRequest?.requestId, persistentSuggestedScopeId]);
+
+    useEffect(() => {
+        if (!scopeSetupSuggestion?.scopeId) {
+            return;
+        }
+        const exists = customProcessScopes.some((scope) => String(scope?.scope || "").trim() === scopeSetupSuggestion.scopeId);
+        if (exists) {
+            setScopeSetupSuggestion(null);
+            resolvePersistentScopeSuggestion?.();
+        }
+    }, [customProcessScopes, resolvePersistentScopeSuggestion, scopeSetupSuggestion?.scopeId]);
+
+    useEffect(() => {
+        if (dialogOpen || !scopeSetupSuggestion?.scopeId) {
+            return;
+        }
+        setScopeSetupSuggestion(null);
+        if (showCustomScopeEditor) {
+            setShowCustomScopeEditor(false);
+        }
+    }, [dialogOpen, scopeSetupSuggestion?.scopeId, showCustomScopeEditor]);
 
     const saveCapabilities = async () => {
         setIsSavingCapabilities(true);
@@ -858,7 +1212,11 @@ const SelectPluginPanel = ({
             });
             await refreshRuntimeStatuses?.([plugin.id]);
             setCustomProcessScopes(Array.isArray(result?.scopes) ? result.scopes : []);
-            await reloadScopePolicies?.();
+            await reloadScopePolicies?.(plugin?.id);
+            if (scopeSetupSuggestion?.scopeId === normalizedScopeId) {
+                setScopeSetupSuggestion(null);
+                resolvePersistentScopeSuggestion?.();
+            }
             resetCustomScopeDraft();
             setShowCustomScopeEditor(false);
         } finally {
@@ -958,7 +1316,7 @@ const SelectPluginPanel = ({
         }
         await refreshRuntimeStatuses?.([plugin.id]);
         setCustomProcessScopes(Array.isArray(result?.scopes) ? result.scopes : []);
-        await reloadScopePolicies?.();
+        await reloadScopePolicies?.(plugin?.id);
         if (toCustomScopeIdFromSlug(customScopeDraft.scope) === normalizedScopeId || customScopeDraft.scope === scopeId) {
             resetCustomScopeDraft();
             setShowCustomScopeEditor(false);
@@ -1386,7 +1744,7 @@ const SelectPluginPanel = ({
                 )}
             </ControlGroup>
             <Divider/>
-            <Card style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
+            <Card ref={pluginScopesCardRef} style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
                 <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap"}}>
                     <div>
                         <div className={"bp6-heading"} style={{fontSize: "0.95rem"}}>Declared Capability Intent</div>
@@ -1411,6 +1769,55 @@ const SelectPluginPanel = ({
                         {showCapabilityIntent ? "Hide details" : "Show details"}
                     </Button>
                 </div>
+                {unresolvedDeclaredScopeCapabilities.length > 0 ? (
+                    <Card style={{marginTop: "10px", border: "1px solid #f6d667", background: "#fff8db"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                            Declared Scopes Missing Host Policy Definitions
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                            These declared scope capability IDs are not available in this host, so they are not shown as selectable options in Capabilities yet.
+                        </div>
+                        <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
+                            {unresolvedDeclaredScopeCapabilities.map((capability) => (
+                                <Tag key={capability} minimal intent="warning">
+                                    <code>{capability}</code>
+                                </Tag>
+                            ))}
+                        </div>
+                        {unresolvedDeclaredProcessScopeCapabilities.length > 0 ? (
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
+                                Process scopes can be created in Plugin-Specific Process Scopes below using the same scope IDs.
+                            </div>
+                        ) : null}
+                        {unresolvedDeclaredFilesystemScopeCapabilities.length > 0 ? (
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                Filesystem scopes are host-defined. Add matching host scope policies (for example <code>{unresolvedDeclaredFilesystemScopeIds[0]}</code>) to make them selectable.
+                            </div>
+                        ) : null}
+                        <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
+                            {unresolvedDeclaredProcessScopeCapabilities.length > 0 ? (
+                                <Button
+                                    small
+                                    intent="primary"
+                                    onClick={handleCreateDraftForMissingDeclaredScope}
+                                >
+                                    Create Missing Process Scope Draft
+                                </Button>
+                            ) : null}
+                            {unresolvedDeclaredFilesystemScopeCapabilities.length > 0 ? (
+                                <Button
+                                    small
+                                    minimal
+                                    onClick={() => {
+                                        void reloadScopePolicies?.(plugin?.id);
+                                    }}
+                                >
+                                    Refresh Host Scope Policies
+                                </Button>
+                            ) : null}
+                        </div>
+                    </Card>
+                ) : null}
                 {showCapabilityIntent && capabilityIntent ? (
                     <>
                         <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px", marginBottom: "8px"}}>
@@ -1475,6 +1882,78 @@ const SelectPluginPanel = ({
                 <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
                     These scopes are owned by this plugin. Other plugins do not see them in their capability settings and cannot use them at runtime.
                 </div>
+                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                    Difference from Capabilities: Capabilities grant base host actions (for example <code>system.process.exec</code>), while plugin scopes restrict exactly which commands and paths are allowed.
+                </div>
+                {unresolvedGrantedProcessScopeCapabilities.length > 0 ? (
+                    <Card style={{marginTop: "12px", border: "1px solid #f6d667", background: "#fff8db"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                            Previously Granted Scope References Need A Real Host Policy
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                            These process scope capability IDs were granted earlier, but this host does not currently have matching scope definitions for them. They will not appear as normal capability toggles until you create the scope policy below or remove the stale grant.
+                        </div>
+                        <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
+                            {unresolvedGrantedProcessScopeCapabilities.map((capability) => (
+                                <Tag key={capability} minimal intent="warning">
+                                    <code>{capability}</code>
+                                </Tag>
+                            ))}
+                        </div>
+                        <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
+                            <Button
+                                small
+                                intent="primary"
+                                onClick={handleCreateDraftForUnresolvedGrantedScope}
+                            >
+                                Create Missing Scope Draft
+                            </Button>
+                            <Button
+                                small
+                                minimal
+                                intent="warning"
+                                onClick={handleRemoveUnresolvedGrantedScopes}
+                            >
+                                Remove Stale Scope Grants
+                            </Button>
+                        </div>
+                    </Card>
+                ) : null}
+                {scopeSetupSuggestion ? (
+                    <Card style={{marginTop: "12px", border: "1px solid #e3c46d", background: "#fff8e1"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                            Suggested Scope Setup For Current Plugin Request
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                            Add plugin scope <code>{scopeSetupSuggestion.scopeId}</code>
+                            {scopeSetupSuggestion.commandPath ? (
+                                <> and allow executable <code>{scopeSetupSuggestion.commandPath}</code>.</>
+                            ) : (
+                                <> and add the exact executable path requested by the plugin.</>
+                            )}
+                        </div>
+                        {Array.isArray(scopeSetupSuggestion.scopeIds) && scopeSetupSuggestion.scopeIds.length > 1 ? (
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                Related scopes: <code>{scopeSetupSuggestion.scopeIds.join(", ")}</code>
+                            </div>
+                        ) : null}
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                            Keep broad capability <code>system.process.exec</code> granted in Capabilities, then save this plugin-specific scope.
+                        </div>
+                        <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
+                            <Button
+                                small
+                                intent="primary"
+                                onClick={() => openSuggestedScopeDraft(scopeSetupSuggestion.scopeId, scopeSetupSuggestion.commandPath)}
+                            >
+                                Use Suggested Scope Draft
+                            </Button>
+                            <Button small minimal onClick={dismissScopeSetupSuggestion}>
+                                Dismiss Suggestion
+                            </Button>
+                        </div>
+                    </Card>
+                ) : null}
                 {customProcessScopes.length > 0 ? (
                     <div style={{display: "flex", flexDirection: "column", gap: "8px", marginTop: "12px"}}>
                         {Object.values(groupedCustomProcessScopes).map(({meta, scopes}) => (
@@ -1536,8 +2015,9 @@ const SelectPluginPanel = ({
             <Dialog
                 isOpen={showCustomScopeEditor}
                 onClose={() => {
-                    setShowCustomScopeEditor(false);
-                    resetCustomScopeDraft();
+                    closeCustomScopeEditor({
+                        suppressAutoOpen: Boolean(scopeSetupSuggestion?.scopeId && !editingCustomScopeId),
+                    });
                 }}
                 title={editingCustomScopeId ? "Edit Plugin-Specific Scope" : "Create Plugin-Specific Scope"}
                 canEscapeKeyClose={true}
@@ -1551,6 +2031,20 @@ const SelectPluginPanel = ({
                         </div>
                         <Tag minimal>{editingCustomScopeId ? "Existing scope" : "New scope"}</Tag>
                     </div>
+                    <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginBottom: "10px"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                            How to fill this from plugin code
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            1. <strong>Scope ID</strong> must match <code>requestScopedProcessExec("&lt;scope-id&gt;", ...)</code>.
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            2. <strong>Allowed executable paths</strong> must include the exact <code>payload.command</code> value.
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            3. If plugin requests custom cwd/env behavior, also constrain <strong>Allowed CWD roots</strong> and <strong>Allowed env keys</strong>.
+                        </div>
+                    </Card>
                     <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px"}}>
                         <Tag minimal>Broad grant: <code>system.process.exec</code></Tag>
                         <Tag minimal intent="primary">Narrow grant: <code>{capabilityPreviewId}</code></Tag>
@@ -1662,8 +2156,9 @@ const SelectPluginPanel = ({
                     </div>
                     <div className="bp6-dialog-footer-actions">
                         <Button minimal onClick={() => {
-                            setShowCustomScopeEditor(false);
-                            resetCustomScopeDraft();
+                            closeCustomScopeEditor({
+                                suppressAutoOpen: Boolean(scopeSetupSuggestion?.scopeId && !editingCustomScopeId),
+                            });
                         }}>Cancel</Button>
                         <Button intent="primary" loading={customScopeSaving} onClick={handleSaveCustomScope}>
                             {editingCustomScopeId ? "Save Changes" : "Save Scope"}
@@ -1769,6 +2264,44 @@ const SelectPluginPanel = ({
                 {showCapabilitiesPanel ? (
                 <>
                 <Divider style={{marginTop: "10px", marginBottom: "10px"}}/>
+                {unresolvedGrantedFilesystemScopeCapabilities.length > 0 ? (
+                    <Card style={{marginBottom: "10px", border: "1px solid #f6d667", background: "#fff8db"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                            Granted Filesystem Scopes Missing Host Policy Definitions
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                            These filesystem scope capability IDs are granted but unavailable in this host policy catalog, so they are not shown as supported toggles.
+                        </div>
+                        <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
+                            {unresolvedGrantedFilesystemScopeCapabilities.map((capability) => (
+                                <Tag key={capability} minimal intent="warning">
+                                    <code>{capability}</code>
+                                </Tag>
+                            ))}
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
+                            Add matching host scope policies for: <code>{unresolvedGrantedFilesystemScopeIds.join(", ")}</code>.
+                        </div>
+                        <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
+                            <Button
+                                small
+                                minimal
+                                onClick={() => {
+                                    void reloadScopePolicies?.(plugin?.id);
+                                }}
+                            >
+                                Refresh Host Scope Policies
+                            </Button>
+                            <Button
+                                small
+                                intent="warning"
+                                onClick={handleRemoveUnresolvedGrantedFilesystemScopes}
+                            >
+                                Remove Stale Filesystem Scope Grants
+                            </Button>
+                        </div>
+                    </Card>
+                ) : null}
                 {BASE_PRIVILEGED_CAPABILITIES.map((baseCapability) => {
                     const groupedScopes = filteredScopeCapabilitiesByBase[baseCapability] || [];
                     const baseEnabled = !!baseCapabilityEnabled[baseCapability];
@@ -1932,7 +2465,7 @@ const SelectPluginPanel = ({
                 </>
                 ) : (
                     <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
-                        Expand to review and edit privileged capabilities, process scopes, and policy details.
+                        Expand to review and edit privileged capabilities, scope grants, and policy details.
                     </div>
                 )}
             </Card>
@@ -2084,4 +2617,24 @@ SelectPluginPanel.propTypes = {
     refreshPluginsState: PropTypes.func,
     reloadScopePolicies: PropTypes.func,
     highlightedCapabilityIds: PropTypes.array,
+    consumeFocusRequest: PropTypes.func,
+    persistentScopeSuggestion: PropTypes.shape({
+        scopeIds: PropTypes.array,
+        suggestedScope: PropTypes.shape({
+            scopeId: PropTypes.string,
+            commandPath: PropTypes.string,
+        }),
+    }),
+    resolvePersistentScopeSuggestion: PropTypes.func,
+    focusRequest: PropTypes.shape({
+        requestId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+        pluginId: PropTypes.string,
+        capabilityIds: PropTypes.array,
+        focusSection: PropTypes.string,
+        scopeIds: PropTypes.array,
+        suggestedScope: PropTypes.shape({
+            scopeId: PropTypes.string,
+            commandPath: PropTypes.string,
+        }),
+    }),
 }

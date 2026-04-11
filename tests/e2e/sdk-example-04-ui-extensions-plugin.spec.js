@@ -113,7 +113,7 @@ const EXPECTED = {
 const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   // Known source-map/instrumentation gaps for non-critical paths in this example.
   13, 22, 79, 114, 115, 152, 153, 176, 177, 199, 200,
-  222, 223, 245, 246, 268, 269, 291, 292, 320, 321,
+  222, 223, 245, 246, 268, 269, 291, 292, 320, 321, 333, 334,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 75,

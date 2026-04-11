@@ -17,8 +17,12 @@ describe("pluginCapabilitySelection", () => {
 
         expect(result).toEqual([{
             id: "etc-hosts",
+            title: "",
             kind: "filesystem",
+            category: "Filesystem",
             description: "Hosts updates",
+            fallback: false,
+            userDefined: false,
             capability: "system.fs.scope.etc-hosts",
             baseCapability: "system.hosts.write",
             allowedRoots: ["/etc"],
@@ -45,8 +49,12 @@ describe("pluginCapabilitySelection", () => {
 
         expect(result).toEqual([{
             id: "docker-cli",
+            title: "",
             kind: "process",
+            category: "Other Process Tools",
             description: "Docker execution",
+            fallback: false,
+            userDefined: false,
             capability: "system.process.scope.docker-cli",
             baseCapability: "system.process.exec",
             allowedRoots: [],

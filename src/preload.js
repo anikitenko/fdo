@@ -25,20 +25,6 @@ function addPluginListener(key, channel, callback, projector = (value) => value)
         pluginListenerRegistry[key].delete(existing);
     }
     const wrapped = (_, payload) => {
-        if (key === "render") {
-            try {
-                console.info("[PRELOAD_PLUGIN_EVENT_RENDER]", JSON.stringify({
-                    channel,
-                    payloadId: payload?.id || "",
-                    hasContent: !!payload?.content,
-                    contentKeys: payload?.content && typeof payload.content === "object"
-                        ? Object.keys(payload.content)
-                        : [],
-                }));
-            } catch (_) {
-                // ignore logging errors
-            }
-        }
         callback(projector(payload));
     };
     pluginListenerWrappers[key].set(callback, wrapped);

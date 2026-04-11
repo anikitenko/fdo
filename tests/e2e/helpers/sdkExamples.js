@@ -4,8 +4,8 @@ const path = require("node:path");
 const DEFAULT_SDK_EXAMPLES_CANDIDATES = [
   process.env.FDO_SDK_EXAMPLES_PATH,
   path.resolve(__dirname, "../../../external/fdo-sdk/examples"),
-  path.resolve(__dirname, "../../../vendor/fdo-sdk/examples"),
   path.resolve(__dirname, "../../../../fdo-sdk/examples"),
+  path.resolve(__dirname, "../../../vendor/fdo-sdk/examples"),
 ].filter(Boolean);
 
 function resolveSdkExamplesPath(candidates = DEFAULT_SDK_EXAMPLES_CANDIDATES) {
@@ -275,6 +275,9 @@ async function waitForPluginSettled(window, pluginName) {
 }
 
 async function selectPluginOpen(window, pluginName) {
+  await window.waitForFunction(() => {
+    return !!window.__homeTestApi?.selectPluginById;
+  }, { timeout: 15000 });
   const selected = await window.evaluate(async ({ pluginName }) => {
     if (!window.__homeTestApi?.selectPluginById) {
       return { ok: false, reason: "homeTestApi_missing" };
@@ -290,7 +293,11 @@ async function expectPluginUiVisible(window, pluginName) {
   await window.waitForFunction(async (id) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === id && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
+      || null;
     const doc = iframe?.contentDocument;
     if (!status?.loaded || !status?.ready || !status?.inited) {
       return false;
@@ -313,7 +320,11 @@ async function waitForPluginUiRendered(window, pluginName, timeout = 15000) {
       return false;
     }
 
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
+      || null;
     const doc = iframe?.contentDocument;
     const body = doc?.body;
     if (!body) {
@@ -339,7 +350,11 @@ async function getPluginUiState(window, pluginName) {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0] || null;
     const container = document.querySelector("#plugin-container");
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
+      || null;
     const doc = iframe?.contentDocument;
     const bodyText = String(doc?.body?.innerText || "").trim();
     const bodyHtml = String(doc?.body?.innerHTML || "").trim();
@@ -358,7 +373,10 @@ async function getPluginUiState(window, pluginName) {
 
 async function getPluginIframeText(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
+      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
+      || null;
     const doc = iframe?.contentDocument;
     if (!doc?.body) {
       return "";

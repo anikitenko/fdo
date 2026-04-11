@@ -59,6 +59,13 @@ jest.mock("../../src/utils/PluginORM", () => ({
                 entry: "dist/index.js",
             };
         }
+
+        getAllPlugins() {
+            return [{
+                id: "trace-plugin",
+                customProcessScopes: [],
+            }];
+        }
     },
 }));
 
@@ -74,6 +81,10 @@ jest.mock("../../src/utils/UserORM", () => ({
         deactivatePlugin() {}
         deactivateAllPlugins() {}
         getActivatedPlugins() { return []; }
+        getSharedProcessScopes() { return []; }
+        setSharedProcessScopes(scopes) { return scopes; }
+        getCustomProcessScopes() { return []; }
+        setCustomProcessScopes(scopes) { return scopes; }
     },
 }));
 

@@ -332,4 +332,44 @@ describe("PluginContainer message hardening", () => {
             }));
         });
     });
+
+    test("surfaces unsupported custom process scopes from the latest privileged audit entry", async () => {
+        runtimeStatusResponses = [
+            {
+                success: true,
+                statuses: [{
+                    id: "example-plugin",
+                    inited: true,
+                    lastPrivilegedAudit: {
+                        success: false,
+                        scope: "internal-runner",
+                        command: "/usr/local/bin/internal-runner",
+                        args: ["status"],
+                        cwd: "/tmp/project",
+                        correlationId: "corr-scope-denied",
+                        error: {
+                            code: "SCOPE_DENIED",
+                            message: 'Unknown or unsupported process scope "internal-runner".',
+                        },
+                    },
+                }],
+            },
+        ];
+
+        const onCapabilityDenied = jest.fn();
+        render(<PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>);
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
+                pluginId: "example-plugin",
+                code: "SCOPE_DENIED",
+                correlationId: "corr-scope-denied",
+                extraDetails: expect.objectContaining({
+                    scope: "internal-runner",
+                    command: "/usr/local/bin/internal-runner",
+                    cwd: "/tmp/project",
+                }),
+            }));
+        });
+    });
 });

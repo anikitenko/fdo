@@ -153,11 +153,16 @@ describe("plugin IPC capability settings", () => {
         expect(customScopeResult).toEqual(expect.objectContaining({
             success: true,
             scope: expect.objectContaining({
-                scope: "user.process-monitoring",
+                scope: "process-monitoring",
                 userDefined: true,
                 ownerType: "plugin",
                 ownerPluginId: "plugin-a",
             }),
+            scopes: expect.arrayContaining([
+                expect.objectContaining({
+                    scope: "process-monitoring",
+                }),
+            ]),
         }));
 
         const sharedScopeResult = await upsertSharedProcessScopeHandler({}, {
@@ -173,11 +178,16 @@ describe("plugin IPC capability settings", () => {
         expect(sharedScopeResult).toEqual(expect.objectContaining({
             success: true,
             scope: expect.objectContaining({
-                scope: "user.shared-monitoring",
+                scope: "shared-monitoring",
                 userDefined: true,
                 shared: true,
                 ownerType: "shared",
             }),
+            scopes: expect.arrayContaining([
+                expect.objectContaining({
+                    scope: "shared-monitoring",
+                }),
+            ]),
         }));
 
         PluginManager.getLoadedPlugin.mockReturnValue({

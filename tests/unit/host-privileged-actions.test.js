@@ -590,6 +590,13 @@ describe("host privileged actions", () => {
             code: "SCOPE_DENIED",
             correlationId: "corr-proc-unknown",
         }));
+        expect(result.details).toEqual(expect.objectContaining({
+            scope: "unknown-tool",
+            command: "/usr/local/bin/unknown-tool",
+            args: ["version"],
+            cwd: os.tmpdir(),
+            dryRun: false,
+        }));
     });
 
     test("non-absolute command", async () => {

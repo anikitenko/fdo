@@ -267,4 +267,69 @@ test.describe("SDK fixture operator-custom-tool-plugin: live E2E line proof", ()
       await removePlugin(window, pluginName);
     }
   });
+
+  test("custom tool fixture: missing host-defined scope opens plugin-scope guidance", async () => {
+    test.setTimeout(180000);
+    const window = await electronApp.firstWindow();
+    const pluginName = "sdk-e2e-fixture-operator-custom-tool-scope-guidance";
+
+    await window.waitForLoadState("domcontentloaded");
+    await dismissBlueprintOverlays(window);
+    await clearToastLog(window);
+    await removePlugin(window, pluginName);
+
+    const examplesRoot = resolveExamplesRootForThisSpec();
+    const entry = discoverSdkExampleEntries(examplesRoot).find((candidate) => candidate.relativePath === EXAMPLE_RELATIVE_PATH);
+    expect(entry, `Unable to find SDK example: ${EXAMPLE_RELATIVE_PATH}`).toBeTruthy();
+
+    try {
+      await deploySdkExample(window, entry, { pluginName });
+      await waitForPluginRegistered(window, pluginName);
+      await waitForPluginReady(window, pluginName);
+      await waitForPluginSettled(window, pluginName);
+      await selectPluginOpen(window, pluginName);
+      await expectPluginUiVisible(window, pluginName);
+      await waitForPluginUiRendered(window, pluginName, 30000);
+
+      const diagnostics = await getPluginDiagnostics(window, pluginName, { attempts: 12 });
+      const declaredCaps = Array.isArray(diagnostics?.capabilities?.declaration?.declared)
+        ? diagnostics.capabilities.declaration.declared
+        : [];
+      expect(declaredCaps).toContain("system.process.exec");
+      expect(declaredCaps).toContain("system.process.scope.internal-runner");
+
+      await window.evaluate(async ({ pluginName, declaredCaps }) => {
+        await window.electron.plugin.setCapabilities(pluginName, declaredCaps);
+      }, { pluginName, declaredCaps });
+
+      const customScopes = await window.evaluate(async ({ pluginName }) => {
+        return await window.electron.plugin.getPluginCustomProcessScopes(pluginName);
+      }, { pluginName });
+      expect(customScopes?.success).toBe(true);
+      expect(Array.isArray(customScopes?.scopes) ? customScopes.scopes : []).toHaveLength(0);
+
+      const readySnapshot = await waitForFixtureUiReady(window, 30000);
+      expect(readySnapshot.text).toContain("Preview Runner Status");
+
+      const clickPreview = await clickButtonAndWaitOutput(window, "custom-tool-preview-status", 14000);
+      expect(clickPreview.ok, JSON.stringify(clickPreview)).toBe(true);
+      expect(clickPreview.text).toMatch(/SCOPE_DENIED|Unknown or unsupported process scope/i);
+
+      await expect(window.getByText("Process Scope Not Configured")).toBeVisible({ timeout: 15000 });
+      const deniedDialog = window.getByLabel("Process Scope Not Configured");
+      await expect(deniedDialog.getByText("Required Plugin-Specific Process Scope Setup")).toBeVisible();
+      await expect(deniedDialog.locator("code").filter({ hasText: /^internal-runner$/ }).first()).toBeVisible();
+      await expect(deniedDialog.locator("code").filter({ hasText: /^\/usr\/local\/bin\/internal-runner$/ }).first()).toBeVisible();
+
+      const fixProcessAccessButton = window.getByRole("button", { name: /Fix Process Access|Open Plugin Scopes|Open Capabilities/i }).first();
+      await expect(fixProcessAccessButton).toBeVisible({ timeout: 15000 });
+      await fixProcessAccessButton.click({ force: true });
+
+      await expect(window.getByText("Suggested Scope Setup For Current Plugin Request")).toBeVisible({ timeout: 15000 });
+      await expect(window.getByRole("button", { name: "Use Suggested Scope Draft" })).toBeVisible();
+      await expect(window.locator('input[placeholder="internal-runner"]').first()).toHaveValue("internal-runner");
+    } finally {
+      await removePlugin(window, pluginName);
+    }
+  });
 });
