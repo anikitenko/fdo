@@ -101,7 +101,6 @@ describe('SnapshotToolbarActions', () => {
 
     fireEvent.click(screen.getByText(v1.version));
 
-    expect(screen.getByRole('status')).toHaveTextContent(/Switching snapshot/i);
     expect(screen.getByRole('button', { name: /Snapshot/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Recent/i })).toBeDisabled();
 

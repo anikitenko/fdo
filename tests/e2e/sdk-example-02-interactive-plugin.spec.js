@@ -166,40 +166,59 @@ async function waitForLogContains(window, pluginName, needle, timeoutMs = 12000)
   return false;
 }
 
-async function clickInIframeAndRead(window, options) {
-  return await window.evaluate(async ({ buttonSelector, targetSelector, waitMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function clickInIframeAndRead(window, pluginName, options) {
+  return await window.evaluate(async ({ pluginName, buttonSelector, targetSelector, waitMs }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
+    if (!iframe) return { ok: false, reason: "plugin_iframe_not_found", text: "" };
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
-    const button = doc.querySelector(buttonSelector);
-    const target = doc.querySelector(targetSelector);
+    const until = Date.now() + Number(waitMs || 6000);
+
+    let button = doc.querySelector(buttonSelector);
+    let target = doc.querySelector(targetSelector);
+    while ((!button || !target) && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      button = doc.querySelector(buttonSelector);
+      target = doc.querySelector(targetSelector);
+    }
     if (!button) return { ok: false, reason: "button_not_found", text: "" };
     if (!target) return { ok: false, reason: "target_not_found", text: "" };
 
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    const until = Date.now() + waitMs;
-    while (Date.now() < until) {
+    const outputUntil = Date.now() + Number(waitMs || 6000);
+    while (Date.now() < outputUntil) {
       const text = String(target.textContent || "").trim();
       if (text.length > 0) return { ok: true, text };
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     return { ok: true, text: String(target.textContent || "").trim() };
   }, {
+    pluginName,
     buttonSelector: options.buttonSelector,
     targetSelector: options.targetSelector,
     waitMs: Number(options.waitMs || 6000),
   });
 }
 
-async function submitFormInIframe(window, options) {
-  return await window.evaluate(async ({ inputSelector, inputValue, submitSelector, targetSelector, waitMs, expectTextContains }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function submitFormInIframe(window, pluginName, options) {
+  return await window.evaluate(async ({ pluginName, inputSelector, inputValue, submitSelector, targetSelector, waitMs, expectTextContains }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
+    if (!iframe) return { ok: false, reason: "plugin_iframe_not_found", text: "" };
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
 
-    const input = doc.querySelector(inputSelector);
-    const submitButton = doc.querySelector(submitSelector);
-    const target = doc.querySelector(targetSelector);
+    const until = Date.now() + Number(waitMs || 7000);
+    let input = doc.querySelector(inputSelector);
+    let submitButton = doc.querySelector(submitSelector);
+    let target = doc.querySelector(targetSelector);
+    while ((!input || !submitButton || !target) && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      input = doc.querySelector(inputSelector);
+      submitButton = doc.querySelector(submitSelector);
+      target = doc.querySelector(targetSelector);
+    }
     if (!input) return { ok: false, reason: "input_not_found", text: "" };
     if (!submitButton) return { ok: false, reason: "submit_button_not_found", text: "" };
     if (!target) return { ok: false, reason: "target_not_found", text: "" };
@@ -209,8 +228,8 @@ async function submitFormInIframe(window, options) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
     submitButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
-    const until = Date.now() + waitMs;
-    while (Date.now() < until) {
+    const outputUntil = Date.now() + Number(waitMs || 7000);
+    while (Date.now() < outputUntil) {
       const text = String(target.textContent || "").trim();
       if (expectTextContains && text.includes(expectTextContains)) return { ok: true, text };
       if (!expectTextContains && text.length > 0) return { ok: true, text };
@@ -218,6 +237,7 @@ async function submitFormInIframe(window, options) {
     }
     return { ok: true, text: String(target.textContent || "").trim() };
   }, {
+    pluginName,
     inputSelector: options.inputSelector,
     inputValue: options.inputValue,
     submitSelector: options.submitSelector,
@@ -410,38 +430,38 @@ test.describe("SDK example 02-interactive-plugin: live E2E line proof", () => {
       expect(submitGuest.result?.success).toBe(true);
       expect(String(submitGuest.result?.message || "")).toContain("Welcome, Guest!");
 
-      const incrementUi = await clickInIframeAndRead(window, {
+      const incrementUi = await clickInIframeAndRead(window, pluginName, {
         buttonSelector: "#increment-counter-btn",
         targetSelector: "#counter-result",
       });
       expect(incrementUi.ok).toBe(true);
       expect(String(incrementUi.text || "")).toContain("Counter is now");
 
-      const decrementUi = await clickInIframeAndRead(window, {
+      const decrementUi = await clickInIframeAndRead(window, pluginName, {
         buttonSelector: "#decrement-counter-btn",
         targetSelector: "#counter-result",
       });
       expect(decrementUi.ok).toBe(true);
       expect(String(decrementUi.text || "")).toContain("Counter is now");
 
-      const emptySubmit = await submitFormInIframe(window, {
+      const emptySubmit = await submitFormInIframe(window, pluginName, {
         inputSelector: "#userName",
         inputValue: "",
         submitSelector: "#submit-form-btn",
         targetSelector: "#form-result",
         expectTextContains: "Please enter your name",
       });
-      expect(emptySubmit.ok).toBe(true);
+      expect(emptySubmit.ok, JSON.stringify(emptySubmit)).toBe(true);
       expect(String(emptySubmit.text || "")).toContain("Please enter your name");
 
-      const filledSubmit = await submitFormInIframe(window, {
+      const filledSubmit = await submitFormInIframe(window, pluginName, {
         inputSelector: "#userName",
         inputValue: "UI Contract",
         submitSelector: "#submit-form-btn",
         targetSelector: "#form-result",
         expectTextContains: "Form submitted successfully.",
       });
-      expect(filledSubmit.ok).toBe(true);
+      expect(filledSubmit.ok, JSON.stringify(filledSubmit)).toBe(true);
       expect(String(filledSubmit.text || "")).toContain("Form submitted successfully.");
 
       const coverage = await getSourceCoverageDetails(window, pluginName, entry.absPath);

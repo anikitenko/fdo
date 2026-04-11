@@ -39,7 +39,50 @@ export const PluginPage = () => {
         const reportStage = (stage, message = "") => {
             window.parent.postMessage({ type: "PLUGIN_STAGE", stage, message }, "*");
         };
+        const collectLayout = () => {
+            const docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
+            const bodyRect = document?.body?.getBoundingClientRect?.() || null;
+            const rootNode = document?.getElementById?.("plugin-root");
+            const rootRect = rootNode?.getBoundingClientRect?.() || null;
+            const viewport = {
+                width: Math.round(window.innerWidth || 0),
+                height: Math.round(window.innerHeight || 0),
+            };
+            return {
+                viewport,
+                docElRect: {
+                    width: Math.round(docElRect?.width || 0),
+                    height: Math.round(docElRect?.height || 0),
+                },
+                bodyRect: {
+                    width: Math.round(bodyRect?.width || 0),
+                    height: Math.round(bodyRect?.height || 0),
+                },
+                rootRect: {
+                    width: Math.round(rootRect?.width || 0),
+                    height: Math.round(rootRect?.height || 0),
+                },
+            };
+        };
+        const emitLayoutReady = () => {
+            const layout = collectLayout();
+            const nonZero = (
+                layout.docElRect.width > 0
+                && layout.docElRect.height > 0
+                && layout.bodyRect.width > 0
+                && layout.bodyRect.height > 0
+                && layout.rootRect.width > 0
+                && layout.rootRect.height > 0
+            );
+            window.parent.postMessage({
+                type: "PLUGIN_LAYOUT_READY",
+                layout,
+                nonZero,
+            }, "*");
+            return nonZero;
+        };
         let lastInteractionBridgeAt = 0;
+        let layoutReadyInterval = null;
         const bridgeInteractionToHost = (kind = "pointerdown") => {
             const now = Date.now();
             if (now - lastInteractionBridgeAt < 24) {
@@ -190,6 +233,18 @@ export const PluginPage = () => {
         document.addEventListener("submit", blockPluginFormSubmit, true);
         reportStage("iframe-listeners-ready");
         window.parent.postMessage({type: "PLUGIN_HELLO"}, "*");
+        if (!emitLayoutReady()) {
+            let attempts = 0;
+            layoutReadyInterval = window.setInterval(() => {
+                attempts += 1;
+                if (emitLayoutReady() || attempts >= 20) {
+                    if (layoutReadyInterval) {
+                        window.clearInterval(layoutReadyInterval);
+                        layoutReadyInterval = null;
+                    }
+                }
+            }, 120);
+        }
 
         // Set timeout to auto-fail plugin after 5 seconds
         const pluginTimeout = setTimeout(() => {
@@ -206,6 +261,10 @@ export const PluginPage = () => {
             document.removeEventListener("click", blockPluginNavigation, true);
             document.removeEventListener("submit", blockPluginFormSubmit, true);
             clearTimeout(pluginTimeout);
+            if (layoutReadyInterval) {
+                window.clearInterval(layoutReadyInterval);
+                layoutReadyInterval = null;
+            }
             if (activeModuleUrlRef.current) {
                 URL.revokeObjectURL(activeModuleUrlRef.current);
                 activeModuleUrlRef.current = null;
@@ -398,138 +457,196 @@ function createESModule(pluginCode, onLoad) {
                 };
 
                 document.addEventListener("click", handleDocumentClick);
-                
-                const onLoadFn = ${onLoad}
-                if (typeof onLoadFn === "function") {
-                    try {
-                        onLoadFn();
-                    } catch (error) {
-                        console.error("Error executing onLoad:", error);
+                const waitForHostWindowLoad = (timeoutMs = 1800) => {
+                    if (document.readyState === "complete") {
+                        return Promise.resolve();
                     }
-                }
+                    return new Promise((resolve) => {
+                        let done = false;
+                        const finish = () => {
+                            if (done) return;
+                            done = true;
+                            window.removeEventListener("load", onWindowLoaded);
+                            resolve();
+                        };
+                        const onWindowLoaded = () => {
+                            finish();
+                        };
+                        window.addEventListener("load", onWindowLoaded, { once: true });
+                        setTimeout(finish, timeoutMs);
+                    });
+                };
+                const waitForHostStylesheets = (timeoutMs = 1400) => {
+                    const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
+                    if (styleLinks.length === 0) {
+                        return Promise.resolve();
+                    }
+                    return new Promise((resolve) => {
+                        let done = false;
+                        const finish = () => {
+                            if (done) return;
+                            done = true;
+                            styleLinks.forEach((linkEl) => {
+                                linkEl.removeEventListener("load", onLinkReady);
+                                linkEl.removeEventListener("error", onLinkReady);
+                            });
+                            resolve();
+                        };
+                        const isLinkReady = (linkEl) => {
+                            if (!linkEl?.sheet) return false;
+                            try {
+                                // Accessing cssRules confirms the sheet is parsed.
+                                void linkEl.sheet.cssRules;
+                                return true;
+                            } catch (_) {
+                                // SecurityError still means stylesheet exists and is loaded.
+                                return true;
+                            }
+                        };
+                        const allReady = () => styleLinks.every(isLinkReady);
+                        const onLinkReady = () => {
+                            if (allReady()) {
+                                finish();
+                            }
+                        };
+                        if (allReady()) {
+                            finish();
+                            return;
+                        }
+                        styleLinks.forEach((linkEl) => {
+                            linkEl.addEventListener("load", onLinkReady);
+                            linkEl.addEventListener("error", onLinkReady);
+                        });
+                        setTimeout(finish, timeoutMs);
+                    });
+                };
 
-                requestAnimationFrame(() => {
-                    if (document?.documentElement) {
-                        document.documentElement.style.setProperty("color-scheme", "light", "important");
-                        document.documentElement.style.setProperty("background", "#ffffff", "important");
-                        document.documentElement.style.setProperty("color", "#1c2127", "important");
-                        document.documentElement.style.setProperty("visibility", "visible", "important");
-                        document.documentElement.style.setProperty("opacity", "1", "important");
-                    }
-                    const rootNode = pluginRootRef.current;
-                    if (document?.body) {
-                        document.body.style.margin = "0";
-                        document.body.style.setProperty("color-scheme", "light", "important");
-                        document.body.style.setProperty("background", "#ffffff", "important");
-                        document.body.style.setProperty("color", "#1c2127", "important");
-                        document.body.style.setProperty("visibility", "visible", "important");
-                        document.body.style.setProperty("opacity", "1", "important");
-                    }
-                    if (rootNode) {
-                        rootNode.style.setProperty("display", "block", "important");
-                        rootNode.style.setProperty("width", "100%", "important");
-                        rootNode.style.setProperty("height", "100%", "important");
-                        rootNode.style.setProperty("min-width", "1px", "important");
-                        rootNode.style.setProperty("min-height", "1px", "important");
-                        rootNode.style.setProperty("visibility", "visible", "important");
-                        rootNode.style.setProperty("opacity", "1", "important");
-                        rootNode.style.setProperty("position", "relative", "important");
-                        rootNode.style.setProperty("z-index", "1", "important");
-                        rootNode.style.setProperty("background", "#ffffff", "important");
-                        rootNode.style.setProperty("color", "#1c2127", "important");
-                        const rawTextLength = (rootNode.textContent || "").trim().length;
-                        const visibleTextLength = (rootNode.innerText || "").trim().length;
-                        if (rawTextLength > 0 && visibleTextLength === 0) {
-                            rootNode.style.setProperty("color", "#1c2127", "important");
-                            rootNode.style.setProperty("background", "#ffffff", "important");
+                const assetProbeStartedAt = Date.now();
+                Promise.allSettled([
+                    waitForHostWindowLoad(1800),
+                    waitForHostStylesheets(1400),
+                ]).finally(() => {
+                    window.parent.postMessage({
+                        type: "PLUGIN_STAGE",
+                        stage: "iframe-host-styles-ready",
+                        message: "waitedMs=" + String(Math.max(0, Date.now() - assetProbeStartedAt)),
+                    }, "*");
+
+                    const onLoadFn = ${onLoad}
+                    if (typeof onLoadFn === "function") {
+                        try {
+                            onLoadFn();
+                        } catch (error) {
+                            console.error("Error executing onLoad:", error);
                         }
                     }
-                    const viewportW = Math.round(window.innerWidth || 0);
-                    const viewportH = Math.round(window.innerHeight || 0);
-                    let rootRect = rootNode?.getBoundingClientRect?.() || null;
-                    let docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
-                    let bodyRect = document?.body?.getBoundingClientRect?.() || null;
-                    const rootStyle = rootNode ? window.getComputedStyle(rootNode) : null;
-                    let viewportFallbackApplied = false;
-                    const collapsedLayout = (
-                        viewportW > 0
-                        && viewportH > 0
-                        && (
-                            Math.round(docElRect?.width || 0) === 0
-                            || Math.round(docElRect?.height || 0) === 0
-                            || Math.round(bodyRect?.width || 0) === 0
-                            || Math.round(bodyRect?.height || 0) === 0
-                            || (rootNode && (
-                                Math.round(rootRect?.width || 0) === 0
-                                || Math.round(rootRect?.height || 0) === 0
-                            ))
-                        )
-                    );
-                    if (collapsedLayout) {
-                        viewportFallbackApplied = true;
+                    requestAnimationFrame(() => {
                         if (document?.documentElement) {
-                            document.documentElement.style.setProperty("display", "block", "important");
-                            document.documentElement.style.setProperty("width", viewportW + "px", "important");
-                            document.documentElement.style.setProperty("height", viewportH + "px", "important");
-                            document.documentElement.style.setProperty("min-width", viewportW + "px", "important");
-                            document.documentElement.style.setProperty("min-height", viewportH + "px", "important");
-                            document.documentElement.style.setProperty("overflow", "auto", "important");
+                            document.documentElement.style.setProperty("visibility", "visible", "important");
+                            document.documentElement.style.setProperty("opacity", "1", "important");
                         }
+                        const rootNode = pluginRootRef.current;
                         if (document?.body) {
-                            document.body.style.setProperty("display", "block", "important");
-                            document.body.style.setProperty("width", viewportW + "px", "important");
-                            document.body.style.setProperty("height", viewportH + "px", "important");
-                            document.body.style.setProperty("min-width", viewportW + "px", "important");
-                            document.body.style.setProperty("min-height", viewportH + "px", "important");
-                            document.body.style.setProperty("overflow", "auto", "important");
+                            document.body.style.margin = "0";
+                            document.body.style.setProperty("visibility", "visible", "important");
+                            document.body.style.setProperty("opacity", "1", "important");
                         }
                         if (rootNode) {
-                            rootNode.style.setProperty("width", viewportW + "px", "important");
-                            rootNode.style.setProperty("height", viewportH + "px", "important");
-                            rootNode.style.setProperty("min-width", viewportW + "px", "important");
-                            rootNode.style.setProperty("min-height", viewportH + "px", "important");
+                            rootNode.style.setProperty("display", "block", "important");
+                            rootNode.style.setProperty("width", "100%", "important");
+                            rootNode.style.setProperty("height", "100%", "important");
+                            rootNode.style.setProperty("min-width", "1px", "important");
+                            rootNode.style.setProperty("min-height", "1px", "important");
+                            rootNode.style.setProperty("visibility", "visible", "important");
+                            rootNode.style.setProperty("opacity", "1", "important");
                         }
-                        docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
-                        bodyRect = document?.body?.getBoundingClientRect?.() || null;
-                        rootRect = rootNode?.getBoundingClientRect?.() || null;
-                    }
-                    const probeEl = document.elementFromPoint(
-                        Math.max(0, Math.floor(window.innerWidth / 2)),
-                        Math.max(0, Math.floor(window.innerHeight / 2)),
-                    );
+                        const viewportW = Math.round(window.innerWidth || 0);
+                        const viewportH = Math.round(window.innerHeight || 0);
+                        let rootRect = rootNode?.getBoundingClientRect?.() || null;
+                        let docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
+                        let bodyRect = document?.body?.getBoundingClientRect?.() || null;
+                        const rootStyle = rootNode ? window.getComputedStyle(rootNode) : null;
+                        let viewportFallbackApplied = false;
+                        const collapsedLayout = (
+                            viewportW > 0
+                            && viewportH > 0
+                            && (
+                                Math.round(docElRect?.width || 0) === 0
+                                || Math.round(docElRect?.height || 0) === 0
+                                || Math.round(bodyRect?.width || 0) === 0
+                                || Math.round(bodyRect?.height || 0) === 0
+                                || (rootNode && (
+                                    Math.round(rootRect?.width || 0) === 0
+                                    || Math.round(rootRect?.height || 0) === 0
+                                ))
+                            )
+                        );
+                        if (collapsedLayout) {
+                            viewportFallbackApplied = true;
+                            if (document?.documentElement) {
+                                document.documentElement.style.setProperty("display", "block", "important");
+                                document.documentElement.style.setProperty("width", viewportW + "px", "important");
+                                document.documentElement.style.setProperty("height", viewportH + "px", "important");
+                                document.documentElement.style.setProperty("min-width", viewportW + "px", "important");
+                                document.documentElement.style.setProperty("min-height", viewportH + "px", "important");
+                                document.documentElement.style.setProperty("overflow", "auto", "important");
+                            }
+                            if (document?.body) {
+                                document.body.style.setProperty("display", "block", "important");
+                                document.body.style.setProperty("width", viewportW + "px", "important");
+                                document.body.style.setProperty("height", viewportH + "px", "important");
+                                document.body.style.setProperty("min-width", viewportW + "px", "important");
+                                document.body.style.setProperty("min-height", viewportH + "px", "important");
+                                document.body.style.setProperty("overflow", "auto", "important");
+                            }
+                            if (rootNode) {
+                                rootNode.style.setProperty("width", viewportW + "px", "important");
+                                rootNode.style.setProperty("height", viewportH + "px", "important");
+                                rootNode.style.setProperty("min-width", viewportW + "px", "important");
+                                rootNode.style.setProperty("min-height", viewportH + "px", "important");
+                            }
+                            docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
+                            bodyRect = document?.body?.getBoundingClientRect?.() || null;
+                            rootRect = rootNode?.getBoundingClientRect?.() || null;
+                        }
+                        const probeEl = document.elementFromPoint(
+                            Math.max(0, Math.floor(window.innerWidth / 2)),
+                            Math.max(0, Math.floor(window.innerHeight / 2)),
+                        );
 
-                    const domSummary = rootNode
-                        ? "children=" + rootNode.childElementCount
-                            + "; text=" + (rootNode.textContent || "").trim().length
-                            + "; visibleText=" + (rootNode.innerText || "").trim().length
-                            + "; rootRect=" + Math.round(rootRect?.width || 0) + "x" + Math.round(rootRect?.height || 0)
-                            + "; rootDisplay=" + String(rootStyle?.display || "")
-                            + "; rootVisibility=" + String(rootStyle?.visibility || "")
-                            + "; rootOpacity=" + String(rootStyle?.opacity || "")
-                            + "; viewport=" + viewportW + "x" + viewportH
-                            + "; docElRect=" + Math.round(docElRect?.width || 0) + "x" + Math.round(docElRect?.height || 0)
-                            + "; bodyRect=" + Math.round(bodyRect?.width || 0) + "x" + Math.round(bodyRect?.height || 0)
-                            + "; viewportFallback=" + String(viewportFallbackApplied)
-                            + "; probeTag=" + String(probeEl?.tagName || "")
-                        : "children=0; text=0; visibleText=0";
-                    window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-dom-after-mount", message: domSummary }, "*");
+                        const domSummary = rootNode
+                            ? "children=" + rootNode.childElementCount
+                                + "; text=" + (rootNode.textContent || "").trim().length
+                                + "; visibleText=" + (rootNode.innerText || "").trim().length
+                                + "; rootRect=" + Math.round(rootRect?.width || 0) + "x" + Math.round(rootRect?.height || 0)
+                                + "; rootDisplay=" + String(rootStyle?.display || "")
+                                + "; rootVisibility=" + String(rootStyle?.visibility || "")
+                                + "; rootOpacity=" + String(rootStyle?.opacity || "")
+                                + "; viewport=" + viewportW + "x" + viewportH
+                                + "; docElRect=" + Math.round(docElRect?.width || 0) + "x" + Math.round(docElRect?.height || 0)
+                                + "; bodyRect=" + Math.round(bodyRect?.width || 0) + "x" + Math.round(bodyRect?.height || 0)
+                                + "; viewportFallback=" + String(viewportFallbackApplied)
+                                + "; probeTag=" + String(probeEl?.tagName || "")
+                            : "children=0; text=0; visibleText=0";
+                        window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-dom-after-mount", message: domSummary }, "*");
 
-                    // Force a compositor repaint in packaged Electron when iframe content mounts
-                    // but the texture is not visually refreshed.
-                    if (document?.body) {
-                        document.body.style.setProperty("will-change", "transform, opacity", "important");
-                        document.body.style.setProperty("transform", "translateZ(0)", "important");
-                        document.body.style.setProperty("opacity", "0.999", "important");
-                        requestAnimationFrame(() => {
-                            if (!document?.body) return;
-                            document.body.style.setProperty("transform", "none", "important");
-                            document.body.style.setProperty("opacity", "1", "important");
+                        // Force a compositor repaint in packaged Electron when iframe content mounts
+                        // but the texture is not visually refreshed.
+                        if (document?.body) {
+                            document.body.style.setProperty("will-change", "transform, opacity", "important");
+                            document.body.style.setProperty("transform", "translateZ(0)", "important");
+                            document.body.style.setProperty("opacity", "0.999", "important");
                             requestAnimationFrame(() => {
                                 if (!document?.body) return;
-                                document.body.style.setProperty("will-change", "auto", "important");
+                                document.body.style.setProperty("transform", "none", "important");
+                                document.body.style.setProperty("opacity", "1", "important");
+                                requestAnimationFrame(() => {
+                                    if (!document?.body) return;
+                                    document.body.style.setProperty("will-change", "auto", "important");
+                                });
                             });
-                        });
-                    }
+                        }
+                    });
                 });
     
                 return () => {
@@ -537,7 +654,53 @@ function createESModule(pluginCode, onLoad) {
                 };
             }, []);
             
-            const pluginRenderedNode = (${pluginRenderExpression});
+            const normalizeLegacyStyledHtml = (rawHtml) => {
+                if (typeof rawHtml !== "string" || rawHtml.indexOf("<style") === -1) {
+                    return rawHtml;
+                }
+                const tick = String.fromCharCode(96);
+                const slash = String.fromCharCode(92);
+                try {
+                    const template = document.createElement("template");
+                    template.innerHTML = rawHtml;
+                    const nodesWithClassNameAttr = template.content.querySelectorAll("[classname]");
+                    nodesWithClassNameAttr.forEach((node) => {
+                        const className = String(node?.getAttribute?.("classname") || "").trim();
+                        if (className && !node.getAttribute("class")) {
+                            node.setAttribute("class", className);
+                        }
+                        node.removeAttribute("classname");
+                    });
+                    const styleNodes = template.content.querySelectorAll("style");
+                    styleNodes.forEach((styleNode) => {
+                        const cssText = String(styleNode?.textContent || "");
+                        const trimmedCss = cssText.trim();
+                        const openDirect = "{" + tick;
+                        const closeDirect = tick + "}";
+                        const openEscaped = "{" + slash + tick;
+                        const closeEscaped = slash + tick + "}";
+
+                        let normalizedCss = cssText;
+                        if (trimmedCss.startsWith(openDirect) && trimmedCss.endsWith(closeDirect)) {
+                            normalizedCss = trimmedCss.slice(openDirect.length, trimmedCss.length - closeDirect.length);
+                        } else if (trimmedCss.startsWith(openEscaped) && trimmedCss.endsWith(closeEscaped)) {
+                            normalizedCss = trimmedCss.slice(openEscaped.length, trimmedCss.length - closeEscaped.length);
+                        }
+
+                        if (normalizedCss !== cssText) {
+                            styleNode.textContent = normalizedCss;
+                        }
+                    });
+                    return template.innerHTML;
+                } catch (_) {
+                    return rawHtml;
+                }
+            };
+
+            const pluginRenderedNodeRaw = (${pluginRenderExpression});
+            const pluginRenderedNode = typeof pluginRenderedNodeRaw === "string"
+                ? normalizeLegacyStyledHtml(pluginRenderedNodeRaw)
+                : pluginRenderedNodeRaw;
             const renderHtmlString = typeof pluginRenderedNode === "string" && pluginRenderedNode.trim().startsWith("<");
             const pluginContent = renderHtmlString
                 ? React.createElement("div", {

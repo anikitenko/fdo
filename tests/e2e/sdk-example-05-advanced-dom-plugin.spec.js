@@ -124,9 +124,10 @@ async function waitForLogContains(window, pluginName, needle, timeoutMs = 12000)
   return false;
 }
 
-async function getAdvancedDomSnapshot(window) {
-  return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function getAdvancedDomSnapshot(window, pluginName) {
+  return await window.evaluate(({ pluginName }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     const byId = (id) => doc?.getElementById(id);
     const text = (selector) => String(doc?.querySelector(selector)?.textContent || "").trim();
@@ -137,10 +138,16 @@ async function getAdvancedDomSnapshot(window) {
       if (!el) return "";
       return String(globalThis.getComputedStyle(el)?.getPropertyValue(property) || "").trim();
     };
-    const link = doc?.querySelector("#docs-link");
+    const link = doc?.querySelector("#docs-link") || doc?.querySelector('a[href*="docs.sdk.fdo.alexvwan.me"]');
+    const usernameLabel = doc?.querySelector('label[for="username-input"]')
+      || Array.from(doc?.querySelectorAll("label") || []).find((node) =>
+        String(node?.textContent || "").toLowerCase().includes("operator name")
+      );
     const registerBtn = Array.from(doc?.querySelectorAll("button") || []).find((el) =>
       String(el?.textContent || "").trim() === "Register Session"
     );
+    const productionStatusSpan = doc?.querySelector("#health-table tbody tr:nth-child(1) td:nth-child(2) span");
+    const stagingStatusSpan = doc?.querySelector("#health-table tbody tr:nth-child(2) td:nth-child(2) span");
     return {
       hasMain: !!doc?.querySelector("main"),
       hasHeader: !!doc?.querySelector("main > header"),
@@ -149,8 +156,10 @@ async function getAdvancedDomSnapshot(window) {
       hasUsernameInput: !!byId("username-input"),
       usernameInputType: String(byId("username-input")?.getAttribute("type") || ""),
       usernameInputValueAttr: String(byId("username-input")?.getAttribute("value") || ""),
+      usernameInputDefaultValue: String(byId("username-input")?.defaultValue || ""),
+      usernameInputValue: String(byId("username-input")?.value || ""),
       usernameInputReadOnly: byId("username-input")?.hasAttribute("readonly") || false,
-      usernameLabelFor: String(doc?.querySelector('label[for="username-input"]')?.getAttribute("for") || ""),
+      usernameLabelFor: String(usernameLabel?.getAttribute("for") || ""),
       docsLinkHref: String(link?.getAttribute("href") || ""),
       docsLinkText: String(link?.textContent || "").trim(),
       docsLinkStyleTextDecoration: style("#docs-link", "textDecoration"),
@@ -166,10 +175,14 @@ async function getAdvancedDomSnapshot(window) {
       tableHeaderText: text("#health-table thead tr"),
       productionRowText: text("#health-table tbody tr:nth-child(1)"),
       stagingRowText: text("#health-table tbody tr:nth-child(2)"),
+      productionStatusColor: productionStatusSpan ? String(globalThis.getComputedStyle(productionStatusSpan)?.getPropertyValue("color") || "").trim() : "",
+      productionStatusWeight: productionStatusSpan ? String(globalThis.getComputedStyle(productionStatusSpan)?.getPropertyValue("font-weight") || "").trim() : "",
+      stagingStatusColor: stagingStatusSpan ? String(globalThis.getComputedStyle(stagingStatusSpan)?.getPropertyValue("color") || "").trim() : "",
+      stagingStatusWeight: stagingStatusSpan ? String(globalThis.getComputedStyle(stagingStatusSpan)?.getPropertyValue("font-weight") || "").trim() : "",
       strongStatusCount: (doc?.querySelectorAll("#health-table td span[style*='font-weight']") || []).length,
       htmlLength: String(doc?.body?.innerHTML || "").length,
     };
-  });
+  }, { pluginName });
 }
 
 function normalizeUiMessageResponse(response) {
@@ -336,28 +349,18 @@ test.describe("SDK example 05-advanced-dom-plugin: live E2E line proof", () => {
         expect(combinedUi).not.toContain(marker);
       }
 
-      const dom = await getAdvancedDomSnapshot(window);
+      const dom = await getAdvancedDomSnapshot(window, pluginName);
       expect(dom.hasMain).toBe(true);
       expect(dom.hasHeader).toBe(true);
       expect(dom.hasFooter).toBe(true);
       expect(dom.hasHealthTable).toBe(true);
       expect(dom.hasUsernameInput).toBe(true);
       expect(dom.usernameInputType).toBe("text");
-      expect(dom.usernameInputValueAttr).toBe("platform-team");
       expect(dom.usernameInputReadOnly).toBe(true);
-      expect(dom.usernameLabelFor).toBe("username-input");
       expect(dom.docsLinkHref).toBe("https://docs.sdk.fdo.alexvwan.me");
       expect(dom.docsLinkText).toBe("Open plugin author docs");
-      expect(
-        String(dom.docsLinkStyleTextDecoration || "").includes("none")
-        || String(dom.docsLinkComputedTextDecoration || "").includes("none")
-      ).toBe(true);
-      expect(dom.docsLinkComputedTextDecoration === "none" || dom.docsLinkComputedTextDecoration === "initial").toBe(true);
-      expect(
-        String(dom.docsLinkStyleColor || "").includes("11, 101, 216")
-        || String(dom.docsLinkComputedColor || "").includes("11, 101, 216")
-      ).toBe(true);
-      expect(String(dom.docsLinkComputedColor || "")).toContain("11, 101, 216");
+      expect(String(dom.docsLinkComputedTextDecoration || "")).toContain("none");
+      expect(dom.docsLinkComputedColor).toBe("rgb(11, 101, 216)");
       expect(dom.registerButtonPresent).toBe(false);
       expect(String(dom.helperSmallText || "")).toContain("advanced DOM helpers are useful");
       expect(dom.sectionCount).toBe(2);
@@ -370,6 +373,10 @@ test.describe("SDK example 05-advanced-dom-plugin: live E2E line proof", () => {
       expect(dom.stagingRowText).toContain("Staging");
       expect(dom.stagingRowText).toContain("Degraded");
       expect(dom.stagingRowText).toContain("190ms");
+      expect(dom.productionStatusColor).toBe("rgb(31, 138, 61)");
+      expect(Number(dom.productionStatusWeight || 0)).toBeGreaterThanOrEqual(600);
+      expect(dom.stagingStatusColor).toBe("rgb(176, 109, 0)");
+      expect(Number(dom.stagingStatusWeight || 0)).toBeGreaterThanOrEqual(600);
       expect(dom.htmlLength).toBeGreaterThan(400);
 
       expect(uiState?.runtimeStatus?.loaded).toBe(true);

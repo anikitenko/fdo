@@ -4,7 +4,13 @@ import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 import {buildWorkspaceMonacoCompilerOptions} from "./workspaceMonacoCompilerOptions";
 import darkTheme from "../monaco/EditorDarkTheme"
-import {AppToaster} from "../../AppToaster.jsx";
+
+async function scaffoldFreshWorkspace(name, template) {
+    createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
+    createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
+    createVirtualFile("/package.json", packageJsonContent(name))
+    await virtualFS.fs.setupNodeModules()
+}
 
 export async function setupVirtualWorkspace(name, displayName, template, dir) {
     monaco.editor.defineTheme('editor-dark', darkTheme);
@@ -36,19 +42,25 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
             virtualFS.restoreSandbox(sandbox)
             await virtualFS.fs.setupNodeModules()
         } else if (isSandboxWorkspace) {
-            createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
-            createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
-            createVirtualFile("/package.json", packageJsonContent(name))
-            await virtualFS.fs.setupNodeModules()
+            await scaffoldFreshWorkspace(name, template)
         } else {
-            const data = await window.electron.plugin.getData(dir)
-            if (data.success) {
-                for (const file of data.content) {
-                    createVirtualFile(file.path, file.content)
+            const data = await window.electron.plugin.getData(dir).catch((error) => ({
+                success: false,
+                error: error?.message || String(error || "Failed to load plugin workspace"),
+            }))
+            const files = Array.isArray(data?.content)
+                ? data.content.filter((file) =>
+                    typeof file?.path === "string" && file.path.startsWith("/")
+                )
+                : [];
+
+            if (data?.success && files.length > 0) {
+                for (const file of files) {
+                    createVirtualFile(file.path, file.content || "")
                 }
                 await virtualFS.fs.setupNodeModules()
             } else {
-                (AppToaster).show({message: `${data.error}`, intent: "danger"});
+                await scaffoldFreshWorkspace(name, template)
             }
         }
     }

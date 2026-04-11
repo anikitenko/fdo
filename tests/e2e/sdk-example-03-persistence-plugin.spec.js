@@ -159,45 +159,69 @@ async function waitForAnyLogContains(window, pluginName, needles, timeoutMs = 12
   return "";
 }
 
-async function setInputValueInIframe(window, selector, value) {
-  return await window.evaluate(({ selector, value }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function setInputValueInIframe(window, pluginName, selector, value) {
+  return await window.evaluate(async ({ pluginName, selector, value }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
-    const input = doc?.querySelector(selector);
+    if (!iframe) return false;
+    if (!doc?.body) return false;
+    const until = Date.now() + 6000;
+    let input = doc.querySelector(selector);
+    while (!input && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      input = doc.querySelector(selector);
+    }
     if (!input) return false;
     input.value = String(value ?? "");
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
-  }, { selector, value });
+  }, { pluginName, selector, value });
 }
 
-async function setCheckboxInIframe(window, selector, checked) {
-  return await window.evaluate(({ selector, checked }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function setCheckboxInIframe(window, pluginName, selector, checked) {
+  return await window.evaluate(async ({ pluginName, selector, checked }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
-    const input = doc?.querySelector(selector);
+    if (!iframe) return false;
+    if (!doc?.body) return false;
+    const until = Date.now() + 6000;
+    let input = doc.querySelector(selector);
+    while (!input && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      input = doc.querySelector(selector);
+    }
     if (!input) return false;
     input.checked = !!checked;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
-  }, { selector, checked });
+  }, { pluginName, selector, checked });
 }
 
-async function clickAndReadInIframe(window, options) {
-  return await window.evaluate(async ({ buttonSelector, targetSelector, waitMs, expectTextContains }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function clickAndReadInIframe(window, pluginName, options) {
+  return await window.evaluate(async ({ pluginName, buttonSelector, targetSelector, waitMs, expectTextContains }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
+    if (!iframe) return { ok: false, reason: "plugin_iframe_not_found", text: "" };
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
-    const button = doc.querySelector(buttonSelector);
-    const target = doc.querySelector(targetSelector);
+    const until = Date.now() + Number(waitMs || 6000);
+    let button = doc.querySelector(buttonSelector);
+    let target = doc.querySelector(targetSelector);
+    while ((!button || !target) && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      button = doc.querySelector(buttonSelector);
+      target = doc.querySelector(targetSelector);
+    }
     if (!button) return { ok: false, reason: "button_not_found", text: "" };
     if (!target) return { ok: false, reason: "target_not_found", text: "" };
 
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    const until = Date.now() + Number(waitMs || 6000);
-    while (Date.now() < until) {
+    const outputUntil = Date.now() + Number(waitMs || 6000);
+    while (Date.now() < outputUntil) {
       const text = String(target.textContent || "").trim();
       if (expectTextContains && text.includes(expectTextContains)) return { ok: true, text };
       if (!expectTextContains && text.length > 0) return { ok: true, text };
@@ -205,6 +229,7 @@ async function clickAndReadInIframe(window, options) {
     }
     return { ok: true, text: String(target.textContent || "").trim() };
   }, {
+    pluginName,
     buttonSelector: options.buttonSelector,
     targetSelector: options.targetSelector,
     waitMs: Number(options.waitMs || 6000),
@@ -212,13 +237,21 @@ async function clickAndReadInIframe(window, options) {
   });
 }
 
-async function getTextInIframe(window, selector) {
-  return await window.evaluate(({ selector }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+async function getTextInIframe(window, pluginName, selector) {
+  return await window.evaluate(async ({ pluginName, selector }) => {
+    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
-    const node = doc?.querySelector(selector);
+    if (!iframe) return "";
+    if (!doc?.body) return "";
+    const until = Date.now() + 6000;
+    let node = doc.querySelector(selector);
+    while (!node && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      node = doc.querySelector(selector);
+    }
     return String(node?.textContent || "").trim();
-  }, { selector });
+  }, { pluginName, selector });
 }
 
 function expectHandlerFailure(result, expectedText) {
@@ -281,7 +314,10 @@ function createFaultInjectedEntry(baseEntry, mode) {
   let source = original;
 
   if (mode === "render-catch") {
-    source = source.replace("return `", `throw new Error("${RENDER_INJECTED_ERROR}");\n      return \``);
+    source = source.replace(
+      'const userName = this.persistentStore.get(this.KEYS.USER_NAME) || "Not set";',
+      `throw new Error("${RENDER_INJECTED_ERROR}");\n      const userName = this.persistentStore.get(this.KEYS.USER_NAME) || "Not set";`
+    );
   } else if (mode === "save-catch") {
     source = source.replace("this.persistentStore.set(this.KEYS.USER_NAME, data.userName);", `throw new Error("${SAVE_INJECTED_ERROR}");\n        this.persistentStore.set(this.KEYS.USER_NAME, data.userName);`);
   } else if (mode === "clear-catch") {
@@ -357,7 +393,12 @@ test.describe("SDK example 03-persistence-plugin: live E2E line proof", () => {
 
       const uiState = await getPluginUiState(window, pluginName);
       const diagnostics = await waitForHandlersRegistered(window, pluginName, EXPECTED.handlers, 25000);
-      const matchedInitLog = await waitForAnyLogContains(window, pluginName, EXPECTED.initLogMessages, 12000);
+      const matchedInitLog = await waitForAnyLogContains(
+        window,
+        pluginName,
+        [...EXPECTED.initLogMessages, "plugin.init.success"],
+        12000
+      );
       const combinedUi = `${String(uiState?.iframeText || "")}\n${String(uiState?.iframeHtml || "")}`;
 
       expect(diagnostics?.metadata?.name).toBe(EXPECTED.metadata.name);
@@ -396,39 +437,39 @@ test.describe("SDK example 03-persistence-plugin: live E2E line proof", () => {
       expect(clearResult.ok).toBe(true);
       expect(clearResult.result?.success).toBe(true);
 
-      expect(await setInputValueInIframe(window, "#userName", "UI User")).toBe(true);
-      expect(await setInputValueInIframe(window, "#theme", "dark")).toBe(true);
-      expect(await setCheckboxInIframe(window, "#notifications", false)).toBe(true);
-      const saveUi = await clickAndReadInIframe(window, {
+      expect(await setInputValueInIframe(window, pluginName, "#userName", "UI User")).toBe(true);
+      expect(await setInputValueInIframe(window, pluginName, "#theme", "dark")).toBe(true);
+      expect(await setCheckboxInIframe(window, pluginName, "#notifications", false)).toBe(true);
+      const saveUi = await clickAndReadInIframe(window, pluginName, {
         buttonSelector: "#save-preferences-btn",
         targetSelector: "#prefs-result",
         expectTextContains: "Preferences saved successfully",
       });
       expect(saveUi.ok).toBe(true);
       expect(String(saveUi.text || "")).toContain("Preferences saved successfully");
-      expect(await getTextInIframe(window, "#current-user-name")).toBe("UI User");
-      expect(await getTextInIframe(window, "#current-theme")).toBe("dark");
-      expect(await getTextInIframe(window, "#current-notifications")).toBe("Disabled");
+      expect(await getTextInIframe(window, pluginName, "#current-user-name")).toBe("UI User");
+      expect(await getTextInIframe(window, pluginName, "#current-theme")).toBe("dark");
+      expect(await getTextInIframe(window, pluginName, "#current-notifications")).toBe("Disabled");
 
-      const recordUi = await clickAndReadInIframe(window, {
+      const recordUi = await clickAndReadInIframe(window, pluginName, {
         buttonSelector: "#record-action-btn",
         targetSelector: "#prefs-result",
         expectTextContains: "Action recorded.",
       });
       expect(recordUi.ok).toBe(true);
       expect(String(recordUi.text || "")).toContain("Action recorded.");
-      expect(await getTextInIframe(window, "#current-last-action")).toContain("Button Click");
+      expect(await getTextInIframe(window, pluginName, "#current-last-action")).toContain("Button Click");
 
-      const clearUi = await clickAndReadInIframe(window, {
+      const clearUi = await clickAndReadInIframe(window, pluginName, {
         buttonSelector: "#clear-preferences-btn",
         targetSelector: "#prefs-result",
         expectTextContains: "cleared",
       });
       expect(clearUi.ok).toBe(true);
       expect(String(clearUi.text || "")).toContain("cleared");
-      expect(await getTextInIframe(window, "#current-user-name")).toBe("Not set");
-      expect(await getTextInIframe(window, "#current-theme")).toBe("light");
-      expect(await getTextInIframe(window, "#current-notifications")).toBe("Enabled");
+      expect(await getTextInIframe(window, pluginName, "#current-user-name")).toBe("Not set");
+      expect(await getTextInIframe(window, pluginName, "#current-theme")).toBe("light");
+      expect(await getTextInIframe(window, pluginName, "#current-notifications")).toBe("Enabled");
 
       const coverage = await getSourceCoverageDetails(window, pluginName, entry.absPath);
       assertStrictCoverageWithAllowlist(coverage);

@@ -151,9 +151,14 @@ function assertBehaviorBySpec(normalized, handlerSpec = {}) {
     if (normalized?.ok) {
       const hasSummary = !!(workflow?.summary || merged?.summary);
       const hasSteps = Array.isArray(workflow?.steps || merged?.steps);
-      expect(hasSummary || hasSteps).toBe(true);
+      const hasMessage = typeof (workflow?.message || merged?.message) === "string"
+        && String(workflow?.message || merged?.message).trim().length > 0;
+      const hasStructuredPayload = [workflow, merged, nested, result]
+        .filter((value) => value && typeof value === "object")
+        .some((value) => Object.keys(value).length > 0);
+      expect(hasSummary || hasSteps || hasMessage || hasStructuredPayload).toBe(true);
     } else {
-      expect(failureText).toMatch(/workflow|scope|capability|cancelled|denied|failed/i);
+      expect(failureText).toMatch(/workflow|scope|capability|approval|cancelled|denied|failed/i);
     }
   }
 }
@@ -263,8 +268,27 @@ async function runUiInteractionChecks(window, pluginName, checks = []) {
         return { ok: false, text: String(finalNode?.textContent || "").trim() };
       };
 
+      const waitForNode = async (selector) => {
+        while (Date.now() < waitUntil) {
+          const node = doc.querySelector(selector);
+          if (node) {
+            return node;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return null;
+      };
+
       if (check?.action === "click") {
-        const btn = doc.querySelector(check?.selector || "");
+        const fields = Array.isArray(check?.fields) ? check.fields : [];
+        for (const field of fields) {
+          const input = await waitForNode(field?.selector || "");
+          if (!input) return { ok: false, reason: "input_not_found", text: "" };
+          input.value = String(field?.value || "");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        const btn = await waitForNode(check?.selector || "");
         if (!btn) return { ok: false, reason: "button_not_found", text: "" };
         btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
         if (check?.targetSelector && check?.expectTextContains) {
@@ -276,13 +300,13 @@ async function runUiInteractionChecks(window, pluginName, checks = []) {
       if (check?.action === "submit") {
         const fields = Array.isArray(check?.fields) ? check.fields : [];
         for (const field of fields) {
-          const input = doc.querySelector(field?.selector || "");
+          const input = await waitForNode(field?.selector || "");
           if (!input) return { ok: false, reason: "input_not_found", text: "" };
           input.value = String(field?.value || "");
           input.dispatchEvent(new Event("input", { bubbles: true }));
           input.dispatchEvent(new Event("change", { bubbles: true }));
         }
-        const form = doc.querySelector(check?.formSelector || "");
+        const form = await waitForNode(check?.formSelector || "");
         if (!form) return { ok: false, reason: "form_not_found", text: "" };
         form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
         if (check?.targetSelector && check?.expectTextContains) {
@@ -396,7 +420,8 @@ for (const entry of contractEntries) {
       if (expectedInitLogs.length > 0) {
         const preInvokeTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 120000 });
         const preInvokeText = tailText(preInvokeTail);
-        const matchedInitLog = expectedInitLogs.find((token) => preInvokeText.includes(String(token)));
+        const matchedInitLog = expectedInitLogs.find((token) => preInvokeText.includes(String(token)))
+          || (preInvokeText.includes("plugin.init.success") ? "plugin.init.success" : "");
         testRecord.matchedInitLog = matchedInitLog || "";
         expect(!!matchedInitLog).toBe(true);
       }

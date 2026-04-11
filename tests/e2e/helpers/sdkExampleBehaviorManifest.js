@@ -115,9 +115,10 @@ const OVERRIDES = {
   },
   "fixtures/error-handling-plugin.fixture.ts": {
     uiMarkerAnyOf: ["Fixture: Error Handling"],
+    handlers: ["fixture.ok", "fixture.fail"],
     handlerExpectations: {
-      "fixture:ok": { payload: { probe: "fixture-ok" }, expectSuccess: true, resultPathEquals: { success: true } },
-      "fixture:fail": { payload: {}, expectSuccess: false, failureAnyOf: ["Intentional fixture handler failure"] },
+      "fixture.ok": { payload: { probe: "fixture-ok" }, expectSuccess: true },
+      "fixture.fail": { payload: {}, expectSuccess: false, failureAnyOf: ["Intentional fixture handler failure"] },
     },
   },
   "fixtures/minimal-plugin.fixture.ts": {
@@ -127,28 +128,42 @@ const OVERRIDES = {
   "fixtures/operator-custom-tool-plugin.fixture.ts": {
     uiMarkerAnyOf: ["Fixture: Custom Operator Tool"],
     initLogAnyOf: ["Custom operator fixture initialized"],
+    handlers: ["customToolFixture.v2.previewRunnerStatus"],
     handlerExpectations: {
-      "custom.previewRunnerStatus": { payload: {}, expectPrivilegedShape: true },
+      "customToolFixture.v2.previewRunnerStatus": { payload: {}, expectPrivilegedShape: true },
     },
   },
   "fixtures/operator-kubernetes-plugin.fixture.ts": {
     uiMarkerAnyOf: ["Fixture: Kubernetes Operator"],
     initLogAnyOf: ["Kubernetes operator fixture initialized"],
+    handlers: [
+      "kubectlFixture.v2.previewClusterObjects",
+      "kubectlFixture.v2.inspectAndRestartWorkflow",
+    ],
     handlerExpectations: {
-      "kubectl.previewClusterObjects": { payload: {}, expectPrivilegedShape: true },
-      "kubectl.inspectAndRestartWorkflow": { payload: {}, expectPrivilegedShape: true, expectWorkflowShape: true },
+      "kubectlFixture.v2.previewClusterObjects": { payload: {}, expectPrivilegedShape: true },
+      "kubectlFixture.v2.inspectAndRestartWorkflow": { payload: {}, expectPrivilegedShape: true, expectWorkflowShape: true },
     },
   },
   "fixtures/operator-terraform-plugin.fixture.ts": {
     uiMarkerAnyOf: ["Fixture: Terraform Operator"],
     initLogAnyOf: ["Terraform operator fixture initialized"],
+    handlers: [
+      "terraformFixture.v2.previewPlan",
+      "terraformFixture.v2.previewApplyWorkflow",
+    ],
     handlerExpectations: {
-      "terraform.previewPlan": { payload: {}, expectPrivilegedShape: true },
-      "terraform.previewApplyWorkflow": { payload: {}, expectPrivilegedShape: true, expectWorkflowShape: true },
+      "terraformFixture.v2.previewPlan": { payload: {}, expectPrivilegedShape: true },
+      "terraformFixture.v2.previewApplyWorkflow": { payload: {}, expectPrivilegedShape: true, expectWorkflowShape: true },
     },
   },
   "fixtures/storage-plugin.fixture.ts": {
     uiMarkerAnyOf: ["Fixture: Storage"],
+    handlers: [
+      "storageFixture.v2.getSnapshot",
+      "storageFixture.v2.savePreference",
+      "storageFixture.v2.recordAction",
+    ],
   },
 };
 

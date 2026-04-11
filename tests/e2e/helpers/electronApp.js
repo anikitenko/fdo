@@ -205,8 +205,9 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
   await window.waitForLoadState('domcontentloaded');
   const useRealAssistants = !!overrides?.__useRealAssistants;
   const fixtureId = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const pluginDisplayName = `E2E Plugin ${fixtureId}`;
-  const pluginDir = `/tmp/${fixtureId}`;
+  const pluginDisplayName = String(overrides?.pluginDisplayName || `E2E Plugin ${fixtureId}`);
+  const pluginDir = String(overrides?.pluginDir || `/tmp/${fixtureId}`);
+  const pluginTemplate = String(overrides?.pluginTemplate || "basic");
   const sandboxName = `sandbox_${pluginDisplayName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -248,7 +249,7 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
 
   const pluginData = encodeURIComponent(JSON.stringify({
     name: pluginDisplayName,
-    template: 'basic',
+    template: pluginTemplate,
     dir: pluginDir,
   }));
 

@@ -73,4 +73,36 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "sdgdsfdsfhsdh", "blank");
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
+
+    test("falls back to a clean workspace when getData fails", async () => {
+        const dir = "/Users/alexvwan/Library/Application Support/FDO/plugins/missing-plugin";
+        window.electron.plugin.getData.mockResolvedValue({
+            success: false,
+            error: "No source file found",
+        });
+
+        await setupVirtualWorkspace("missing-plugin", "Missing Plugin", "blank", dir);
+
+        expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "missing-plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "missing-plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
+        expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
+    });
+
+    test("falls back to a clean workspace when getData returns an empty content list", async () => {
+        const dir = "/Users/alexvwan/Library/Application Support/FDO/plugins/empty-plugin";
+        window.electron.plugin.getData.mockResolvedValue({
+            success: true,
+            content: [],
+        });
+
+        await setupVirtualWorkspace("empty-plugin", "Empty Plugin", "blank", dir);
+
+        expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "empty-plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "empty-plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
+        expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
+    });
 });

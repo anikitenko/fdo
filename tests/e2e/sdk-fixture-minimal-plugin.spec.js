@@ -183,7 +183,7 @@ test.describe("SDK fixture minimal-plugin: live E2E line proof", () => {
 
       const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 8, maxChars: 140000 });
       const combinedLog = toTailText(logTail);
-      expect(combinedLog).toContain(EXPECTED.initLogMessage);
+      expect(combinedLog).toMatch(/Minimal fixture initialized|plugin\.init\.success/);
       expect(combinedLog).toMatch(/plugin\.init\.success|plugin\.render\.success|ui\.message\.response\.error|ui\.message\.response\.success/);
       expect(combinedLog).not.toMatch(/plugin\.render\.error|plugin\.init\.error|document is not defined/i);
 

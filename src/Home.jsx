@@ -3,13 +3,17 @@ import classNames from "classnames";
 import {
     Alignment,
     Button,
+    Card,
     Dialog,
     HotkeysTarget,
     Icon,
     InputGroup,
+    Menu,
+    MenuItem,
     Navbar,
     NavbarDivider,
     NavbarGroup,
+    Popover,
     Tag,
 } from "@blueprintjs/core";
 import * as styles from './Home.module.scss'
@@ -176,6 +180,73 @@ function summarizeValidationScenarios(events = []) {
     }).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 }
 
+function collectMissingProcessScopeIds({
+    missingCapabilities = [],
+    missingCapabilityDiagnostics = [],
+    details = "",
+    extraDetails = null,
+} = {}) {
+    const normalizeProcessScopeId = (value = "") => String(value || "")
+        .trim()
+        .replace(/^system\.process\.scope\./i, "")
+        .replace(/^[`"'“”‘’([{]+|[`"'“”‘’)\]}]+$/g, "")
+        .replace(/[.,;:!?]+$/g, "")
+        .trim();
+    const processScopeIdsFromCapabilities = (Array.isArray(missingCapabilities) ? missingCapabilities : [])
+        .map((item) => String(item || "").trim())
+        .filter((item) => item.startsWith("system.process.scope."))
+        .map((item) => normalizeProcessScopeId(item))
+        .filter(Boolean);
+    const processScopeIdsFromDiagnostics = (Array.isArray(missingCapabilityDiagnostics) ? missingCapabilityDiagnostics : [])
+        .map((item) => String(item?.capability || "").trim())
+        .filter((item) => item.startsWith("system.process.scope."))
+        .map((item) => normalizeProcessScopeId(item))
+        .filter(Boolean);
+    const processScopeIdsFromDetails = [...String(details || "").matchAll(/system\.process\.scope\.([a-zA-Z0-9._-]+)/g)]
+        .map((match) => normalizeProcessScopeId(match?.[1]))
+        .filter(Boolean);
+    const processScopeIdsFromUnknownScopeDetails = [...String(details || "").matchAll(/process scope "([a-zA-Z0-9._-]+)"/gi)]
+        .map((match) => normalizeProcessScopeId(match?.[1]))
+        .filter(Boolean);
+    const processScopeIdsFromExtraDetails = [
+        extraDetails?.scope,
+        extraDetails?.workflow?.scope,
+    ]
+        .map((item) => normalizeProcessScopeId(item))
+        .filter(Boolean);
+
+    return [...new Set([
+        ...processScopeIdsFromCapabilities,
+        ...processScopeIdsFromDiagnostics,
+        ...processScopeIdsFromDetails,
+        ...processScopeIdsFromUnknownScopeDetails,
+        ...processScopeIdsFromExtraDetails,
+    ])];
+}
+
+function isScopedCapability(capabilityId = "") {
+    const normalizedCapabilityId = String(capabilityId || "").trim();
+    return normalizedCapabilityId.startsWith("system.process.scope.")
+        || normalizedCapabilityId.startsWith("system.fs.scope.");
+}
+
+function getRequestedCommandPathFromIssue({
+    code = "",
+    details = "",
+    extraDetails = null,
+} = {}) {
+    const diagnostics = extractPrivilegedActionDiagnostics({
+        code,
+        details,
+        extraDetails,
+    });
+    return String(
+        diagnostics?.command?.command
+        || (diagnostics?.command?.text || "").trim().split(/\s+/)[0]
+        || ""
+    ).trim();
+}
+
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
     const [state, setState] = useState({
@@ -213,6 +284,7 @@ export const Home = () => {
         correlationId: "",
         extraDetails: null,
     });
+    const [pendingPluginScopeSuggestions, setPendingPluginScopeSuggestions] = useState({});
     const [isGrantingMissingCapabilities, setIsGrantingMissingCapabilities] = useState(false);
     const [privilegedAuditDialog, setPrivilegedAuditDialog] = useState({
         open: false,
@@ -275,6 +347,23 @@ export const Home = () => {
         extraDetails: capabilityDeniedNotice.extraDetails,
     });
     const privilegedIssueDiagnostics = extractPrivilegedActionDiagnostics({
+        code: capabilityDeniedNotice.code,
+        details: capabilityDeniedNotice.details,
+        extraDetails: capabilityDeniedNotice.extraDetails,
+    });
+    const missingProcessScopeIds = collectMissingProcessScopeIds(capabilityDeniedNotice);
+    const normalizedMissingCapabilities = [...new Set(
+        (Array.isArray(capabilityDeniedNotice.missingCapabilities) ? capabilityDeniedNotice.missingCapabilities : [])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+    )];
+    const missingScopedCapabilities = normalizedMissingCapabilities.filter((item) => isScopedCapability(item));
+    const autoGrantableMissingCapabilities = normalizedMissingCapabilities.filter(
+        (item) => !isScopedCapability(item)
+    );
+    const hasManualProcessScopeRemediation = missingProcessScopeIds.length > 0;
+    const hasManualScopeRemediation = missingScopedCapabilities.length > 0;
+    const requestedCommandPath = getRequestedCommandPathFromIssue({
         code: capabilityDeniedNotice.code,
         details: capabilityDeniedNotice.details,
         extraDetails: capabilityDeniedNotice.extraDetails,
@@ -1499,6 +1588,9 @@ export const Home = () => {
                 return true;
             },
         };
+    }, [state.activePlugins, state.plugins]);
+
+    useEffect(() => {
         return () => {
             for (const timerId of pendingDeactivateTimersRef.current.values()) {
                 clearTimeout(timerId);
@@ -1508,7 +1600,7 @@ export const Home = () => {
                 delete window.__homeTestApi;
             }
         };
-    }, [state.activePlugins, state.plugins]);
+    }, []);
 
     const handleSideBarItemsClick = (id) => {
         if (id === "system-notifications") {
@@ -1536,9 +1628,58 @@ export const Home = () => {
             requestId: `${Date.now()}`,
             pluginId: capabilityDeniedNotice.pluginId,
             capabilityIds: capabilityDeniedNotice.missingCapabilities,
+            focusSection: "capabilities",
         });
         setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
     };
+
+    const handleOpenProcessAccessFromDenied = () => {
+        if (!capabilityDeniedNotice.pluginId) {
+            setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+            return;
+        }
+        const suggestedScopeId = missingProcessScopeIds[0] || "";
+        setCapabilityFocusRequest({
+            requestId: `${Date.now()}`,
+            pluginId: capabilityDeniedNotice.pluginId,
+            capabilityIds: capabilityDeniedNotice.missingCapabilities,
+            focusSection: "pluginScopes",
+            scopeIds: missingProcessScopeIds,
+            suggestedScope: suggestedScopeId ? {
+                scopeId: suggestedScopeId,
+                commandPath: requestedCommandPath,
+            } : null,
+        });
+        setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+    };
+
+    const handleCapabilityFocusRequestConsumed = (requestId) => {
+        const normalizedRequestId = String(requestId || "").trim();
+        if (!normalizedRequestId) {
+            return;
+        }
+        setCapabilityFocusRequest((prev) => {
+            if (!prev?.requestId || String(prev.requestId) !== normalizedRequestId) {
+                return prev;
+            }
+            return null;
+        });
+    };
+
+    const clearPendingPluginScopeSuggestion = useCallback((pluginId) => {
+        const normalizedPluginId = String(pluginId || "").trim();
+        if (!normalizedPluginId) {
+            return;
+        }
+        setPendingPluginScopeSuggestions((prev) => {
+            if (!prev?.[normalizedPluginId]) {
+                return prev;
+            }
+            const next = {...prev};
+            delete next[normalizedPluginId];
+            return next;
+        });
+    }, []);
 
     const handleCopyCapabilityDeniedDetails = async () => {
         try {
@@ -1561,14 +1702,11 @@ export const Home = () => {
         if (!pluginId) {
             return;
         }
-        const missingCapabilities = [...new Set(
-            (Array.isArray(capabilityDeniedNotice.missingCapabilities) ? capabilityDeniedNotice.missingCapabilities : [])
-                .map((item) => String(item || "").trim())
-                .filter(Boolean)
-        )];
-        if (missingCapabilities.length === 0) {
+        if (autoGrantableMissingCapabilities.length === 0) {
             (await AppToaster).show({
-                message: "No missing capabilities were detected for this request.",
+                message: hasManualScopeRemediation
+                    ? "Scope permissions must be reviewed manually in Manage Plugins."
+                    : "No missing capabilities were detected for this request.",
                 intent: "warning",
             });
             return;
@@ -1578,7 +1716,7 @@ export const Home = () => {
             || stateRef.current.activePlugins.find((item) => item.id === pluginId)
             || null;
         const existingCapabilities = Array.isArray(pluginRecord?.capabilities) ? pluginRecord.capabilities : [];
-        const nextCapabilities = [...new Set([...existingCapabilities, ...missingCapabilities])];
+        const nextCapabilities = [...new Set([...existingCapabilities, ...autoGrantableMissingCapabilities])];
         const hasNewCapabilities = nextCapabilities.length !== existingCapabilities.length;
         if (!hasNewCapabilities) {
             (await AppToaster).show({
@@ -1603,13 +1741,47 @@ export const Home = () => {
             await syncActivePluginLoadingState(stateRef.current.activePlugins);
             setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
             (await AppToaster).show({
-                message: `Granted ${missingCapabilities.length} capability${missingCapabilities.length > 1 ? "ies" : "y"} for ${pluginId}.`,
+                message: `Granted ${autoGrantableMissingCapabilities.length} capability${autoGrantableMissingCapabilities.length > 1 ? "ies" : "y"} for ${pluginId}.`,
                 intent: "success",
             });
         } finally {
             setIsGrantingMissingCapabilities(false);
         }
     };
+    const hasCapabilitiesFixAction = !!privilegedIssuePresentation.showCapabilitiesButton;
+    const hasPluginScopeFixAction = hasManualProcessScopeRemediation;
+    const canAutoGrantMissingCapabilities = hasCapabilitiesFixAction
+        && !hasManualScopeRemediation
+        && autoGrantableMissingCapabilities.length > 0;
+    const capabilityDeniedPrimaryAction = hasPluginScopeFixAction
+        ? {
+            label: "Fix Process Access",
+            onClick: handleOpenProcessAccessFromDenied,
+        }
+        : (hasCapabilitiesFixAction
+        ? {
+            label: "Open Capabilities",
+            onClick: handleOpenCapabilitiesFromDenied,
+        }
+        : null);
+    const capabilityDeniedMoreActions = [
+        ...(canAutoGrantMissingCapabilities ? [{
+            key: "grant-missing-capabilities",
+            text: "Grant Missing Capabilities",
+            intent: "success",
+            onClick: handleGrantMissingCapabilitiesFromDenied,
+            disabled: isGrantingMissingCapabilities,
+        }] : []),
+        ...(capabilityDeniedNotice.pluginId ? [{
+            key: "open-audit-trail",
+            text: "Open Audit Trail",
+            onClick: () => openPrivilegedAuditDialog(capabilityDeniedNotice.pluginId),
+        }, {
+            key: "open-validation",
+            text: "Open Validation",
+            onClick: () => openRuntimeValidationDialog(capabilityDeniedNotice.pluginId),
+        }] : []),
+    ];
 
     const selectedPluginRecord = state.activePlugins.find((item) => item.id === plugin)
         || state.plugins.find((item) => item.id === plugin)
@@ -1676,7 +1848,7 @@ export const Home = () => {
             ]}
         >
             <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
-            <div className={classNames("bp6-dark", styles["main-container"])}>
+            <div className={classNames("bp6-dark", styles["main-container"])} data-testid="fdo-main-container">
                 {state.activePlugins.length > 0 && (
                     <SideBar
                         position={"left"}
@@ -1695,6 +1867,9 @@ export const Home = () => {
                                                  setSearchActions={setSearchActions}
                                                  refreshPluginsState={refreshPluginsState}
                                                  capabilityFocusRequest={capabilityFocusRequest}
+                                                 onCapabilityFocusRequestConsumed={handleCapabilityFocusRequestConsumed}
+                                                 pendingPluginScopeSuggestions={pendingPluginScopeSuggestions}
+                                                 onPendingPluginScopeSuggestionResolved={clearPendingPluginScopeSuggestion}
                         />
                     </NavbarGroup>
                     <NavbarGroup align={Alignment.END}>
@@ -1733,16 +1908,22 @@ export const Home = () => {
                     marginRight: (showRightSideBar ? "50px" : ""),
                     marginTop: "0"
                 }}>
-                    <div className={styles["plugin-workspace"]}>
-                        {plugin && selectedPluginIsActive && <PluginContainer
-                            key={`${plugin}:${pluginRenderEpochs.get(plugin) || 0}`}
-                            plugin={plugin}
-                            onStageChange={setSelectedPluginLifecycleStage}
-                            onRequestCommandBar={() => setShowCommandSearch(true)}
-                            onCapabilityDenied={(payload) => {
+                    <div className={styles["plugin-workspace"]} data-testid="fdo-plugin-workspace">
+                        {state.activePlugins.map((activePlugin) => {
+                            const pluginId = activePlugin.id;
+                            const isSelected = pluginId === plugin;
+                            return (
+                                <PluginContainer
+                                    key={`${pluginId}:${pluginRenderEpochs.get(pluginId) || 0}`}
+                                    plugin={pluginId}
+                                    active={isSelected}
+                                    onStageChange={isSelected ? setSelectedPluginLifecycleStage : undefined}
+                                    onRequestCommandBar={() => setShowCommandSearch(true)}
+                                    onCapabilityDenied={(payload) => {
                                 const structuredMissingCapabilities = Array.isArray(payload?.extraDetails?.missingCapabilities)
                                     ? payload.extraDetails.missingCapabilities
                                     : [];
+                                const resolvedPluginId = payload?.pluginId || pluginId;
                                 const missingCapabilities = [...new Set([
                                     ...(Array.isArray(payload?.missingCapabilities) ? payload.missingCapabilities : []),
                                     ...structuredMissingCapabilities,
@@ -1758,18 +1939,45 @@ export const Home = () => {
                                             : ""
                                     );
                                 const details = String(payload?.details || payload?.error || "Capability denied.");
+                                const extraDetails = payload?.extraDetails || null;
+                                const detectedMissingProcessScopeIds = collectMissingProcessScopeIds({
+                                    missingCapabilities,
+                                    missingCapabilityDiagnostics,
+                                    details,
+                                    extraDetails,
+                                });
+                                if (detectedMissingProcessScopeIds.length > 0) {
+                                    const suggestedScopeId = detectedMissingProcessScopeIds[0] || "";
+                                    const commandPath = getRequestedCommandPathFromIssue({
+                                        code: String(payload?.code || ""),
+                                        details,
+                                        extraDetails,
+                                    });
+                                    setPendingPluginScopeSuggestions((prev) => ({
+                                        ...prev,
+                                        [resolvedPluginId]: {
+                                            scopeIds: detectedMissingProcessScopeIds,
+                                            suggestedScope: suggestedScopeId ? {
+                                                scopeId: suggestedScopeId,
+                                                commandPath,
+                                            } : null,
+                                        },
+                                    }));
+                                }
                                 setCapabilityDeniedNotice({
                                     open: true,
-                                    pluginId: payload?.pluginId || plugin,
+                                    pluginId: resolvedPluginId,
                                     missingCapabilities,
                                     missingCapabilityDiagnostics,
                                     details,
                                     code: String(payload?.code || ""),
                                     correlationId: String(payload?.correlationId || ""),
-                                    extraDetails: payload?.extraDetails || null,
+                                    extraDetails,
                                 });
-                            }}
-                        />}
+                                    }}
+                                />
+                            );
+                        })}
                     </div>
                 </div>
             <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
@@ -1816,6 +2024,31 @@ export const Home = () => {
                                 ))}
                             </div>
                         </>
+                    ) : null}
+                    {missingProcessScopeIds.length > 0 ? (
+                        <Card style={{marginTop: "10px", marginBottom: "10px", border: "1px solid #d4d5d7"}}>
+                            <div className="bp6-text-small" style={{fontWeight: 600}}>
+                                Required Plugin-Specific Process Scope Setup
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                                1. Use <strong>Fix Process Access</strong> to open Manage Plugins for <code>{capabilityDeniedNotice.pluginId || "this plugin"}</code>.
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted">
+                                2. In Capabilities, keep broad grant <code>system.process.exec</code> enabled.
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted">
+                                3. In Plugin-Specific Process Scopes, add scope ID <code>{missingProcessScopeIds[0]}</code> (and any other listed below).
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted">
+                                4. In Allowed executable paths, include <code>{requestedCommandPath || "/absolute/path/to/tool"}</code>.
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted">
+                                5. Review cwd roots, env keys, and timeout manually. This dialog never auto-creates or auto-grants process scopes.
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                                Missing scopes: <code>{missingProcessScopeIds.join(", ")}</code>
+                            </div>
+                        </Card>
                     ) : null}
                     <div className="bp6-text-small bp6-text-muted">
                         {capabilityDeniedNotice.details}
@@ -1906,25 +2139,30 @@ export const Home = () => {
                 </div>
                 <div className="bp6-dialog-footer">
                     <div className="bp6-dialog-footer-actions">
-                        <Button onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
-                        {capabilityDeniedNotice.pluginId ? (
-                            <Button onClick={() => openPrivilegedAuditDialog(capabilityDeniedNotice.pluginId)}>Open Audit Trail</Button>
+                        <Button minimal onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
+                        {capabilityDeniedMoreActions.length > 0 ? (
+                            <Popover
+                                content={(
+                                    <Menu>
+                                        {capabilityDeniedMoreActions.map((action) => (
+                                            <MenuItem
+                                                key={action.key}
+                                                text={action.text}
+                                                intent={action.intent}
+                                                disabled={action.disabled}
+                                                onClick={action.onClick}
+                                            />
+                                        ))}
+                                    </Menu>
+                                )}
+                            >
+                                <Button minimal>More Actions</Button>
+                            </Popover>
                         ) : null}
-                        {capabilityDeniedNotice.pluginId ? (
-                            <Button onClick={() => openRuntimeValidationDialog(capabilityDeniedNotice.pluginId)}>Open Validation</Button>
-                        ) : null}
-                        {privilegedIssuePresentation.showCapabilitiesButton ? (
-                            <>
-                                <Button
-                                    intent="success"
-                                    onClick={handleGrantMissingCapabilitiesFromDenied}
-                                    loading={isGrantingMissingCapabilities}
-                                    disabled={isGrantingMissingCapabilities}
-                                >
-                                    Grant Missing Capabilities
-                                </Button>
-                                <Button intent="primary" onClick={handleOpenCapabilitiesFromDenied}>Open Capabilities</Button>
-                            </>
+                        {capabilityDeniedPrimaryAction ? (
+                            <Button intent="primary" onClick={capabilityDeniedPrimaryAction.onClick}>
+                                {capabilityDeniedPrimaryAction.label}
+                            </Button>
                         ) : (
                             <Button intent="primary" onClick={() => setCapabilityDeniedNotice((prev) => ({...prev, open: false}))}>Close</Button>
                         )}

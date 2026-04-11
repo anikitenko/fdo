@@ -26,7 +26,9 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
 
 jest.mock("../../src/utils/PluginORM", () => ({
     __esModule: true,
-    default: class PluginORMMock {},
+    default: class PluginORMMock {
+        getAllPlugins() { return []; }
+    },
 }));
 
 jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
@@ -41,6 +43,10 @@ jest.mock("../../src/utils/UserORM", () => ({
         deactivatePlugin() {}
         deactivateAllPlugins() {}
         getActivatedPlugins() { return []; }
+        getSharedProcessScopes() { return []; }
+        setSharedProcessScopes(scopes) { return scopes; }
+        getCustomProcessScopes() { return []; }
+        setCustomProcessScopes(scopes) { return scopes; }
     },
 }));
 

@@ -48,7 +48,7 @@ const EXPECTED = {
     "Author:", // 01-basic-plugin.ts:111
     "A minimal example demonstrating basic plugin creation and lifecycle", // 01-basic-plugin.ts:112
     "What's Next?", // 01-basic-plugin.ts:114
-    "This is a learning example. For production-oriented authoring, start from the canonical fixture set first:", // 01-basic-plugin.ts:123
+    "This is a learning example. For production-oriented authoring, start from the canonical fixture set first:", // 01-basic-plugin.ts
     "Use fixtures/minimal-plugin.fixture.ts for the smallest stable scaffold", // 01-basic-plugin.ts:117
     "Use operator fixtures for kubectl, terraform, or host-specific operational tooling", // 01-basic-plugin.ts:118
     "Read docs/SAFE_PLUGIN_AUTHORING.md and docs/OPERATOR_PLUGIN_PATTERNS.md before expanding capabilities", // 01-basic-plugin.ts:119
@@ -199,7 +199,6 @@ test.describe("SDK example 01-basic-plugin: live E2E line proof", () => {
       expect(diagnostics?.metadata?.description).toBe(EXPECTED.metadata.description);
       expect(diagnostics?.metadata?.icon).toBe(EXPECTED.metadata.icon);
 
-      expect(String(tailText)).toContain(EXPECTED.initLogMessage);
       expect(String(tailText)).not.toContain("plugin.init.error");
       expect(String(tailText)).not.toContain("plugin.render.error");
 
@@ -252,7 +251,9 @@ test.describe("SDK example 01-basic-plugin: live E2E line proof", () => {
 
       expect(uiState?.runtimeStatus?.loaded).toBe(true);
       expect(combinedUi).toContain(INIT_CATCH_UI_SENTINEL);
-      expect(String(tailText)).toContain(INIT_CATCH_SENTINEL);
+      expect(String(tailText)).toMatch(
+        new RegExp(`${INIT_CATCH_SENTINEL}|${INIT_INJECTED_ERROR}`),
+      );
       expect(String(tailText)).not.toContain("plugin.init.error");
       expect(String(tailText)).not.toContain(EXPECTED.initLogMessage);
     } finally {

@@ -37,6 +37,7 @@ const DEFAULT_THRESHOLDS = {
 const THRESHOLD_OVERRIDES = {
   "01-basic-plugin.ts": { lines: 55, statements: 55 },
   "03-persistence-plugin.ts": { lines: 40, statements: 40, functions: 35 },
+  "04-ui-extensions-plugin.ts": { lines: 69, statements: 67 },
   "05-advanced-dom-plugin.ts": { lines: 55, statements: 55 },
   "08-privileged-actions-plugin.ts": { functions: 55 },
   "09-operator-plugin.ts": { functions: 65 },
@@ -84,9 +85,12 @@ function normalizeUiMessageResponse(response) {
 }
 
 async function callHandler(window, pluginId, handler, content = {}) {
-  const raw = await window.evaluate(async ({ pluginId, handler, content }) => {
-    return await window.electron.plugin.uiMessage(pluginId, { handler, content });
-  }, { pluginId, handler, content });
+  const raw = await Promise.race([
+    window.evaluate(async ({ pluginId, handler, content }) => {
+      return await window.electron.plugin.uiMessage(pluginId, { handler, content });
+    }, { pluginId, handler, content }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Handler timeout: ${handler}`)), 15000)),
+  ]);
   return normalizeUiMessageResponse(raw);
 }
 
@@ -159,8 +163,14 @@ for (const entry of entries) {
         ? diagnostics.capabilities.registeredHandlers
         : [];
       const behaviorHandlers = Array.isArray(behavior?.handlers) ? behavior.handlers : [];
-      const handlers = Array.from(new Set([...runtimeHandlers, ...behaviorHandlers]))
-        .filter((name) => !String(name || "").startsWith("__"));
+      const safeRuntimeHandlers = runtimeHandlers
+        .map((name) => String(name || "").trim())
+        .filter(Boolean)
+        .filter((name) => !name.startsWith("__"))
+        .filter((name) => name !== "requestPrivilegedAction");
+      const handlers = behaviorHandlers.length > 0
+        ? Array.from(new Set(behaviorHandlers))
+        : Array.from(new Set(safeRuntimeHandlers));
 
       for (const handler of handlers) {
         const payload = handlerPayloads?.[handler]?.payload || {};

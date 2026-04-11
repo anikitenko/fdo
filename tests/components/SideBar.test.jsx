@@ -15,6 +15,7 @@ describe("SideBar", () => {
             const handleClick = jest.fn();
             const menuItems = [
                 {id: "plugin-a", icon: "cog", name: "Plugin A"},
+                {id: "plugin-b", icon: "cog", name: "Plugin B"},
             ];
 
             const {container} = render(
@@ -35,7 +36,13 @@ describe("SideBar", () => {
             const pluginAButton = pluginANode?.querySelector("button");
             expect(pluginAButton).toBeTruthy();
             fireEvent.click(pluginAButton);
-            expect(handleClick).toHaveBeenCalledWith("plugin-a");
+            expect(handleClick).not.toHaveBeenCalled();
+
+            const pluginBNode = container.querySelector('[data-plugin-sidebar-item="plugin-b"]');
+            const pluginBButton = pluginBNode?.querySelector("button");
+            expect(pluginBButton).toBeTruthy();
+            fireEvent.click(pluginBButton);
+            expect(handleClick).toHaveBeenCalledWith("plugin-b");
         } finally {
             if (originalClientHeight) {
                 Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);

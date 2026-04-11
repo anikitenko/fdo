@@ -29,6 +29,11 @@ describe("ManagePluginsDialog capability UX", () => {
     };
 
     beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+            configurable: true,
+            value: jest.fn(),
+            writable: true,
+        });
         window.electron.plugin = {
             getScopePolicies: jest.fn().mockResolvedValue({
                 success: true,
@@ -145,13 +150,13 @@ describe("ManagePluginsDialog capability UX", () => {
         };
     });
 
-    function renderDialog(pluginOverride = {}, focusRequest = null) {
+    function renderDialog(pluginOverride = {}, focusRequest = null, extraProps = {}) {
         const selectPlugin = jest.fn();
         const refreshPluginsState = jest.fn().mockResolvedValue();
         return render(
             <ManagePluginsDialog
                 show={true}
-                setShow={jest.fn()}
+                setShow={extraProps.setShow || jest.fn()}
                 plugins={[{...basePlugin, ...pluginOverride}]}
                 activePlugins={[{...basePlugin, ...pluginOverride}]}
                 deselectPlugin={jest.fn()}
@@ -160,6 +165,9 @@ describe("ManagePluginsDialog capability UX", () => {
                 setSearchActions={jest.fn()}
                 refreshPluginsState={refreshPluginsState}
                 focusRequest={focusRequest}
+                onFocusRequestConsumed={extraProps.onFocusRequestConsumed || jest.fn()}
+                pendingPluginScopeSuggestions={extraProps.pendingPluginScopeSuggestions || {}}
+                onPendingPluginScopeSuggestionResolved={extraProps.onPendingPluginScopeSuggestionResolved || jest.fn()}
             />
         );
     }
@@ -337,10 +345,278 @@ describe("ManagePluginsDialog capability UX", () => {
 
         await waitFor(() => {
             expect(window.electron.plugin.upsertPluginCustomProcessScope).toHaveBeenCalledWith("plugin-a", expect.any(Object));
+            expect(window.electron.plugin.getScopePolicies).toHaveBeenLastCalledWith("plugin-a");
             expect(window.electron.plugin.setCapabilities).not.toHaveBeenCalled();
             expect(screen.getByRole("button", {name: "Add Plugin Scope"})).toBeInTheDocument();
             expect(screen.queryByRole("button", {name: "Save Scope"})).not.toBeInTheDocument();
         });
+    });
+
+    test("shows an explicit suggested scope setup callout when plugin-scope focus is requested", async () => {
+        renderDialog(
+            {},
+            {
+                requestId: "req-scope-1",
+                pluginId: "plugin-a",
+                focusSection: "pluginScopes",
+                scopeIds: ["internal-runner"],
+                suggestedScope: {
+                    scopeId: "internal-runner",
+                    commandPath: "/usr/local/bin/internal-runner",
+                },
+            }
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Suggested Scope Setup For Current Plugin Request")).toBeInTheDocument();
+        });
+
+        expect(screen.getAllByText(/internal-runner/).length).toBeGreaterThan(0);
+        expect(screen.getAllByText("/usr/local/bin/internal-runner").length).toBeGreaterThan(0);
+        expect(screen.getByRole("button", {name: "Use Suggested Scope Draft"})).toBeInTheDocument();
+        expect(screen.getByDisplayValue("internal-runner")).toBeInTheDocument();
+    });
+
+    test("keeps unresolved plugin scope suggestions visible on later manual opens", async () => {
+        renderDialog(
+            {},
+            null,
+            {
+                pendingPluginScopeSuggestions: {
+                    "plugin-a": {
+                        scopeIds: ["internal-runner"],
+                        suggestedScope: {
+                            scopeId: "internal-runner",
+                            commandPath: "/usr/local/bin/internal-runner",
+                        },
+                    },
+                },
+            }
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Suggested Scope Setup For Current Plugin Request")).toBeInTheDocument();
+        });
+
+        expect(screen.getAllByText(/internal-runner/).length).toBeGreaterThan(0);
+        expect(screen.getByDisplayValue("internal-runner")).toBeInTheDocument();
+        expect(screen.getAllByText("/usr/local/bin/internal-runner").length).toBeGreaterThan(0);
+    });
+
+    test("allows closing the suggested scope editor without immediate forced reopen", async () => {
+        renderDialog(
+            {},
+            null,
+            {
+                pendingPluginScopeSuggestions: {
+                    "plugin-a": {
+                        scopeIds: ["internal-runner"],
+                        suggestedScope: {
+                            scopeId: "internal-runner",
+                            commandPath: "/usr/local/bin/internal-runner",
+                        },
+                    },
+                },
+            }
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Create Plugin-Specific Scope")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+
+        await waitFor(() => {
+            expect(screen.queryByText("Create Plugin-Specific Scope")).not.toBeInTheDocument();
+        });
+
+        expect(screen.getByText("Suggested Scope Setup For Current Plugin Request")).toBeInTheDocument();
+        expect(screen.getByRole("button", {name: "Use Suggested Scope Draft"})).toBeInTheDocument();
+    });
+
+    test("dismisses pending scope suggestions when the manage dialog is closed", async () => {
+        const setShow = jest.fn();
+        const onPendingPluginScopeSuggestionResolved = jest.fn();
+
+        renderDialog(
+            {},
+            {
+                requestId: "req-scope-close",
+                pluginId: "plugin-a",
+                focusSection: "pluginScopes",
+                scopeIds: ["internal-runner"],
+                suggestedScope: {
+                    scopeId: "internal-runner",
+                    commandPath: "/usr/local/bin/internal-runner",
+                },
+            },
+            {
+                setShow,
+                pendingPluginScopeSuggestions: {
+                    "plugin-a": {
+                        scopeIds: ["internal-runner"],
+                        suggestedScope: {
+                            scopeId: "internal-runner",
+                            commandPath: "/usr/local/bin/internal-runner",
+                        },
+                    },
+                },
+                onPendingPluginScopeSuggestionResolved,
+            }
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText("Suggested Scope Setup For Current Plugin Request")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getAllByRole("button", {name: "Close"})[0]);
+
+        expect(setShow).toHaveBeenCalledWith(false);
+        expect(onPendingPluginScopeSuggestionResolved).toHaveBeenCalledWith("plugin-a");
+    });
+
+    test("surfaces stale granted process scopes that have no matching host policy", async () => {
+        renderDialog({
+            capabilities: ["system.process.exec", "system.process.scope.internal-runner"],
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText("Previously Granted Scope References Need A Real Host Policy")).toBeInTheDocument();
+        });
+
+        expect(screen.getAllByText("system.process.scope.internal-runner").length).toBeGreaterThan(0);
+        expect(screen.getByRole("button", {name: "Create Missing Scope Draft"})).toBeInTheDocument();
+        expect(screen.getByRole("button", {name: "Remove Stale Scope Grants"})).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", {name: "Create Missing Scope Draft"}));
+
+        await waitFor(() => {
+            expect(screen.getByDisplayValue("internal-runner")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Remove Stale Scope Grants"}));
+
+        await waitFor(() => {
+            expect(screen.getByRole("button", {name: "Save Capabilities"})).toBeInTheDocument();
+            expect(screen.queryByText("Previously Granted Scope References Need A Real Host Policy")).not.toBeInTheDocument();
+        });
+    });
+
+    test("surfaces declared scope capabilities that are unavailable on this host", async () => {
+        window.electron.plugin.getRuntimeStatus.mockResolvedValueOnce({
+            success: true,
+            statuses: [
+                {
+                    id: "plugin-a",
+                    capabilityIntent: {
+                        available: true,
+                        hasDeclaration: true,
+                        declared: [
+                            "system.hosts.write",
+                            "system.fs.scope.etc-motd",
+                            "system.process.scope.internal-runner",
+                        ],
+                        granted: ["system.hosts.write"],
+                        missingDeclared: [
+                            "system.fs.scope.etc-motd",
+                            "system.process.scope.internal-runner",
+                        ],
+                        undeclaredGranted: [],
+                    },
+                    capabilityIntentSummary: {
+                        title: "Declared capability gaps",
+                        intent: "warning",
+                    },
+                },
+            ],
+        });
+
+        renderDialog();
+
+        await waitFor(() => {
+            expect(screen.getByText("Declared Scopes Missing Host Policy Definitions")).toBeInTheDocument();
+        });
+
+        expect(screen.getAllByText("system.fs.scope.etc-motd").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("system.process.scope.internal-runner").length).toBeGreaterThan(0);
+        expect(screen.getByRole("button", {name: "Create Missing Process Scope Draft"})).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", {name: "Create Missing Process Scope Draft"}));
+
+        await waitFor(() => {
+            expect(screen.getByDisplayValue("internal-runner")).toBeInTheDocument();
+        });
+    });
+
+    test("surfaces stale granted filesystem scopes that have no matching host policy", async () => {
+        renderDialog({
+            capabilities: ["system.hosts.write", "system.fs.scope.etc-motd"],
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Expand"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Granted Filesystem Scopes Missing Host Policy Definitions")).toBeInTheDocument();
+        });
+
+        expect(screen.getAllByText("system.fs.scope.etc-motd").length).toBeGreaterThan(0);
+        expect(screen.getByRole("button", {name: "Remove Stale Filesystem Scope Grants"})).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", {name: "Remove Stale Filesystem Scope Grants"}));
+
+        await waitFor(() => {
+            expect(screen.queryByText("Granted Filesystem Scopes Missing Host Policy Definitions")).not.toBeInTheDocument();
+        });
+    });
+
+    test("consumes plugin-scope focus requests and does not reopen the suggestion when the scope already exists", async () => {
+        window.electron.plugin.getPluginCustomProcessScopes.mockResolvedValueOnce({
+            success: true,
+            scopes: [
+                {
+                    scope: "internal-runner",
+                    title: "Internal Runner",
+                    kind: "process",
+                    category: "Plugin-Specific Scopes",
+                    userDefined: true,
+                    ownerType: "plugin",
+                    ownerPluginId: "plugin-a",
+                    description: "Host-managed custom scope for internal runner.",
+                    allowedExecutables: ["/usr/local/bin/internal-runner"],
+                    allowedCwdRoots: ["/tmp"],
+                    allowedEnvKeys: ["PATH"],
+                    timeoutCeilingMs: 45000,
+                    requireConfirmation: true,
+                },
+            ],
+        });
+        const onFocusRequestConsumed = jest.fn();
+
+        renderDialog(
+            {},
+            {
+                requestId: "req-scope-existing",
+                pluginId: "plugin-a",
+                focusSection: "pluginScopes",
+                scopeIds: ["internal-runner"],
+                suggestedScope: {
+                    scopeId: "internal-runner",
+                    commandPath: "/usr/local/bin/internal-runner",
+                },
+            },
+            {onFocusRequestConsumed}
+        );
+
+        await waitFor(() => {
+            expect(onFocusRequestConsumed).toHaveBeenCalledWith("req-scope-existing");
+        });
+
+        expect(screen.queryByText("Suggested Scope Setup For Current Plugin Request")).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", {name: "Use Suggested Scope Draft"})).not.toBeInTheDocument();
     });
 
     test("deletes plugin-specific custom scope and refreshes list", async () => {

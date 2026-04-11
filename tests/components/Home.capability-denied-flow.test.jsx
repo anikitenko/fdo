@@ -45,6 +45,16 @@ jest.mock("../../src/components/PluginContainer.jsx", () => ({
                 type="button"
                 onClick={() => onCapabilityDenied?.({
                     pluginId: plugin,
+                    missingCapabilities: ["system.hosts.write"],
+                    details: 'Capability "system.hosts.write" is required.',
+                })}
+            >
+                trigger-broad-capability-denied
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
                     missingCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
                     details: 'Capabilities "system.process.exec" and "system.process.scope.docker-cli" are required.',
                 })}
@@ -91,6 +101,23 @@ jest.mock("../../src/components/PluginContainer.jsx", () => ({
                 })}
             >
                 trigger-policy-rejection
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
+                    details: 'Unknown or unsupported process scope "internal-runner".',
+                    code: "SCOPE_DENIED",
+                    correlationId: "corr-scope-missing",
+                    extraDetails: {
+                        scope: "internal-runner",
+                        command: "/usr/local/bin/internal-runner",
+                        args: ["status"],
+                        cwd: "/tmp/project",
+                    },
+                })}
+            >
+                trigger-scope-not-configured
             </button>
             <button
                 type="button"
@@ -271,6 +298,7 @@ describe("Home capability denied flow", () => {
             deactivate: jest.fn().mockResolvedValue({success: true}),
             deactivateUsers: jest.fn().mockResolvedValue({success: true}),
             init: jest.fn().mockResolvedValue({success: true}),
+            setCapabilities: jest.fn().mockResolvedValue({success: true}),
             get: jest.fn().mockResolvedValue({
                 success: true,
                 plugin: {
@@ -348,9 +376,18 @@ describe("Home capability denied flow", () => {
             expect(screen.getByText("Docker CLI Scope")).toBeInTheDocument();
             expect(screen.getByText(/not unrestricted shell access/i)).toBeInTheDocument();
             expect(screen.getByText(/Fix: Grant broad capability "system\.process\.exec" in Manage Plugins -> Capabilities, then add the required narrow scope\./i)).toBeInTheDocument();
-            expect(screen.getByText("system.process.exec")).toBeInTheDocument();
-            expect(screen.getByText("system.process.scope.docker-cli")).toBeInTheDocument();
+            expect(screen.getAllByText("system.process.exec").length).toBeGreaterThan(0);
+            expect(screen.getAllByText("system.process.scope.docker-cli").length).toBeGreaterThan(0);
         });
+
+        fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
+
+        await waitFor(() => {
+            expect(screen.queryByText("Grant Missing Capabilities")).not.toBeInTheDocument();
+            expect(screen.queryByText("Open Plugin Scopes")).not.toBeInTheDocument();
+        });
+
+        expect(screen.getByRole("button", {name: "Fix Process Access"})).toBeInTheDocument();
     });
 
     test("shows capability remediation when missing capabilities arrive via structured details", async () => {
@@ -367,9 +404,55 @@ describe("Home capability denied flow", () => {
 
         await waitFor(() => {
             expect(screen.getByText("Permission Required")).toBeInTheDocument();
-            expect(screen.getByRole("button", {name: "Open Capabilities"})).toBeInTheDocument();
-            expect(screen.getByText("system.process.exec")).toBeInTheDocument();
-            expect(screen.getByText("system.process.scope.docker-cli")).toBeInTheDocument();
+            expect(screen.getByRole("button", {name: "Fix Process Access"})).toBeInTheDocument();
+            expect(screen.getAllByText("system.process.exec").length).toBeGreaterThan(0);
+            expect(screen.getAllByText("system.process.scope.docker-cli").length).toBeGreaterThan(0);
+        });
+    });
+
+    test("keeps one-click grant available only for non-scope capability sets", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-broad-capability-denied"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Permission Required")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Grant Missing Capabilities")).toBeInTheDocument();
+        });
+    });
+
+    test("hides one-click grant when missing set includes filesystem scopes", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-capability-denied"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Permission Required")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
+
+        await waitFor(() => {
+            expect(screen.queryByText("Grant Missing Capabilities")).not.toBeInTheDocument();
         });
     });
 
@@ -410,6 +493,40 @@ describe("Home capability denied flow", () => {
             expect(screen.getByText("Blocked By Scope Policy")).toBeInTheDocument();
             expect(screen.getByText(/outside the selected host scope policy/i)).toBeInTheDocument();
             expect(screen.queryByRole("button", {name: "Open Capabilities"})).not.toBeInTheDocument();
+        });
+    });
+
+    test("surfaces plugin-specific scope setup guidance for unknown host-defined scopes", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-scope-not-configured"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Process Scope Not Configured")).toBeInTheDocument();
+            expect(screen.getByText("Required Plugin-Specific Process Scope Setup")).toBeInTheDocument();
+            expect(screen.getAllByText("internal-runner").length).toBeGreaterThan(0);
+            expect(screen.getAllByText("/usr/local/bin/internal-runner").length).toBeGreaterThan(0);
+            expect(screen.getByRole("button", {name: "Fix Process Access"})).toBeInTheDocument();
+            const missingScopesLine = screen.getByText(/Missing scopes:/);
+            expect(missingScopesLine).toHaveTextContent("Missing scopes: internal-runner");
+            expect(missingScopesLine).not.toHaveTextContent("internal-runner, internal-runner");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Fix Process Access"}));
+
+        await waitFor(() => {
+            const requestText = screen.getByTestId("capability-focus-request").textContent || "";
+            expect(requestText).toContain("\"pluginId\":\"plugin-1\"");
+            expect(requestText).toContain("\"focusSection\":\"pluginScopes\"");
+            expect(requestText).toContain("\"scopeIds\":[\"internal-runner\"]");
+            expect(requestText).toContain("\"commandPath\":\"/usr/local/bin/internal-runner\"");
         });
     });
 
@@ -455,31 +572,6 @@ describe("Home capability denied flow", () => {
         });
     });
 
-    test("opens privileged audit trail for the selected plugin", async () => {
-        localStorage.setItem("showRightSideBar", "true");
-        renderHome();
-
-        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
-        fireEvent.click(pluginButton);
-
-        await waitFor(() => {
-            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
-        });
-
-        fireEvent.click(screen.getByRole("button", {name: "Audit Trail"}));
-
-        await waitFor(() => {
-            expect(window.electron.plugin.getPrivilegedAudit).toHaveBeenCalledWith("plugin-1", {limit: 40});
-            expect(screen.getByText(/Privileged Audit Trail: plugin-1/)).toBeInTheDocument();
-            expect(screen.getByText("Workflow Contracts")).toBeInTheDocument();
-            expect(screen.getByText(/system\.workflow\.run/)).toBeInTheDocument();
-            expect(screen.getAllByText(/wf-terraform-1/).length).toBeGreaterThanOrEqual(2);
-            expect(screen.getAllByText(/Apply plan/).length).toBeGreaterThanOrEqual(2);
-            expect(screen.getAllByText(/corr-workflow:step:2:apply/).length).toBeGreaterThanOrEqual(2);
-            expect(screen.getByText(/Steps:/)).toBeInTheDocument();
-        });
-    });
-
     test("opens privileged audit trail from a failure dialog", async () => {
         renderHome();
 
@@ -496,34 +588,12 @@ describe("Home capability denied flow", () => {
             expect(screen.getByText("Tool Not Installed")).toBeInTheDocument();
         });
 
-        fireEvent.click(screen.getByRole("button", {name: "Open Audit Trail"}));
+        fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
+        fireEvent.click(screen.getByText("Open Audit Trail"));
 
         await waitFor(() => {
             expect(window.electron.plugin.getPrivilegedAudit).toHaveBeenCalledWith("plugin-1", {limit: 40});
             expect(screen.getByText(/Privileged Audit Trail: plugin-1/)).toBeInTheDocument();
-        });
-    });
-
-    test("opens runtime validation with generic scenario cards for the selected plugin", async () => {
-        localStorage.setItem("showRightSideBar", "true");
-        renderHome();
-
-        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
-        fireEvent.click(pluginButton);
-
-        await waitFor(() => {
-            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
-        });
-
-        fireEvent.click(screen.getByRole("button", {name: "Runtime Validation"}));
-
-        await waitFor(() => {
-            expect(window.electron.plugin.getPrivilegedAudit).toHaveBeenCalledWith("plugin-1", {limit: 80});
-            expect(screen.getByText(/Runtime Validation: plugin-1/)).toBeInTheDocument();
-            expect(screen.getByText("Workflow failure")).toBeInTheDocument();
-            expect(screen.getByText("Single action success")).toBeInTheDocument();
-            expect(screen.getAllByText(/occurrences:/).length).toBeGreaterThanOrEqual(2);
-            expect(screen.getAllByText(/Scopes:/).length).toBeGreaterThanOrEqual(2);
         });
     });
 
@@ -543,7 +613,8 @@ describe("Home capability denied flow", () => {
             expect(screen.getByText("Tool Not Installed")).toBeInTheDocument();
         });
 
-        fireEvent.click(screen.getByRole("button", {name: "Open Validation"}));
+        fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
+        fireEvent.click(screen.getByText("Open Validation"));
 
         await waitFor(() => {
             expect(window.electron.plugin.getPrivilegedAudit).toHaveBeenCalledWith("plugin-1", {limit: 80});

@@ -1195,7 +1195,20 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
         }
 
         if (!policy) {
-            const unknown = errorEnvelope("SCOPE_DENIED", `Unknown or unsupported process scope "${scope}".`, correlationId);
+            const unknown = errorEnvelope(
+                "SCOPE_DENIED",
+                `Unknown or unsupported process scope "${scope}".`,
+                correlationId,
+                {
+                    details: {
+                        scope,
+                        command: plan.command,
+                        args: plan.args,
+                        cwd: plan.cwd,
+                        dryRun: plan.dryRun,
+                    },
+                }
+            );
             audit({
                 action,
                 scope,
@@ -1211,7 +1224,21 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
 
         const processValidationError = validateProcessExecutionPlan(plan, policy);
         if (processValidationError) {
-            const denied = errorEnvelope("SCOPE_VIOLATION", processValidationError, correlationId);
+            const denied = errorEnvelope(
+                "SCOPE_VIOLATION",
+                processValidationError,
+                correlationId,
+                {
+                    details: {
+                        scope,
+                        command: plan.command,
+                        args: plan.args,
+                        cwd: plan.cwd,
+                        dryRun: plan.dryRun,
+                        allowlistedExecutables: Array.isArray(plan.allowlistedExecutables) ? plan.allowlistedExecutables : [],
+                    },
+                }
+            );
             audit({
                 action,
                 scope,
@@ -1440,6 +1467,9 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
                         title: validated.payload.title,
                         status: "failed",
                         summary: buildWorkflowSummary([]),
+                        command: validated.payload.steps?.[0]?.command || "",
+                        args: Array.isArray(validated.payload.steps?.[0]?.args) ? validated.payload.steps[0].args : [],
+                        cwd: validated.payload.steps?.[0]?.cwd || "",
                     },
                 }
             );

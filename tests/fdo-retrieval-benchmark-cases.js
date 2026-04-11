@@ -50,7 +50,7 @@ export const FDO_RETRIEVAL_BENCHMARK_CASES = [
         mode: "code",
         scope: "code_dev",
         query: "where is ai chat session routing implemented in code?",
-        expectedRawSourcesAny: ["ai_chat", "tools/index", "routing"],
+        expectedRawSourcesAny: ["ai-chat", "aichatdialog", "aicodingagentpanel"],
         minResults: 1,
     },
 ];

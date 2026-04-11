@@ -137,6 +137,11 @@ async function get07RuntimeSnapshot(window) {
   return await window.evaluate(() => {
     const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
     const doc = iframe?.contentDocument;
+    const computed = (selector, property) => {
+      const el = doc?.querySelector(selector);
+      if (!el) return "";
+      return String(globalThis.getComputedStyle(el)?.getPropertyValue(property) || "").trim();
+    };
     const output = String(doc?.getElementById("helper-output")?.innerText || "").trim();
     const outputClass = String(doc?.getElementById("helper-output")?.className || "");
     const buttonIds = Array.from(doc?.querySelectorAll("button[id]") || []).map((el) => el.id);
@@ -144,6 +149,10 @@ async function get07RuntimeSnapshot(window) {
     const hasAceEditorElement = !!doc?.querySelector("#editor");
     const hasGutter = !!doc?.querySelector(".gutter-col-1");
     const hasHighlightedBlock = !!doc?.querySelector("pre code.hljs");
+    const pureGridDisplay = computed(".pure-g", "display");
+    const purePrimaryButtonBackground = computed("#show-success-btn", "background-color");
+    const highlightedBlockDisplay = computed("pre code.hljs", "display");
+    const highlightedBlockBackground = computed("pre code.hljs", "background-color");
     const notyfToastCount = (doc?.querySelectorAll(".notyf__toast") || []).length;
     const iframeText = String(doc?.body?.innerText || "").trim();
     return {
@@ -154,6 +163,10 @@ async function get07RuntimeSnapshot(window) {
       hasAceEditorElement,
       hasGutter,
       hasHighlightedBlock,
+      pureGridDisplay,
+      purePrimaryButtonBackground,
+      highlightedBlockDisplay,
+      highlightedBlockBackground,
       notyfToastCount,
       iframeText,
     };
@@ -300,6 +313,10 @@ test.describe("SDK example 07-injected-libraries-demo: live E2E line proof", () 
       expect(snapshotBeforeActions.hasAceEditorElement).toBe(true);
       expect(snapshotBeforeActions.hasGutter).toBe(true);
       expect(snapshotBeforeActions.hasHighlightedBlock).toBe(true);
+      expect(snapshotBeforeActions.pureGridDisplay).toBe("flex");
+      expect(snapshotBeforeActions.purePrimaryButtonBackground).toBe("rgb(0, 120, 231)");
+      expect(snapshotBeforeActions.highlightedBlockDisplay).toBe("block");
+      expect(snapshotBeforeActions.highlightedBlockBackground).toBe("rgb(255, 255, 255)");
       expect(snapshotBeforeActions.output).toContain("Injected Libraries Demo loaded successfully");
       expect(snapshotBeforeActions.output).toContain('"Notyf": true');
       expect(snapshotBeforeActions.output).toContain('"hljs": true');
