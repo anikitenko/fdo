@@ -357,7 +357,7 @@ describe("monaco capability diagnostics", () => {
         const missingMarker = markers.find((marker) => marker.code === "FDO_MISSING_SYSTEM_HOSTS_WRITE");
 
         expect(missingMarker).toBeTruthy();
-        expect(String(missingMarker.message)).toContain("Draft plugin requires capability");
+        expect(String(missingMarker.message)).toContain("Unsaved plugin requires capability");
         expect(missingMarker.severity).toBe(2);
     });
 

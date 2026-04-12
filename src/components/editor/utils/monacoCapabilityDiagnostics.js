@@ -460,7 +460,7 @@ export function computeCapabilityAndDeprecationMarkers({
                 match.end,
                 pluginPersisted
                     ? `Missing capability: "${HOST_WRITE_CAPABILITY}". Open Manage Plugins -> Capabilities to grant privileged host actions.`
-                    : `Draft plugin requires capability "${HOST_WRITE_CAPABILITY}". Save plugin first, then grant in Manage Plugins -> Capabilities.`,
+                    : `Unsaved plugin requires capability "${HOST_WRITE_CAPABILITY}". Save plugin first, then grant in Manage Plugins -> Capabilities.`,
                 pluginPersisted ? 4 : 2,
                 "FDO_MISSING_SYSTEM_HOSTS_WRITE"
             ));
@@ -477,7 +477,7 @@ export function computeCapabilityAndDeprecationMarkers({
                     match.end,
                     pluginPersisted
                         ? `Missing capability: "${HOST_WRITE_CAPABILITY}" is required for "system.fs.mutate". Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.`
-                        : `Draft plugin requires capability "${HOST_WRITE_CAPABILITY}" for "system.fs.mutate". Save plugin first, then grant capability. Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.`,
+                        : `Unsaved plugin requires capability "${HOST_WRITE_CAPABILITY}" for "system.fs.mutate". Save plugin first, then grant capability. Prefer createFilesystemCapabilityBundle(...) for scoped filesystem grants and parseMissingCapabilityError(...) for runtime denial handling.`,
                     pluginPersisted ? 4 : 2,
                     "FDO_MISSING_BASE_CAPABILITY"
                 ));
@@ -494,7 +494,7 @@ export function computeCapabilityAndDeprecationMarkers({
                     scope.end,
                     pluginPersisted
                         ? `Missing capability: "${scopeCapability}" is required for scope "${scope.id}". Prefer createFilesystemCapabilityBundle("${scope.id}") and parseMissingCapabilityError(...) for runtime denial handling.`
-                        : `Draft plugin requires capability "${scopeCapability}" for scope "${scope.id}". Save plugin first, then grant capability. Prefer createFilesystemCapabilityBundle("${scope.id}") and parseMissingCapabilityError(...) for runtime denial handling.`,
+                        : `Unsaved plugin requires capability "${scopeCapability}" for scope "${scope.id}". Save plugin first, then grant capability. Prefer createFilesystemCapabilityBundle("${scope.id}") and parseMissingCapabilityError(...) for runtime denial handling.`,
                     pluginPersisted ? 4 : 2,
                     "FDO_MISSING_SCOPE_CAPABILITY"
                 ));
@@ -516,7 +516,7 @@ export function computeCapabilityAndDeprecationMarkers({
                 match.end,
                 pluginPersisted
                     ? `Missing base capability: "${HOST_WRITE_CAPABILITY}" is required for host-mediated clipboard access. Clipboard helpers require base host privileged access plus clipboard read/write child capability.`
-                    : `Draft plugin requires base capability "${HOST_WRITE_CAPABILITY}" for host-mediated clipboard actions. Save plugin first, then grant capability in Manage Plugins -> Capabilities.`,
+                    : `Unsaved plugin requires base capability "${HOST_WRITE_CAPABILITY}" for host-mediated clipboard actions. Save plugin first, then grant capability in Manage Plugins -> Capabilities.`,
                 pluginPersisted ? 4 : 2,
                 "FDO_MISSING_SYSTEM_HOSTS_WRITE_FOR_CLIPBOARD"
             ));
@@ -531,7 +531,7 @@ export function computeCapabilityAndDeprecationMarkers({
                 match.end,
                 pluginPersisted
                     ? 'Missing capability: "system.clipboard.read". Clipboard read is sensitive; grant only to trusted plugins that must read host clipboard data. Prefer requestClipboardRead(...) or createClipboardReadRequest(...) over raw transport.'
-                    : 'Draft plugin requires capability "system.clipboard.read" for host-mediated clipboard reads. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
+                    : 'Unsaved plugin requires capability "system.clipboard.read" for host-mediated clipboard reads. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
                 pluginPersisted ? 4 : 2,
                 "FDO_MISSING_SYSTEM_CLIPBOARD_READ"
             ));
@@ -546,7 +546,7 @@ export function computeCapabilityAndDeprecationMarkers({
                 match.end,
                 pluginPersisted
                     ? 'Missing capability: "system.clipboard.write". Keep write separate from read and grant the minimal permission required. Prefer requestClipboardWrite(...) or createClipboardWriteRequest(...) over raw transport.'
-                    : 'Draft plugin requires capability "system.clipboard.write" for host-mediated clipboard writes. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
+                    : 'Unsaved plugin requires capability "system.clipboard.write" for host-mediated clipboard writes. Save plugin first, then grant capability in Manage Plugins -> Capabilities.',
                 pluginPersisted ? 4 : 2,
                 "FDO_MISSING_SYSTEM_CLIPBOARD_WRITE"
             ));
@@ -590,7 +590,7 @@ export function computeCapabilityAndDeprecationMarkers({
                     match.end,
                     pluginPersisted
                         ? 'Missing broad capability: "system.process.exec". Open Manage Plugins -> Capabilities to allow scoped tool execution. This broad capability must be paired with a narrow scope. Prefer curated tool-family guidance first: the closest operator fixture under examples/fixtures/, then createOperatorToolCapabilityPreset(...). Use createProcessCapabilityBundle(...) and createProcessScopeCapability(...) only for host-specific scopes, and parseMissingCapabilityError(...) for runtime denial handling.'
-                        : 'Draft plugin requires broad capability "system.process.exec" for scoped tool execution. Save plugin first, then grant capability. Pair it with a narrow scope. Prefer curated tool-family guidance first: the closest operator fixture under examples/fixtures/, then createOperatorToolCapabilityPreset(...). Use createProcessCapabilityBundle(...) and createProcessScopeCapability(...) only for host-specific scopes, and parseMissingCapabilityError(...) for runtime denial handling.',
+                        : 'Unsaved plugin requires broad capability "system.process.exec" for scoped tool execution. Save plugin first, then grant capability. Pair it with a narrow scope. Prefer curated tool-family guidance first: the closest operator fixture under examples/fixtures/, then createOperatorToolCapabilityPreset(...). Use createProcessCapabilityBundle(...) and createProcessScopeCapability(...) only for host-specific scopes, and parseMissingCapabilityError(...) for runtime denial handling.',
                     pluginPersisted ? 4 : 2,
                     "FDO_MISSING_SYSTEM_PROCESS_EXEC"
                 ));
@@ -611,10 +611,10 @@ export function computeCapabilityAndDeprecationMarkers({
                                 ? `Missing narrow scope: "${scopeCapability}". Keep broad capability "system.process.exec" enabled and use "${scope.id}" only as a host-specific fallback scope when no curated operator tool family fits. Prefer the closest operator fixture under examples/fixtures/ first. If no curated preset exists, use createProcessCapabilityBundle("${scope.id}"), createProcessScopeCapability("${scope.id}"), and requestScopedProcessExec("${scope.id}", ...). Use parseMissingCapabilityError(...) for runtime denial handling.`
                                 : `Missing narrow scope: "${scopeCapability}". Keep broad capability "system.process.exec" enabled and request a host-specific scope for "${scope.id}". Prefer the closest operator fixture under examples/fixtures/, then createProcessCapabilityBundle("${scope.id}"), createProcessScopeCapability("${scope.id}"), and requestScopedProcessExec("${scope.id}", ...). Use parseMissingCapabilityError(...) for runtime denial handling.`}`
                         : `${isCuratedOperatorProcessScopeId(scope.id)
-                            ? `Draft plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request the curated tool-family grant and prefer createOperatorToolCapabilityPreset("${scope.id}").`
+                            ? `Unsaved plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request the curated tool-family grant and prefer createOperatorToolCapabilityPreset("${scope.id}").`
                             : isHostFallbackProcessScopeId(scope.id)
-                                ? `Draft plugin requires narrow scope "${scopeCapability}" for fallback host scope "${scope.id}". Save plugin first, prefer the closest operator fixture under examples/fixtures/, and use this fallback scope only when no curated operator family fits. Then request a host-specific scope with createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`
-                                : `Draft plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request a host-specific scope and prefer createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`}`,
+                                ? `Unsaved plugin requires narrow scope "${scopeCapability}" for fallback host scope "${scope.id}". Save plugin first, prefer the closest operator fixture under examples/fixtures/, and use this fallback scope only when no curated operator family fits. Then request a host-specific scope with createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`
+                                : `Unsaved plugin requires narrow scope "${scopeCapability}" for process scope "${scope.id}". Save plugin first, then request a host-specific scope and prefer createProcessCapabilityBundle("${scope.id}") plus createProcessScopeCapability("${scope.id}").`}`,
                     pluginPersisted ? 4 : 2,
                     "FDO_MISSING_PROCESS_SCOPE_CAPABILITY"
                 ));

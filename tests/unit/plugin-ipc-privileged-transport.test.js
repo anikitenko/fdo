@@ -106,6 +106,7 @@ describe("plugin IPC privileged action transport", () => {
         const {PluginChannels} = require("../../src/ipc/channels");
         const PluginManager = require("../../src/utils/PluginManager").default;
         const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+        const {NotificationCenter} = require("../../src/utils/NotificationCenter");
 
         const postMessage = jest.fn();
         PluginManager.getLoadedPlugin.mockReturnValue({
@@ -150,6 +151,7 @@ describe("plugin IPC privileged action transport", () => {
         const {PluginChannels} = require("../../src/ipc/channels");
         const PluginManager = require("../../src/utils/PluginManager").default;
         const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+        const {NotificationCenter} = require("../../src/utils/NotificationCenter");
 
         const postMessage = jest.fn();
         PluginManager.getLoadedPlugin.mockReturnValue({
@@ -182,6 +184,68 @@ describe("plugin IPC privileged action transport", () => {
         expect(response).toEqual(expect.objectContaining({
             ok: true,
             correlationId: "corr-sdk-alias",
+        }));
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    test("accepts SDK backend envelope response shape when forwarded to requestPrivilegedAction", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+        const {NotificationCenter} = require("../../src/utils/NotificationCenter");
+
+        const postMessage = jest.fn();
+        PluginManager.getLoadedPlugin.mockReturnValue({
+            ready: true,
+            grantedCapabilities: ["system.hosts.write", "system.fs.scope.etc-motd"],
+            instance: {postMessage},
+        });
+
+        ipcMain.handle.mockClear();
+        registerPluginHandlers();
+        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
+
+        const response = await uiHandler({}, "plugin-x", {
+            handler: "requestPrivilegedAction",
+            content: {
+                ok: true,
+                result: {
+                    correlationId: "etc-motd-corr",
+                    request: {
+                        action: "system.fs.mutate",
+                        payload: {
+                            scope: "etc-motd",
+                            dryRun: true,
+                            operations: [
+                                {
+                                    type: "appendFile",
+                                    path: "/etc/motd",
+                                    content: "demo",
+                                    encoding: "utf8",
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        });
+
+        expect(executeHostPrivilegedAction).toHaveBeenCalledTimes(1);
+        expect(executeHostPrivilegedAction).toHaveBeenCalledWith(expect.objectContaining({
+            action: "system.fs.mutate",
+        }), expect.objectContaining({
+            correlationId: "etc-motd-corr",
+        }));
+        expect(response).toEqual(expect.objectContaining({
+            ok: true,
+            correlationId: "etc-motd-corr",
+        }));
+        expect(NotificationCenter.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+            title: "Deprecated privileged request shape",
+            type: "warning",
         }));
         expect(postMessage).not.toHaveBeenCalled();
     });

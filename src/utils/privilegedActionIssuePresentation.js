@@ -118,6 +118,46 @@ export function classifyPrivilegedActionIssue(payload = {}) {
         };
     }
 
+    if (/\bhost privileged action\b/i.test(errorText) && /\bmust be\b/i.test(errorText)) {
+        return {
+            title: "Invalid Privileged Request",
+            summary: "The plugin sent a malformed privileged-action request envelope.",
+            remediation: "Fix plugin request shape before retrying. For envelope handlers, pass the validated request object (for example, envelope.request) to the host privileged-action bridge.",
+            intent: "warning",
+            showCapabilitiesButton: false,
+        };
+    }
+
+    if (code === "PLUGIN_BACKEND_EMPTY_RESPONSE") {
+        return {
+            title: "Plugin Handler Returned No Response",
+            summary: "The plugin backend handler ran but returned no response envelope.",
+            remediation: "Verify the handler is registered in plugin init and returns a value. For privileged flows, return a backend envelope from createPrivilegedActionBackendRequest(...).",
+            intent: "warning",
+            showCapabilitiesButton: false,
+        };
+    }
+
+    if (code === "PLUGIN_BACKEND_HANDLER_NOT_REGISTERED") {
+        return {
+            title: "Plugin Handler Not Registered",
+            summary: "The requested plugin backend handler is not registered in this runtime session.",
+            remediation: "Confirm plugin init executed, handler ID matches exactly, and PluginRegistry.registerHandler(...) runs before UI invocation.",
+            intent: "warning",
+            showCapabilitiesButton: false,
+        };
+    }
+
+    if (code === "PLUGIN_BACKEND_TIMEOUT") {
+        return {
+            title: "Plugin Handler Timed Out",
+            summary: "The plugin backend handler did not respond before timeout.",
+            remediation: "Reduce handler startup latency, avoid blocking work in init/handler code, and verify plugin runtime health.",
+            intent: "warning",
+            showCapabilitiesButton: false,
+        };
+    }
+
     if (code === "PROCESS_SPAWN_ENOENT" || code === "STEP_PROCESS_SPAWN_ENOENT") {
         return {
             title: "Tool Not Installed",

@@ -291,6 +291,48 @@ describe("PluginContainer message hardening", () => {
         });
     });
 
+    test("routes plugin backend empty responses into dialog flow with explicit remediation", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
+            ok: false,
+            code: "PLUGIN_BACKEND_EMPTY_RESPONSE",
+            error: 'Plugin backend handler "systemFile.v1.buildMotdDryRunRequest" returned no response.',
+            correlationId: "corr-empty-response",
+        });
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-empty-response",
+                    message: {handler: "systemFile.v1.buildMotdDryRunRequest", content: {}},
+                },
+                source: iframeWindow,
+            }));
+        });
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
+                pluginId: "example-plugin",
+                code: "PLUGIN_BACKEND_EMPTY_RESPONSE",
+                correlationId: "corr-empty-response",
+            }));
+        });
+    });
+
     test("routes capability-denied failures into capability-denied flow", async () => {
         window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
             ok: false,
@@ -329,6 +371,128 @@ describe("PluginContainer message hardening", () => {
                 pluginId: "example-plugin",
                 code: "CAPABILITY_DENIED",
                 correlationId: "corr-cap-denied",
+            }));
+        });
+    });
+
+    test("routes host privileged-action validation failures into capability dialog flow", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
+            ok: false,
+            code: "VALIDATION_FAILED",
+            error: 'Host privileged action "action" must be "system.host.write", "system.fs.mutate", "system.process.exec", "system.workflow.run", "system.clipboard.read", or "system.clipboard.write".',
+            correlationId: "corr-validation-failed",
+        });
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-validation",
+                    message: {handler: "system.file.write", content: {}},
+                },
+                source: iframeWindow,
+            }));
+        });
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
+                pluginId: "example-plugin",
+                code: "VALIDATION_FAILED",
+                correlationId: "corr-validation-failed",
+            }));
+        });
+    });
+
+    test("routes privileged handler failures even when response uses success:false shape", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
+            success: false,
+            code: "VALIDATION_FAILED",
+            error: 'Host privileged action "action" must be "system.host.write", "system.fs.mutate", "system.process.exec", "system.workflow.run", "system.clipboard.read", or "system.clipboard.write".',
+            correlationId: "corr-validation-success-false",
+        });
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-validation-success-false",
+                    message: {handler: "requestPrivilegedAction", content: {}},
+                },
+                source: iframeWindow,
+            }));
+        });
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
+                pluginId: "example-plugin",
+                code: "VALIDATION_FAILED",
+                correlationId: "corr-validation-success-false",
+            }));
+        });
+    });
+
+    test("routes privileged handler bridge exceptions into capability dialog flow", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockRejectedValue(
+            Object.assign(new Error("IPC bridge rejected privileged request"), {code: "IPC_FAILURE"})
+        );
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-bridge-reject",
+                    message: {handler: "requestPrivilegedAction", content: {}},
+                },
+                source: iframeWindow,
+            }));
+        });
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
+                pluginId: "example-plugin",
+                code: "IPC_FAILURE",
             }));
         });
     });

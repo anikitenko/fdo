@@ -105,6 +105,10 @@ const OVERRIDES = {
     uiMarkerAnyOf: ["Operator Plugin Example"],
     initLogAnyOf: ["Operator plugin example initialized"],
   },
+  "10-system-file-plugin.ts": {
+    uiMarkerAnyOf: ["Generic System File Mutation Demo", "Preview MOTD Update"],
+    initLogAnyOf: ["System file plugin initialized"],
+  },
   "dom_elements_plugin.ts": {
     uiMarkerAnyOf: ["DOM Elements Example", "Example 1: Data Table"],
     initLogAnyOf: ["DOM Elements Example Plugin initialized!"],

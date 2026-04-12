@@ -72,22 +72,7 @@ export function parseMissingCapabilitiesFromError(errorText) {
         return [];
     }
 
-    const extracted = [];
-
-    const quotedMatches = [...text.matchAll(/"([^"]+)"/g)];
-    if (quotedMatches.length > 0) {
-        quotedMatches.forEach((match) => {
-            const id = normalizeCapabilityId(match?.[1]);
-            if (isCapabilityId(id)) {
-                extracted.push(id);
-            }
-        });
-        if (extracted.length > 0) {
-            return [...new Set(extracted)];
-        }
-    }
-
-    const missingRequiredMatch = text.match(/Missing required capabilities?:\s*([^\n\r]+)/i);
+    const missingRequiredMatch = text.match(/Missing required (?:capability|capabilities):\s*([^\n\r]+)/i);
     if (missingRequiredMatch?.[1]) {
         const parts = missingRequiredMatch[1]
             .replace(/\.\s*$/, "")
@@ -97,9 +82,26 @@ export function parseMissingCapabilitiesFromError(errorText) {
         return [...new Set(parts)];
     }
 
+    const singleQuotedMatch = text.match(/\bCapability\b\s+"([^"]+)"\s+\bis\s+required\b/i);
+    if (singleQuotedMatch?.[1]) {
+        const normalized = normalizeCapabilityId(singleQuotedMatch[1]);
+        if (isCapabilityId(normalized)) {
+            return [normalized];
+        }
+    }
+
     const singleMatch = text.match(/\bCapability\b\s+([a-zA-Z0-9._-]+)\s+\bis\s+required\b/i);
     if (singleMatch?.[1] && isCapabilityId(singleMatch[1])) {
-        return [singleMatch[1]];
+        return [normalizeCapabilityId(singleMatch[1])];
+    }
+
+    if (/\bCapabilities\b.+\bare\s+required\b/i.test(text)) {
+        const quotedParts = [...text.matchAll(/"([^"]+)"/g)]
+            .map((match) => normalizeCapabilityId(match?.[1]))
+            .filter((item) => isCapabilityId(item));
+        if (quotedParts.length > 0) {
+            return [...new Set(quotedParts)];
+        }
     }
 
     const multiMatch = text.match(/\bCapabilities\b\s+(.+?)\s+\bare\s+required\b/i);
