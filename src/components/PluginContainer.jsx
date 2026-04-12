@@ -116,6 +116,22 @@ function isPrivilegedFailureCode(code = "") {
     return false;
 }
 
+function isPrivilegedValidationFailure({code = "", error = ""} = {}) {
+    const normalizedCode = String(code || "").trim().toUpperCase();
+    if (normalizedCode !== "VALIDATION_FAILED") {
+        return false;
+    }
+    const text = String(error || "").trim();
+    return /\bhost privileged action\b/i.test(text);
+}
+
+function shouldSurfacePluginBackendFailure(code = "") {
+    const normalized = String(code || "").trim().toUpperCase();
+    return normalized === "PLUGIN_BACKEND_EMPTY_RESPONSE"
+        || normalized === "PLUGIN_BACKEND_HANDLER_NOT_REGISTERED"
+        || normalized === "PLUGIN_BACKEND_TIMEOUT";
+}
+
 export const PluginContainer = ({
     plugin,
     active = true,
@@ -572,14 +588,21 @@ export const PluginContainer = ({
                     return;
                 }
 
+                const handlerName = String(event?.data?.message?.handler || "").trim();
+                const isPrivilegedHandler = handlerName === "requestPrivilegedAction" || handlerName === "__host.privilegedAction";
                 window.electron.plugin.uiMessage(plugin, event.data.message).then((response) => {
-                    if (response?.ok === false) {
+                    const hasErrorCode = typeof response?.code === "string" && response.code.trim().length > 0;
+                    const failedResponse = response?.ok === false || response?.success === false || hasErrorCode;
+                    if (failedResponse) {
                         const missingCapabilityDiagnostics = parseMissingCapabilityDiagnosticsFromError(response?.error || "");
                         const missingCapabilities = missingCapabilityDiagnostics.map((item) => item.capability);
                         const privilegedFailure = (
                             isPrivilegedFailureCode(response?.code)
+                            || isPrivilegedValidationFailure({code: response?.code, error: response?.error})
+                            || (isPrivilegedHandler && failedResponse)
                             || missingCapabilities.length > 0
                         );
+                        const backendBridgeFailure = shouldSurfacePluginBackendFailure(response?.code);
                         const now = Date.now();
                         if (now - lastCapabilityDeniedToastAtRef.current > 1500) {
                             lastCapabilityDeniedToastAtRef.current = now;
@@ -590,7 +613,7 @@ export const PluginContainer = ({
                                 intent: response?.code === "CAPABILITY_DENIED" ? "warning" : "danger",
                             });
                         }
-                        if (privilegedFailure) {
+                        if (privilegedFailure || backendBridgeFailure) {
                             onCapabilityDeniedRef.current?.({
                                 pluginId: plugin,
                                 missingCapabilities,
@@ -613,6 +636,26 @@ export const PluginContainer = ({
                         requestId: event.data.requestId,
                         error: error?.message || String(error),
                     }, "*");
+                    if (isPrivilegedHandler) {
+                        const detailsText = error?.message || String(error) || "Privileged host action failed.";
+                        const surfaced = reportCapabilityDenied({
+                            details: detailsText,
+                            code: String(error?.code || "PLUGIN_UI_BRIDGE_ERROR"),
+                            correlationId: "",
+                            extraDetails: null,
+                        });
+                        if (!surfaced) {
+                            onCapabilityDeniedRef.current?.({
+                                pluginId: plugin,
+                                missingCapabilities: [],
+                                missingCapabilityDiagnostics: [],
+                                details: detailsText,
+                                code: String(error?.code || "PLUGIN_UI_BRIDGE_ERROR"),
+                                correlationId: "",
+                                extraDetails: null,
+                            });
+                        }
+                    }
                 });
                 return;
             }

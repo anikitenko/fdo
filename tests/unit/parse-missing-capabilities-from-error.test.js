@@ -67,6 +67,14 @@ describe("parseMissingCapabilitiesFromError", () => {
         expect(result).toEqual(["system.process.exec", "system.process.scope.terraform"]);
     });
 
+    test("parses missing required capability format (singular) from host responses", () => {
+        const result = parseMissingCapabilitiesFromError(
+            "Missing required capability: system.process.exec."
+        );
+
+        expect(result).toEqual(["system.process.exec"]);
+    });
+
     test("builds structured diagnostics for newer host missing required capabilities format", () => {
         const result = parseMissingCapabilityDiagnosticsFromError(
             "Missing required capabilities: system.process.exec, system.process.scope.terraform."
@@ -105,5 +113,13 @@ describe("parseMissingCapabilitiesFromError", () => {
                 remediation: expect.stringContaining("system.clipboard.write"),
             }),
         ]));
+    });
+
+    test("does not misclassify validation messages that list allowed actions as missing capabilities", () => {
+        const result = parseMissingCapabilitiesFromError(
+            'Host privileged action "action" must be "system.host.write", "system.fs.mutate", "system.process.exec", "system.workflow.run", "system.clipboard.read", or "system.clipboard.write".'
+        );
+
+        expect(result).toEqual([]);
     });
 });

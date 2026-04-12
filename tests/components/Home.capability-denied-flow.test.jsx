@@ -79,6 +79,27 @@ jest.mock("../../src/components/PluginContainer.jsx", () => ({
                 type="button"
                 onClick={() => onCapabilityDenied?.({
                     pluginId: plugin,
+                    details: 'Host privileged action "action" must be "system.host.write", "system.fs.mutate", "system.process.exec", "system.workflow.run", "system.clipboard.read", or "system.clipboard.write".',
+                    code: "PLUGIN_BACKEND_HANDLER_FAILED",
+                    correlationId: "corr-validation-shape",
+                    extraDetails: {
+                        missingCapabilities: [
+                            "system.host.write",
+                            "system.fs.mutate",
+                            "system.process.exec",
+                            "system.workflow.run",
+                            "system.clipboard.read",
+                            "system.clipboard.write",
+                        ],
+                    },
+                })}
+            >
+                trigger-validation-not-missing
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
                     details: 'Executable "/usr/local/bin/terraform" was not found on the host. Install it on the host or choose an allowlisted path for scope "terraform".',
                     code: "PROCESS_SPAWN_ENOENT",
                     correlationId: "corr-missing-cli",
@@ -407,6 +428,26 @@ describe("Home capability denied flow", () => {
             expect(screen.getByRole("button", {name: "Fix Process Access"})).toBeInTheDocument();
             expect(screen.getAllByText("system.process.exec").length).toBeGreaterThan(0);
             expect(screen.getAllByText("system.process.scope.docker-cli").length).toBeGreaterThan(0);
+        });
+    });
+
+    test("does not show broad capability list when payload is validation guidance rather than missing-capability error", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-validation-not-missing"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Invalid Privileged Request")).toBeInTheDocument();
+            expect(screen.queryByText("Missing capabilities:")).not.toBeInTheDocument();
+            expect(screen.queryByText("system.host.write")).not.toBeInTheDocument();
+            expect(screen.queryByText("system.process.exec")).not.toBeInTheDocument();
         });
     });
 

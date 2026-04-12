@@ -248,6 +248,25 @@ function getRequestedCommandPathFromIssue({
     ).trim();
 }
 
+function shouldUseStructuredMissingCapabilities({
+    code = "",
+    details = "",
+} = {}) {
+    const normalizedCode = String(code || "").trim().toUpperCase();
+    const text = String(details || "").trim();
+    if (!text && normalizedCode !== "CAPABILITY_DENIED") {
+        return false;
+    }
+    if (normalizedCode === "CAPABILITY_DENIED") {
+        return true;
+    }
+    return (
+        /\bmissing\s+required\s+capabilit(?:y|ies)\b/i.test(text)
+        || /\bcapability\b\s+["`'a-zA-Z0-9._-]+\s+\bis\s+required\b/i.test(text)
+        || /\bcapabilities?\b\s+.+\s+\bare\s+required\b/i.test(text)
+    );
+}
+
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
     const [state, setState] = useState({
@@ -1921,7 +1940,10 @@ export const Home = () => {
                                     onStageChange={isSelected ? setSelectedPluginLifecycleStage : undefined}
                                     onRequestCommandBar={() => setShowCommandSearch(true)}
                                     onCapabilityDenied={(payload) => {
-                                const structuredMissingCapabilities = Array.isArray(payload?.extraDetails?.missingCapabilities)
+                                const structuredMissingCapabilities = shouldUseStructuredMissingCapabilities({
+                                    code: payload?.code,
+                                    details: payload?.details || payload?.error || "",
+                                }) && Array.isArray(payload?.extraDetails?.missingCapabilities)
                                     ? payload.extraDetails.missingCapabilities
                                     : [];
                                 const resolvedPluginId = payload?.pluginId || pluginId;

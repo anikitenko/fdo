@@ -72,6 +72,7 @@ const pluginUiBridgeQueues = new Map();
 const PLUGIN_UI_BRIDGE_TIMEOUT_MS = 15000;
 const SDK_DIAGNOSTICS_HANDLER = "__sdk.getDiagnostics";
 const SDK_PRIVILEGED_ACTION_HANDLER = "requestPrivilegedAction";
+const privilegedEnvelopeDeprecationShown = new Set();
 
 function buildPluginUiBridgeQueueKey(pluginId, pluginSessionId = "") {
     const normalizedPluginId = String(pluginId || "").trim() || "__unknown_plugin__";
@@ -129,6 +130,43 @@ function normalizePluginUiBridgeResponse(response, { handlerName = "" } = {}) {
     }
 
     return response;
+}
+
+function extractPrivilegedActionRequestEnvelope(payload = {}) {
+    const candidate = (payload && typeof payload === "object") ? payload : {};
+    const nestedResult = (candidate.result && typeof candidate.result === "object") ? candidate.result : null;
+    const nestedContent = (candidate.content && typeof candidate.content === "object") ? candidate.content : null;
+    const nestedData = (candidate.data && typeof candidate.data === "object") ? candidate.data : null;
+
+    let requestSource = "direct";
+    let request = candidate;
+    if (candidate.request) {
+        request = candidate.request;
+        requestSource = "request";
+    } else if (nestedResult?.request) {
+        request = nestedResult.request;
+        requestSource = "result.request";
+    } else if (nestedContent?.request) {
+        request = nestedContent.request;
+        requestSource = "content.request";
+    } else if (nestedData?.request) {
+        request = nestedData.request;
+        requestSource = "data.request";
+    }
+
+    const correlationId = (
+        candidate.correlationId
+        || nestedResult?.correlationId
+        || nestedContent?.correlationId
+        || nestedData?.correlationId
+        || ""
+    );
+
+    return {
+        request,
+        correlationId: typeof correlationId === "string" ? correlationId.trim() : "",
+        requestSource,
+    };
 }
 
 function sanitizeScopePolicy(policy = {}) {
@@ -619,10 +657,27 @@ export function registerPluginHandlers() {
     };
 
     const handlePrivilegedAction = async (pluginId, loadedPlugin, payload = {}) => {
-        const correlationId = typeof payload?.correlationId === "string" && payload.correlationId.trim()
-            ? payload.correlationId.trim()
+        const normalizedEnvelope = extractPrivilegedActionRequestEnvelope(payload);
+        const correlationId = normalizedEnvelope.correlationId
+            ? normalizedEnvelope.correlationId
             : `priv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-        const request = payload?.request ?? payload;
+        const request = normalizedEnvelope.request;
+        const source = String(normalizedEnvelope.requestSource || "");
+        const usedEnvelopeFallback = source === "result.request" || source === "content.request" || source === "data.request";
+
+        if (usedEnvelopeFallback) {
+            const warningText = `[DEPRECATION][plugin=${pluginId}][corr=${correlationId}] requestPrivilegedAction received envelope shape; auto-unwrapped to request (${source}). Migrate to envelope.result.request before next major.`;
+            console.warn(warningText);
+            const dedupeKey = `${pluginId}:${source}`;
+            if (!privilegedEnvelopeDeprecationShown.has(dedupeKey)) {
+                privilegedEnvelopeDeprecationShown.add(dedupeKey);
+                NotificationCenter.addNotification({
+                    title: "Deprecated privileged request shape",
+                    message: "Plugin should pass request object (envelope.result.request), not full envelope. Compatibility fallback is temporary.",
+                    type: "warning",
+                });
+            }
+        }
 
         return executeHostPrivilegedAction(request, {
             pluginId,
