@@ -19,6 +19,8 @@ describe('VirtualFS snapshots', () => {
     virtualFS.pluginName = 'TestPlugin';
     virtualFS.sandboxName = 'sandbox_test';
     localStorage.clear();
+    monaco.typescript.typescriptDefaults.setCompilerOptions.mockClear();
+    monaco.typescript.javascriptDefaults.setCompilerOptions.mockClear();
   });
 
   const createModel = (path, content = 'hello') => {
@@ -132,6 +134,26 @@ describe('VirtualFS snapshots', () => {
     expect(recoveredModel).toBeTruthy();
     expect(recoveredModel.isDisposed()).toBe(false);
     expect(recoveredModel.getValue()).toBe('export const value = 1;');
+  });
+
+  test('createFile refreshes Monaco project graph by default', () => {
+    const uri = monaco.Uri.file('/new-file.ts');
+    const model = monaco.editor.createModel('export const v = 1;', 'typescript', uri);
+
+    virtualFS.createFile('/new-file.ts', model);
+
+    expect(monaco.typescript.typescriptDefaults.setCompilerOptions).toHaveBeenCalled();
+    expect(monaco.typescript.javascriptDefaults.setCompilerOptions).toHaveBeenCalled();
+  });
+
+  test('createFile can skip Monaco project graph refresh for bulk restores', () => {
+    const uri = monaco.Uri.file('/restored.ts');
+    const model = monaco.editor.createModel('export const restored = true;', 'typescript', uri);
+
+    virtualFS.createFile('/restored.ts', model, { suppressCompilerRefresh: true });
+
+    expect(monaco.typescript.typescriptDefaults.setCompilerOptions).not.toHaveBeenCalled();
+    expect(monaco.typescript.javascriptDefaults.setCompilerOptions).not.toHaveBeenCalled();
   });
 
   test('fallback SDK typings include operator response helpers and response types', async () => {

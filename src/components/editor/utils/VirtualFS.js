@@ -552,7 +552,8 @@ const virtualFS = {
                 this.parent.createFile(file.id, model, {
                     suppressTreeUpdate: true,
                     suppressFileSelected: true,
-                    suppressDefaultSelection: true
+                    suppressDefaultSelection: true,
+                    suppressCompilerRefresh: true
                 })
             }
 
@@ -620,7 +621,8 @@ const virtualFS = {
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType, undefined, false, false, undefined, {
                 suppressTreeUpdate: true,
                 suppressFileSelected: true,
-                suppressDefaultSelection: true
+                suppressDefaultSelection: true,
+                suppressCompilerRefresh: true
             })
             this.setNodeModulesLoading();
             this.parent.notifications.addToQueue("restorePhase", "loading-node-modules");
@@ -668,7 +670,8 @@ const virtualFS = {
                     createVirtualFile(`/node_modules/${file.path}`, file.content, undefined, false, plaintext, undefined, {
                         suppressTreeUpdate: true,
                         suppressFileSelected: true,
-                        suppressDefaultSelection: true
+                        suppressDefaultSelection: true,
+                        suppressCompilerRefresh: true
                     });
                 }
 
@@ -680,7 +683,8 @@ const virtualFS = {
                     createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content, undefined, false, false, undefined, {
                         suppressTreeUpdate: true,
                         suppressFileSelected: true,
-                        suppressDefaultSelection: true
+                        suppressDefaultSelection: true,
+                        suppressCompilerRefresh: true
                     });
                 }
                 if (sdkTypeFiles.length === 0) {
@@ -691,7 +695,8 @@ const virtualFS = {
                     createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/index.d.ts`, FDO_SDK_FALLBACK_D_TS, undefined, false, false, undefined, {
                         suppressTreeUpdate: true,
                         suppressFileSelected: true,
-                        suppressDefaultSelection: true
+                        suppressDefaultSelection: true,
+                        suppressCompilerRefresh: true
                     });
                 }
 
@@ -1176,6 +1181,29 @@ const virtualFS = {
         this.__rememberModelState(filePath, model);
     },
 
+    __refreshMonacoProjectGraph() {
+        try {
+            const tsDefaults = monaco?.typescript?.typescriptDefaults;
+            if (tsDefaults?.setCompilerOptions) {
+                tsDefaults.setCompilerOptions({
+                    ...(tsDefaults.getCompilerOptions?.() || {}),
+                });
+            }
+        } catch (_) {
+            // Best-effort sync only.
+        }
+        try {
+            const jsDefaults = monaco?.typescript?.javascriptDefaults;
+            if (jsDefaults?.setCompilerOptions) {
+                jsDefaults.setCompilerOptions({
+                    ...(jsDefaults.getCompilerOptions?.() || {}),
+                });
+            }
+        } catch (_) {
+            // Best-effort sync only.
+        }
+    },
+
     updateModelState(filePath, state) {
         if (this.files[filePath]) {
             this.files[filePath].state = state
@@ -1218,13 +1246,21 @@ const virtualFS = {
         const {
             suppressTreeUpdate = false,
             suppressFileSelected = false,
-            suppressDefaultSelection = false
+            suppressDefaultSelection = false,
+            suppressCompilerRefresh = false
         } = options;
         this.updateModel(fileName, model)
         if (this.__createTreeObjectItem(fileName, false, { suppressDefaultSelection }))
             if (!suppressTreeUpdate) {
                 this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
             }
+        this.notifications.addToQueue("fileCreated", {
+            id: fileName,
+            type: "file"
+        });
+        if (!suppressCompilerRefresh) {
+            this.__refreshMonacoProjectGraph();
+        }
         if (fileName === this.DEFAULT_FILE_MAIN && !suppressFileSelected) {
             this.notifications.addToQueue("fileSelected", this.getTreeObjectItemById(fileName))
         }

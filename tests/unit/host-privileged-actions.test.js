@@ -10,6 +10,10 @@ import {
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
     HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN,
 } from "../../src/utils/hostPrivilegedActions";
+import {
+    removeHostPluginCustomProcessScopes,
+    setHostPluginCustomProcessScopes,
+} from "../../src/utils/privilegedProcessScopeRegistry";
 
 function hostsRequest(payload = {}) {
     return {
@@ -629,6 +633,9 @@ describe("host privileged actions", () => {
             code: "SCOPE_VIOLATION",
             correlationId: "corr-proc-cmd",
         }));
+        expect(result.details?.scopeViolation).toEqual(expect.objectContaining({
+            reason: "COMMAND_NOT_ALLOWLISTED",
+        }));
     });
 
     test("disallowed cwd", async () => {
@@ -644,6 +651,11 @@ describe("host privileged actions", () => {
             ok: false,
             code: "SCOPE_VIOLATION",
             correlationId: "corr-proc-cwd",
+        }));
+        expect(result.details?.scopeViolation).toEqual(expect.objectContaining({
+            reason: "CWD_OUTSIDE_ALLOWED_ROOTS",
+            argumentPath: "/etc",
+            pathSource: "cwd",
         }));
     });
 
@@ -666,6 +678,103 @@ describe("host privileged actions", () => {
         }));
     });
 
+    test("explicit undefined env field is rejected with a clear validation error", async () => {
+        const result = await executeHostPrivilegedAction({
+            action: HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+            payload: {
+                scope: "docker-cli",
+                command: "/usr/local/bin/docker",
+                args: ["version"],
+                cwd: os.tmpdir(),
+                env: undefined,
+                timeoutMs: 1000,
+            },
+        }, {
+            pluginId: "proc-plugin",
+            correlationId: "corr-proc-env-undefined",
+            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            ok: false,
+            code: "VALIDATION_FAILED",
+            correlationId: "corr-proc-env-undefined",
+        }));
+        expect(String(result.error || "")).toContain('field "env" must be an object');
+    });
+
+    test("injects only scope-allowed host env keys for process execution", async () => {
+        const pluginId = "proc-env-filter";
+        const scopeId = "env-filter";
+        const visibleKey = "VISIBLE_ALLOWED";
+        const overrideKey = "OVERRIDE_ME";
+        const hiddenKey = "HIDDEN_SECRET";
+        const previousVisible = process.env[visibleKey];
+        const previousOverride = process.env[overrideKey];
+        const previousHidden = process.env[hiddenKey];
+
+        setHostPluginCustomProcessScopes(pluginId, [{
+            scope: scopeId,
+            title: "Env filter",
+            description: "Filter host env exposure to scope allowlist",
+            allowedExecutables: [process.execPath],
+            allowedCwdRoots: [os.tmpdir()],
+            allowedEnvKeys: [visibleKey, overrideKey],
+            requireConfirmation: false,
+        }]);
+
+        process.env[visibleKey] = "visible-from-host";
+        process.env[overrideKey] = "host-default";
+        process.env[hiddenKey] = "must-not-leak";
+
+        try {
+            const result = await executeHostPrivilegedAction({
+                action: HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+                payload: {
+                    scope: scopeId,
+                    command: process.execPath,
+                    args: ["-e", "process.stdout.write(JSON.stringify(process.env));"],
+                    cwd: os.tmpdir(),
+                    env: {
+                        [overrideKey]: "plugin-override",
+                    },
+                    timeoutMs: 5000,
+                },
+            }, {
+                pluginId,
+                correlationId: "corr-proc-env-filter",
+                grantedCapabilities: ["system.process.exec", `system.process.scope.${scopeId}`],
+            });
+
+            expect(result).toEqual(expect.objectContaining({
+                ok: true,
+                correlationId: "corr-proc-env-filter",
+            }));
+
+            const scopedEnv = JSON.parse(String(result.result?.stdout || "{}"));
+            expect(scopedEnv[visibleKey]).toBe("visible-from-host");
+            expect(scopedEnv[overrideKey]).toBe("plugin-override");
+            expect(scopedEnv[hiddenKey]).toBeUndefined();
+        } finally {
+            removeHostPluginCustomProcessScopes(pluginId);
+            if (previousVisible === undefined) {
+                delete process.env[visibleKey];
+            } else {
+                process.env[visibleKey] = previousVisible;
+            }
+            if (previousOverride === undefined) {
+                delete process.env[overrideKey];
+            } else {
+                process.env[overrideKey] = previousOverride;
+            }
+            if (previousHidden === undefined) {
+                delete process.env[hiddenKey];
+            } else {
+                process.env[hiddenKey] = previousHidden;
+            }
+        }
+    });
+
     test("invalid args for scope", async () => {
         const result = await executeHostPrivilegedAction(processExecRequest({
             args: ["exec", "-it", "container", "bash"],
@@ -680,6 +789,109 @@ describe("host privileged actions", () => {
             code: "SCOPE_VIOLATION",
             correlationId: "corr-proc-args",
         }));
+    });
+
+    test("plugin scope overrides extend allowed first args without dropping built-in denied args", async () => {
+        const pluginId = "proc-arg-override";
+        setHostPluginCustomProcessScopes(pluginId, [{
+            scope: "git",
+            title: "Git",
+            description: "Plugin override to allow -C",
+            allowedExecutables: ["/usr/bin/git"],
+            allowedCwdRoots: [os.tmpdir()],
+            allowedEnvKeys: ["PATH", "HOME", "TMPDIR", "TMP", "TEMP"],
+            additionalAllowedLeadingOptions: ["-C"],
+        }]);
+
+        try {
+            const allowed = await executeHostPrivilegedAction({
+                action: HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+                payload: {
+                    scope: "git",
+                    command: "/usr/bin/git",
+                    args: ["-C", os.tmpdir(), "status", "--porcelain=v2", "--branch"],
+                    cwd: os.tmpdir(),
+                    env: {},
+                    timeoutMs: 1000,
+                },
+            }, {
+                pluginId,
+                correlationId: "corr-proc-git-allow-c",
+                grantedCapabilities: ["system.process.exec", "system.process.scope.git"],
+                confirmPrivilegedAction: async () => true,
+            }, {
+                runProcess: async () => ({
+                    exitCode: 0,
+                    stdout: Buffer.from("## main"),
+                    stderr: Buffer.from(""),
+                    timedOut: false,
+                }),
+            });
+
+            expect(allowed).toEqual(expect.objectContaining({
+                ok: true,
+                correlationId: "corr-proc-git-allow-c",
+            }));
+
+            const deniedByPath = await executeHostPrivilegedAction({
+                action: HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+                payload: {
+                    scope: "git",
+                    command: "/usr/bin/git",
+                    args: ["-C", "/etc", "status", "--porcelain=v2", "--branch"],
+                    cwd: os.tmpdir(),
+                    env: {},
+                    timeoutMs: 1000,
+                },
+            }, {
+                pluginId,
+                correlationId: "corr-proc-git-denied-c-path",
+                grantedCapabilities: ["system.process.exec", "system.process.scope.git"],
+            });
+
+            expect(deniedByPath).toEqual(expect.objectContaining({
+                ok: false,
+                code: "SCOPE_VIOLATION",
+                correlationId: "corr-proc-git-denied-c-path",
+            }));
+            expect(String(deniedByPath.error || "")).toContain('Argument "-C" path "/etc" is outside allowed roots');
+            expect(deniedByPath.details?.scopeViolation).toEqual(expect.objectContaining({
+                reason: "ARGUMENT_PATH_OUTSIDE_ALLOWED_ROOTS",
+                argument: "-C",
+                argumentPath: "/etc",
+                pathSource: "argument",
+            }));
+
+            const denied = await executeHostPrivilegedAction({
+                action: HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
+                payload: {
+                    scope: "git",
+                    command: "/usr/bin/git",
+                    args: ["credential", "fill"],
+                    cwd: os.tmpdir(),
+                    env: {},
+                    timeoutMs: 1000,
+                },
+            }, {
+                pluginId,
+                correlationId: "corr-proc-git-denied-credential",
+                grantedCapabilities: ["system.process.exec", "system.process.scope.git"],
+            });
+
+            expect(denied).toEqual(expect.objectContaining({
+                ok: false,
+                code: "SCOPE_VIOLATION",
+                correlationId: "corr-proc-git-denied-credential",
+            }));
+            expect(String(denied.error || "")).toContain("Argument \"credential\" is not allowed");
+            expect(denied.details?.scopeViolation).toEqual(expect.objectContaining({
+                reason: "ARGUMENT_NOT_ALLOWED",
+                argument: "credential",
+            }));
+            expect(denied.details?.scopeViolation?.argumentPath).toBeUndefined();
+        } finally {
+            removeHostPluginCustomProcessScopes(pluginId);
+        }
     });
 
     test("timeout enforcement", async () => {

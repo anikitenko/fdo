@@ -25,6 +25,8 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
 }));
 
 const mockSetPluginCapabilities = jest.fn(() => ({success: true, capabilities: ["system.hosts.write"]}));
+const mockGetPluginCustomProcessScopes = jest.fn(() => []);
+const mockSetPluginCustomProcessScopes = jest.fn((_pluginId, scopes) => ({success: true, scopes}));
 const mockGetPlugin = jest.fn(() => ({
     id: "plugin-a",
     metadata: {name: "Plugin A", version: "1.0.0", author: "E2E", description: "d", icon: "clean"},
@@ -46,12 +48,12 @@ jest.mock("../../src/utils/PluginORM", () => ({
             return [mockGetPlugin()];
         }
 
-        getPluginCustomProcessScopes() {
-            return [];
+        getPluginCustomProcessScopes(...args) {
+            return mockGetPluginCustomProcessScopes(...args);
         }
 
-        setPluginCustomProcessScopes(_pluginId, scopes) {
-            return {success: true, scopes};
+        setPluginCustomProcessScopes(...args) {
+            return mockSetPluginCustomProcessScopes(...args);
         }
     },
 }));
@@ -131,6 +133,19 @@ describe("plugin IPC capability settings", () => {
         expect(scopeResult.scopes.some((scope) => scope.scope === "aws-cli")).toBe(true);
         expect(scopeResult.scopes.some((scope) => scope.scope === "gcloud")).toBe(true);
         expect(scopeResult.scopes.some((scope) => scope.scope === "azure-cli")).toBe(true);
+        const gitScope = scopeResult.scopes.find((scope) => scope.scope === "git");
+        expect(gitScope?.argumentPolicy).toEqual(expect.objectContaining({
+            version: 1,
+            mode: "first-arg",
+        }));
+        expect(gitScope?.argumentPolicy?.allowedFirstArgs).toEqual(expect.arrayContaining(["status"]));
+        expect(gitScope?.argumentPolicy?.pathRestrictedLeadingOptions).toEqual(expect.arrayContaining(["-C"]));
+        const sourceControlScope = scopeResult.scopes.find((scope) => scope.scope === "source-control");
+        expect(sourceControlScope?.argumentPolicy).toEqual(expect.objectContaining({
+            version: 1,
+            mode: "first-arg-by-executable",
+        }));
+        expect(sourceControlScope?.argumentPolicy?.rulesByExecutable?.git?.pathRestrictedLeadingOptions).toEqual(expect.arrayContaining(["-C"]));
 
         const updateResult = await setCapabilitiesHandler({}, "plugin-a", ["system.hosts.write"]);
         expect(mockSetPluginCapabilities).toHaveBeenCalledWith("plugin-a", ["system.hosts.write"]);
@@ -147,6 +162,15 @@ describe("plugin IPC capability settings", () => {
             allowedExecutables: ["/usr/local/bin/htop"],
             allowedCwdRoots: ["/tmp"],
             allowedEnvKeys: ["PATH"],
+            policyVersion: 1,
+            argumentPolicy: {
+                version: 1,
+                mode: "first-arg",
+                allowedFirstArgs: ["status"],
+                deniedFirstArgs: ["credential"],
+                allowedLeadingOptions: ["-C"],
+                pathRestrictedLeadingOptions: ["-C"],
+            },
             timeoutCeilingMs: 45000,
             requireConfirmation: true,
         });
@@ -157,6 +181,13 @@ describe("plugin IPC capability settings", () => {
                 userDefined: true,
                 ownerType: "plugin",
                 ownerPluginId: "plugin-a",
+                policyVersion: 1,
+                argumentPolicy: expect.objectContaining({
+                    version: 1,
+                    mode: "first-arg",
+                    allowedLeadingOptions: expect.arrayContaining(["-C"]),
+                    pathRestrictedLeadingOptions: expect.arrayContaining(["-C"]),
+                }),
             }),
             scopes: expect.arrayContaining([
                 expect.objectContaining({
@@ -172,6 +203,15 @@ describe("plugin IPC capability settings", () => {
             allowedExecutables: ["/usr/local/bin/top"],
             allowedCwdRoots: ["/tmp"],
             allowedEnvKeys: ["PATH"],
+            policyVersion: 1,
+            argumentPolicy: {
+                version: 1,
+                mode: "first-arg",
+                allowedFirstArgs: ["status"],
+                deniedFirstArgs: ["credential"],
+                allowedLeadingOptions: ["-C"],
+                pathRestrictedLeadingOptions: ["-C"],
+            },
             timeoutCeilingMs: 30000,
             requireConfirmation: true,
         });
@@ -182,6 +222,13 @@ describe("plugin IPC capability settings", () => {
                 userDefined: true,
                 shared: true,
                 ownerType: "shared",
+                policyVersion: 1,
+                argumentPolicy: expect.objectContaining({
+                    version: 1,
+                    mode: "first-arg",
+                    allowedLeadingOptions: expect.arrayContaining(["-C"]),
+                    pathRestrictedLeadingOptions: expect.arrayContaining(["-C"]),
+                }),
             }),
             scopes: expect.arrayContaining([
                 expect.objectContaining({
@@ -214,5 +261,221 @@ describe("plugin IPC capability settings", () => {
             missingDeclared: ["system.process.exec"],
             undeclaredGranted: [],
         }));
+    });
+
+    test("allows extending plugin process scope cwd roots from policy rejection flow", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+
+        ipcMain.handle.mockClear();
+        mockGetPluginCustomProcessScopes.mockReset();
+        mockSetPluginCustomProcessScopes.mockReset();
+        mockGetPluginCustomProcessScopes.mockReturnValue([]);
+        mockSetPluginCustomProcessScopes.mockImplementation((_pluginId, scopes) => ({success: true, scopes}));
+
+        registerPluginHandlers();
+        const allowCwdRootHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_CWD_ROOT)?.[1];
+
+        const result = await allowCwdRootHandler({}, "plugin-a", "git", "/tmp/project-workspace");
+
+        expect(result).toEqual(expect.objectContaining({
+            success: true,
+            alreadyPresent: false,
+            addedRoot: "/tmp/project-workspace",
+            scope: expect.objectContaining({
+                scope: "git",
+                ownerType: "plugin",
+                ownerPluginId: "plugin-a",
+            }),
+        }));
+        expect(result.scope.allowedCwdRoots).toEqual(expect.arrayContaining(["/tmp/project-workspace"]));
+        expect(mockSetPluginCustomProcessScopes).toHaveBeenCalledWith(
+            "plugin-a",
+            expect.arrayContaining([
+                expect.objectContaining({
+                    scope: "git",
+                    allowedCwdRoots: expect.arrayContaining(["/tmp/project-workspace"]),
+                }),
+            ])
+        );
+    });
+
+    test("allows extending plugin process scope first-argument policy from policy rejection flow", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+
+        ipcMain.handle.mockClear();
+        mockGetPluginCustomProcessScopes.mockReset();
+        mockSetPluginCustomProcessScopes.mockReset();
+        mockGetPluginCustomProcessScopes.mockReturnValue([]);
+        mockSetPluginCustomProcessScopes.mockImplementation((_pluginId, scopes) => ({success: true, scopes}));
+
+        registerPluginHandlers();
+        const allowArgumentHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_ARGUMENT)?.[1];
+
+        const result = await allowArgumentHandler({}, "plugin-a", "git", "-C", "git");
+
+        expect(result).toEqual(expect.objectContaining({
+            success: true,
+            alreadyPresent: false,
+            addedArgument: "-C",
+            executableName: "",
+            scope: expect.objectContaining({
+                scope: "git",
+                ownerType: "plugin",
+                ownerPluginId: "plugin-a",
+            }),
+        }));
+        expect(result.scope.additionalAllowedLeadingOptions).toEqual(expect.arrayContaining(["-C"]));
+        expect(mockSetPluginCustomProcessScopes).toHaveBeenCalledWith(
+            "plugin-a",
+            expect.arrayContaining([
+                expect.objectContaining({
+                    scope: "git",
+                    additionalAllowedLeadingOptions: expect.arrayContaining(["-C"]),
+                }),
+            ])
+        );
+    });
+
+    test("allows extending plugin process scope env-key allowlist from policy rejection flow", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+
+        ipcMain.handle.mockClear();
+        mockGetPluginCustomProcessScopes.mockReset();
+        mockSetPluginCustomProcessScopes.mockReset();
+        mockGetPluginCustomProcessScopes.mockReturnValue([]);
+        mockSetPluginCustomProcessScopes.mockImplementation((_pluginId, scopes) => ({success: true, scopes}));
+
+        registerPluginHandlers();
+        const allowEnvKeyHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_ENV_KEY)?.[1];
+
+        const result = await allowEnvKeyHandler({}, "plugin-a", "git", "AWS_CLIENT_ID");
+
+        expect(result).toEqual(expect.objectContaining({
+            success: true,
+            alreadyPresent: false,
+            addedEnvKey: "AWS_CLIENT_ID",
+            scope: expect.objectContaining({
+                scope: "git",
+                ownerType: "plugin",
+                ownerPluginId: "plugin-a",
+            }),
+        }));
+        expect(result.scope.allowedEnvKeys).toEqual(expect.arrayContaining(["AWS_CLIENT_ID"]));
+        expect(mockSetPluginCustomProcessScopes).toHaveBeenCalledWith(
+            "plugin-a",
+            expect.arrayContaining([
+                expect.objectContaining({
+                    scope: "git",
+                    allowedEnvKeys: expect.arrayContaining(["AWS_CLIENT_ID"]),
+                }),
+            ])
+        );
+    });
+
+    test("does not allow one-click override for explicitly denied process arguments", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+
+        ipcMain.handle.mockClear();
+        mockGetPluginCustomProcessScopes.mockReset();
+        mockSetPluginCustomProcessScopes.mockReset();
+        mockGetPluginCustomProcessScopes.mockReturnValue([]);
+        mockSetPluginCustomProcessScopes.mockImplementation((_pluginId, scopes) => ({success: true, scopes}));
+
+        registerPluginHandlers();
+        const allowArgumentHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_ARGUMENT)?.[1];
+
+        const result = await allowArgumentHandler({}, "plugin-a", "git", "credential", "git");
+
+        expect(result).toEqual(expect.objectContaining({
+            success: false,
+            scope: null,
+        }));
+        expect(String(result.error || "")).toMatch(/explicitly denied/i);
+        expect(mockSetPluginCustomProcessScopes).not.toHaveBeenCalled();
+    });
+
+    test("restarts loaded runtime only when storage capability family changes", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+
+        ipcMain.handle.mockClear();
+        PluginManager.getLoadedPlugin.mockReset();
+        PluginManager.loadPlugin.mockReset();
+        PluginManager.unLoadPlugin.mockReset();
+        mockSetPluginCapabilities.mockReset();
+        mockGetPlugin.mockReset();
+        mockGetPlugin.mockImplementation(() => ({
+            id: "plugin-a",
+            metadata: {name: "Plugin A", version: "1.0.0", author: "E2E", description: "d", icon: "clean"},
+            capabilities: ["storage", "storage.json"],
+        }));
+
+        registerPluginHandlers();
+        const setCapabilitiesHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.SET_CAPABILITIES)[1];
+
+        const loadedPlugin = {grantedCapabilities: ["system.process.exec"]};
+        PluginManager.getLoadedPlugin.mockReturnValue(loadedPlugin);
+        PluginManager.loadPlugin.mockResolvedValue({success: true});
+        mockSetPluginCapabilities.mockImplementation((_id, caps) => ({success: true, capabilities: caps}));
+
+        const updateResult = await setCapabilitiesHandler({}, "plugin-a", ["storage", "storage.json"]);
+        expect(updateResult.success).toBe(true);
+        expect(updateResult.runtimeRestarted).toBe(true);
+        expect(updateResult.runtimeRestartError).toBe("");
+        expect(PluginManager.unLoadPlugin).toHaveBeenCalledWith("plugin-a", {
+            force: true,
+            reason: "capabilities_storage_changed",
+        });
+        expect(PluginManager.loadPlugin).toHaveBeenCalledWith("plugin-a");
+    });
+
+    test("does not restart loaded runtime when non-storage capabilities change", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+
+        ipcMain.handle.mockClear();
+        PluginManager.getLoadedPlugin.mockReset();
+        PluginManager.loadPlugin.mockReset();
+        PluginManager.unLoadPlugin.mockReset();
+        mockSetPluginCapabilities.mockReset();
+        mockGetPlugin.mockReset();
+        mockGetPlugin.mockImplementation(() => ({
+            id: "plugin-a",
+            metadata: {name: "Plugin A", version: "1.0.0", author: "E2E", description: "d", icon: "clean"},
+            capabilities: ["storage", "storage.json", "system.process.exec"],
+        }));
+
+        registerPluginHandlers();
+        const setCapabilitiesHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.SET_CAPABILITIES)[1];
+
+        const loadedPlugin = {grantedCapabilities: ["storage", "storage.json"]};
+        PluginManager.getLoadedPlugin.mockReturnValue(loadedPlugin);
+        mockSetPluginCapabilities.mockImplementation((_id, caps) => ({success: true, capabilities: caps}));
+
+        const updateResult = await setCapabilitiesHandler({}, "plugin-a", ["storage", "storage.json", "system.process.exec"]);
+        expect(updateResult.success).toBe(true);
+        expect(updateResult.runtimeRestarted).toBe(false);
+        expect(updateResult.runtimeRestartError).toBe("");
+        expect(PluginManager.unLoadPlugin).not.toHaveBeenCalled();
+        expect(PluginManager.loadPlugin).not.toHaveBeenCalled();
+        expect(loadedPlugin.grantedCapabilities).toEqual(["storage", "storage.json", "system.process.exec"]);
     });
 });

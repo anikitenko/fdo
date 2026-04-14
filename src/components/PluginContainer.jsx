@@ -105,24 +105,11 @@ function isPrivilegedFailureCode(code = "") {
     if (!normalized) return false;
     if (normalized === "CAPABILITY_DENIED") return true;
     if (normalized === "CANCELLED") return true;
-    if (normalized === "OS_ERROR") return true;
     if (normalized === "CONFIRMATION_DENIED") return true;
-    if (normalized.startsWith("PROCESS_")) return true;
-    if (normalized.startsWith("STEP_")) return true;
     if (normalized.startsWith("SCOPE_")) return true;
-    if (normalized.startsWith("WORKFLOW_")) return true;
-    if (normalized.startsWith("CLIPBOARD_")) return true;
+    if (normalized === "STEP_SCOPE_VIOLATION") return true;
     if (normalized.endsWith("_POLICY_DENIED")) return true;
     return false;
-}
-
-function isPrivilegedValidationFailure({code = "", error = ""} = {}) {
-    const normalizedCode = String(code || "").trim().toUpperCase();
-    if (normalizedCode !== "VALIDATION_FAILED") {
-        return false;
-    }
-    const text = String(error || "").trim();
-    return /\bhost privileged action\b/i.test(text);
 }
 
 function shouldSurfacePluginBackendFailure(code = "") {
@@ -212,7 +199,10 @@ export const PluginContainer = ({
             ? missingCapabilityDiagnostics
             : parseMissingCapabilityDiagnosticsFromError(normalizedDetails);
         const missingCapabilities = diagnostics.map((item) => item.capability).filter(Boolean);
-        const privilegedFailure = isPrivilegedFailureCode(code) || missingCapabilities.length > 0;
+        const privilegedFailure = (
+            isPrivilegedFailureCode(code)
+            || missingCapabilities.length > 0
+        );
         if (!privilegedFailure) {
             return false;
         }
@@ -598,8 +588,6 @@ export const PluginContainer = ({
                         const missingCapabilities = missingCapabilityDiagnostics.map((item) => item.capability);
                         const privilegedFailure = (
                             isPrivilegedFailureCode(response?.code)
-                            || isPrivilegedValidationFailure({code: response?.code, error: response?.error})
-                            || (isPrivilegedHandler && failedResponse)
                             || missingCapabilities.length > 0
                         );
                         const backendBridgeFailure = shouldSurfacePluginBackendFailure(response?.code);

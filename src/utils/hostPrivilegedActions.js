@@ -109,6 +109,14 @@ function isRecord(value) {
     return Boolean(value) && typeof value === "object";
 }
 
+function hasOwn(value, key) {
+    return isRecord(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasExplicitUndefinedField(value, key) {
+    return hasOwn(value, key) && value[key] === undefined;
+}
+
 function isValidHostName(value) {
     return /^[a-zA-Z0-9.-]+$/.test(value) && !value.startsWith(".") && !value.endsWith(".");
 }
@@ -224,6 +232,9 @@ function validateHostPrivilegedActionRequestCompat(payload) {
         if (!isRecord(payload.payload)) {
             throw new Error('Host privileged action "payload" must be an object.');
         }
+        if (hasExplicitUndefinedField(payload.payload, "env")) {
+            throw new Error('Host privileged action payload field "env" must be an object when provided; received undefined. Use an object map or omit "env".');
+        }
         const {scope, command, args, cwd, env, timeoutMs, input, encoding, dryRun, reason} = payload.payload;
         if (typeof scope !== "string" || !scope.trim()) {
             throw new Error('Host privileged action payload field "scope" must be a non-empty string.');
@@ -303,6 +314,9 @@ function validateHostPrivilegedActionRequestCompat(payload) {
             if (step.cwd !== undefined && (typeof step.cwd !== "string" || !isAbsolutePath(step.cwd))) {
                 throw new Error(`Host privileged workflow step at index ${index} field "cwd" must be an absolute path when provided.`);
             }
+            if (hasExplicitUndefinedField(step, "env")) {
+                throw new Error(`Host privileged workflow step at index ${index} field "env" must be an object when provided; received undefined. Use an object map or omit "env".`);
+            }
             if (step.env !== undefined && !isRecord(step.env)) {
                 throw new Error(`Host privileged workflow step at index ${index} field "env" must be an object when provided.`);
             }
@@ -377,14 +391,40 @@ function validateHostPrivilegedActionRequestCompat(payload) {
 }
 
 function validatePrivilegedActionRequest(payload) {
+    let validated = null;
     if (typeof validateHostPrivilegedActionRequest === "function") {
         try {
-            return validateHostPrivilegedActionRequest(payload);
-        } catch (error) {
-            return validateHostPrivilegedActionRequestCompat(payload);
+            validated = validateHostPrivilegedActionRequest(payload);
+        } catch (_) {
+            validated = validateHostPrivilegedActionRequestCompat(payload);
+        }
+    } else {
+        validated = validateHostPrivilegedActionRequestCompat(payload);
+    }
+
+    if (validated?.action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC) {
+        if (hasExplicitUndefinedField(validated.payload, "env")) {
+            throw new Error('Host privileged action payload field "env" must be an object when provided; received undefined. Use an object map or omit "env".');
         }
     }
-    return validateHostPrivilegedActionRequestCompat(payload);
+
+    if (validated?.action === HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN) {
+        const steps = Array.isArray(validated?.payload?.steps) ? validated.payload.steps : [];
+        for (let index = 0; index < steps.length; index += 1) {
+            const step = steps[index];
+            if (!isRecord(step)) {
+                continue;
+            }
+            if (hasExplicitUndefinedField(step, "env")) {
+                const stepId = typeof step.id === "string" && step.id.trim()
+                    ? step.id.trim()
+                    : `index ${index}`;
+                throw new Error(`Host privileged workflow step "${stepId}" field "env" must be an object when provided; received undefined. Use an object map or omit "env".`);
+            }
+        }
+    }
+
+    return validated;
 }
 
 function sanitizeTag(tag) {
@@ -555,6 +595,42 @@ function ensureAllowedKeys(actual = {}, allowed = []) {
     return Object.keys(actual).filter((key) => !allowedSet.has(key));
 }
 
+function normalizeAllowedEnvKeys(allowed = []) {
+    const normalized = [];
+    const seen = new Set();
+    for (const entry of Array.isArray(allowed) ? allowed : []) {
+        const key = typeof entry === "string" ? entry.trim() : "";
+        if (!key || seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        normalized.push(key);
+    }
+    return normalized;
+}
+
+function buildScopedProcessEnvironment(planEnv = {}, allowedEnvKeys = [], hostEnv = process.env) {
+    const allowedKeys = normalizeAllowedEnvKeys(allowedEnvKeys);
+    const allowedSet = new Set(allowedKeys);
+    const effectiveEnv = {};
+
+    for (const key of allowedKeys) {
+        const value = hostEnv?.[key];
+        if (value !== undefined) {
+            effectiveEnv[key] = String(value);
+        }
+    }
+
+    for (const [key, value] of Object.entries(isRecord(planEnv) ? planEnv : {})) {
+        if (!allowedSet.has(key) || value === undefined) {
+            continue;
+        }
+        effectiveEnv[key] = String(value);
+    }
+
+    return effectiveEnv;
+}
+
 function buildProcessExecutionPlan(payload = {}, policy = {}) {
     const timeoutMs = payload.timeoutMs
         ? Math.min(Number(payload.timeoutMs) || 0, Number(policy.timeoutCeilingMs) || Number(payload.timeoutMs) || 0)
@@ -571,6 +647,7 @@ function buildProcessExecutionPlan(payload = {}, policy = {}) {
         encoding: payload.encoding === "base64" ? "base64" : "utf8",
         dryRun: !!payload.dryRun,
         reason: typeof payload.reason === "string" ? payload.reason.trim() : "",
+        allowedEnvKeys: normalizeAllowedEnvKeys(policy.allowedEnvKeys),
         allowlistedExecutables: Array.isArray(policy.allowedExecutables) ? [...policy.allowedExecutables] : [],
     };
 }
@@ -656,38 +733,126 @@ function isAllowedExecutable(command, policy) {
     return allowedExecutables.some((entry) => path.resolve(entry) === normalizedCommand);
 }
 
+function toProcessValidationFailure(rawFailure = null, fallbackReason = "SCOPE_POLICY_VIOLATION") {
+    if (!rawFailure) {
+        return null;
+    }
+    if (typeof rawFailure === "string") {
+        const message = rawFailure.trim();
+        if (!message) {
+            return null;
+        }
+        return {
+            reason: String(fallbackReason || "").trim().toUpperCase() || "SCOPE_POLICY_VIOLATION",
+            message,
+        };
+    }
+    if (typeof rawFailure !== "object") {
+        const message = String(rawFailure || "").trim();
+        if (!message) {
+            return null;
+        }
+        return {
+            reason: String(fallbackReason || "").trim().toUpperCase() || "SCOPE_POLICY_VIOLATION",
+            message,
+        };
+    }
+
+    const message = String(rawFailure?.message || rawFailure?.error || "").trim();
+    if (!message) {
+        return null;
+    }
+    const reason = String(rawFailure?.reason || fallbackReason || "").trim().toUpperCase() || "SCOPE_POLICY_VIOLATION";
+    const failure = {
+        reason,
+        message,
+    };
+    if (typeof rawFailure.argument === "string" && rawFailure.argument.trim()) {
+        failure.argument = rawFailure.argument.trim();
+    }
+    if (typeof rawFailure.argumentPath === "string" && rawFailure.argumentPath.trim()) {
+        failure.argumentPath = rawFailure.argumentPath.trim();
+    }
+    if (typeof rawFailure.executableName === "string" && rawFailure.executableName.trim()) {
+        failure.executableName = rawFailure.executableName.trim();
+    }
+    if (typeof rawFailure.scope === "string" && rawFailure.scope.trim()) {
+        failure.scope = rawFailure.scope.trim().replace(/^system\.process\.scope\./i, "");
+    }
+    const pathSource = String(rawFailure.pathSource || "").trim().toLowerCase();
+    if (pathSource === "argument" || pathSource === "cwd") {
+        failure.pathSource = pathSource;
+    }
+    if (Array.isArray(rawFailure.deniedEnvKeys) && rawFailure.deniedEnvKeys.length > 0) {
+        failure.deniedEnvKeys = rawFailure.deniedEnvKeys.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    if (Number.isFinite(rawFailure.timeoutCeilingMs)) {
+        failure.timeoutCeilingMs = Number(rawFailure.timeoutCeilingMs);
+    }
+    if (Number.isFinite(rawFailure.requestedTimeoutMs)) {
+        failure.requestedTimeoutMs = Number(rawFailure.requestedTimeoutMs);
+    }
+    return failure;
+}
+
 function validateProcessExecutionPlan(plan, policy) {
     if (!policy) {
-        return `Unknown or unsupported process scope "${plan.scope}".`;
+        return toProcessValidationFailure(
+            `Unknown or unsupported process scope "${plan.scope}".`,
+            "SCOPE_NOT_CONFIGURED"
+        );
     }
     if (!isAbsolutePath(plan.command)) {
-        return `Process command must be an absolute executable path for scope "${plan.scope}".`;
+        return toProcessValidationFailure(
+            `Process command must be an absolute executable path for scope "${plan.scope}".`,
+            "COMMAND_PATH_NOT_ABSOLUTE"
+        );
     }
     if (!isAllowedExecutable(plan.command, policy)) {
-        return `Command "${plan.command}" is not allowed for process scope "${plan.scope}".`;
+        return toProcessValidationFailure({
+            reason: "COMMAND_NOT_ALLOWLISTED",
+            message: `Command "${plan.command}" is not allowed for process scope "${plan.scope}".`,
+        });
     }
     if (!isAbsolutePath(plan.cwd)) {
-        return `Process cwd must be an absolute path for scope "${plan.scope}".`;
+        return toProcessValidationFailure(
+            `Process cwd must be an absolute path for scope "${plan.scope}".`,
+            "CWD_PATH_NOT_ABSOLUTE"
+        );
     }
     const cwdAllowed = (policy.allowedCwdRoots || []).some((root) => isUnderRoot(plan.cwd, root));
     if (!cwdAllowed) {
-        return `Working directory "${plan.cwd}" is outside allowed roots for process scope "${plan.scope}".`;
+        return toProcessValidationFailure({
+            reason: "CWD_OUTSIDE_ALLOWED_ROOTS",
+            message: `Working directory "${plan.cwd}" is outside allowed roots for process scope "${plan.scope}".`,
+            argumentPath: plan.cwd,
+            pathSource: "cwd",
+        });
     }
     const invalidEnvKeys = ensureAllowedKeys(plan.env, policy.allowedEnvKeys);
     if (invalidEnvKeys.length > 0) {
-        return `Environment keys are not allowed for process scope "${plan.scope}": ${invalidEnvKeys.join(", ")}.`;
+        return toProcessValidationFailure({
+            reason: "ENV_KEYS_NOT_ALLOWED",
+            message: `Environment keys are not allowed for process scope "${plan.scope}": ${invalidEnvKeys.join(", ")}.`,
+            deniedEnvKeys: invalidEnvKeys,
+        });
     }
     const timeoutCeilingMs = Number(policy.timeoutCeilingMs) || 0;
     if (timeoutCeilingMs > 0 && plan.timeoutMs > timeoutCeilingMs) {
-        return `Requested timeout ${plan.timeoutMs}ms exceeds process scope "${plan.scope}" ceiling of ${timeoutCeilingMs}ms.`;
+        return toProcessValidationFailure({
+            reason: "TIMEOUT_EXCEEDS_SCOPE_CEILING",
+            message: `Requested timeout ${plan.timeoutMs}ms exceeds process scope "${plan.scope}" ceiling of ${timeoutCeilingMs}ms.`,
+            requestedTimeoutMs: plan.timeoutMs,
+            timeoutCeilingMs,
+        });
     }
     if (typeof policy.validateArgs === "function") {
-        const argError = policy.validateArgs(plan.args, plan);
-        if (argError) {
-            return argError;
+        const argValidationFailure = toProcessValidationFailure(policy.validateArgs(plan.args, plan, policy), "ARGUMENT_POLICY_VIOLATION");
+        if (argValidationFailure) {
+            return argValidationFailure;
         }
     }
-    return "";
+    return null;
 }
 
 async function runProcessExecution(plan, deps = {}) {
@@ -698,10 +863,7 @@ async function runProcessExecution(plan, deps = {}) {
     return new Promise((resolve, reject) => {
         const child = spawn(plan.command, plan.args, {
             cwd: plan.cwd,
-            env: {
-                ...process.env,
-                ...plan.env,
-            },
+            env: buildScopedProcessEnvironment(plan.env, plan.allowedEnvKeys, deps.hostEnv),
             shell: false,
             stdio: "pipe",
         });
@@ -1237,9 +1399,21 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
 
         const processValidationError = validateProcessExecutionPlan(plan, policy);
         if (processValidationError) {
+            const scopeViolation = {
+                reason: String(processValidationError.reason || "SCOPE_POLICY_VIOLATION").trim().toUpperCase(),
+                message: String(processValidationError.message || "").trim(),
+                ...(processValidationError.scope ? {scope: String(processValidationError.scope).trim()} : {}),
+                ...(processValidationError.argument ? {argument: String(processValidationError.argument).trim()} : {}),
+                ...(processValidationError.argumentPath ? {argumentPath: String(processValidationError.argumentPath).trim()} : {}),
+                ...(processValidationError.executableName ? {executableName: String(processValidationError.executableName).trim()} : {}),
+                ...(processValidationError.pathSource ? {pathSource: String(processValidationError.pathSource).trim()} : {}),
+                ...(Array.isArray(processValidationError.deniedEnvKeys) ? {deniedEnvKeys: processValidationError.deniedEnvKeys} : {}),
+                ...(Number.isFinite(processValidationError.timeoutCeilingMs) ? {timeoutCeilingMs: processValidationError.timeoutCeilingMs} : {}),
+                ...(Number.isFinite(processValidationError.requestedTimeoutMs) ? {requestedTimeoutMs: processValidationError.requestedTimeoutMs} : {}),
+            };
             const denied = errorEnvelope(
                 "SCOPE_VIOLATION",
-                processValidationError,
+                processValidationError.message,
                 correlationId,
                 {
                     details: {
@@ -1249,6 +1423,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
                         cwd: plan.cwd,
                         dryRun: plan.dryRun,
                         allowlistedExecutables: Array.isArray(plan.allowlistedExecutables) ? plan.allowlistedExecutables : [],
+                        scopeViolation,
                     },
                 }
             );
@@ -1497,15 +1672,28 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
             const plan = buildWorkflowStepPlan(scope, validated.payload, step, policy);
             const processValidationError = validateProcessExecutionPlan(plan, policy);
             if (processValidationError) {
+                const scopeViolation = {
+                    reason: String(processValidationError.reason || "SCOPE_POLICY_VIOLATION").trim().toUpperCase(),
+                    message: String(processValidationError.message || "").trim(),
+                    ...(processValidationError.scope ? {scope: String(processValidationError.scope).trim()} : {}),
+                    ...(processValidationError.argument ? {argument: String(processValidationError.argument).trim()} : {}),
+                    ...(processValidationError.argumentPath ? {argumentPath: String(processValidationError.argumentPath).trim()} : {}),
+                    ...(processValidationError.executableName ? {executableName: String(processValidationError.executableName).trim()} : {}),
+                    ...(processValidationError.pathSource ? {pathSource: String(processValidationError.pathSource).trim()} : {}),
+                    ...(Array.isArray(processValidationError.deniedEnvKeys) ? {deniedEnvKeys: processValidationError.deniedEnvKeys} : {}),
+                    ...(Number.isFinite(processValidationError.timeoutCeilingMs) ? {timeoutCeilingMs: processValidationError.timeoutCeilingMs} : {}),
+                    ...(Number.isFinite(processValidationError.requestedTimeoutMs) ? {requestedTimeoutMs: processValidationError.requestedTimeoutMs} : {}),
+                };
                 const stepFailure = {
                     ...summarizeWorkflowStep(step, plan, index, stepCorrelationId),
                     status: "error",
                     code: "SCOPE_VIOLATION",
-                    error: processValidationError,
+                    error: processValidationError.message,
+                    scopeViolation,
                 };
                 const denied = errorEnvelope(
                     "STEP_SCOPE_VIOLATION",
-                    `Workflow step "${stepFailure.stepId}" is not allowed: ${processValidationError}`,
+                    `Workflow step "${stepFailure.stepId}" is not allowed: ${processValidationError.message}`,
                     correlationId,
                     {
                         details: {

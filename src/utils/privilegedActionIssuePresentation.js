@@ -43,6 +43,22 @@ function summarizeCommand(result = {}) {
     return [command, ...args].join(" ").trim();
 }
 
+function extractScopeViolation(details = {}) {
+    const direct = details && typeof details === "object" && details.scopeViolation && typeof details.scopeViolation === "object"
+        ? details.scopeViolation
+        : null;
+    if (direct) {
+        return direct;
+    }
+    const steps = Array.isArray(details?.steps) ? details.steps : [];
+    for (const step of steps) {
+        if (step && typeof step === "object" && step.scopeViolation && typeof step.scopeViolation === "object") {
+            return step.scopeViolation;
+        }
+    }
+    return null;
+}
+
 export function extractPrivilegedActionDiagnostics(payload = {}) {
     const code = String(payload?.code || "").trim();
     const details = payload?.extraDetails || payload?.details || {};
@@ -105,6 +121,21 @@ export function classifyPrivilegedActionIssue(payload = {}) {
     const missingCapabilities = uniqueList(payload?.missingCapabilities);
     const unknownProcessScopeMatch = errorText.match(/Unknown or unsupported process scope "([a-zA-Z0-9._-]+)"/i);
     const requestedScope = String(details?.scope || unknownProcessScopeMatch?.[1] || "").trim();
+    const scopeViolation = extractScopeViolation(details);
+    const scopeViolationReason = String(scopeViolation?.reason || "").trim().toUpperCase();
+    const deniedEnvKeys = Array.isArray(scopeViolation?.deniedEnvKeys)
+        ? uniqueList(scopeViolation.deniedEnvKeys)
+        : [];
+    const normalizedCode = code.toUpperCase();
+    const executionLikeCode = normalizedCode === "PROCESS_EXIT_NON_ZERO"
+        || normalizedCode === "PROCESS_SPAWN_ENOENT"
+        || normalizedCode === "PROCESS_SPAWN_PERMISSION_DENIED"
+        || normalizedCode === "OS_ERROR"
+        || normalizedCode === "TIMEOUT"
+        || normalizedCode === "STEP_FAILED"
+        || normalizedCode === "STEP_TIMEOUT"
+        || normalizedCode === "STEP_OS_ERROR"
+        || normalizedCode === "STEP_PROCESS_SPAWN_ENOENT";
 
     if (code === "CAPABILITY_DENIED" || missingCapabilities.length > 0) {
         return {
@@ -118,7 +149,7 @@ export function classifyPrivilegedActionIssue(payload = {}) {
         };
     }
 
-    if (/\bhost privileged action\b/i.test(errorText) && /\bmust be\b/i.test(errorText)) {
+    if (!executionLikeCode && /\bhost privileged action\b/i.test(errorText) && /\bmust be\b/i.test(errorText)) {
         return {
             title: "Invalid Privileged Request",
             summary: "The plugin sent a malformed privileged-action request envelope.",
@@ -179,6 +210,17 @@ export function classifyPrivilegedActionIssue(payload = {}) {
     }
 
     if (code === "SCOPE_VIOLATION" || code === "STEP_SCOPE_VIOLATION" || code === "SCOPE_DENIED") {
+        if (scopeViolationReason === "ENV_KEYS_NOT_ALLOWED") {
+            return {
+                title: "Blocked Env Keys",
+                summary: deniedEnvKeys.length > 0
+                    ? `The plugin requested environment key(s) blocked by this scope: ${deniedEnvKeys.join(", ")}.`
+                    : "The plugin requested environment keys blocked by this scope policy.",
+                remediation: "Add the required key(s) under Allowed env keys for this process scope, or remove env overrides from the plugin request.",
+                intent: "warning",
+                showCapabilitiesButton: false,
+            };
+        }
         return {
             title: "Blocked By Scope Policy",
             summary: "The plugin requested a command or working directory outside the selected host scope policy.",

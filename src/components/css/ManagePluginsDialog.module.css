@@ -1,16 +1,61 @@
 .panel{
     border-left: solid 1px #d4d5d7;
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
     padding-right: 20px;
-    padding-bottom: 20px;
+    padding-bottom: 12px;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .manage-plugins :global(.bp6-tab-list) {
     background-color: white;
+    overflow-y: auto;
+    max-height: 100%;
+    min-height: 0;
 }
 
 .manage-plugins :global(.bp6-heading) {
     padding: 5px;
+}
+
+.manage-plugins :global(.bp6-dialog-body) {
+    margin: 0;
+}
+
+.manage-plugins :global(.bp6-tab-panel) {
+    height: 100%;
+    min-height: 0;
+}
+
+.tabs-layout {
+    height: min(82vh, calc(100vh - 180px), 980px);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tabs-layout :global(.bp6-tabs) {
+    flex: 1;
+    min-height: 0;
+}
+
+.tabs-layout :global(.bp6-tab-panel) {
+    flex: 1;
+    min-height: 0;
+}
+
+.empty-state-wrap {
+    height: min(82vh, calc(100vh - 180px), 980px);
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 :global(.bp6-popover.bp6-tooltip) {
@@ -23,8 +68,9 @@
     border: none;
     box-shadow: none;
     padding: 0 5px;
-    max-height: 560px;
-    overflow-y: auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
 }
 
 .card-setting-header {
