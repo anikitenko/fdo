@@ -119,9 +119,117 @@ jest.mock("../../src/components/PluginContainer.jsx", () => ({
                     details: 'Command "/bin/sh" is not allowed for process scope "terraform".',
                     code: "SCOPE_VIOLATION",
                     correlationId: "corr-policy",
+                    extraDetails: {
+                        scope: "terraform",
+                        command: "/usr/local/bin/terraform",
+                        args: ["plan", "-input=false"],
+                        cwd: "/tmp/project",
+                        allowlistedExecutables: ["/usr/local/bin/terraform", "/opt/homebrew/bin/terraform"],
+                        scopeViolation: {
+                            reason: "COMMAND_NOT_ALLOWLISTED",
+                            message: 'Command "/bin/sh" is not allowed for process scope "terraform".',
+                        },
+                    },
                 })}
             >
                 trigger-policy-rejection
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
+                    details: 'Working directory "/tmp/project" is outside allowed roots for process scope "terraform".',
+                    code: "SCOPE_VIOLATION",
+                    correlationId: "corr-policy-cwd",
+                    extraDetails: {
+                        scope: "terraform",
+                        command: "/usr/local/bin/terraform",
+                        args: ["plan", "-input=false"],
+                        cwd: "/tmp/project",
+                        allowlistedExecutables: ["/usr/local/bin/terraform", "/opt/homebrew/bin/terraform"],
+                        scopeViolation: {
+                            reason: "CWD_OUTSIDE_ALLOWED_ROOTS",
+                            message: 'Working directory "/tmp/project" is outside allowed roots for process scope "terraform".',
+                            argumentPath: "/tmp/project",
+                            pathSource: "cwd",
+                        },
+                    },
+                })}
+            >
+                trigger-policy-cwd-rejection
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
+                    details: "Scope policy violation.",
+                    code: "SCOPE_VIOLATION",
+                    correlationId: "corr-policy-argument",
+                    extraDetails: {
+                        scope: "git",
+                        command: "/usr/bin/git",
+                        args: ["-C", "/tmp/project", "status", "--porcelain=v2", "--branch"],
+                        cwd: "/tmp/project",
+                        allowlistedExecutables: ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"],
+                        scopeViolation: {
+                            reason: "ARGUMENT_NOT_ALLOWED",
+                            message: 'Argument "-C" is not allowed for process scope "git".',
+                            argument: "-C",
+                            executableName: "git",
+                        },
+                    },
+                })}
+            >
+                trigger-policy-argument-rejection
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
+                    details: "Scope policy violation.",
+                    code: "SCOPE_VIOLATION",
+                    correlationId: "corr-policy-argument-path",
+                    extraDetails: {
+                        scope: "git",
+                        command: "/usr/bin/git",
+                        args: ["-C", "/opt/project", "status", "--porcelain=v2", "--branch"],
+                        cwd: "/Users/alexvwan/dev/fdo",
+                        allowlistedExecutables: ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"],
+                        scopeViolation: {
+                            reason: "ARGUMENT_PATH_OUTSIDE_ALLOWED_ROOTS",
+                            message: 'Argument "-C" path "/opt/project" is outside allowed roots for process scope "git".',
+                            argument: "-C",
+                            argumentPath: "/opt/project",
+                            pathSource: "argument",
+                            executableName: "git",
+                        },
+                    },
+                })}
+            >
+                trigger-policy-argument-path-rejection
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
+                    details: 'Environment keys are not allowed for process scope "git": AWS_CLIENT_ID.',
+                    code: "SCOPE_VIOLATION",
+                    correlationId: "corr-policy-env",
+                    extraDetails: {
+                        scope: "git",
+                        command: "/usr/bin/git",
+                        args: ["status", "--porcelain=v2", "--branch"],
+                        cwd: "/tmp/project",
+                        allowlistedExecutables: ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"],
+                        scopeViolation: {
+                            reason: "ENV_KEYS_NOT_ALLOWED",
+                            message: 'Environment keys are not allowed for process scope "git": AWS_CLIENT_ID.',
+                            deniedEnvKeys: ["AWS_CLIENT_ID"],
+                        },
+                    },
+                })}
+            >
+                trigger-policy-env-rejection
             </button>
             <button
                 type="button"
@@ -320,6 +428,34 @@ describe("Home capability denied flow", () => {
             deactivateUsers: jest.fn().mockResolvedValue({success: true}),
             init: jest.fn().mockResolvedValue({success: true}),
             setCapabilities: jest.fn().mockResolvedValue({success: true}),
+            allowPluginProcessScopeCwdRoot: jest.fn().mockResolvedValue({
+                success: true,
+                alreadyPresent: false,
+                addedRoot: "/tmp/project",
+                scope: {
+                    scope: "terraform",
+                    allowedCwdRoots: ["/tmp/project"],
+                },
+            }),
+            allowPluginProcessScopeArgument: jest.fn().mockResolvedValue({
+                success: true,
+                alreadyPresent: false,
+                addedArgument: "-C",
+                executableName: "git",
+                scope: {
+                    scope: "git",
+                    additionalAllowedFirstArgs: ["-C"],
+                },
+            }),
+            allowPluginProcessScopeEnvKey: jest.fn().mockResolvedValue({
+                success: true,
+                alreadyPresent: false,
+                addedEnvKey: "AWS_CLIENT_ID",
+                scope: {
+                    scope: "git",
+                    allowedEnvKeys: ["AWS_CLIENT_ID"],
+                },
+            }),
             get: jest.fn().mockResolvedValue({
                 success: true,
                 plugin: {
@@ -534,6 +670,112 @@ describe("Home capability denied flow", () => {
             expect(screen.getByText("Blocked By Scope Policy")).toBeInTheDocument();
             expect(screen.getByText(/outside the selected host scope policy/i)).toBeInTheDocument();
             expect(screen.queryByRole("button", {name: "Open Capabilities"})).not.toBeInTheDocument();
+            expect(screen.queryByRole("button", {name: "Allow This Directory"})).not.toBeInTheDocument();
+            expect(screen.queryByRole("button", {name: "Allow This Argument"})).not.toBeInTheDocument();
+        });
+    });
+
+    test("allows one-click cwd root grant for cwd-outside-roots policy rejection", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-policy-cwd-rejection"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Blocked By Scope Policy")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Allow This Directory"}));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.allowPluginProcessScopeCwdRoot).toHaveBeenCalledWith("plugin-1", "terraform", "/tmp/project");
+            expect(screen.queryByText("Blocked By Scope Policy")).not.toBeInTheDocument();
+        });
+    });
+
+    test("allows one-click first-argument grant for process scope argument rejection", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-policy-argument-rejection"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Blocked By Scope Policy")).toBeInTheDocument();
+            expect(screen.getByRole("button", {name: "Allow This Argument"})).toBeInTheDocument();
+            expect(screen.getByText(/Blocked argument:/)).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Allow This Argument"}));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.allowPluginProcessScopeArgument).toHaveBeenCalledWith("plugin-1", "git", "-C", "git");
+            expect(screen.queryByText("Blocked By Scope Policy")).not.toBeInTheDocument();
+        });
+    });
+
+    test("uses blocked argument path for one-click directory grant when path-restricted option is denied", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-policy-argument-path-rejection"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Blocked By Scope Policy")).toBeInTheDocument();
+            expect(screen.getByRole("button", {name: "Allow This Directory"})).toBeInTheDocument();
+            expect(screen.getByText(/Blocked path value:/)).toBeInTheDocument();
+            expect(screen.getByText("/opt/project")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Allow This Directory"}));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.allowPluginProcessScopeCwdRoot).toHaveBeenCalledWith("plugin-1", "git", "/opt/project");
+            expect(screen.queryByText("Blocked By Scope Policy")).not.toBeInTheDocument();
+        });
+    });
+
+    test("shows env-key-specific remediation and allows one-click env key grant", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-policy-env-rejection"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Blocked Env Keys")).toBeInTheDocument();
+            expect(screen.getByText(/blocked by this scope: AWS_CLIENT_ID/i)).toBeInTheDocument();
+            expect(screen.getByRole("button", {name: "Allow This Env Key"})).toBeInTheDocument();
+            expect(screen.getByText(/Blocked env key:/)).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Allow This Env Key"}));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.allowPluginProcessScopeEnvKey).toHaveBeenCalledWith("plugin-1", "git", "AWS_CLIENT_ID");
+            expect(screen.queryByText("Blocked Env Keys")).not.toBeInTheDocument();
         });
     });
 
@@ -660,6 +902,55 @@ describe("Home capability denied flow", () => {
         await waitFor(() => {
             expect(window.electron.plugin.getPrivilegedAudit).toHaveBeenCalledWith("plugin-1", {limit: 80});
             expect(screen.getByText(/Runtime Validation: plugin-1/)).toBeInTheDocument();
+        });
+    });
+
+    test("classifies PROCESS_EXIT_NON_ZERO runtime evidence as execution failure, not capability denial", async () => {
+        window.electron.plugin.getPrivilegedAudit.mockResolvedValueOnce({
+            success: true,
+            pluginId: "plugin-1",
+            events: [
+                {
+                    timestamp: "2026-04-14T09:37:09.927Z",
+                    action: "system.process.exec",
+                    scope: "git",
+                    success: false,
+                    correlationId: "corr-git-exit-1",
+                    command: "/usr/bin/git",
+                    args: ["status"],
+                    cwd: "/tmp/missing-repo",
+                    error: {
+                        code: "PROCESS_EXIT_NON_ZERO",
+                        message: 'Process "git" exited with code 1.',
+                    },
+                },
+            ],
+        });
+
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-missing-cli"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Tool Not Installed")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
+        fireEvent.click(screen.getByText("Open Validation"));
+
+        await waitFor(() => {
+            expect(screen.getByText(/Runtime Validation: plugin-1/)).toBeInTheDocument();
+            expect(screen.getByText("Process execution failure")).toBeInTheDocument();
+            expect(screen.getByText(/not automatically capability-denial issues/i)).toBeInTheDocument();
+            expect(screen.getByText("Error codes:")).toBeInTheDocument();
+            expect(screen.getByText("PROCESS_EXIT_NON_ZERO")).toBeInTheDocument();
         });
     });
 });

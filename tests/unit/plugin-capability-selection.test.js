@@ -30,6 +30,11 @@ describe("pluginCapabilitySelection", () => {
             allowedOperationTypes: ["writeFile"],
             allowedExecutables: [],
             allowedEnvKeys: [],
+            additionalAllowedFirstArgs: [],
+            additionalAllowedFirstArgsByExecutable: {},
+            additionalAllowedLeadingOptions: [],
+            additionalAllowedLeadingOptionsByExecutable: {},
+            argumentPolicy: null,
             timeoutCeilingMs: null,
             requireConfirmation: true,
         }]);
@@ -62,6 +67,11 @@ describe("pluginCapabilitySelection", () => {
             allowedOperationTypes: [],
             allowedExecutables: ["/usr/local/bin/docker"],
             allowedEnvKeys: ["DOCKER_CONTEXT"],
+            additionalAllowedFirstArgs: [],
+            additionalAllowedFirstArgsByExecutable: {},
+            additionalAllowedLeadingOptions: [],
+            additionalAllowedLeadingOptionsByExecutable: {},
+            argumentPolicy: null,
             timeoutCeilingMs: 30000,
             requireConfirmation: true,
         }]);

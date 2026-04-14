@@ -1,5 +1,11 @@
 import {isHostFallbackProcessScopeId} from "./processScopeCatalog";
-import {HOST_WRITE_CAPABILITY, HOST_WRITE_CAPABILITY_LEGACY, toCanonicalCapabilityId} from "./pluginCapabilities";
+import {
+    HOST_WRITE_CAPABILITY,
+    HOST_WRITE_CAPABILITY_LEGACY,
+    STORAGE_CAPABILITY,
+    STORAGE_JSON_CAPABILITY,
+    toCanonicalCapabilityId
+} from "./pluginCapabilities";
 
 const CAPABILITY_RISK_LEVELS = Object.freeze({
     low: "low",
@@ -8,12 +14,20 @@ const CAPABILITY_RISK_LEVELS = Object.freeze({
 });
 
 export const CAPABILITY_PRESENTATION = Object.freeze({
-    "storage.json": Object.freeze({
-        id: "storage.json",
+    [STORAGE_CAPABILITY]: Object.freeze({
+        id: STORAGE_CAPABILITY,
+        title: "Persistent plugin storage",
+        description: "Base storage capability family. Pair with concrete storage backends such as storage.json.",
+        risk: CAPABILITY_RISK_LEVELS.low,
+        dependsOn: Object.freeze([]),
+        category: "data",
+    }),
+    [STORAGE_JSON_CAPABILITY]: Object.freeze({
+        id: STORAGE_JSON_CAPABILITY,
         title: "Persistent plugin JSON storage",
         description: "Allows plugin data persistence in its managed storage area.",
         risk: CAPABILITY_RISK_LEVELS.low,
-        dependsOn: Object.freeze([]),
+        dependsOn: Object.freeze([STORAGE_CAPABILITY]),
         category: "data",
     }),
     [HOST_WRITE_CAPABILITY]: Object.freeze({

@@ -39,12 +39,40 @@ Scope policy registry (single source of truth):
 - `src/utils/privilegedFsScopeRegistry.js`
 - `src/utils/privilegedProcessScopeRegistry.js`
 - maps `scope` -> allowed roots/commands, operation types or process policy, and confirmation policy
+- for `system.process.exec`, child process environment is scoped to `allowedEnvKeys` from the selected process scope (plus plugin-provided `payload.env` overrides for those same allowed keys)
 - capability requirement for scoped mutate:
   - `system.hosts.write`
   - `system.fs.scope.<scope-id>`
 - capability requirement for scoped process execution:
   - `system.process.exec`
   - `system.process.scope.<scope-id>`
+
+### Process Env Semantics (`system.process.exec`)
+
+- `Allowed env keys` in a process scope define which host env keys are injected into the spawned process.
+- Plugin request `payload.env` is override-only: it can set/override values only for keys already present in that scope allowlist.
+- If `payload.env` includes a key outside `Allowed env keys`, host returns `SCOPE_VIOLATION` with `ENV_KEYS_NOT_ALLOWED`.
+- Do not send `env: undefined`. If `env` is present, it must be an object map; otherwise omit `env` entirely.
+
+Practical authoring pattern:
+
+```ts
+const env = process.env.USER_ID ? { USER_ID: process.env.USER_ID } : null;
+
+const request = createOperatorToolActionRequest("git", {
+  command,
+  args,
+  cwd,
+  ...(env ? { env } : {}), // omit env when empty
+  timeoutMs,
+  dryRun: false,
+  reason,
+});
+```
+
+Process policy versioning and schema guidance:
+
+- `docs/PROCESS_SCOPE_POLICY_VERSIONING.md`
 
 Supported process scope pattern is intended for operator-style plugins such as:
 

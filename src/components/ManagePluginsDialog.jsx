@@ -35,7 +35,12 @@ import {
     hasCapabilitySelectionChanges
 } from "../utils/pluginCapabilitySelection";
 import {getCapabilityPresentation} from "../utils/capabilityPresentation";
-import {hasCapability as hasGrantedCapability, HOST_WRITE_CAPABILITY} from "../utils/pluginCapabilities";
+import {
+    hasCapability as hasGrantedCapability,
+    HOST_WRITE_CAPABILITY,
+    STORAGE_CAPABILITY,
+    STORAGE_JSON_CAPABILITY
+} from "../utils/pluginCapabilities";
 import {getPluginTrustTier} from "../utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "../utils/pluginCapabilityDeclaration";
 import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
@@ -71,6 +76,12 @@ const CUSTOM_SCOPE_TOKEN_FIELDS = Object.freeze([
     "allowedExecutables",
     "allowedCwdRoots",
     "allowedEnvKeys",
+    "argumentPolicyAllowedFirstArgs",
+    "argumentPolicyDeniedFirstArgs",
+    "argumentPolicyAllowedLeadingOptions",
+    "argumentPolicyPathRestrictedLeadingOptions",
+    "additionalAllowedFirstArgs",
+    "additionalAllowedLeadingOptions",
 ]);
 
 const FILESYSTEM_OPERATION_OPTIONS = Object.freeze([
@@ -80,6 +91,8 @@ const FILESYSTEM_OPERATION_OPTIONS = Object.freeze([
     "rename",
     "remove",
 ]);
+
+const PROCESS_SCOPE_POLICY_VERSION = 1;
 
 const FILESYSTEM_OPERATION_LABELS = Object.freeze({
     writeFile: "Write file",
@@ -104,6 +117,10 @@ function isValidEnvKey(value = "") {
     return /^[A-Z_][A-Z0-9_]*$/i.test(String(value || "").trim());
 }
 
+function isValidOptionToken(value = "") {
+    return /^-{1,2}[^\s]+$/.test(String(value || "").trim());
+}
+
 function customScopeTokenValidation(field, token) {
     const value = String(token || "").trim();
     if (!value) {
@@ -114,6 +131,18 @@ function customScopeTokenValidation(field, token) {
     }
     if (field === "allowedEnvKeys") {
         return isValidEnvKey(value) ? "" : "Use a valid environment variable key.";
+    }
+    if (field === "argumentPolicyAllowedFirstArgs" || field === "argumentPolicyDeniedFirstArgs") {
+        return /\s/.test(value) ? "Use a single token without spaces." : "";
+    }
+    if (field === "argumentPolicyAllowedLeadingOptions" || field === "argumentPolicyPathRestrictedLeadingOptions") {
+        if (/\s/.test(value)) {
+            return "Use a single token without spaces.";
+        }
+        return isValidOptionToken(value) ? "" : "Use an option token like -C or --chdir.";
+    }
+    if (field === "additionalAllowedFirstArgs" || field === "additionalAllowedLeadingOptions") {
+        return /\s/.test(value) ? "Use a single token without spaces." : "";
     }
     return "";
 }
@@ -229,6 +258,179 @@ function PolicyDetailList({label, values = [], maxVisible = 4}) {
     );
 }
 
+function normalizeArgumentPolicyForDisplay(scopeItem = {}) {
+    const argumentPolicy = (scopeItem?.argumentPolicy && typeof scopeItem.argumentPolicy === "object")
+        ? scopeItem.argumentPolicy
+        : null;
+    if (!argumentPolicy) {
+        return null;
+    }
+    if (argumentPolicy.mode === "first-arg") {
+        return {
+            version: Number.isFinite(Number(argumentPolicy.version)) && Number(argumentPolicy.version) > 0
+                ? Math.trunc(Number(argumentPolicy.version))
+                : PROCESS_SCOPE_POLICY_VERSION,
+            mode: "first-arg",
+            allowedFirstArgs: uniqueNormalizedTokens([
+                ...(Array.isArray(argumentPolicy.allowedFirstArgs) ? argumentPolicy.allowedFirstArgs : []),
+                ...(Array.isArray(scopeItem?.additionalAllowedFirstArgs) ? scopeItem.additionalAllowedFirstArgs : []),
+            ]),
+            deniedFirstArgs: uniqueNormalizedTokens(argumentPolicy.deniedFirstArgs),
+            allowedLeadingOptions: uniqueNormalizedTokens([
+                ...(Array.isArray(argumentPolicy.allowedLeadingOptions) ? argumentPolicy.allowedLeadingOptions : []),
+                ...(Array.isArray(scopeItem?.additionalAllowedLeadingOptions) ? scopeItem.additionalAllowedLeadingOptions : []),
+            ]),
+            pathRestrictedLeadingOptions: uniqueNormalizedTokens(argumentPolicy.pathRestrictedLeadingOptions),
+        };
+    }
+    if (argumentPolicy.mode === "first-arg-by-executable") {
+        const additionalByExecutable = (scopeItem?.additionalAllowedFirstArgsByExecutable && typeof scopeItem.additionalAllowedFirstArgsByExecutable === "object")
+            ? scopeItem.additionalAllowedFirstArgsByExecutable
+            : {};
+        const additionalLeadingByExecutable = (scopeItem?.additionalAllowedLeadingOptionsByExecutable && typeof scopeItem.additionalAllowedLeadingOptionsByExecutable === "object")
+            ? scopeItem.additionalAllowedLeadingOptionsByExecutable
+            : {};
+        const rulesByExecutable = Object.fromEntries(
+            Object.entries((argumentPolicy?.rulesByExecutable && typeof argumentPolicy.rulesByExecutable === "object")
+                ? argumentPolicy.rulesByExecutable
+                : {})
+                .map(([executableName, rule]) => {
+                    const normalizedExecutableName = String(executableName || "").trim();
+                    if (!normalizedExecutableName) {
+                        return null;
+                    }
+                    return [
+                        normalizedExecutableName,
+                        {
+                            allowedFirstArgs: uniqueNormalizedTokens([
+                                ...(Array.isArray(rule?.allowedFirstArgs) ? rule.allowedFirstArgs : []),
+                                ...(Array.isArray(additionalByExecutable?.[normalizedExecutableName]) ? additionalByExecutable[normalizedExecutableName] : []),
+                            ]),
+                            deniedFirstArgs: uniqueNormalizedTokens(rule?.deniedFirstArgs),
+                            allowedLeadingOptions: uniqueNormalizedTokens([
+                                ...(Array.isArray(rule?.allowedLeadingOptions) ? rule.allowedLeadingOptions : []),
+                                ...(Array.isArray(additionalLeadingByExecutable?.[normalizedExecutableName]) ? additionalLeadingByExecutable[normalizedExecutableName] : []),
+                            ]),
+                            pathRestrictedLeadingOptions: uniqueNormalizedTokens(rule?.pathRestrictedLeadingOptions),
+                        },
+                    ];
+                })
+                .filter(Boolean)
+        );
+        return {
+            version: Number.isFinite(Number(argumentPolicy.version)) && Number(argumentPolicy.version) > 0
+                ? Math.trunc(Number(argumentPolicy.version))
+                : PROCESS_SCOPE_POLICY_VERSION,
+            mode: "first-arg-by-executable",
+            rulesByExecutable,
+        };
+    }
+    return null;
+}
+
+function collectArgumentPolicyFilterTokens(scopeItem = {}) {
+    const policy = normalizeArgumentPolicyForDisplay(scopeItem);
+    if (!policy) {
+        return [];
+    }
+    if (policy.mode === "first-arg") {
+        return [
+            ...policy.allowedFirstArgs,
+            ...policy.deniedFirstArgs,
+            ...(Array.isArray(policy.allowedLeadingOptions) ? policy.allowedLeadingOptions : []),
+            ...(Array.isArray(policy.pathRestrictedLeadingOptions) ? policy.pathRestrictedLeadingOptions : []),
+        ];
+    }
+    if (policy.mode === "first-arg-by-executable") {
+        return Object.entries(policy.rulesByExecutable || {}).flatMap(([executableName, rule]) => [
+            executableName,
+            ...(Array.isArray(rule?.allowedFirstArgs) ? rule.allowedFirstArgs : []),
+            ...(Array.isArray(rule?.deniedFirstArgs) ? rule.deniedFirstArgs : []),
+            ...(Array.isArray(rule?.allowedLeadingOptions) ? rule.allowedLeadingOptions : []),
+            ...(Array.isArray(rule?.pathRestrictedLeadingOptions) ? rule.pathRestrictedLeadingOptions : []),
+        ]);
+    }
+    return [];
+}
+
+function buildArgumentPolicySummary(scopeItem = {}) {
+    const policy = normalizeArgumentPolicyForDisplay(scopeItem);
+    if (!policy) {
+        return "";
+    }
+    if (policy.mode === "first-arg") {
+        const allowedCount = Array.isArray(policy.allowedFirstArgs) ? policy.allowedFirstArgs.length : 0;
+        const deniedCount = Array.isArray(policy.deniedFirstArgs) ? policy.deniedFirstArgs.length : 0;
+        const leadingOptionsCount = Array.isArray(policy.allowedLeadingOptions) ? policy.allowedLeadingOptions.length : 0;
+        const pathRestrictedCount = Array.isArray(policy.pathRestrictedLeadingOptions) ? policy.pathRestrictedLeadingOptions.length : 0;
+        return `Argument rules (v${policy.version || PROCESS_SCOPE_POLICY_VERSION}): allow ${allowedCount}, deny ${deniedCount}, leading options ${leadingOptionsCount}, path-restricted ${pathRestrictedCount}`;
+    }
+    if (policy.mode === "first-arg-by-executable") {
+        const executableEntries = Object.values(policy.rulesByExecutable || {});
+        const executableCount = executableEntries.length;
+        const deniedCount = executableEntries.reduce(
+            (total, rule) => total + (Array.isArray(rule?.deniedFirstArgs) ? rule.deniedFirstArgs.length : 0),
+            0
+        );
+        const leadingOptionsCount = executableEntries.reduce(
+            (total, rule) => total + (Array.isArray(rule?.allowedLeadingOptions) ? rule.allowedLeadingOptions.length : 0),
+            0
+        );
+        const pathRestrictedCount = executableEntries.reduce(
+            (total, rule) => total + (Array.isArray(rule?.pathRestrictedLeadingOptions) ? rule.pathRestrictedLeadingOptions.length : 0),
+            0
+        );
+        return `Argument rules (v${policy.version || PROCESS_SCOPE_POLICY_VERSION}): ${executableCount} executable${executableCount === 1 ? "" : "s"}, ${deniedCount} denied, ${leadingOptionsCount} leading options, ${pathRestrictedCount} path-restricted`;
+    }
+    return "";
+}
+
+function ProcessArgumentPolicyDetails({scopeItem}) {
+    const argumentPolicy = normalizeArgumentPolicyForDisplay(scopeItem);
+    if (!argumentPolicy) {
+        return null;
+    }
+    if (argumentPolicy.mode === "first-arg") {
+        return (
+            <>
+                <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                    Policy version: <code>{argumentPolicy.version || PROCESS_SCOPE_POLICY_VERSION}</code>
+                </div>
+                <PolicyDetailList label="Allowed subcommands" values={argumentPolicy.allowedFirstArgs} maxVisible={16}/>
+                <PolicyDetailList label="Blocked subcommands" values={argumentPolicy.deniedFirstArgs} maxVisible={16}/>
+                <PolicyDetailList label="Allowed leading options" values={argumentPolicy.allowedLeadingOptions} maxVisible={16}/>
+                <PolicyDetailList label="Path-restricted leading options" values={argumentPolicy.pathRestrictedLeadingOptions} maxVisible={16}/>
+            </>
+        );
+    }
+    if (argumentPolicy.mode === "first-arg-by-executable") {
+        const executableEntries = Object.entries(argumentPolicy.rulesByExecutable || {});
+        if (executableEntries.length === 0) {
+            return null;
+        }
+        return (
+            <div style={{marginTop: "10px"}}>
+                <div className={"bp6-text-small"} style={{fontWeight: 600}}>Argument policy by executable</div>
+                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                    Policy version: <code>{argumentPolicy.version || PROCESS_SCOPE_POLICY_VERSION}</code>
+                </div>
+                <div style={{display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px"}}>
+                    {executableEntries.map(([executableName, rule]) => (
+                        <Card key={`argument-policy-${executableName}`} style={{background: "#ffffff", border: "1px solid #eef0f2", boxShadow: "none"}}>
+                            <div className={"bp6-text-small"} style={{fontWeight: 600}}><code>{executableName}</code></div>
+                            <PolicyDetailList label="Allowed subcommands" values={rule.allowedFirstArgs} maxVisible={14}/>
+                            <PolicyDetailList label="Blocked subcommands" values={rule.deniedFirstArgs} maxVisible={14}/>
+                            <PolicyDetailList label="Allowed leading options" values={rule.allowedLeadingOptions} maxVisible={14}/>
+                            <PolicyDetailList label="Path-restricted leading options" values={rule.pathRestrictedLeadingOptions} maxVisible={14}/>
+                        </Card>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+    return null;
+}
+
 function buildScopeSummary(scopeItem = {}) {
     const commandCount = Array.isArray(scopeItem?.allowedExecutables) ? scopeItem.allowedExecutables.length : 0;
     const cwdCount = Array.isArray(scopeItem?.allowedCwdRoots) ? scopeItem.allowedCwdRoots.length : 0;
@@ -247,6 +449,10 @@ function buildScopeSummary(scopeItem = {}) {
     }
     if (scopeItem?.timeoutCeilingMs) {
         parts.push(`Timeout max: ${scopeItem.timeoutCeilingMs}ms`);
+    }
+    const argumentPolicySummary = buildArgumentPolicySummary(scopeItem);
+    if (argumentPolicySummary) {
+        parts.push(argumentPolicySummary);
     }
 
     return parts.join(" | ");
@@ -443,63 +649,65 @@ export const ManagePluginsDialog = ({
             }}
         >
             {sortedPlugins?.length > 0 ? (
-            <Tabs
-                vertical={true}
-                animate={true}
-                selectedTabId={selectedTabId}
-                onChange={setSelectedTabId}
-                id={"manage-plugins-tabs"}
-                renderActiveTabPanelOnly={true}
-            >
-                {sortedPlugins?.map((plugin, idx) => (
-                        <Tab id={plugin.id} key={plugin.id}
-                             title={
-                                 <div style={{verticalAlign: "center", width: "180px"}}
-                                      className={"bp6-text-overflow-ellipsis"}>
-                                     <Icon icon={sanitizeBlueprintIcon(plugin.icon)} intent={"primary"}/>
-                                     <span style={{
-                                         marginLeft: "5px",
-                                         fontSize: "0.8rem",
-                                         lineHeight: "10px",
-                                         textOverflow: "ellipsis"
+                <div className={styles["tabs-layout"]}>
+                    <Tabs
+                        vertical={true}
+                        animate={true}
+                        selectedTabId={selectedTabId}
+                        onChange={setSelectedTabId}
+                        id={"manage-plugins-tabs"}
+                        renderActiveTabPanelOnly={true}
+                    >
+                        {sortedPlugins?.map((plugin, idx) => (
+                                <Tab id={plugin.id} key={plugin.id}
+                                     title={
+                                         <div style={{verticalAlign: "center", width: "180px"}}
+                                              className={"bp6-text-overflow-ellipsis"}>
+                                             <Icon icon={sanitizeBlueprintIcon(plugin.icon)} intent={"primary"}/>
+                                             <span style={{
+                                                 marginLeft: "5px",
+                                                 fontSize: "0.8rem",
+                                                 lineHeight: "10px",
+                                                 textOverflow: "ellipsis"
+                                             }}
+                                                   className={classNames("bp6-text-muted")}>{plugin.name}</span>
+                                         </div>
+                                     }
+                                     style={{
+                                         borderBottom: (activePlugins?.some((p) => p.id === plugin.id)) ? "solid 1px #d4d5d7" : "",
+                                         borderTop: idx === 0 ? "solid 1px #d4d5d7" : "",
                                      }}
-                                           className={classNames("bp6-text-muted")}>{plugin.name}</span>
-                                 </div>
-                             }
-                             style={{
-                                 borderBottom: (activePlugins?.some((p) => p.id === plugin.id)) ? "solid 1px #d4d5d7" : "",
-                                 borderTop: idx === 0 ? "solid 1px #d4d5d7" : "",
-                             }}
-                             panelClassName={styles["panel"]}
-                             panel={
-                                 <SelectPluginPanel plugin={plugin} activePlugins={activePlugins}
-                                                    plugins={plugins}
-                                                    selectPlugin={selectPlugin}
-                                                    deselectPlugin={deselectPlugin} removePlugin={removePlugin}
-                                                    setSelectedTabId={setSelectedTabId}
-                                                    selectedTabId={selectedTabId} setSortedPlugins={setSortedPlugins}
-                                                    scopePolicies={scopePolicies}
-                                                    runtimeStatus={runtimeStatusByPluginId.get(plugin.id) || null}
-                                                    refreshPluginsState={refreshPluginsState}
-                                                    reloadScopePolicies={reloadScopePolicies}
-                                                    highlightedCapabilityIds={
-                                                        focusRequest?.pluginId === plugin.id
-                                                            ? (Array.isArray(focusRequest?.capabilityIds) ? focusRequest.capabilityIds : [])
-                                                            : []
-                                                    }
-                                                    focusRequest={focusRequest?.pluginId === plugin.id ? focusRequest : null}
-                                                    persistentScopeSuggestion={pendingPluginScopeSuggestions?.[plugin.id] || null}
-                                                    resolvePersistentScopeSuggestion={() => onPendingPluginScopeSuggestionResolved?.(plugin.id)}
-                                                    consumeFocusRequest={onFocusRequestConsumed}
-                                                    refreshRuntimeStatuses={refreshRuntimeStatuses}
-                                                    dialogOpen={show}
-                                 />
-                             }/>
-                    )
-                )}
-            </Tabs>
+                                     panelClassName={styles["panel"]}
+                                     panel={
+                                         <SelectPluginPanel plugin={plugin} activePlugins={activePlugins}
+                                                            plugins={plugins}
+                                                            selectPlugin={selectPlugin}
+                                                            deselectPlugin={deselectPlugin} removePlugin={removePlugin}
+                                                            setSelectedTabId={setSelectedTabId}
+                                                            selectedTabId={selectedTabId} setSortedPlugins={setSortedPlugins}
+                                                            scopePolicies={scopePolicies}
+                                                            runtimeStatus={runtimeStatusByPluginId.get(plugin.id) || null}
+                                                            refreshPluginsState={refreshPluginsState}
+                                                            reloadScopePolicies={reloadScopePolicies}
+                                                            highlightedCapabilityIds={
+                                                                focusRequest?.pluginId === plugin.id
+                                                                    ? (Array.isArray(focusRequest?.capabilityIds) ? focusRequest.capabilityIds : [])
+                                                                    : []
+                                                            }
+                                                            focusRequest={focusRequest?.pluginId === plugin.id ? focusRequest : null}
+                                                            persistentScopeSuggestion={pendingPluginScopeSuggestions?.[plugin.id] || null}
+                                                            resolvePersistentScopeSuggestion={() => onPendingPluginScopeSuggestionResolved?.(plugin.id)}
+                                                            consumeFocusRequest={onFocusRequestConsumed}
+                                                            refreshRuntimeStatuses={refreshRuntimeStatuses}
+                                                            dialogOpen={show}
+                                         />
+                                     }/>
+                            )
+                        )}
+                    </Tabs>
+                </div>
             ) : (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                <div className={styles["empty-state-wrap"]}>
                     <NonIdealState
                         icon="layout"
                         title="No plugins found"
@@ -568,6 +776,16 @@ const SelectPluginPanel = ({
         allowedExecutables: [],
         allowedCwdRoots: [],
         allowedEnvKeys: [],
+        argumentPolicyAllowedFirstArgs: [],
+        argumentPolicyDeniedFirstArgs: [],
+        argumentPolicyAllowedLeadingOptions: [],
+        argumentPolicyPathRestrictedLeadingOptions: [],
+        argumentPolicyRaw: null,
+        policyVersion: PROCESS_SCOPE_POLICY_VERSION,
+        additionalAllowedFirstArgs: [],
+        additionalAllowedLeadingOptions: [],
+        additionalAllowedFirstArgsByExecutable: {},
+        additionalAllowedLeadingOptionsByExecutable: {},
         timeoutCeilingMs: "30000",
         requireConfirmation: true,
     };
@@ -580,6 +798,7 @@ const SelectPluginPanel = ({
         requireConfirmation: true,
     };
     const BASE_PRIVILEGED_CAPABILITIES = [
+        STORAGE_CAPABILITY,
         HOST_WRITE_CAPABILITY,
         "system.process.exec",
     ];
@@ -616,11 +835,23 @@ const SelectPluginPanel = ({
         allowedExecutables: "",
         allowedCwdRoots: "",
         allowedEnvKeys: "",
+        argumentPolicyAllowedFirstArgs: "",
+        argumentPolicyDeniedFirstArgs: "",
+        argumentPolicyAllowedLeadingOptions: "",
+        argumentPolicyPathRestrictedLeadingOptions: "",
+        additionalAllowedFirstArgs: "",
+        additionalAllowedLeadingOptions: "",
     });
     const [customScopeInputErrors, setCustomScopeInputErrors] = useState({
         allowedExecutables: "",
         allowedCwdRoots: "",
         allowedEnvKeys: "",
+        argumentPolicyAllowedFirstArgs: "",
+        argumentPolicyDeniedFirstArgs: "",
+        argumentPolicyAllowedLeadingOptions: "",
+        argumentPolicyPathRestrictedLeadingOptions: "",
+        additionalAllowedFirstArgs: "",
+        additionalAllowedLeadingOptions: "",
     });
     const [scopeSetupSuggestion, setScopeSetupSuggestion] = useState(null);
     const [suppressSuggestedScopeAutoOpen, setSuppressSuggestedScopeAutoOpen] = useState(false);
@@ -723,11 +954,23 @@ const SelectPluginPanel = ({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setCustomScopeInputErrors({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
     };
     const closeCustomScopeEditor = ({suppressAutoOpen = false} = {}) => {
@@ -799,11 +1042,23 @@ const SelectPluginPanel = ({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setCustomScopeInputErrors({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setCustomScopeDraft({
             ...emptyCustomScopeDraft,
@@ -1115,6 +1370,27 @@ const SelectPluginPanel = ({
             requireConfirmation: null,
         },
     ]), []);
+    const storageCapabilityChildren = useMemo(() => ([
+        {
+            id: "storage-json",
+            title: "Persistent plugin JSON storage",
+            kind: "capability",
+            category: "Storage",
+            description: "Persistent JSON storage backend for plugin state.",
+            fallback: false,
+            userDefined: false,
+            capability: STORAGE_JSON_CAPABILITY,
+            baseCapability: STORAGE_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        // Reserved for future storage capability children (for example: "storage.sqlite").
+    ]), []);
     const scopeCapabilitiesByBase = useMemo(() => {
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             groups[baseCapability] = scopeCapabilities.filter((item) => item.baseCapability === baseCapability);
@@ -1124,11 +1400,17 @@ const SelectPluginPanel = ({
     const capabilityChildrenByBase = useMemo(() => {
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             const scopeChildren = scopeCapabilitiesByBase[baseCapability] || [];
-            const extraChildren = baseCapability === HOST_WRITE_CAPABILITY ? clipboardCapabilityChildren : [];
+            const extraChildren = (
+                baseCapability === HOST_WRITE_CAPABILITY
+                    ? clipboardCapabilityChildren
+                    : baseCapability === STORAGE_CAPABILITY
+                        ? storageCapabilityChildren
+                        : []
+            );
             groups[baseCapability] = [...scopeChildren, ...extraChildren];
             return groups;
         }, {});
-    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren]);
+    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren]);
     const unresolvedGrantedScopeCapabilities = useMemo(
         () => [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
             .map((capability) => String(capability || "").trim())
@@ -1259,6 +1541,7 @@ const SelectPluginPanel = ({
                     presentation?.title,
                     presentation?.description,
                     ...(scopeItem.allowedExecutables || []),
+                    ...collectArgumentPolicyFilterTokens(scopeItem),
                 ].join(" ").toLowerCase();
                 return haystack.includes(normalizedCapabilityFilter);
             });
@@ -1443,6 +1726,33 @@ const SelectPluginPanel = ({
                 setCustomScopeSaving(false);
                 return;
             }
+            const argumentPolicyAllowedFirstArgs = uniqueNormalizedTokens(customScopeDraft.argumentPolicyAllowedFirstArgs);
+            const argumentPolicyDeniedFirstArgs = uniqueNormalizedTokens(customScopeDraft.argumentPolicyDeniedFirstArgs);
+            const argumentPolicyAllowedLeadingOptions = uniqueNormalizedTokens(customScopeDraft.argumentPolicyAllowedLeadingOptions);
+            const argumentPolicyPathRestrictedLeadingOptions = uniqueNormalizedTokens(customScopeDraft.argumentPolicyPathRestrictedLeadingOptions);
+            const invalidPathRestrictedOption = argumentPolicyPathRestrictedLeadingOptions.find(
+                (option) => !argumentPolicyAllowedLeadingOptions.includes(option)
+            );
+            if (invalidPathRestrictedOption) {
+                setCustomScopeError(`Path-restricted option "${invalidPathRestrictedOption}" must also be listed in Allowed leading options.`);
+                return;
+            }
+            const hasArgumentPolicy = argumentPolicyAllowedFirstArgs.length > 0
+                || argumentPolicyDeniedFirstArgs.length > 0
+                || argumentPolicyAllowedLeadingOptions.length > 0
+                || argumentPolicyPathRestrictedLeadingOptions.length > 0;
+            const argumentPolicy = hasArgumentPolicy ? {
+                version: Number.isFinite(Number(customScopeDraft.policyVersion)) && Number(customScopeDraft.policyVersion) > 0
+                    ? Math.trunc(Number(customScopeDraft.policyVersion))
+                    : PROCESS_SCOPE_POLICY_VERSION,
+                mode: "first-arg",
+                allowedFirstArgs: argumentPolicyAllowedFirstArgs,
+                deniedFirstArgs: argumentPolicyDeniedFirstArgs,
+                allowedLeadingOptions: argumentPolicyAllowedLeadingOptions,
+                pathRestrictedLeadingOptions: argumentPolicyPathRestrictedLeadingOptions,
+            } : ((customScopeDraft.argumentPolicyRaw && typeof customScopeDraft.argumentPolicyRaw === "object")
+                ? customScopeDraft.argumentPolicyRaw
+                : undefined);
             const payload = {
                 scope: normalizedScopeId,
                 title: customScopeDraft.title,
@@ -1450,6 +1760,14 @@ const SelectPluginPanel = ({
                 allowedExecutables: uniqueNormalizedTokens(customScopeDraft.allowedExecutables),
                 allowedCwdRoots: uniqueNormalizedTokens(customScopeDraft.allowedCwdRoots),
                 allowedEnvKeys: uniqueNormalizedTokens(customScopeDraft.allowedEnvKeys),
+                policyVersion: Number.isFinite(Number(customScopeDraft.policyVersion)) && Number(customScopeDraft.policyVersion) > 0
+                    ? Math.trunc(Number(customScopeDraft.policyVersion))
+                    : PROCESS_SCOPE_POLICY_VERSION,
+                argumentPolicy,
+                additionalAllowedFirstArgs: uniqueNormalizedTokens(customScopeDraft.additionalAllowedFirstArgs),
+                additionalAllowedLeadingOptions: uniqueNormalizedTokens(customScopeDraft.additionalAllowedLeadingOptions),
+                additionalAllowedFirstArgsByExecutable: customScopeDraft.additionalAllowedFirstArgsByExecutable,
+                additionalAllowedLeadingOptionsByExecutable: customScopeDraft.additionalAllowedLeadingOptionsByExecutable,
                 timeoutCeilingMs: Number(customScopeDraft.timeoutCeilingMs || 0),
                 requireConfirmation: customScopeDraft.requireConfirmation !== false,
             };
@@ -1485,6 +1803,24 @@ const SelectPluginPanel = ({
             allowedExecutables: Array.isArray(scope?.allowedExecutables) ? scope.allowedExecutables : [],
             allowedCwdRoots: Array.isArray(scope?.allowedCwdRoots) ? scope.allowedCwdRoots : [],
             allowedEnvKeys: Array.isArray(scope?.allowedEnvKeys) ? scope.allowedEnvKeys : [],
+            argumentPolicyAllowedFirstArgs: Array.isArray(scope?.argumentPolicy?.allowedFirstArgs) ? scope.argumentPolicy.allowedFirstArgs : [],
+            argumentPolicyDeniedFirstArgs: Array.isArray(scope?.argumentPolicy?.deniedFirstArgs) ? scope.argumentPolicy.deniedFirstArgs : [],
+            argumentPolicyAllowedLeadingOptions: Array.isArray(scope?.argumentPolicy?.allowedLeadingOptions) ? scope.argumentPolicy.allowedLeadingOptions : [],
+            argumentPolicyPathRestrictedLeadingOptions: Array.isArray(scope?.argumentPolicy?.pathRestrictedLeadingOptions) ? scope.argumentPolicy.pathRestrictedLeadingOptions : [],
+            argumentPolicyRaw: (scope?.argumentPolicy?.mode && scope.argumentPolicy.mode !== "first-arg")
+                ? scope.argumentPolicy
+                : null,
+            policyVersion: Number.isFinite(Number(scope?.policyVersion)) && Number(scope.policyVersion) > 0
+                ? Math.trunc(Number(scope.policyVersion))
+                : PROCESS_SCOPE_POLICY_VERSION,
+            additionalAllowedFirstArgs: Array.isArray(scope?.additionalAllowedFirstArgs) ? scope.additionalAllowedFirstArgs : [],
+            additionalAllowedLeadingOptions: Array.isArray(scope?.additionalAllowedLeadingOptions) ? scope.additionalAllowedLeadingOptions : [],
+            additionalAllowedFirstArgsByExecutable: (scope?.additionalAllowedFirstArgsByExecutable && typeof scope.additionalAllowedFirstArgsByExecutable === "object")
+                ? scope.additionalAllowedFirstArgsByExecutable
+                : {},
+            additionalAllowedLeadingOptionsByExecutable: (scope?.additionalAllowedLeadingOptionsByExecutable && typeof scope.additionalAllowedLeadingOptionsByExecutable === "object")
+                ? scope.additionalAllowedLeadingOptionsByExecutable
+                : {},
             timeoutCeilingMs: scope?.timeoutCeilingMs ? String(scope.timeoutCeilingMs) : "30000",
             requireConfirmation: scope?.requireConfirmation !== false,
         });
@@ -1493,11 +1829,23 @@ const SelectPluginPanel = ({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setCustomScopeInputErrors({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setShowCustomScopeEditor(true);
     };
@@ -1512,6 +1860,24 @@ const SelectPluginPanel = ({
             allowedExecutables: Array.isArray(scope?.allowedExecutables) ? scope.allowedExecutables : [],
             allowedCwdRoots: Array.isArray(scope?.allowedCwdRoots) ? scope.allowedCwdRoots : [],
             allowedEnvKeys: Array.isArray(scope?.allowedEnvKeys) ? scope.allowedEnvKeys : [],
+            argumentPolicyAllowedFirstArgs: Array.isArray(scope?.argumentPolicy?.allowedFirstArgs) ? scope.argumentPolicy.allowedFirstArgs : [],
+            argumentPolicyDeniedFirstArgs: Array.isArray(scope?.argumentPolicy?.deniedFirstArgs) ? scope.argumentPolicy.deniedFirstArgs : [],
+            argumentPolicyAllowedLeadingOptions: Array.isArray(scope?.argumentPolicy?.allowedLeadingOptions) ? scope.argumentPolicy.allowedLeadingOptions : [],
+            argumentPolicyPathRestrictedLeadingOptions: Array.isArray(scope?.argumentPolicy?.pathRestrictedLeadingOptions) ? scope.argumentPolicy.pathRestrictedLeadingOptions : [],
+            argumentPolicyRaw: (scope?.argumentPolicy?.mode && scope.argumentPolicy.mode !== "first-arg")
+                ? scope.argumentPolicy
+                : null,
+            policyVersion: Number.isFinite(Number(scope?.policyVersion)) && Number(scope.policyVersion) > 0
+                ? Math.trunc(Number(scope.policyVersion))
+                : PROCESS_SCOPE_POLICY_VERSION,
+            additionalAllowedFirstArgs: Array.isArray(scope?.additionalAllowedFirstArgs) ? scope.additionalAllowedFirstArgs : [],
+            additionalAllowedLeadingOptions: Array.isArray(scope?.additionalAllowedLeadingOptions) ? scope.additionalAllowedLeadingOptions : [],
+            additionalAllowedFirstArgsByExecutable: (scope?.additionalAllowedFirstArgsByExecutable && typeof scope.additionalAllowedFirstArgsByExecutable === "object")
+                ? scope.additionalAllowedFirstArgsByExecutable
+                : {},
+            additionalAllowedLeadingOptionsByExecutable: (scope?.additionalAllowedLeadingOptionsByExecutable && typeof scope.additionalAllowedLeadingOptionsByExecutable === "object")
+                ? scope.additionalAllowedLeadingOptionsByExecutable
+                : {},
             timeoutCeilingMs: scope?.timeoutCeilingMs ? String(scope.timeoutCeilingMs) : "30000",
             requireConfirmation: scope?.requireConfirmation !== false,
         });
@@ -1520,11 +1886,23 @@ const SelectPluginPanel = ({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setCustomScopeInputErrors({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+            additionalAllowedFirstArgs: "",
+            additionalAllowedLeadingOptions: "",
         });
         setShowCustomScopeEditor(true);
     };
@@ -2241,12 +2619,18 @@ const SelectPluginPanel = ({
                                                     <Tag minimal>{(scope.allowedExecutables || []).length} command path{(scope.allowedExecutables || []).length === 1 ? "" : "s"}</Tag>
                                                     <Tag minimal>timeout max: {scope.timeoutCeilingMs || 30000}ms</Tag>
                                                     <Tag minimal>confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
+                                                    <Tag minimal>policy v{scope.policyVersion || PROCESS_SCOPE_POLICY_VERSION}</Tag>
                                                     <Tag minimal intent="primary">Plugin-owned scope</Tag>
                                                 </div>
                                                 {Array.isArray(scope.allowedExecutables) && scope.allowedExecutables.length > 0 ? (
                                                     <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
                                                         Allowed commands: {scope.allowedExecutables.slice(0, 3).join(", ")}
                                                         {scope.allowedExecutables.length > 3 ? ` +${scope.allowedExecutables.length - 3} more` : ""}
+                                                    </div>
+                                                ) : null}
+                                                {buildArgumentPolicySummary(scope) ? (
+                                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                        {buildArgumentPolicySummary(scope)}
                                                     </div>
                                                 ) : null}
                                             </Card>
@@ -2471,6 +2855,127 @@ const SelectPluginPanel = ({
                         onAddToken={() => addCustomScopeToken("allowedEnvKeys")}
                         onRemoveToken={(token) => removeCustomScopeToken("allowedEnvKeys", token)}
                     />
+                    <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginTop: "6px"}}>
+                        <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                            Argument policy (optional)
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginBottom: "10px"}}>
+                            Define first-argument and leading-option restrictions for this scope. Path-restricted options require absolute paths under allowed CWD roots.
+                        </div>
+                        <TokenListInput
+                            label="Allowed subcommands"
+                            placeholder="status"
+                            helperText="Optional allowlist for first argument tokens."
+                            tokens={customScopeDraft.argumentPolicyAllowedFirstArgs}
+                            inputValue={customScopeInputs.argumentPolicyAllowedFirstArgs}
+                            inputError={customScopeInputErrors.argumentPolicyAllowedFirstArgs}
+                            onInputChange={(value) => {
+                                setCustomScopeInputs((prev) => ({...prev, argumentPolicyAllowedFirstArgs: value}));
+                                setCustomScopeInputErrors((prev) => ({...prev, argumentPolicyAllowedFirstArgs: ""}));
+                            }}
+                            onAddToken={() => addCustomScopeToken("argumentPolicyAllowedFirstArgs")}
+                            onRemoveToken={(token) => removeCustomScopeToken("argumentPolicyAllowedFirstArgs", token)}
+                        />
+                        <TokenListInput
+                            label="Blocked subcommands"
+                            placeholder="credential"
+                            helperText="Explicit denylist checked before allowlist."
+                            tokens={customScopeDraft.argumentPolicyDeniedFirstArgs}
+                            inputValue={customScopeInputs.argumentPolicyDeniedFirstArgs}
+                            inputError={customScopeInputErrors.argumentPolicyDeniedFirstArgs}
+                            onInputChange={(value) => {
+                                setCustomScopeInputs((prev) => ({...prev, argumentPolicyDeniedFirstArgs: value}));
+                                setCustomScopeInputErrors((prev) => ({...prev, argumentPolicyDeniedFirstArgs: ""}));
+                            }}
+                            onAddToken={() => addCustomScopeToken("argumentPolicyDeniedFirstArgs")}
+                            onRemoveToken={(token) => removeCustomScopeToken("argumentPolicyDeniedFirstArgs", token)}
+                        />
+                        <TokenListInput
+                            label="Allowed leading options"
+                            placeholder="-C"
+                            helperText="Option-like tokens accepted before first subcommand."
+                            tokens={customScopeDraft.argumentPolicyAllowedLeadingOptions}
+                            inputValue={customScopeInputs.argumentPolicyAllowedLeadingOptions}
+                            inputError={customScopeInputErrors.argumentPolicyAllowedLeadingOptions}
+                            onInputChange={(value) => {
+                                setCustomScopeInputs((prev) => ({...prev, argumentPolicyAllowedLeadingOptions: value}));
+                                setCustomScopeInputErrors((prev) => ({...prev, argumentPolicyAllowedLeadingOptions: ""}));
+                            }}
+                            onAddToken={() => addCustomScopeToken("argumentPolicyAllowedLeadingOptions")}
+                            onRemoveToken={(token) => removeCustomScopeToken("argumentPolicyAllowedLeadingOptions", token)}
+                        />
+                        <TokenListInput
+                            label="Path-restricted leading options"
+                            placeholder="--chdir"
+                            helperText="Must also exist in Allowed leading options."
+                            tokens={customScopeDraft.argumentPolicyPathRestrictedLeadingOptions}
+                            inputValue={customScopeInputs.argumentPolicyPathRestrictedLeadingOptions}
+                            inputError={customScopeInputErrors.argumentPolicyPathRestrictedLeadingOptions}
+                            onInputChange={(value) => {
+                                setCustomScopeInputs((prev) => ({...prev, argumentPolicyPathRestrictedLeadingOptions: value}));
+                                setCustomScopeInputErrors((prev) => ({...prev, argumentPolicyPathRestrictedLeadingOptions: ""}));
+                            }}
+                            onAddToken={() => addCustomScopeToken("argumentPolicyPathRestrictedLeadingOptions")}
+                            onRemoveToken={(token) => removeCustomScopeToken("argumentPolicyPathRestrictedLeadingOptions", token)}
+                        />
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            Policy version: <code>{customScopeDraft.policyVersion || PROCESS_SCOPE_POLICY_VERSION}</code>
+                        </div>
+                        {customScopeDraft.argumentPolicyRaw?.mode && customScopeDraft.argumentPolicyRaw.mode !== "first-arg" ? (
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                Existing advanced policy mode <code>{customScopeDraft.argumentPolicyRaw.mode}</code> is preserved unless first-arg fields are set above.
+                            </div>
+                        ) : null}
+                    </Card>
+                    <TokenListInput
+                        label="Allowed subcommand overrides"
+                        placeholder="status"
+                        helperText="Optional additive subcommands for this plugin scope. Denied subcommands remain blocked."
+                        tokens={customScopeDraft.additionalAllowedFirstArgs}
+                        inputValue={customScopeInputs.additionalAllowedFirstArgs}
+                        inputError={customScopeInputErrors.additionalAllowedFirstArgs}
+                        onInputChange={(value) => {
+                            setCustomScopeInputs((prev) => ({...prev, additionalAllowedFirstArgs: value}));
+                            setCustomScopeInputErrors((prev) => ({...prev, additionalAllowedFirstArgs: ""}));
+                        }}
+                        onAddToken={() => addCustomScopeToken("additionalAllowedFirstArgs")}
+                        onRemoveToken={(token) => removeCustomScopeToken("additionalAllowedFirstArgs", token)}
+                    />
+                    <TokenListInput
+                        label="Allowed leading option overrides"
+                        placeholder="-C"
+                        helperText="Optional additive leading options (for example: -C, --chdir). Path-restricted rules still apply."
+                        tokens={customScopeDraft.additionalAllowedLeadingOptions}
+                        inputValue={customScopeInputs.additionalAllowedLeadingOptions}
+                        inputError={customScopeInputErrors.additionalAllowedLeadingOptions}
+                        onInputChange={(value) => {
+                            setCustomScopeInputs((prev) => ({...prev, additionalAllowedLeadingOptions: value}));
+                            setCustomScopeInputErrors((prev) => ({...prev, additionalAllowedLeadingOptions: ""}));
+                        }}
+                        onAddToken={() => addCustomScopeToken("additionalAllowedLeadingOptions")}
+                        onRemoveToken={(token) => removeCustomScopeToken("additionalAllowedLeadingOptions", token)}
+                    />
+                    {Object.keys(customScopeDraft.additionalAllowedFirstArgsByExecutable || {}).length > 0
+                        || Object.keys(customScopeDraft.additionalAllowedLeadingOptionsByExecutable || {}).length > 0 ? (
+                        <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginTop: "6px"}}>
+                            <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                                Per-executable argument overrides
+                            </div>
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                This scope includes executable-specific argument overrides managed by host policy/runtime actions.
+                            </div>
+                            {Object.entries(customScopeDraft.additionalAllowedFirstArgsByExecutable || {}).map(([executableName, values]) => (
+                                <div key={`scope-arg-overrides-${executableName}`} className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                    <code>{executableName}</code>: subcommands {Array.isArray(values) && values.length > 0 ? values.join(", ") : "(none)"}
+                                </div>
+                            ))}
+                            {Object.entries(customScopeDraft.additionalAllowedLeadingOptionsByExecutable || {}).map(([executableName, values]) => (
+                                <div key={`scope-leading-overrides-${executableName}`} className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                    <code>{executableName}</code>: leading options {Array.isArray(values) && values.length > 0 ? values.join(", ") : "(none)"}
+                                </div>
+                            ))}
+                        </Card>
+                    ) : null}
                     <div style={{display: "grid", gridTemplateColumns: "minmax(220px, 1fr)", gap: "10px", alignItems: "start"}}>
                         <FormGroup label="Timeout ceiling (ms)">
                             <InputGroup
@@ -2701,6 +3206,7 @@ const SelectPluginPanel = ({
                                 <PolicyDetailList label="Commands" values={activePolicyDetails.allowedExecutables} maxVisible={12}/>
                                 <PolicyDetailList label="CWD roots" values={activePolicyDetails.allowedCwdRoots} maxVisible={12}/>
                                 <PolicyDetailList label="Env keys" values={activePolicyDetails.allowedEnvKeys} maxVisible={12}/>
+                                <ProcessArgumentPolicyDetails scopeItem={activePolicyDetails}/>
                             </Card>
                         </>
                     ) : null}
@@ -2857,6 +3363,7 @@ const SelectPluginPanel = ({
                                                 .map((scopeItem) => {
                                                 const presentation = getCapabilityPresentation(scopeItem.capability, scopePolicies);
                                                 const scopeSummary = buildScopeSummary(scopeItem);
+                                                const hasArgumentPolicy = Boolean(normalizeArgumentPolicyForDisplay(scopeItem));
                                                 return (
                                                     <Card
                                                         key={scopeItem.capability}
@@ -2892,6 +3399,7 @@ const SelectPluginPanel = ({
                                                             ) : null}
                                                             {scopeItem.timeoutCeilingMs ? <Tag minimal>timeout max: {scopeItem.timeoutCeilingMs}ms</Tag> : null}
                                                             {scopeItem.allowedExecutables.length > 0 ? <Tag minimal>{scopeItem.allowedExecutables.length} command path{scopeItem.allowedExecutables.length === 1 ? "" : "s"}</Tag> : null}
+                                                            {hasArgumentPolicy ? <Tag minimal>argument policy</Tag> : null}
                                                         </div>
                                                         {scopeSummary ? (
                                                             <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
@@ -2914,6 +3422,11 @@ const SelectPluginPanel = ({
                                                                         allowedExecutables: scopeItem.allowedExecutables,
                                                                         allowedCwdRoots: scopeItem.allowedCwdRoots,
                                                                         allowedEnvKeys: scopeItem.allowedEnvKeys,
+                                                                        additionalAllowedFirstArgs: scopeItem.additionalAllowedFirstArgs,
+                                                                        additionalAllowedFirstArgsByExecutable: scopeItem.additionalAllowedFirstArgsByExecutable,
+                                                                        additionalAllowedLeadingOptions: scopeItem.additionalAllowedLeadingOptions,
+                                                                        additionalAllowedLeadingOptionsByExecutable: scopeItem.additionalAllowedLeadingOptionsByExecutable,
+                                                                        argumentPolicy: scopeItem.argumentPolicy,
                                                                         timeoutCeilingMs: scopeItem.timeoutCeilingMs,
                                                                         requireConfirmation: scopeItem.requireConfirmation,
                                                                         shared: scopeItem.shared,
@@ -2957,7 +3470,9 @@ const SelectPluginPanel = ({
                                     <div className={classNames("bp6-text-small")}>
                                         {baseCapability === "system.process.exec"
                                             ? "Base tool execution is enabled, but no process scopes are granted yet. Both are required for process execution requests."
-                                            : "Base privileged host actions are enabled, but no filesystem/clipboard child grants are selected yet."}
+                                            : baseCapability === STORAGE_CAPABILITY
+                                                ? "Base storage capability is enabled, but no storage backend is selected yet."
+                                                : "Base privileged host actions are enabled, but no filesystem/clipboard child grants are selected yet."}
                                     </div>
                                 </Card>
                             ) : null}

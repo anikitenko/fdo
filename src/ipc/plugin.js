@@ -56,6 +56,7 @@ import {
 } from "../utils/privilegedProcessScopeRegistry";
 import {getPluginTrustTier, summarizePrivilegedRuntime} from "../utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary, extractCapabilityDeclarationComparison} from "../utils/pluginCapabilityDeclaration";
+import {STORAGE_CAPABILITY, STORAGE_JSON_CAPABILITY} from "../utils/pluginCapabilities";
 
 function buildHostPluginMessage(message, content = undefined) {
     const envelope = { message };
@@ -169,7 +170,170 @@ function extractPrivilegedActionRequestEnvelope(payload = {}) {
     };
 }
 
+function isForwardedPrivilegedBridgeFailure(payload = {}) {
+    if (!payload || typeof payload !== "object") {
+        return false;
+    }
+    const hasAction = typeof payload.action === "string" && payload.action.trim();
+    if (hasAction) {
+        return false;
+    }
+    const hasCode = typeof payload.code === "string" && payload.code.trim();
+    const hasError = typeof payload.error === "string" && payload.error.trim();
+    return payload.ok === false || payload.success === false || hasCode || hasError;
+}
+
+function normalizeForwardedPrivilegedBridgeFailure(payload = {}, fallbackCorrelationId = "") {
+    const rawCode = typeof payload?.code === "string" ? payload.code.trim() : "";
+    const rawError = typeof payload?.error === "string" ? payload.error.trim() : "";
+    const rawCorrelationId = typeof payload?.correlationId === "string" ? payload.correlationId.trim() : "";
+    const code = rawCode || "PLUGIN_BACKEND_HANDLER_FAILED";
+    const error = rawError || "Plugin backend handler failed before building privileged request.";
+    const correlationId = rawCorrelationId || String(fallbackCorrelationId || "").trim();
+
+    return {
+        ok: false,
+        code,
+        error,
+        correlationId,
+    };
+}
+
+function toCapabilitySet(capabilities = []) {
+    return new Set((Array.isArray(capabilities) ? capabilities : [])
+        .filter((value) => typeof value === "string" && value.trim())
+        .map((value) => value.trim()));
+}
+
+function didStorageCapabilityFamilyChange(previousCapabilities = [], nextCapabilities = []) {
+    const previousSet = toCapabilitySet(previousCapabilities);
+    const nextSet = toCapabilitySet(nextCapabilities);
+    const previousStorageBase = previousSet.has(STORAGE_CAPABILITY);
+    const previousStorageJson = previousSet.has(STORAGE_JSON_CAPABILITY);
+    const nextStorageBase = nextSet.has(STORAGE_CAPABILITY);
+    const nextStorageJson = nextSet.has(STORAGE_JSON_CAPABILITY);
+    return previousStorageBase !== nextStorageBase || previousStorageJson !== nextStorageJson;
+}
+
+function uniqueNormalizedStrings(values = []) {
+    return [...new Set((Array.isArray(values) ? values : [])
+        .filter((value) => typeof value === "string" && value.trim())
+        .map((value) => value.trim()))];
+}
+
+function uniqueAbsolutePaths(values = []) {
+    return [...new Set((Array.isArray(values) ? values : [])
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean)
+        .map((value) => path.resolve(value))
+        .filter((value) => path.isAbsolute(value)))];
+}
+
+function basenameWithoutPath(command = "") {
+    const normalized = String(command || "").trim();
+    if (!normalized) {
+        return "";
+    }
+    return normalized.split(/[\\/]/).pop() || "";
+}
+
+function normalizeAdditionalAllowedFirstArgsByExecutableMap(values = {}) {
+    return Object.fromEntries(
+        Object.entries((values && typeof values === "object") ? values : {})
+            .map(([executableName, firstArgs]) => [
+                String(executableName || "").trim(),
+                uniqueNormalizedStrings(firstArgs),
+            ])
+            .filter(([executableName, firstArgs]) => executableName && firstArgs.length > 0)
+    );
+}
+
+function mergeAdditionalAllowedFirstArgsByExecutableMaps(...maps) {
+    const accumulator = {};
+    maps.forEach((map) => {
+        Object.entries(normalizeAdditionalAllowedFirstArgsByExecutableMap(map)).forEach(([executableName, firstArgs]) => {
+            accumulator[executableName] = uniqueNormalizedStrings([
+                ...(Array.isArray(accumulator[executableName]) ? accumulator[executableName] : []),
+                ...firstArgs,
+            ]);
+        });
+    });
+    return accumulator;
+}
+
+function sanitizeArgumentRulesByExecutable(rulesByExecutable = {}) {
+    return Object.fromEntries(
+        Object.entries((rulesByExecutable && typeof rulesByExecutable === "object") ? rulesByExecutable : {})
+            .map(([executableName, rule]) => {
+                const normalizedExecutableName = String(executableName || "").trim();
+                if (!normalizedExecutableName) {
+                    return null;
+                }
+                return [
+                    normalizedExecutableName,
+                    {
+                        allowedFirstArgs: Array.isArray(rule?.allowedFirstArgs)
+                            ? [...new Set(rule.allowedFirstArgs.map((value) => String(value || "").trim()).filter(Boolean))]
+                            : [],
+                        deniedFirstArgs: Array.isArray(rule?.deniedFirstArgs)
+                            ? [...new Set(rule.deniedFirstArgs.map((value) => String(value || "").trim()).filter(Boolean))]
+                            : [],
+                        allowedLeadingOptions: Array.isArray(rule?.allowedLeadingOptions)
+                            ? [...new Set(rule.allowedLeadingOptions.map((value) => String(value || "").trim()).filter(Boolean))]
+                            : [],
+                        pathRestrictedLeadingOptions: Array.isArray(rule?.pathRestrictedLeadingOptions)
+                            ? [...new Set(rule.pathRestrictedLeadingOptions.map((value) => String(value || "").trim()).filter(Boolean))]
+                            : [],
+                    },
+                ];
+            })
+            .filter(Boolean)
+    );
+}
+
+function sanitizeArgumentPolicy(policy = {}) {
+    if (!policy || typeof policy !== "object") {
+        return undefined;
+    }
+    const version = Number.isFinite(Number(policy?.version)) && Number(policy.version) > 0
+        ? Math.trunc(Number(policy.version))
+        : 1;
+    const mode = String(policy?.mode || "").trim();
+    if (mode === "first-arg") {
+        return {
+            version,
+            mode,
+            allowedFirstArgs: Array.isArray(policy?.allowedFirstArgs)
+                ? [...new Set(policy.allowedFirstArgs.map((value) => String(value || "").trim()).filter(Boolean))]
+                : [],
+            deniedFirstArgs: Array.isArray(policy?.deniedFirstArgs)
+                ? [...new Set(policy.deniedFirstArgs.map((value) => String(value || "").trim()).filter(Boolean))]
+                : [],
+            allowedLeadingOptions: Array.isArray(policy?.allowedLeadingOptions)
+                ? [...new Set(policy.allowedLeadingOptions.map((value) => String(value || "").trim()).filter(Boolean))]
+                : [],
+            pathRestrictedLeadingOptions: Array.isArray(policy?.pathRestrictedLeadingOptions)
+                ? [...new Set(policy.pathRestrictedLeadingOptions.map((value) => String(value || "").trim()).filter(Boolean))]
+                : [],
+        };
+    }
+    if (mode === "first-arg-by-executable") {
+        const rulesByExecutable = sanitizeArgumentRulesByExecutable(policy?.rulesByExecutable);
+        return {
+            version,
+            mode,
+            rulesByExecutable,
+        };
+    }
+    return undefined;
+}
+
+function resolveScopeArgumentPolicy(scopePolicy = {}) {
+    return sanitizeArgumentPolicy(scopePolicy?.argumentPolicy || scopePolicy?.validateArgs?.argumentPolicy);
+}
+
 function sanitizeScopePolicy(policy = {}) {
+    const sanitizedArgumentPolicy = sanitizeArgumentPolicy(policy?.argumentPolicy || policy?.validateArgs?.argumentPolicy);
     return {
         scope: typeof policy.scope === "string" ? policy.scope : "",
         kind: typeof policy.kind === "string" ? policy.kind : "",
@@ -182,11 +346,19 @@ function sanitizeScopePolicy(policy = {}) {
         ownerType: typeof policy.ownerType === "string" ? policy.ownerType : "",
         ownerPluginId: typeof policy.ownerPluginId === "string" ? policy.ownerPluginId : "",
         requireConfirmation: policy.requireConfirmation === true,
+        policyVersion: (Number.isFinite(Number(policy.policyVersion)) && Number(policy.policyVersion) > 0)
+            ? Math.trunc(Number(policy.policyVersion))
+            : undefined,
         allowedRoots: Array.isArray(policy.allowedRoots) ? [...policy.allowedRoots] : undefined,
         allowedOperationTypes: Array.isArray(policy.allowedOperationTypes) ? [...policy.allowedOperationTypes] : undefined,
         allowedExecutables: Array.isArray(policy.allowedExecutables) ? [...policy.allowedExecutables] : undefined,
         allowedCwdRoots: Array.isArray(policy.allowedCwdRoots) ? [...policy.allowedCwdRoots] : undefined,
         allowedEnvKeys: Array.isArray(policy.allowedEnvKeys) ? [...policy.allowedEnvKeys] : undefined,
+        additionalAllowedFirstArgs: Array.isArray(policy.additionalAllowedFirstArgs) ? [...policy.additionalAllowedFirstArgs] : undefined,
+        additionalAllowedFirstArgsByExecutable: normalizeAdditionalAllowedFirstArgsByExecutableMap(policy?.additionalAllowedFirstArgsByExecutable),
+        additionalAllowedLeadingOptions: Array.isArray(policy.additionalAllowedLeadingOptions) ? [...policy.additionalAllowedLeadingOptions] : undefined,
+        additionalAllowedLeadingOptionsByExecutable: normalizeAdditionalAllowedFirstArgsByExecutableMap(policy?.additionalAllowedLeadingOptionsByExecutable),
+        argumentPolicy: sanitizedArgumentPolicy,
         timeoutCeilingMs: Number.isFinite(policy.timeoutCeilingMs) ? Number(policy.timeoutCeilingMs) : undefined,
     };
 }
@@ -679,6 +851,17 @@ export function registerPluginHandlers() {
             }
         }
 
+        if (isForwardedPrivilegedBridgeFailure(request)) {
+            const forwardedFailure = normalizeForwardedPrivilegedBridgeFailure(request, correlationId);
+            console.warn("[PLUGIN_UI_BRIDGE_PRIVILEGED_BACKEND_FAILURE]", JSON.stringify({
+                pluginId,
+                code: forwardedFailure.code,
+                correlationId: forwardedFailure.correlationId,
+                source,
+            }));
+            return forwardedFailure;
+        }
+
         return executeHostPrivilegedAction(request, {
             pluginId,
             correlationId,
@@ -1044,6 +1227,466 @@ export function registerPluginHandlers() {
             };
         } catch (error) {
             return {success: false, error: error?.message || String(error), scopes: []};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_CWD_ROOT, async (_event, pluginId = "", scopeId = "", cwdRoot = "") => {
+        try {
+            const safePluginId = String(pluginId || "").trim();
+            if (!safePluginId) {
+                return {success: false, error: "Plugin id is required.", scope: null};
+            }
+            const normalizedScopeId = sanitizeCustomProcessScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Process scope id is required.", scope: null};
+            }
+            const normalizedCwdRoot = String(cwdRoot || "").trim() ? path.resolve(String(cwdRoot || "").trim()) : "";
+            if (!normalizedCwdRoot || !path.isAbsolute(normalizedCwdRoot)) {
+                return {success: false, error: "Allowed cwd root must be an absolute path.", scope: null};
+            }
+
+            const scopePolicies = getAllHostProcessScopePolicies({pluginId: safePluginId}) || {};
+            const currentPolicy = scopePolicies[normalizedScopeId];
+            if (!currentPolicy) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" is not configured for plugin "${safePluginId}".`,
+                    scope: null,
+                };
+            }
+
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const existingScopes = pluginORM.getPluginCustomProcessScopes(safePluginId);
+            const existingScope = existingScopes.find(
+                (item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) === normalizedScopeId
+            ) || null;
+            const currentAllowedCwdRoots = uniqueAbsolutePaths([
+                ...(Array.isArray(currentPolicy?.allowedCwdRoots) ? currentPolicy.allowedCwdRoots : []),
+                ...(Array.isArray(existingScope?.allowedCwdRoots) ? existingScope.allowedCwdRoots : []),
+            ]);
+            const alreadyPresent = currentAllowedCwdRoots.includes(normalizedCwdRoot);
+            const nextAllowedCwdRoots = uniqueAbsolutePaths([...currentAllowedCwdRoots, normalizedCwdRoot]);
+            const nextAllowedExecutables = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.allowedExecutables) ? existingScope.allowedExecutables : []),
+                ...(Array.isArray(currentPolicy?.allowedExecutables) ? currentPolicy.allowedExecutables : []),
+            ]);
+            const nextAdditionalAllowedFirstArgs = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.additionalAllowedFirstArgs) ? existingScope.additionalAllowedFirstArgs : []),
+                ...(Array.isArray(currentPolicy?.additionalAllowedFirstArgs) ? currentPolicy.additionalAllowedFirstArgs : []),
+            ]);
+            const nextAdditionalAllowedFirstArgsByExecutable = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                existingScope?.additionalAllowedFirstArgsByExecutable,
+                currentPolicy?.additionalAllowedFirstArgsByExecutable,
+            );
+            const nextAdditionalAllowedLeadingOptions = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.additionalAllowedLeadingOptions) ? existingScope.additionalAllowedLeadingOptions : []),
+                ...(Array.isArray(currentPolicy?.additionalAllowedLeadingOptions) ? currentPolicy.additionalAllowedLeadingOptions : []),
+            ]);
+            const nextAdditionalAllowedLeadingOptionsByExecutable = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                existingScope?.additionalAllowedLeadingOptionsByExecutable,
+                currentPolicy?.additionalAllowedLeadingOptionsByExecutable,
+            );
+            const persistedArgumentPolicy = resolveScopeArgumentPolicy(existingScope);
+
+            if (nextAllowedExecutables.length === 0) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" does not define allowlisted executables and cannot be patched automatically.`,
+                    scope: null,
+                };
+            }
+
+            const normalizedScope = normalizeCustomProcessScope({
+                scope: normalizedScopeId,
+                title: String(existingScope?.title || currentPolicy?.title || "").trim(),
+                description: String(existingScope?.description || currentPolicy?.description || "").trim(),
+                allowedExecutables: nextAllowedExecutables,
+                allowedCwdRoots: nextAllowedCwdRoots,
+                allowedEnvKeys: uniqueNormalizedStrings([
+                    ...(Array.isArray(existingScope?.allowedEnvKeys) ? existingScope.allowedEnvKeys : []),
+                    ...(Array.isArray(currentPolicy?.allowedEnvKeys) ? currentPolicy.allowedEnvKeys : []),
+                ]),
+                timeoutCeilingMs: Number.isFinite(existingScope?.timeoutCeilingMs)
+                    ? Number(existingScope.timeoutCeilingMs)
+                    : Number(currentPolicy?.timeoutCeilingMs),
+                requireConfirmation: existingScope?.requireConfirmation !== undefined
+                    ? existingScope.requireConfirmation !== false
+                    : currentPolicy?.requireConfirmation !== false,
+                additionalAllowedFirstArgs: nextAdditionalAllowedFirstArgs,
+                additionalAllowedFirstArgsByExecutable: nextAdditionalAllowedFirstArgsByExecutable,
+                additionalAllowedLeadingOptions: nextAdditionalAllowedLeadingOptions,
+                additionalAllowedLeadingOptionsByExecutable: nextAdditionalAllowedLeadingOptionsByExecutable,
+                argumentPolicy: persistedArgumentPolicy,
+            }, {pluginId: safePluginId});
+
+            const nextScopes = [
+                ...existingScopes.filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalizedScope.scope),
+                normalizedScope,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            const persisted = pluginORM.setPluginCustomProcessScopes(safePluginId, nextScopes);
+            if (!persisted?.success) {
+                return {
+                    success: false,
+                    error: persisted?.error || `Failed to persist process scope "${normalizedScope.scope}".`,
+                    scope: null,
+                };
+            }
+            setHostPluginCustomProcessScopes(safePluginId, nextScopes);
+            return {
+                success: true,
+                alreadyPresent,
+                addedRoot: normalizedCwdRoot,
+                scope: sanitizeScopePolicy(normalizedScope),
+                scopes: getHostPluginCustomProcessScopes(safePluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scope: null};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_ARGUMENT, async (_event, pluginId = "", scopeId = "", firstArgument = "", executableName = "") => {
+        try {
+            const safePluginId = String(pluginId || "").trim();
+            if (!safePluginId) {
+                return {success: false, error: "Plugin id is required.", scope: null};
+            }
+            const normalizedScopeId = sanitizeCustomProcessScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Process scope id is required.", scope: null};
+            }
+            const normalizedFirstArgument = String(firstArgument || "").trim();
+            if (!normalizedFirstArgument) {
+                return {success: false, error: "Argument value is required.", scope: null};
+            }
+            const normalizedExecutableName = basenameWithoutPath(executableName);
+            const isOptionLikeArgument = normalizedFirstArgument.startsWith("-");
+
+            const scopePolicies = getAllHostProcessScopePolicies({pluginId: safePluginId}) || {};
+            const currentPolicy = scopePolicies[normalizedScopeId];
+            if (!currentPolicy) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" is not configured for plugin "${safePluginId}".`,
+                    scope: null,
+                };
+            }
+
+            const argumentPolicy = resolveScopeArgumentPolicy(currentPolicy);
+            if (!argumentPolicy) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" does not expose argument-policy metadata, so one-click argument grants are unavailable.`,
+                    scope: null,
+                };
+            }
+
+            const nextAdditionalAllowedFirstArgsBase = uniqueNormalizedStrings([
+                ...(Array.isArray(currentPolicy?.additionalAllowedFirstArgs) ? currentPolicy.additionalAllowedFirstArgs : []),
+            ]);
+            const nextAdditionalAllowedFirstArgsByExecutableBase = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                currentPolicy?.additionalAllowedFirstArgsByExecutable
+            );
+            const nextAdditionalAllowedLeadingOptionsBase = uniqueNormalizedStrings([
+                ...(Array.isArray(currentPolicy?.additionalAllowedLeadingOptions) ? currentPolicy.additionalAllowedLeadingOptions : []),
+            ]);
+            const nextAdditionalAllowedLeadingOptionsByExecutableBase = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                currentPolicy?.additionalAllowedLeadingOptionsByExecutable
+            );
+
+            let targetExecutableName = "";
+            let alreadyPresent = false;
+
+            if (argumentPolicy.mode === "first-arg") {
+                const denied = new Set(Array.isArray(argumentPolicy.deniedFirstArgs) ? argumentPolicy.deniedFirstArgs : []);
+                if (denied.has(normalizedFirstArgument)) {
+                    return {
+                        success: false,
+                        error: `Argument "${normalizedFirstArgument}" is explicitly denied by process scope "${normalizedScopeId}" and cannot be allowlisted by one-click override.`,
+                        scope: null,
+                    };
+                }
+                if (isOptionLikeArgument) {
+                    const allowedLeadingOptions = new Set(Array.isArray(argumentPolicy.allowedLeadingOptions) ? argumentPolicy.allowedLeadingOptions : []);
+                    alreadyPresent = allowedLeadingOptions.has(normalizedFirstArgument);
+                    if (!alreadyPresent) {
+                        nextAdditionalAllowedLeadingOptionsBase.push(normalizedFirstArgument);
+                    }
+                } else {
+                    const allowed = new Set(Array.isArray(argumentPolicy.allowedFirstArgs) ? argumentPolicy.allowedFirstArgs : []);
+                    alreadyPresent = allowed.has(normalizedFirstArgument);
+                    if (!alreadyPresent) {
+                        nextAdditionalAllowedFirstArgsBase.push(normalizedFirstArgument);
+                    }
+                }
+            } else if (argumentPolicy.mode === "first-arg-by-executable") {
+                targetExecutableName = normalizedExecutableName;
+                if (!targetExecutableName) {
+                    return {
+                        success: false,
+                        error: "Executable name is required for this scope's argument policy.",
+                        scope: null,
+                    };
+                }
+                const executableRule = argumentPolicy?.rulesByExecutable?.[targetExecutableName];
+                if (!executableRule) {
+                    const supportedExecutables = Object.keys(argumentPolicy?.rulesByExecutable || {});
+                    return {
+                        success: false,
+                        error: supportedExecutables.length > 0
+                            ? `Executable "${targetExecutableName}" is not governed by scope "${normalizedScopeId}" argument policy. Supported executables: ${supportedExecutables.join(", ")}.`
+                            : `Executable "${targetExecutableName}" is not governed by scope "${normalizedScopeId}" argument policy.`,
+                        scope: null,
+                    };
+                }
+                const denied = new Set(Array.isArray(executableRule.deniedFirstArgs) ? executableRule.deniedFirstArgs : []);
+                if (denied.has(normalizedFirstArgument)) {
+                    return {
+                        success: false,
+                        error: `Argument "${normalizedFirstArgument}" is explicitly denied for executable "${targetExecutableName}" in scope "${normalizedScopeId}" and cannot be allowlisted by one-click override.`,
+                        scope: null,
+                    };
+                }
+                if (isOptionLikeArgument) {
+                    const allowedLeadingOptions = new Set(Array.isArray(executableRule.allowedLeadingOptions) ? executableRule.allowedLeadingOptions : []);
+                    alreadyPresent = allowedLeadingOptions.has(normalizedFirstArgument);
+                    if (!alreadyPresent) {
+                        nextAdditionalAllowedLeadingOptionsByExecutableBase[targetExecutableName] = uniqueNormalizedStrings([
+                            ...(Array.isArray(nextAdditionalAllowedLeadingOptionsByExecutableBase[targetExecutableName])
+                                ? nextAdditionalAllowedLeadingOptionsByExecutableBase[targetExecutableName]
+                                : []),
+                            normalizedFirstArgument,
+                        ]);
+                    }
+                } else {
+                    const allowed = new Set(Array.isArray(executableRule.allowedFirstArgs) ? executableRule.allowedFirstArgs : []);
+                    alreadyPresent = allowed.has(normalizedFirstArgument);
+                    if (!alreadyPresent) {
+                        nextAdditionalAllowedFirstArgsByExecutableBase[targetExecutableName] = uniqueNormalizedStrings([
+                            ...(Array.isArray(nextAdditionalAllowedFirstArgsByExecutableBase[targetExecutableName])
+                                ? nextAdditionalAllowedFirstArgsByExecutableBase[targetExecutableName]
+                                : []),
+                            normalizedFirstArgument,
+                        ]);
+                    }
+                }
+            } else {
+                return {
+                    success: false,
+                    error: `Unsupported argument-policy mode "${String(argumentPolicy.mode || "unknown")}" for scope "${normalizedScopeId}".`,
+                    scope: null,
+                };
+            }
+
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const existingScopes = pluginORM.getPluginCustomProcessScopes(safePluginId);
+            const existingScope = existingScopes.find(
+                (item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) === normalizedScopeId
+            ) || null;
+
+            const nextAllowedExecutables = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.allowedExecutables) ? existingScope.allowedExecutables : []),
+                ...(Array.isArray(currentPolicy?.allowedExecutables) ? currentPolicy.allowedExecutables : []),
+            ]);
+            const nextAllowedCwdRoots = uniqueAbsolutePaths([
+                ...(Array.isArray(currentPolicy?.allowedCwdRoots) ? currentPolicy.allowedCwdRoots : []),
+                ...(Array.isArray(existingScope?.allowedCwdRoots) ? existingScope.allowedCwdRoots : []),
+            ]);
+            const nextAllowedEnvKeys = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.allowedEnvKeys) ? existingScope.allowedEnvKeys : []),
+                ...(Array.isArray(currentPolicy?.allowedEnvKeys) ? currentPolicy.allowedEnvKeys : []),
+            ]);
+            const nextAdditionalAllowedFirstArgs = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.additionalAllowedFirstArgs) ? existingScope.additionalAllowedFirstArgs : []),
+                ...nextAdditionalAllowedFirstArgsBase,
+            ]);
+            const nextAdditionalAllowedFirstArgsByExecutable = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                existingScope?.additionalAllowedFirstArgsByExecutable,
+                nextAdditionalAllowedFirstArgsByExecutableBase,
+            );
+            const nextAdditionalAllowedLeadingOptions = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.additionalAllowedLeadingOptions) ? existingScope.additionalAllowedLeadingOptions : []),
+                ...nextAdditionalAllowedLeadingOptionsBase,
+            ]);
+            const nextAdditionalAllowedLeadingOptionsByExecutable = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                existingScope?.additionalAllowedLeadingOptionsByExecutable,
+                nextAdditionalAllowedLeadingOptionsByExecutableBase,
+            );
+            const persistedArgumentPolicy = resolveScopeArgumentPolicy(existingScope);
+
+            if (nextAllowedExecutables.length === 0) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" does not define allowlisted executables and cannot be patched automatically.`,
+                    scope: null,
+                };
+            }
+
+            const normalizedScope = normalizeCustomProcessScope({
+                scope: normalizedScopeId,
+                title: String(existingScope?.title || currentPolicy?.title || "").trim(),
+                description: String(existingScope?.description || currentPolicy?.description || "").trim(),
+                allowedExecutables: nextAllowedExecutables,
+                allowedCwdRoots: nextAllowedCwdRoots,
+                allowedEnvKeys: nextAllowedEnvKeys,
+                timeoutCeilingMs: Number.isFinite(existingScope?.timeoutCeilingMs)
+                    ? Number(existingScope.timeoutCeilingMs)
+                    : Number(currentPolicy?.timeoutCeilingMs),
+                requireConfirmation: existingScope?.requireConfirmation !== undefined
+                    ? existingScope.requireConfirmation !== false
+                    : currentPolicy?.requireConfirmation !== false,
+                additionalAllowedFirstArgs: nextAdditionalAllowedFirstArgs,
+                additionalAllowedFirstArgsByExecutable: nextAdditionalAllowedFirstArgsByExecutable,
+                additionalAllowedLeadingOptions: nextAdditionalAllowedLeadingOptions,
+                additionalAllowedLeadingOptionsByExecutable: nextAdditionalAllowedLeadingOptionsByExecutable,
+                argumentPolicy: persistedArgumentPolicy,
+            }, {pluginId: safePluginId});
+
+            const nextScopes = [
+                ...existingScopes.filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalizedScope.scope),
+                normalizedScope,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            const persisted = pluginORM.setPluginCustomProcessScopes(safePluginId, nextScopes);
+            if (!persisted?.success) {
+                return {
+                    success: false,
+                    error: persisted?.error || `Failed to persist process scope "${normalizedScope.scope}".`,
+                    scope: null,
+                };
+            }
+            setHostPluginCustomProcessScopes(safePluginId, nextScopes);
+            return {
+                success: true,
+                alreadyPresent,
+                addedArgument: normalizedFirstArgument,
+                executableName: targetExecutableName,
+                scope: sanitizeScopePolicy(normalizedScope),
+                scopes: getHostPluginCustomProcessScopes(safePluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scope: null};
+        }
+    });
+
+    ipcMain.handle(PluginChannels.ALLOW_PLUGIN_PROCESS_SCOPE_ENV_KEY, async (_event, pluginId = "", scopeId = "", envKey = "") => {
+        try {
+            const safePluginId = String(pluginId || "").trim();
+            if (!safePluginId) {
+                return {success: false, error: "Plugin id is required.", scope: null};
+            }
+            const normalizedScopeId = sanitizeCustomProcessScopeId(scopeId);
+            if (!normalizedScopeId) {
+                return {success: false, error: "Process scope id is required.", scope: null};
+            }
+            const normalizedEnvKey = String(envKey || "").trim();
+            if (!normalizedEnvKey) {
+                return {success: false, error: "Env key is required.", scope: null};
+            }
+            if (!/^[A-Z_][A-Z0-9_]*$/i.test(normalizedEnvKey)) {
+                return {success: false, error: `Env key "${normalizedEnvKey}" is invalid.`, scope: null};
+            }
+
+            const scopePolicies = getAllHostProcessScopePolicies({pluginId: safePluginId}) || {};
+            const currentPolicy = scopePolicies[normalizedScopeId];
+            if (!currentPolicy) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" is not configured for plugin "${safePluginId}".`,
+                    scope: null,
+                };
+            }
+
+            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
+            const existingScopes = pluginORM.getPluginCustomProcessScopes(safePluginId);
+            const existingScope = existingScopes.find(
+                (item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) === normalizedScopeId
+            ) || null;
+
+            const currentAllowedEnvKeys = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.allowedEnvKeys) ? existingScope.allowedEnvKeys : []),
+                ...(Array.isArray(currentPolicy?.allowedEnvKeys) ? currentPolicy.allowedEnvKeys : []),
+            ]);
+            const alreadyPresent = currentAllowedEnvKeys.includes(normalizedEnvKey);
+            const nextAllowedEnvKeys = uniqueNormalizedStrings([...currentAllowedEnvKeys, normalizedEnvKey]);
+
+            const nextAllowedExecutables = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.allowedExecutables) ? existingScope.allowedExecutables : []),
+                ...(Array.isArray(currentPolicy?.allowedExecutables) ? currentPolicy.allowedExecutables : []),
+            ]);
+            const nextAllowedCwdRoots = uniqueAbsolutePaths([
+                ...(Array.isArray(existingScope?.allowedCwdRoots) ? existingScope.allowedCwdRoots : []),
+                ...(Array.isArray(currentPolicy?.allowedCwdRoots) ? currentPolicy.allowedCwdRoots : []),
+            ]);
+            const nextAdditionalAllowedFirstArgs = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.additionalAllowedFirstArgs) ? existingScope.additionalAllowedFirstArgs : []),
+                ...(Array.isArray(currentPolicy?.additionalAllowedFirstArgs) ? currentPolicy.additionalAllowedFirstArgs : []),
+            ]);
+            const nextAdditionalAllowedFirstArgsByExecutable = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                existingScope?.additionalAllowedFirstArgsByExecutable,
+                currentPolicy?.additionalAllowedFirstArgsByExecutable,
+            );
+            const nextAdditionalAllowedLeadingOptions = uniqueNormalizedStrings([
+                ...(Array.isArray(existingScope?.additionalAllowedLeadingOptions) ? existingScope.additionalAllowedLeadingOptions : []),
+                ...(Array.isArray(currentPolicy?.additionalAllowedLeadingOptions) ? currentPolicy.additionalAllowedLeadingOptions : []),
+            ]);
+            const nextAdditionalAllowedLeadingOptionsByExecutable = mergeAdditionalAllowedFirstArgsByExecutableMaps(
+                existingScope?.additionalAllowedLeadingOptionsByExecutable,
+                currentPolicy?.additionalAllowedLeadingOptionsByExecutable,
+            );
+            const persistedArgumentPolicy = resolveScopeArgumentPolicy(existingScope);
+
+            if (nextAllowedExecutables.length === 0) {
+                return {
+                    success: false,
+                    error: `Process scope "${normalizedScopeId}" does not define allowlisted executables and cannot be patched automatically.`,
+                    scope: null,
+                };
+            }
+
+            const normalizedScope = normalizeCustomProcessScope({
+                scope: normalizedScopeId,
+                title: String(existingScope?.title || currentPolicy?.title || "").trim(),
+                description: String(existingScope?.description || currentPolicy?.description || "").trim(),
+                allowedExecutables: nextAllowedExecutables,
+                allowedCwdRoots: nextAllowedCwdRoots,
+                allowedEnvKeys: nextAllowedEnvKeys,
+                timeoutCeilingMs: Number.isFinite(existingScope?.timeoutCeilingMs)
+                    ? Number(existingScope.timeoutCeilingMs)
+                    : Number(currentPolicy?.timeoutCeilingMs),
+                requireConfirmation: existingScope?.requireConfirmation !== undefined
+                    ? existingScope.requireConfirmation !== false
+                    : currentPolicy?.requireConfirmation !== false,
+                additionalAllowedFirstArgs: nextAdditionalAllowedFirstArgs,
+                additionalAllowedFirstArgsByExecutable: nextAdditionalAllowedFirstArgsByExecutable,
+                additionalAllowedLeadingOptions: nextAdditionalAllowedLeadingOptions,
+                additionalAllowedLeadingOptionsByExecutable: nextAdditionalAllowedLeadingOptionsByExecutable,
+                argumentPolicy: persistedArgumentPolicy,
+                policyVersion: Number.isFinite(Number(existingScope?.policyVersion))
+                    ? Number(existingScope.policyVersion)
+                    : Number(currentPolicy?.policyVersion),
+            }, {pluginId: safePluginId});
+
+            const nextScopes = [
+                ...existingScopes.filter((item) => sanitizeCustomProcessScopeId(String(item?.scope || "").trim()) !== normalizedScope.scope),
+                normalizedScope,
+            ].sort((left, right) => String(left?.scope || "").localeCompare(String(right?.scope || "")));
+            const persisted = pluginORM.setPluginCustomProcessScopes(safePluginId, nextScopes);
+            if (!persisted?.success) {
+                return {
+                    success: false,
+                    error: persisted?.error || `Failed to persist process scope "${normalizedScope.scope}".`,
+                    scope: null,
+                };
+            }
+            setHostPluginCustomProcessScopes(safePluginId, nextScopes);
+            return {
+                success: true,
+                alreadyPresent,
+                addedEnvKey: normalizedEnvKey,
+                scope: sanitizeScopePolicy(normalizedScope),
+                scopes: getHostPluginCustomProcessScopes(safePluginId).map((item) => sanitizeScopePolicy(item)),
+            };
+        } catch (error) {
+            return {success: false, error: error?.message || String(error), scope: null};
         }
     });
 
@@ -1527,16 +2170,38 @@ export function registerPluginHandlers() {
 
     ipcMain.handle(PluginChannels.SET_CAPABILITIES, async (_event, id, capabilities = []) => {
         try {
+            const loadedPlugin = PluginManager.getLoadedPlugin(id);
+            const previousGrantedCapabilities = Array.isArray(loadedPlugin?.grantedCapabilities)
+                ? [...loadedPlugin.grantedCapabilities]
+                : [];
             const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
             const result = pluginORM.setPluginCapabilities(id, capabilities);
             if (!result.success) {
                 return result;
             }
             const plugin = pluginORM.getPlugin(id);
-            if (PluginManager.getLoadedPlugin(id)) {
-                PluginManager.getLoadedPlugin(id).grantedCapabilities = Array.isArray(result.capabilities)
-                    ? [...result.capabilities]
-                    : [];
+            const nextGrantedCapabilities = Array.isArray(result.capabilities)
+                ? [...result.capabilities]
+                : [];
+            let runtimeRestarted = false;
+            let runtimeRestartError = "";
+            if (loadedPlugin) {
+                const storageChanged = didStorageCapabilityFamilyChange(previousGrantedCapabilities, nextGrantedCapabilities);
+                if (storageChanged) {
+                    try {
+                        PluginManager.unLoadPlugin(id, {force: true, reason: "capabilities_storage_changed"});
+                        const restartResult = await PluginManager.loadPlugin(id);
+                        if (restartResult?.success) {
+                            runtimeRestarted = true;
+                        } else {
+                            runtimeRestartError = restartResult?.error || "Failed to restart plugin runtime after storage capability update.";
+                        }
+                    } catch (restartError) {
+                        runtimeRestartError = restartError?.message || String(restartError);
+                    }
+                } else {
+                    loadedPlugin.grantedCapabilities = nextGrantedCapabilities;
+                }
                 if (typeof PluginManager.clearPrivilegedApprovalSession === "function") {
                     PluginManager.clearPrivilegedApprovalSession(id);
                 }
@@ -1547,7 +2212,13 @@ export function registerPluginHandlers() {
                     void PluginManager.refreshPluginDiagnostics(id, {timeoutMs: 1800});
                 }
             }
-            return {success: true, capabilities: result.capabilities, plugin};
+            return {
+                success: true,
+                capabilities: result.capabilities,
+                plugin,
+                runtimeRestarted,
+                runtimeRestartError,
+            };
         } catch (error) {
             return {success: false, error: error?.message || String(error)};
         }

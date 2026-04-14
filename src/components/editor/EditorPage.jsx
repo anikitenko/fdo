@@ -702,6 +702,13 @@ export const EditorPage = () => {
                 setEditorModelPath(null);
             }
         });
+        const unsubscribeFileCreated = virtualFS.notifications.subscribe("fileCreated", (file) => {
+            const fileId = typeof file === "string" ? file : file?.id;
+            if (!fileId) {
+                return;
+            }
+            applyFdoCapabilityDiagnostics(fileId);
+        });
         const unsubscribeTabSwitched = virtualFS.notifications.subscribe("tabSwitched", (tabID) => {
             if (pendingTabSwitchFrameRef.current) {
                 cancelAnimationFrame(pendingTabSwitchFrameRef.current);
@@ -792,6 +799,7 @@ export const EditorPage = () => {
             unsubscribe()
             unsubscribeFileRemoved()
             unsubscribeFileTabs()
+            unsubscribeFileCreated()
             unsubscribeTabSwitched()
             if (pendingTabSwitchFrameRef.current) {
                 cancelAnimationFrame(pendingTabSwitchFrameRef.current);

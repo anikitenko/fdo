@@ -136,6 +136,13 @@ function classifyValidationScenario(event = {}) {
     const errorCode = String(event?.error?.code || "").trim();
     if (errorCode === "CAPABILITY_DENIED") return "Capability denial";
     if (errorCode === "PROCESS_SPAWN_ENOENT" || errorCode === "STEP_PROCESS_SPAWN_ENOENT") return "Missing CLI";
+    if (errorCode === "PROCESS_EXIT_NON_ZERO" || errorCode === "TIMEOUT" || errorCode === "OS_ERROR" || errorCode === "PROCESS_SPAWN_PERMISSION_DENIED") {
+        if (event?.action === "system.workflow.run" || event?.workflowId) {
+            return "Workflow execution failure";
+        }
+        return "Process execution failure";
+    }
+    if (errorCode === "STEP_FAILED" || errorCode === "STEP_TIMEOUT" || errorCode === "STEP_OS_ERROR") return "Workflow execution failure";
     if (errorCode === "SCOPE_VIOLATION" || errorCode === "STEP_SCOPE_VIOLATION" || errorCode === "SCOPE_DENIED") return "Scope policy rejection";
     if (errorCode === "CLIPBOARD_UNSUPPORTED") return "Clipboard unavailable";
     if (errorCode === "CLIPBOARD_READ_FAILED" || errorCode === "CLIPBOARD_WRITE_FAILED") return "Clipboard operation failed";
@@ -146,8 +153,8 @@ function classifyValidationScenario(event = {}) {
         if (event?.workflowStatus === "failed") return "Workflow failure";
         return "Workflow execution";
     }
-    if (event?.action === "system.process.exec" && event?.success === true) return "Single action success";
-    if (event?.action === "system.process.exec" && event?.success === false) return "Single action failure";
+    if (event?.action === "system.process.exec" && event?.success === true) return "Process execution success";
+    if (event?.action === "system.process.exec" && event?.success === false) return "Process execution failure";
     if (event?.action === "system.clipboard.read" && event?.success === true) return "Clipboard read success";
     if (event?.action === "system.clipboard.read" && event?.success === false) return "Clipboard read failure";
     if (event?.action === "system.clipboard.write" && event?.success === true) return "Clipboard write success";
@@ -267,6 +274,193 @@ function shouldUseStructuredMissingCapabilities({
     );
 }
 
+function isAbsolutePathCandidate(value = "") {
+    const normalized = String(value || "").trim();
+    if (!normalized) return false;
+    return /^([a-zA-Z]:[\\/]|\\\\|\/)/.test(normalized);
+}
+
+function basenameFromCommand(command = "") {
+    const normalized = String(command || "").trim();
+    if (!normalized) {
+        return "";
+    }
+    const segments = normalized.split(/[\\/]/).filter(Boolean);
+    return segments[segments.length - 1] || "";
+}
+
+function extractDeniedProcessArgument({
+    details = "",
+    extraDetails = null,
+} = {}) {
+    const text = String(details || "").trim();
+    const fallbackExecutableName = basenameFromCommand(extraDetails?.command || "");
+    const defaultResult = {
+        reason: "",
+        kind: "",
+        argument: "",
+        argumentPath: "",
+        deniedEnvKeys: [],
+        scopeId: "",
+        executableName: "",
+        pathSource: "",
+    };
+    const structuredScopeViolation = (
+        extraDetails?.scopeViolation && typeof extraDetails.scopeViolation === "object"
+    )
+        ? extraDetails.scopeViolation
+        : (Array.isArray(extraDetails?.steps)
+            ? (extraDetails.steps.find((step) => step?.scopeViolation && typeof step.scopeViolation === "object")?.scopeViolation || null)
+            : null);
+    if (structuredScopeViolation) {
+        const reason = String(structuredScopeViolation.reason || "").trim().toUpperCase();
+        const argument = String(structuredScopeViolation.argument || "").trim();
+        const argumentPath = String(structuredScopeViolation.argumentPath || "").trim();
+        const pathSource = String(structuredScopeViolation.pathSource || "").trim().toLowerCase();
+        const deniedEnvKeys = [...new Set(
+            (Array.isArray(structuredScopeViolation.deniedEnvKeys) ? structuredScopeViolation.deniedEnvKeys : [])
+                .map((entry) => String(entry || "").trim())
+                .filter(Boolean)
+        )];
+        const scopeId = String(
+            structuredScopeViolation.scope
+            || extraDetails?.scope
+            || ""
+        ).trim().replace(/^system\.process\.scope\./i, "");
+        const executableName = String(
+            structuredScopeViolation.executableName
+            || fallbackExecutableName
+            || ""
+        ).trim();
+
+        if (reason === "ARGUMENT_NOT_ALLOWED") {
+            return {
+                ...defaultResult,
+                reason,
+                kind: "not_allowed",
+                argument,
+                scopeId,
+                executableName,
+                pathSource,
+            };
+        }
+        if (reason === "ARGUMENT_PATH_OUTSIDE_ALLOWED_ROOTS") {
+            return {
+                ...defaultResult,
+                reason,
+                kind: "path_outside_roots",
+                argument,
+                argumentPath,
+                scopeId,
+                executableName,
+                pathSource: pathSource || "argument",
+            };
+        }
+        if (reason === "ARGUMENT_PATH_REQUIRES_ABSOLUTE") {
+            return {
+                ...defaultResult,
+                reason,
+                kind: "path_requires_absolute",
+                argument,
+                argumentPath,
+                scopeId,
+                executableName,
+                pathSource: pathSource || "argument",
+            };
+        }
+        if (reason === "CWD_OUTSIDE_ALLOWED_ROOTS") {
+            return {
+                ...defaultResult,
+                reason,
+                argumentPath,
+                scopeId,
+                executableName,
+                pathSource: pathSource || "cwd",
+            };
+        }
+        if (reason === "ENV_KEYS_NOT_ALLOWED") {
+            return {
+                ...defaultResult,
+                reason,
+                kind: "env_keys_not_allowed",
+                deniedEnvKeys,
+                scopeId,
+                executableName,
+                pathSource,
+            };
+        }
+        return {
+            ...defaultResult,
+            reason,
+            argument,
+            argumentPath,
+            deniedEnvKeys,
+            scopeId,
+            executableName,
+            pathSource,
+        };
+    }
+
+    const disallowedMatch = text.match(/Argument\s+"([^"]+)"\s+is\s+not\s+allowed\s+for\s+process\s+scope\s+"([a-zA-Z0-9._-]+)"(?:\s+with\s+executable\s+"([^"]+)")?/i);
+    if (disallowedMatch) {
+        return {
+            ...defaultResult,
+            reason: "ARGUMENT_NOT_ALLOWED",
+            kind: "not_allowed",
+            argument: String(disallowedMatch[1] || "").trim(),
+            scopeId: String(disallowedMatch[2] || "").trim().replace(/^system\.process\.scope\./i, ""),
+            executableName: String(disallowedMatch[3] || "").trim() || fallbackExecutableName,
+        };
+    }
+
+    const blockedPathMatch = text.match(/Argument\s+"([^"]+)"\s+path\s+"([^"]+)"\s+is\s+outside\s+allowed\s+roots\s+for\s+process\s+scope\s+"([a-zA-Z0-9._-]+)"(?:\s+with\s+executable\s+"([^"]+)")?/i);
+    if (blockedPathMatch) {
+        return {
+            ...defaultResult,
+            reason: "ARGUMENT_PATH_OUTSIDE_ALLOWED_ROOTS",
+            kind: "path_outside_roots",
+            argument: String(blockedPathMatch[1] || "").trim(),
+            argumentPath: String(blockedPathMatch[2] || "").trim(),
+            scopeId: String(blockedPathMatch[3] || "").trim().replace(/^system\.process\.scope\./i, ""),
+            executableName: String(blockedPathMatch[4] || "").trim() || fallbackExecutableName,
+            pathSource: "argument",
+        };
+    }
+
+    const requiresAbsolutePathMatch = text.match(/Argument\s+"([^"]+)"\s+requires\s+an\s+absolute\s+path\s+value\s+for\s+process\s+scope\s+"([a-zA-Z0-9._-]+)"(?:\s+with\s+executable\s+"([^"]+)")?/i);
+    if (requiresAbsolutePathMatch) {
+        return {
+            ...defaultResult,
+            reason: "ARGUMENT_PATH_REQUIRES_ABSOLUTE",
+            kind: "path_requires_absolute",
+            argument: String(requiresAbsolutePathMatch[1] || "").trim(),
+            scopeId: String(requiresAbsolutePathMatch[2] || "").trim().replace(/^system\.process\.scope\./i, ""),
+            executableName: String(requiresAbsolutePathMatch[3] || "").trim() || fallbackExecutableName,
+            pathSource: "argument",
+        };
+    }
+
+    const blockedEnvKeysMatch = text.match(/Environment\s+keys?\s+are\s+not\s+allowed\s+for\s+process\s+scope\s+"([a-zA-Z0-9._-]+)"\s*:\s*(.+?)\.?$/i);
+    if (blockedEnvKeysMatch) {
+        const deniedEnvKeys = [...new Set(
+            String(blockedEnvKeysMatch[2] || "")
+                .split(",")
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+        )];
+        return {
+            ...defaultResult,
+            reason: "ENV_KEYS_NOT_ALLOWED",
+            kind: "env_keys_not_allowed",
+            deniedEnvKeys,
+            scopeId: String(blockedEnvKeysMatch[1] || "").trim().replace(/^system\.process\.scope\./i, ""),
+            executableName: fallbackExecutableName,
+        };
+    }
+
+    return defaultResult;
+}
+
 export const Home = () => {
     const [searchActions, setSearchActions] = useState([])
     const [state, setState] = useState({
@@ -306,6 +500,9 @@ export const Home = () => {
     });
     const [pendingPluginScopeSuggestions, setPendingPluginScopeSuggestions] = useState({});
     const [isGrantingMissingCapabilities, setIsGrantingMissingCapabilities] = useState(false);
+    const [isAllowingProcessScopeCwdRoot, setIsAllowingProcessScopeCwdRoot] = useState(false);
+    const [isAllowingProcessScopeArgument, setIsAllowingProcessScopeArgument] = useState(false);
+    const [isAllowingProcessScopeEnvKey, setIsAllowingProcessScopeEnvKey] = useState(false);
     const [privilegedAuditDialog, setPrivilegedAuditDialog] = useState({
         open: false,
         pluginId: "",
@@ -388,6 +585,83 @@ export const Home = () => {
         details: capabilityDeniedNotice.details,
         extraDetails: capabilityDeniedNotice.extraDetails,
     });
+    const deniedScopePolicyCode = String(capabilityDeniedNotice.code || "").trim().toUpperCase();
+    const deniedArgumentDetails = extractDeniedProcessArgument({
+        details: capabilityDeniedNotice.details,
+        extraDetails: capabilityDeniedNotice.extraDetails,
+    });
+    const deniedProcessScopeId = String(
+        capabilityDeniedNotice?.extraDetails?.scope
+        || deniedArgumentDetails.scopeId
+        || privilegedIssueDiagnostics?.workflow?.scope
+        || missingProcessScopeIds[0]
+        || ""
+    )
+        .trim()
+        .replace(/^system\.process\.scope\./i, "");
+    const deniedProcessCommandPath = String(
+        privilegedIssueDiagnostics?.command?.command
+        || capabilityDeniedNotice?.extraDetails?.command
+        || ""
+    ).trim();
+    const deniedProcessExecutableName = basenameFromCommand(deniedProcessCommandPath);
+    const deniedScopeViolationReason = String(deniedArgumentDetails.reason || "").trim().toUpperCase();
+    const deniedProcessArgument = String(deniedArgumentDetails.argument || "").trim();
+    const deniedProcessEnvKeys = [...new Set(
+        (Array.isArray(deniedArgumentDetails.deniedEnvKeys) ? deniedArgumentDetails.deniedEnvKeys : [])
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean)
+    )];
+    const deniedProcessEnvKey = deniedProcessEnvKeys[0] || "";
+    const deniedProcessArgumentKind = String(deniedArgumentDetails.kind || "").trim();
+    const deniedProcessArgumentPath = String(deniedArgumentDetails.argumentPath || "").trim();
+    const deniedProcessPathSource = String(deniedArgumentDetails.pathSource || "").trim().toLowerCase();
+    const deniedProcessArgumentScopeId = String(deniedArgumentDetails.scopeId || "").trim();
+    const deniedProcessArgumentExecutableName = String(
+        deniedArgumentDetails.executableName
+        || deniedProcessExecutableName
+        || ""
+    ).trim();
+    const deniedProcessCwd = String(
+        (((deniedProcessPathSource === "argument" || deniedProcessPathSource === "cwd") && isAbsolutePathCandidate(deniedProcessArgumentPath)) ? deniedProcessArgumentPath : "")
+        || privilegedIssueDiagnostics?.command?.cwd
+        || capabilityDeniedNotice?.extraDetails?.cwd
+        || ""
+    ).trim();
+    const canOfferDirectoryAllowForViolationReason = (
+        !deniedScopeViolationReason
+        || deniedScopeViolationReason === "CWD_OUTSIDE_ALLOWED_ROOTS"
+        || deniedScopeViolationReason === "ARGUMENT_PATH_OUTSIDE_ALLOWED_ROOTS"
+    );
+    const canAllowDeniedProcessScopeCwdRoot = (
+        (deniedScopePolicyCode === "SCOPE_VIOLATION" || deniedScopePolicyCode === "STEP_SCOPE_VIOLATION")
+        && !!String(capabilityDeniedNotice.pluginId || "").trim()
+        && !!deniedProcessScopeId
+        && !!deniedProcessCwd
+        && isAbsolutePathCandidate(deniedProcessCwd)
+        && canOfferDirectoryAllowForViolationReason
+        && typeof window?.electron?.plugin?.allowPluginProcessScopeCwdRoot === "function"
+    );
+    const canAllowDeniedProcessScopeArgument = (
+        (deniedScopePolicyCode === "SCOPE_VIOLATION" || deniedScopePolicyCode === "STEP_SCOPE_VIOLATION")
+        && !!String(capabilityDeniedNotice.pluginId || "").trim()
+        && !!deniedProcessScopeId
+        && deniedProcessArgumentKind === "not_allowed"
+        && (!deniedScopeViolationReason || deniedScopeViolationReason === "ARGUMENT_NOT_ALLOWED")
+        && !!deniedProcessArgument
+        && (!deniedProcessArgumentScopeId || deniedProcessArgumentScopeId === deniedProcessScopeId)
+        && typeof window?.electron?.plugin?.allowPluginProcessScopeArgument === "function"
+    );
+    const canAllowDeniedProcessScopeEnvKey = (
+        (deniedScopePolicyCode === "SCOPE_VIOLATION" || deniedScopePolicyCode === "STEP_SCOPE_VIOLATION")
+        && !!String(capabilityDeniedNotice.pluginId || "").trim()
+        && !!deniedProcessScopeId
+        && deniedProcessArgumentKind === "env_keys_not_allowed"
+        && (!deniedScopeViolationReason || deniedScopeViolationReason === "ENV_KEYS_NOT_ALLOWED")
+        && !!deniedProcessEnvKey
+        && (!deniedProcessArgumentScopeId || deniedProcessArgumentScopeId === deniedProcessScopeId)
+        && typeof window?.electron?.plugin?.allowPluginProcessScopeEnvKey === "function"
+    );
     const privilegedWorkflowContracts = summarizeWorkflowContracts(privilegedAuditDialog.events);
     const runtimeValidationScenarios = summarizeValidationScenarios(runtimeValidationDialog.events);
     const runtimeValidationStatus = runtimeValidationDialog.pluginId
@@ -1768,12 +2042,145 @@ export const Home = () => {
             setIsGrantingMissingCapabilities(false);
         }
     };
+
+    const handleAllowProcessScopeCwdRootFromDenied = async () => {
+        const pluginId = String(capabilityDeniedNotice.pluginId || "").trim();
+        const scopeId = String(deniedProcessScopeId || "").trim();
+        const cwdRoot = String(deniedProcessCwd || "").trim();
+        if (!pluginId || !scopeId || !cwdRoot) {
+            return;
+        }
+
+        setIsAllowingProcessScopeCwdRoot(true);
+        try {
+            const result = await window.electron.plugin.allowPluginProcessScopeCwdRoot(pluginId, scopeId, cwdRoot);
+            if (!result?.success) {
+                (await AppToaster).show({
+                    message: `Failed to allow directory for scope "${scopeId}": ${result?.error || "unknown error"}`,
+                    intent: "danger",
+                });
+                return;
+            }
+
+            setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+            (await AppToaster).show({
+                message: result?.alreadyPresent
+                    ? `Directory already allowed for "${scopeId}" in ${pluginId}.`
+                    : `Allowed ${cwdRoot} for scope "${scopeId}" in ${pluginId}.`,
+                intent: "success",
+            });
+        } catch (error) {
+            (await AppToaster).show({
+                message: `Failed to allow directory for scope "${scopeId}": ${error?.message || String(error)}`,
+                intent: "danger",
+            });
+        } finally {
+            setIsAllowingProcessScopeCwdRoot(false);
+        }
+    };
+
+    const handleAllowProcessScopeArgumentFromDenied = async () => {
+        const pluginId = String(capabilityDeniedNotice.pluginId || "").trim();
+        const scopeId = String(deniedProcessScopeId || "").trim();
+        const blockedArgument = String(deniedProcessArgument || "").trim();
+        const executableName = String(deniedProcessArgumentExecutableName || "").trim();
+        if (!pluginId || !scopeId || !blockedArgument) {
+            return;
+        }
+
+        setIsAllowingProcessScopeArgument(true);
+        try {
+            const result = await window.electron.plugin.allowPluginProcessScopeArgument(
+                pluginId,
+                scopeId,
+                blockedArgument,
+                executableName
+            );
+            if (!result?.success) {
+                (await AppToaster).show({
+                    message: `Failed to allow argument "${blockedArgument}" for scope "${scopeId}": ${result?.error || "unknown error"}`,
+                    intent: "danger",
+                });
+                return;
+            }
+
+            setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+            (await AppToaster).show({
+                message: result?.alreadyPresent
+                    ? `Argument "${blockedArgument}" is already allowed for "${scopeId}" in ${pluginId}.`
+                    : `Allowed argument "${blockedArgument}" for scope "${scopeId}" in ${pluginId}.`,
+                intent: "success",
+            });
+        } catch (error) {
+            (await AppToaster).show({
+                message: `Failed to allow argument "${blockedArgument}" for scope "${scopeId}": ${error?.message || String(error)}`,
+                intent: "danger",
+            });
+        } finally {
+            setIsAllowingProcessScopeArgument(false);
+        }
+    };
+
+    const handleAllowProcessScopeEnvKeyFromDenied = async () => {
+        const pluginId = String(capabilityDeniedNotice.pluginId || "").trim();
+        const scopeId = String(deniedProcessScopeId || "").trim();
+        const envKey = String(deniedProcessEnvKey || "").trim();
+        if (!pluginId || !scopeId || !envKey) {
+            return;
+        }
+
+        setIsAllowingProcessScopeEnvKey(true);
+        try {
+            const result = await window.electron.plugin.allowPluginProcessScopeEnvKey(pluginId, scopeId, envKey);
+            if (!result?.success) {
+                (await AppToaster).show({
+                    message: `Failed to allow env key "${envKey}" for scope "${scopeId}": ${result?.error || "unknown error"}`,
+                    intent: "danger",
+                });
+                return;
+            }
+
+            setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
+            (await AppToaster).show({
+                message: result?.alreadyPresent
+                    ? `Env key "${envKey}" is already allowed for "${scopeId}" in ${pluginId}.`
+                    : `Allowed env key "${envKey}" for scope "${scopeId}" in ${pluginId}.`,
+                intent: "success",
+            });
+        } catch (error) {
+            (await AppToaster).show({
+                message: `Failed to allow env key "${envKey}" for scope "${scopeId}": ${error?.message || String(error)}`,
+                intent: "danger",
+            });
+        } finally {
+            setIsAllowingProcessScopeEnvKey(false);
+        }
+    };
+
     const hasCapabilitiesFixAction = !!privilegedIssuePresentation.showCapabilitiesButton;
     const hasPluginScopeFixAction = hasManualProcessScopeRemediation;
     const canAutoGrantMissingCapabilities = hasCapabilitiesFixAction
         && !hasManualScopeRemediation
         && autoGrantableMissingCapabilities.length > 0;
-    const capabilityDeniedPrimaryAction = hasPluginScopeFixAction
+    const capabilityDeniedPrimaryAction = canAllowDeniedProcessScopeArgument
+        ? {
+            label: isAllowingProcessScopeArgument ? "Allowing..." : "Allow This Argument",
+            onClick: handleAllowProcessScopeArgumentFromDenied,
+            disabled: isAllowingProcessScopeArgument,
+        }
+        : (canAllowDeniedProcessScopeEnvKey
+        ? {
+            label: isAllowingProcessScopeEnvKey ? "Allowing..." : "Allow This Env Key",
+            onClick: handleAllowProcessScopeEnvKeyFromDenied,
+            disabled: isAllowingProcessScopeEnvKey,
+        }
+        : (canAllowDeniedProcessScopeCwdRoot
+        ? {
+            label: isAllowingProcessScopeCwdRoot ? "Allowing..." : "Allow This Directory",
+            onClick: handleAllowProcessScopeCwdRootFromDenied,
+            disabled: isAllowingProcessScopeCwdRoot,
+        }
+        : (hasPluginScopeFixAction
         ? {
             label: "Fix Process Access",
             onClick: handleOpenProcessAccessFromDenied,
@@ -1783,7 +2190,7 @@ export const Home = () => {
             label: "Open Capabilities",
             onClick: handleOpenCapabilitiesFromDenied,
         }
-        : null);
+        : null))));
     const capabilityDeniedMoreActions = [
         ...(canAutoGrantMissingCapabilities ? [{
             key: "grant-missing-capabilities",
@@ -1792,6 +2199,32 @@ export const Home = () => {
             onClick: handleGrantMissingCapabilitiesFromDenied,
             disabled: isGrantingMissingCapabilities,
         }] : []),
+        ...(canAllowDeniedProcessScopeArgument ? [{
+            key: "allow-process-argument",
+            text: isAllowingProcessScopeArgument ? "Allowing argument..." : "Allow This Argument",
+            intent: "success",
+            onClick: handleAllowProcessScopeArgumentFromDenied,
+            disabled: isAllowingProcessScopeArgument,
+        }] : []),
+        ...(canAllowDeniedProcessScopeEnvKey ? [{
+            key: "allow-process-env-key",
+            text: isAllowingProcessScopeEnvKey ? "Allowing env key..." : "Allow This Env Key",
+            intent: "success",
+            onClick: handleAllowProcessScopeEnvKeyFromDenied,
+            disabled: isAllowingProcessScopeEnvKey,
+        }] : []),
+        ...(canAllowDeniedProcessScopeCwdRoot ? [{
+            key: "allow-process-cwd-root",
+            text: isAllowingProcessScopeCwdRoot ? "Allowing directory..." : "Allow This Directory",
+            intent: "success",
+            onClick: handleAllowProcessScopeCwdRootFromDenied,
+            disabled: isAllowingProcessScopeCwdRoot,
+        }] : []),
+        ...((hasPluginScopeFixAction && !canAllowDeniedProcessScopeCwdRoot) ? [] : (hasPluginScopeFixAction ? [{
+            key: "open-process-access",
+            text: "Fix Process Access",
+            onClick: handleOpenProcessAccessFromDenied,
+        }] : [])),
         ...(capabilityDeniedNotice.pluginId ? [{
             key: "open-audit-trail",
             text: "Open Audit Trail",
@@ -2067,7 +2500,7 @@ export const Home = () => {
                                 4. In Allowed executable paths, include <code>{requestedCommandPath || "/absolute/path/to/tool"}</code>.
                             </div>
                             <div className="bp6-text-small bp6-text-muted">
-                                5. Review cwd roots, env keys, and timeout manually. This dialog never auto-creates or auto-grants process scopes.
+                                5. Review cwd roots, argument policy, env keys, and timeout manually. When available, <strong>Allow This Directory</strong>, <strong>Allow This Argument</strong>, and <strong>Allow This Env Key</strong> apply plugin-specific overrides for the current scope.
                             </div>
                             <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
                                 Missing scopes: <code>{missingProcessScopeIds.join(", ")}</code>
@@ -2090,6 +2523,27 @@ export const Home = () => {
                     {privilegedIssueDiagnostics.command?.allowlistedExecutables?.length > 0 ? (
                         <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
                             Allowlisted paths: <code>{privilegedIssueDiagnostics.command.allowlistedExecutables.join(", ")}</code>
+                        </div>
+                    ) : null}
+                    {deniedProcessArgument ? (
+                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                            Blocked argument: <code>{deniedProcessArgument}</code>
+                            {deniedProcessArgumentExecutableName ? (
+                                <> for executable <code>{deniedProcessArgumentExecutableName}</code></>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {deniedProcessArgumentPath ? (
+                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                            Blocked path value: <code>{deniedProcessArgumentPath}</code>
+                            {deniedProcessArgument ? (
+                                <> from <code>{deniedProcessArgument}</code></>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {deniedProcessEnvKeys.length > 0 ? (
+                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
+                            Blocked env key{deniedProcessEnvKeys.length > 1 ? "s" : ""}: <code>{deniedProcessEnvKeys.join(", ")}</code>
                         </div>
                     ) : null}
                     {privilegedIssueDiagnostics.workflow ? (
@@ -2184,7 +2638,11 @@ export const Home = () => {
                             </Popover>
                         ) : null}
                         {capabilityDeniedPrimaryAction ? (
-                            <Button intent="primary" onClick={capabilityDeniedPrimaryAction.onClick}>
+                            <Button
+                                intent="primary"
+                                onClick={capabilityDeniedPrimaryAction.onClick}
+                                disabled={capabilityDeniedPrimaryAction.disabled === true}
+                            >
                                 {capabilityDeniedPrimaryAction.label}
                             </Button>
                         ) : (
@@ -2218,7 +2676,12 @@ export const Home = () => {
                     ) : null}
                     {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
                         <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
-                            Note: runtime validation history is reset when plugin capabilities are changed.
+                            This view summarizes runtime execution, policy, and approval outcomes from privileged audit events. Failures here are not automatically capability-denial issues.
+                        </p>
+                    ) : null}
+                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
+                        <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                            Note: runtime validation history may reset when plugin runtime restarts (for example after reload, redeploy, or capability updates).
                         </p>
                     ) : null}
                     {!runtimeValidationDialog.loading && !runtimeValidationDialog.error && runtimeValidationScenarios.length === 0 ? (

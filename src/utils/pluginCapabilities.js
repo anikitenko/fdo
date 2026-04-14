@@ -1,5 +1,7 @@
 export const HOST_WRITE_CAPABILITY = "system.host.write";
 export const HOST_WRITE_CAPABILITY_LEGACY = "system.hosts.write";
+export const STORAGE_CAPABILITY = "storage";
+export const STORAGE_JSON_CAPABILITY = "storage.json";
 
 const CAPABILITY_ALIAS_TO_CANONICAL = Object.freeze({
     [HOST_WRITE_CAPABILITY_LEGACY]: HOST_WRITE_CAPABILITY,
@@ -13,7 +15,10 @@ const CANONICAL_TO_ALIAS = Object.freeze(
 );
 
 export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
-    "storage.json": Object.freeze({
+    [STORAGE_CAPABILITY]: Object.freeze({
+        description: "Allows storage capability family grants for plugin persistence features.",
+    }),
+    [STORAGE_JSON_CAPABILITY]: Object.freeze({
         description: "Allows persistent JSON storage usage in SDK.",
     }),
     [HOST_WRITE_CAPABILITY]: Object.freeze({

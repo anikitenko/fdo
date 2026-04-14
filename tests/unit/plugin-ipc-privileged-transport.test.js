@@ -250,6 +250,46 @@ describe("plugin IPC privileged action transport", () => {
         expect(postMessage).not.toHaveBeenCalled();
     });
 
+    test("passes through forwarded backend failure payload without re-validating it as privileged request", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+
+        const postMessage = jest.fn();
+        PluginManager.getLoadedPlugin.mockReturnValue({
+            ready: true,
+            grantedCapabilities: ["system.process.exec", "system.process.scope.git"],
+            instance: {postMessage},
+        });
+
+        ipcMain.handle.mockClear();
+        executeHostPrivilegedAction.mockClear();
+        registerPluginHandlers();
+        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
+
+        const response = await uiHandler({}, "plugin-x", {
+            handler: "requestPrivilegedAction",
+            content: {
+                ok: false,
+                code: "PLUGIN_BACKEND_HANDLER_FAILED",
+                error: "Repository path does not exist: /tmp/missing-repo",
+                correlationId: "corr-build-request-failed",
+            },
+        });
+
+        expect(executeHostPrivilegedAction).not.toHaveBeenCalled();
+        expect(response).toEqual(expect.objectContaining({
+            ok: false,
+            code: "PLUGIN_BACKEND_HANDLER_FAILED",
+            error: "Repository path does not exist: /tmp/missing-repo",
+            correlationId: "corr-build-request-failed",
+        }));
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
     test("routes process privileged action with correlation id and returns response payload", async () => {
         jest.resetModules();
         const {ipcMain} = require("electron");

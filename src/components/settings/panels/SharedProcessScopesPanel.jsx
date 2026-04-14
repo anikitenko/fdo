@@ -4,6 +4,8 @@ import classNames from "classnames";
 
 import * as styles from "../../css/SettingsDialog.module.css";
 
+const PROCESS_SCOPE_POLICY_VERSION = 1;
+
 function uniqueNormalizedTokens(values = []) {
     return [...new Set((Array.isArray(values) ? values : [])
         .filter((value) => typeof value === "string" && value.trim())
@@ -19,6 +21,10 @@ function isValidEnvKey(value = "") {
     return /^[A-Z_][A-Z0-9_]*$/i.test(String(value || "").trim());
 }
 
+function isValidOptionToken(value = "") {
+    return /^-{1,2}[^\s]+$/.test(String(value || "").trim());
+}
+
 function validateToken(field, token) {
     const value = String(token || "").trim();
     if (!value) return "Value cannot be empty.";
@@ -27,6 +33,15 @@ function validateToken(field, token) {
     }
     if (field === "allowedEnvKeys") {
         return isValidEnvKey(value) ? "" : "Use a valid environment variable key.";
+    }
+    if (field === "argumentPolicyAllowedFirstArgs" || field === "argumentPolicyDeniedFirstArgs") {
+        return /\s/.test(value) ? "Use a single token without spaces." : "";
+    }
+    if (field === "argumentPolicyAllowedLeadingOptions" || field === "argumentPolicyPathRestrictedLeadingOptions") {
+        if (/\s/.test(value)) {
+            return "Use a single token without spaces.";
+        }
+        return isValidOptionToken(value) ? "" : "Use an option token like -C or --chdir.";
     }
     return "";
 }
@@ -58,6 +73,25 @@ function classifyScopeRisk(scope = {}) {
     return looksSafer
         ? {label: "Safer shared scopes", intent: "success", description: "Reusable read-oriented commands for multiple plugins."}
         : {label: "Higher-risk shared scopes", intent: "warning", description: "Reusable scopes that may mutate host state or need stronger review."};
+}
+
+function buildArgumentPolicySummary(scope = {}) {
+    const policy = (scope?.argumentPolicy && typeof scope.argumentPolicy === "object") ? scope.argumentPolicy : null;
+    if (!policy) {
+        return "";
+    }
+    if (policy.mode === "first-arg") {
+        const allowedCount = Array.isArray(policy.allowedFirstArgs) ? policy.allowedFirstArgs.length : 0;
+        const deniedCount = Array.isArray(policy.deniedFirstArgs) ? policy.deniedFirstArgs.length : 0;
+        const leadingCount = Array.isArray(policy.allowedLeadingOptions) ? policy.allowedLeadingOptions.length : 0;
+        const pathRestrictedCount = Array.isArray(policy.pathRestrictedLeadingOptions) ? policy.pathRestrictedLeadingOptions.length : 0;
+        return `Argument policy v${policy.version || PROCESS_SCOPE_POLICY_VERSION}: allow ${allowedCount}, deny ${deniedCount}, leading ${leadingCount}, path-restricted ${pathRestrictedCount}`;
+    }
+    if (policy.mode === "first-arg-by-executable") {
+        const executableCount = Object.keys(policy.rulesByExecutable || {}).length;
+        return `Argument policy v${policy.version || PROCESS_SCOPE_POLICY_VERSION}: executable rules (${executableCount}).`;
+    }
+    return `Argument policy v${policy.version || PROCESS_SCOPE_POLICY_VERSION}`;
 }
 
 function TokenListInput({
@@ -116,6 +150,12 @@ const EMPTY_SCOPE_DRAFT = Object.freeze({
     allowedExecutables: [],
     allowedCwdRoots: [],
     allowedEnvKeys: [],
+    argumentPolicyAllowedFirstArgs: [],
+    argumentPolicyDeniedFirstArgs: [],
+    argumentPolicyAllowedLeadingOptions: [],
+    argumentPolicyPathRestrictedLeadingOptions: [],
+    argumentPolicyRaw: null,
+    policyVersion: PROCESS_SCOPE_POLICY_VERSION,
     timeoutCeilingMs: "30000",
     requireConfirmation: true,
 });
@@ -132,11 +172,19 @@ export default function SharedProcessScopesPanel() {
         allowedExecutables: "",
         allowedCwdRoots: "",
         allowedEnvKeys: "",
+        argumentPolicyAllowedFirstArgs: "",
+        argumentPolicyDeniedFirstArgs: "",
+        argumentPolicyAllowedLeadingOptions: "",
+        argumentPolicyPathRestrictedLeadingOptions: "",
     });
     const [inputErrors, setInputErrors] = useState({
         allowedExecutables: "",
         allowedCwdRoots: "",
         allowedEnvKeys: "",
+        argumentPolicyAllowedFirstArgs: "",
+        argumentPolicyDeniedFirstArgs: "",
+        argumentPolicyAllowedLeadingOptions: "",
+        argumentPolicyPathRestrictedLeadingOptions: "",
     });
 
     const loadSharedScopes = async () => {
@@ -181,11 +229,19 @@ export default function SharedProcessScopesPanel() {
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
         });
         setInputErrors({
             allowedExecutables: "",
             allowedCwdRoots: "",
             allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
         });
     };
 
@@ -220,10 +276,38 @@ export default function SharedProcessScopesPanel() {
             allowedExecutables: Array.isArray(scope?.allowedExecutables) ? scope.allowedExecutables : [],
             allowedCwdRoots: Array.isArray(scope?.allowedCwdRoots) ? scope.allowedCwdRoots : [],
             allowedEnvKeys: Array.isArray(scope?.allowedEnvKeys) ? scope.allowedEnvKeys : [],
+            argumentPolicyAllowedFirstArgs: Array.isArray(scope?.argumentPolicy?.allowedFirstArgs) ? scope.argumentPolicy.allowedFirstArgs : [],
+            argumentPolicyDeniedFirstArgs: Array.isArray(scope?.argumentPolicy?.deniedFirstArgs) ? scope.argumentPolicy.deniedFirstArgs : [],
+            argumentPolicyAllowedLeadingOptions: Array.isArray(scope?.argumentPolicy?.allowedLeadingOptions) ? scope.argumentPolicy.allowedLeadingOptions : [],
+            argumentPolicyPathRestrictedLeadingOptions: Array.isArray(scope?.argumentPolicy?.pathRestrictedLeadingOptions) ? scope.argumentPolicy.pathRestrictedLeadingOptions : [],
+            argumentPolicyRaw: (scope?.argumentPolicy?.mode && scope.argumentPolicy.mode !== "first-arg")
+                ? scope.argumentPolicy
+                : null,
+            policyVersion: Number.isFinite(Number(scope?.policyVersion)) && Number(scope.policyVersion) > 0
+                ? Math.trunc(Number(scope.policyVersion))
+                : PROCESS_SCOPE_POLICY_VERSION,
             timeoutCeilingMs: scope?.timeoutCeilingMs ? String(scope.timeoutCeilingMs) : "30000",
             requireConfirmation: scope?.requireConfirmation !== false,
         });
         setError("");
+        setInputs({
+            allowedExecutables: "",
+            allowedCwdRoots: "",
+            allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+        });
+        setInputErrors({
+            allowedExecutables: "",
+            allowedCwdRoots: "",
+            allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+        });
         setShowEditor(true);
     };
 
@@ -237,10 +321,38 @@ export default function SharedProcessScopesPanel() {
             allowedExecutables: Array.isArray(scope?.allowedExecutables) ? scope.allowedExecutables : [],
             allowedCwdRoots: Array.isArray(scope?.allowedCwdRoots) ? scope.allowedCwdRoots : [],
             allowedEnvKeys: Array.isArray(scope?.allowedEnvKeys) ? scope.allowedEnvKeys : [],
+            argumentPolicyAllowedFirstArgs: Array.isArray(scope?.argumentPolicy?.allowedFirstArgs) ? scope.argumentPolicy.allowedFirstArgs : [],
+            argumentPolicyDeniedFirstArgs: Array.isArray(scope?.argumentPolicy?.deniedFirstArgs) ? scope.argumentPolicy.deniedFirstArgs : [],
+            argumentPolicyAllowedLeadingOptions: Array.isArray(scope?.argumentPolicy?.allowedLeadingOptions) ? scope.argumentPolicy.allowedLeadingOptions : [],
+            argumentPolicyPathRestrictedLeadingOptions: Array.isArray(scope?.argumentPolicy?.pathRestrictedLeadingOptions) ? scope.argumentPolicy.pathRestrictedLeadingOptions : [],
+            argumentPolicyRaw: (scope?.argumentPolicy?.mode && scope.argumentPolicy.mode !== "first-arg")
+                ? scope.argumentPolicy
+                : null,
+            policyVersion: Number.isFinite(Number(scope?.policyVersion)) && Number(scope.policyVersion) > 0
+                ? Math.trunc(Number(scope.policyVersion))
+                : PROCESS_SCOPE_POLICY_VERSION,
             timeoutCeilingMs: scope?.timeoutCeilingMs ? String(scope.timeoutCeilingMs) : "30000",
             requireConfirmation: scope?.requireConfirmation !== false,
         });
         setError("");
+        setInputs({
+            allowedExecutables: "",
+            allowedCwdRoots: "",
+            allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+        });
+        setInputErrors({
+            allowedExecutables: "",
+            allowedCwdRoots: "",
+            allowedEnvKeys: "",
+            argumentPolicyAllowedFirstArgs: "",
+            argumentPolicyDeniedFirstArgs: "",
+            argumentPolicyAllowedLeadingOptions: "",
+            argumentPolicyPathRestrictedLeadingOptions: "",
+        });
         setShowEditor(true);
     };
 
@@ -253,13 +365,46 @@ export default function SharedProcessScopesPanel() {
                 setError("Scope ID is required. Use any scope ID such as internal-runner.");
                 return;
             }
-            const pendingField = ["allowedExecutables", "allowedCwdRoots", "allowedEnvKeys"]
+            const pendingField = [
+                "allowedExecutables",
+                "allowedCwdRoots",
+                "allowedEnvKeys",
+                "argumentPolicyAllowedFirstArgs",
+                "argumentPolicyDeniedFirstArgs",
+                "argumentPolicyAllowedLeadingOptions",
+                "argumentPolicyPathRestrictedLeadingOptions",
+            ]
                 .find((field) => String(inputs[field] || "").trim());
             if (pendingField) {
                 addToken(pendingField);
                 setSaving(false);
                 return;
             }
+            const argumentPolicyAllowedFirstArgs = uniqueNormalizedTokens(draft.argumentPolicyAllowedFirstArgs);
+            const argumentPolicyDeniedFirstArgs = uniqueNormalizedTokens(draft.argumentPolicyDeniedFirstArgs);
+            const argumentPolicyAllowedLeadingOptions = uniqueNormalizedTokens(draft.argumentPolicyAllowedLeadingOptions);
+            const argumentPolicyPathRestrictedLeadingOptions = uniqueNormalizedTokens(draft.argumentPolicyPathRestrictedLeadingOptions);
+            const invalidPathRestrictedOption = argumentPolicyPathRestrictedLeadingOptions.find(
+                (option) => !argumentPolicyAllowedLeadingOptions.includes(option)
+            );
+            if (invalidPathRestrictedOption) {
+                setError(`Path-restricted option "${invalidPathRestrictedOption}" must also be listed in Allowed leading options.`);
+                return;
+            }
+            const hasArgumentPolicy = argumentPolicyAllowedFirstArgs.length > 0
+                || argumentPolicyDeniedFirstArgs.length > 0
+                || argumentPolicyAllowedLeadingOptions.length > 0
+                || argumentPolicyPathRestrictedLeadingOptions.length > 0;
+            const argumentPolicy = hasArgumentPolicy ? {
+                version: Number.isFinite(Number(draft.policyVersion)) && Number(draft.policyVersion) > 0
+                    ? Math.trunc(Number(draft.policyVersion))
+                    : PROCESS_SCOPE_POLICY_VERSION,
+                mode: "first-arg",
+                allowedFirstArgs: argumentPolicyAllowedFirstArgs,
+                deniedFirstArgs: argumentPolicyDeniedFirstArgs,
+                allowedLeadingOptions: argumentPolicyAllowedLeadingOptions,
+                pathRestrictedLeadingOptions: argumentPolicyPathRestrictedLeadingOptions,
+            } : ((draft.argumentPolicyRaw && typeof draft.argumentPolicyRaw === "object") ? draft.argumentPolicyRaw : undefined);
             const result = await window.electron.plugin.upsertSharedProcessScope({
                 scope: normalizedScopeId,
                 title: draft.title,
@@ -267,6 +412,10 @@ export default function SharedProcessScopesPanel() {
                 allowedExecutables: uniqueNormalizedTokens(draft.allowedExecutables),
                 allowedCwdRoots: uniqueNormalizedTokens(draft.allowedCwdRoots),
                 allowedEnvKeys: uniqueNormalizedTokens(draft.allowedEnvKeys),
+                policyVersion: Number.isFinite(Number(draft.policyVersion)) && Number(draft.policyVersion) > 0
+                    ? Math.trunc(Number(draft.policyVersion))
+                    : PROCESS_SCOPE_POLICY_VERSION,
+                argumentPolicy,
                 timeoutCeilingMs: Number(draft.timeoutCeilingMs || 0),
                 requireConfirmation: draft.requireConfirmation !== false,
             });
@@ -359,8 +508,14 @@ export default function SharedProcessScopesPanel() {
                                                 <Tag minimal>{(scope.allowedExecutables || []).length} command path{(scope.allowedExecutables || []).length === 1 ? "" : "s"}</Tag>
                                                 <Tag minimal>timeout max: {scope.timeoutCeilingMs || 30000}ms</Tag>
                                                 <Tag minimal>confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
+                                                <Tag minimal>policy v{scope.policyVersion || PROCESS_SCOPE_POLICY_VERSION}</Tag>
                                                 <Tag minimal intent={usedBy.length > 0 ? "primary" : "none"}>Granted to plugins: {usedBy.length}</Tag>
                                             </div>
+                                            {buildArgumentPolicySummary(scope) ? (
+                                                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: 6}}>
+                                                    {buildArgumentPolicySummary(scope)}
+                                                </div>
+                                            ) : null}
                                             <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: 8}}>
                                                 Grant path: Manage Plugins -> plugin -> Capabilities -> <code>{`system.process.scope.${scope.scope}`}</code>
                                             </div>
@@ -470,6 +625,78 @@ export default function SharedProcessScopesPanel() {
                         onAddToken={() => addToken("allowedEnvKeys")}
                         onRemoveToken={(token) => removeToken("allowedEnvKeys", token)}
                     />
+                    <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginTop: 6}}>
+                        <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: 6}}>
+                            Argument policy (optional)
+                        </div>
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginBottom: 10}}>
+                            Define first-argument and leading-option restrictions. Path-restricted options require absolute paths under allowed CWD roots.
+                        </div>
+                        <TokenListInput
+                            label="Allowed subcommands"
+                            placeholder="status"
+                            helperText="Optional allowlist of subcommands/tokens accepted as first argument."
+                            tokens={draft.argumentPolicyAllowedFirstArgs}
+                            inputValue={inputs.argumentPolicyAllowedFirstArgs}
+                            inputError={inputErrors.argumentPolicyAllowedFirstArgs}
+                            onInputChange={(value) => {
+                                setInputs((prev) => ({...prev, argumentPolicyAllowedFirstArgs: value}));
+                                setInputErrors((prev) => ({...prev, argumentPolicyAllowedFirstArgs: ""}));
+                            }}
+                            onAddToken={() => addToken("argumentPolicyAllowedFirstArgs")}
+                            onRemoveToken={(token) => removeToken("argumentPolicyAllowedFirstArgs", token)}
+                        />
+                        <TokenListInput
+                            label="Blocked subcommands"
+                            placeholder="credential"
+                            helperText="Explicit denylist checked before allowlist."
+                            tokens={draft.argumentPolicyDeniedFirstArgs}
+                            inputValue={inputs.argumentPolicyDeniedFirstArgs}
+                            inputError={inputErrors.argumentPolicyDeniedFirstArgs}
+                            onInputChange={(value) => {
+                                setInputs((prev) => ({...prev, argumentPolicyDeniedFirstArgs: value}));
+                                setInputErrors((prev) => ({...prev, argumentPolicyDeniedFirstArgs: ""}));
+                            }}
+                            onAddToken={() => addToken("argumentPolicyDeniedFirstArgs")}
+                            onRemoveToken={(token) => removeToken("argumentPolicyDeniedFirstArgs", token)}
+                        />
+                        <TokenListInput
+                            label="Allowed leading options"
+                            placeholder="-C"
+                            helperText="Option-like tokens accepted before first subcommand."
+                            tokens={draft.argumentPolicyAllowedLeadingOptions}
+                            inputValue={inputs.argumentPolicyAllowedLeadingOptions}
+                            inputError={inputErrors.argumentPolicyAllowedLeadingOptions}
+                            onInputChange={(value) => {
+                                setInputs((prev) => ({...prev, argumentPolicyAllowedLeadingOptions: value}));
+                                setInputErrors((prev) => ({...prev, argumentPolicyAllowedLeadingOptions: ""}));
+                            }}
+                            onAddToken={() => addToken("argumentPolicyAllowedLeadingOptions")}
+                            onRemoveToken={(token) => removeToken("argumentPolicyAllowedLeadingOptions", token)}
+                        />
+                        <TokenListInput
+                            label="Path-restricted leading options"
+                            placeholder="--chdir"
+                            helperText="Must also exist in Allowed leading options."
+                            tokens={draft.argumentPolicyPathRestrictedLeadingOptions}
+                            inputValue={inputs.argumentPolicyPathRestrictedLeadingOptions}
+                            inputError={inputErrors.argumentPolicyPathRestrictedLeadingOptions}
+                            onInputChange={(value) => {
+                                setInputs((prev) => ({...prev, argumentPolicyPathRestrictedLeadingOptions: value}));
+                                setInputErrors((prev) => ({...prev, argumentPolicyPathRestrictedLeadingOptions: ""}));
+                            }}
+                            onAddToken={() => addToken("argumentPolicyPathRestrictedLeadingOptions")}
+                            onRemoveToken={(token) => removeToken("argumentPolicyPathRestrictedLeadingOptions", token)}
+                        />
+                        <div className={classNames("bp6-text-small", "bp6-text-muted")}>
+                            Policy version: <code>{draft.policyVersion || PROCESS_SCOPE_POLICY_VERSION}</code>
+                        </div>
+                        {draft.argumentPolicyRaw?.mode && draft.argumentPolicyRaw.mode !== "first-arg" ? (
+                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: 6}}>
+                                Existing advanced policy mode <code>{draft.argumentPolicyRaw.mode}</code> is preserved unless first-arg fields are set above.
+                            </div>
+                        ) : null}
+                    </Card>
                     <div style={{display: "grid", gridTemplateColumns: "minmax(220px, 1fr)", gap: 10, alignItems: "start"}}>
                         <FormGroup label="Timeout ceiling (ms)">
                             <InputGroup

@@ -29,6 +29,17 @@ export function buildScopeCapabilities(scopePolicies = []) {
         allowedOperationTypes: Array.isArray(scope.allowedOperationTypes) ? scope.allowedOperationTypes : [],
         allowedExecutables: Array.isArray(scope.allowedExecutables) ? scope.allowedExecutables : [],
         allowedEnvKeys: Array.isArray(scope.allowedEnvKeys) ? scope.allowedEnvKeys : [],
+        additionalAllowedFirstArgs: Array.isArray(scope.additionalAllowedFirstArgs) ? scope.additionalAllowedFirstArgs : [],
+        additionalAllowedFirstArgsByExecutable: (scope.additionalAllowedFirstArgsByExecutable && typeof scope.additionalAllowedFirstArgsByExecutable === "object")
+            ? scope.additionalAllowedFirstArgsByExecutable
+            : {},
+        additionalAllowedLeadingOptions: Array.isArray(scope.additionalAllowedLeadingOptions) ? scope.additionalAllowedLeadingOptions : [],
+        additionalAllowedLeadingOptionsByExecutable: (scope.additionalAllowedLeadingOptionsByExecutable && typeof scope.additionalAllowedLeadingOptionsByExecutable === "object")
+            ? scope.additionalAllowedLeadingOptionsByExecutable
+            : {},
+        argumentPolicy: (scope.argumentPolicy && typeof scope.argumentPolicy === "object")
+            ? scope.argumentPolicy
+            : null,
         timeoutCeilingMs: Number.isFinite(scope.timeoutCeilingMs) ? scope.timeoutCeilingMs : null,
         requireConfirmation: scope.requireConfirmation !== false,
     }));

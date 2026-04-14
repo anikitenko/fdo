@@ -53,6 +53,12 @@ describe("ManagePluginsDialog capability UX", () => {
                         allowedCwdRoots: ["/tmp"],
                         allowedExecutables: ["/usr/local/bin/docker"],
                         allowedEnvKeys: ["DOCKER_CONTEXT"],
+                        argumentPolicy: {
+                            mode: "first-arg",
+                            allowedFirstArgs: ["version", "ps", "images", "pull", "run"],
+                            deniedFirstArgs: ["exec"],
+                            pathRestrictedLeadingOptions: ["-C"],
+                        },
                         timeoutCeilingMs: 30000,
                         requireConfirmation: true,
                     },
@@ -215,6 +221,7 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(screen.getAllByText(/system\.process\.scope\.docker-cli/).length).toBeGreaterThan(0);
         expect(screen.getByText("Privileged host actions")).toBeInTheDocument();
         expect(screen.getAllByText("Allow Scoped Tool Execution").length).toBeGreaterThan(0);
+        expect(screen.getByText("Persistent plugin JSON storage")).toBeInTheDocument();
         expect(screen.getByText(/Trust tier: Basic|Trust tier: Operator|Trust tier: Admin/)).toBeInTheDocument();
         expect(screen.getAllByText(/Technical ID:/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText("system.host.write").length).toBeGreaterThanOrEqual(1);
@@ -248,6 +255,30 @@ describe("ManagePluginsDialog capability UX", () => {
 
         await waitFor(() => {
             expect(screen.getByRole("button", {name: "Expand"})).toBeInTheDocument();
+        });
+    });
+
+    test("shows argument-policy visibility in process scope details", async () => {
+        renderDialog();
+
+        await waitFor(() => {
+            expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Expand"}));
+        fireEvent.change(
+            screen.getByPlaceholderText("Filter scopes, commands, capability IDs"),
+            {target: {value: "docker"}}
+        );
+        fireEvent.click(screen.getByRole("button", {name: "View policy details"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Allowed subcommands")).toBeInTheDocument();
+            expect(screen.getByText("Blocked subcommands")).toBeInTheDocument();
+            expect(screen.getByText("Path-restricted leading options")).toBeInTheDocument();
+            expect(screen.getByText("version")).toBeInTheDocument();
+            expect(screen.getByText("exec")).toBeInTheDocument();
+            expect(screen.getByText("-C")).toBeInTheDocument();
         });
     });
 
@@ -319,6 +350,46 @@ describe("ManagePluginsDialog capability UX", () => {
         });
     });
 
+    test("storage capability family requires explicit child selection", async () => {
+        renderDialog();
+
+        await waitFor(() => {
+            expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Expand"}));
+
+        const storageBase = screen.getByRole("checkbox", {name: "Persistent plugin storage"});
+        const storageJson = screen.getByRole("checkbox", {name: "Persistent plugin JSON storage"});
+
+        expect(storageBase).not.toBeChecked();
+        expect(storageJson).not.toBeChecked();
+        expect(storageJson).toBeDisabled();
+
+        fireEvent.click(storageBase);
+        expect(storageBase).toBeChecked();
+        expect(storageJson).not.toBeChecked();
+        expect(storageJson).not.toBeDisabled();
+
+        fireEvent.click(storageJson);
+        expect(storageJson).toBeChecked();
+
+        fireEvent.click(storageBase);
+        expect(storageBase).not.toBeChecked();
+        expect(storageJson).not.toBeChecked();
+
+        fireEvent.click(storageBase);
+        fireEvent.click(storageJson);
+        fireEvent.click(screen.getByRole("button", {name: "Save Capabilities"}));
+
+        await waitFor(() => {
+            expect(window.electron.plugin.setCapabilities).toHaveBeenCalledWith(
+                "plugin-a",
+                expect.arrayContaining(["storage", "storage.json"])
+            );
+        });
+    });
+
     test("custom scope form uses scope-specific labels and closes after save", async () => {
         window.electron.plugin.upsertPluginCustomProcessScope.mockResolvedValueOnce({
             success: true,
@@ -372,6 +443,26 @@ describe("ManagePluginsDialog capability UX", () => {
             expect(window.electron.plugin.setCapabilities).not.toHaveBeenCalled();
             expect(screen.getByRole("button", {name: "Add Plugin Scope"})).toBeInTheDocument();
             expect(screen.queryByRole("button", {name: "Save Scope"})).not.toBeInTheDocument();
+        });
+    });
+
+    test("custom scope editor exposes argument override inputs", async () => {
+        renderDialog();
+
+        await waitFor(() => {
+            expect(screen.getByRole("button", {name: "Add Plugin Scope"})).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Add Plugin Scope"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Argument policy (optional)")).toBeInTheDocument();
+            expect(screen.getByText("Allowed subcommands")).toBeInTheDocument();
+            expect(screen.getByText("Blocked subcommands")).toBeInTheDocument();
+            expect(screen.getByText("Allowed leading options")).toBeInTheDocument();
+            expect(screen.getByText("Path-restricted leading options")).toBeInTheDocument();
+            expect(screen.getByText("Allowed subcommand overrides")).toBeInTheDocument();
+            expect(screen.getByText("Allowed leading option overrides")).toBeInTheDocument();
         });
     });
 

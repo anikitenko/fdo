@@ -375,7 +375,7 @@ describe("PluginContainer message hardening", () => {
         });
     });
 
-    test("routes host privileged-action validation failures into capability dialog flow", async () => {
+    test("does not route host privileged-action validation failures into capability dialog flow", async () => {
         window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
             ok: false,
             code: "VALIDATION_FAILED",
@@ -409,15 +409,19 @@ describe("PluginContainer message hardening", () => {
         });
 
         await waitFor(() => {
-            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
-                pluginId: "example-plugin",
-                code: "VALIDATION_FAILED",
-                correlationId: "corr-validation-failed",
-            }));
+            expect(onCapabilityDenied).not.toHaveBeenCalled();
+            expect(iframeWindow.postMessage).toHaveBeenCalledWith({
+                type: "UI_MESSAGE_RESPONSE",
+                requestId: "req-validation",
+                content: expect.objectContaining({
+                    ok: false,
+                    code: "VALIDATION_FAILED",
+                }),
+            }, "*");
         });
     });
 
-    test("routes privileged handler failures even when response uses success:false shape", async () => {
+    test("does not route privileged handler validation failures when response uses success:false shape", async () => {
         window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
             success: false,
             code: "VALIDATION_FAILED",
@@ -451,11 +455,67 @@ describe("PluginContainer message hardening", () => {
         });
 
         await waitFor(() => {
-            expect(onCapabilityDenied).toHaveBeenCalledWith(expect.objectContaining({
-                pluginId: "example-plugin",
-                code: "VALIDATION_FAILED",
-                correlationId: "corr-validation-success-false",
+            expect(onCapabilityDenied).not.toHaveBeenCalled();
+            expect(iframeWindow.postMessage).toHaveBeenCalledWith({
+                type: "UI_MESSAGE_RESPONSE",
+                requestId: "req-validation-success-false",
+                content: expect.objectContaining({
+                    success: false,
+                    code: "VALIDATION_FAILED",
+                }),
+            }, "*");
+        });
+    });
+
+    test("does not route scoped process execution errors into capability-denied flow", async () => {
+        window.electron.plugin.uiMessage = jest.fn().mockResolvedValue({
+            ok: false,
+            code: "PROCESS_EXIT_NON_ZERO",
+            error: 'Process "git" exited with code 128.',
+            correlationId: "corr-process-exit-non-zero",
+            result: {
+                command: "/usr/bin/git",
+                args: ["status"],
+                cwd: "/tmp/not-a-repo",
+                exitCode: 128,
+            },
+        });
+        const onCapabilityDenied = jest.fn();
+        const {container} = render(
+            <PluginContainer plugin="example-plugin" onCapabilityDenied={onCapabilityDenied}/>
+        );
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {
+            configurable: true,
+            value: iframeWindow,
+        });
+
+        await waitFor(() => {
+            expect(window.electron.plugin.on.uiMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                data: {
+                    type: "UI_MESSAGE_REQUEST",
+                    requestId: "req-process-exit-non-zero",
+                    message: {handler: "requestPrivilegedAction", content: {}},
+                },
+                source: iframeWindow,
             }));
+        });
+
+        await waitFor(() => {
+            expect(onCapabilityDenied).not.toHaveBeenCalled();
+            expect(iframeWindow.postMessage).toHaveBeenCalledWith({
+                type: "UI_MESSAGE_RESPONSE",
+                requestId: "req-process-exit-non-zero",
+                content: expect.objectContaining({
+                    ok: false,
+                    code: "PROCESS_EXIT_NON_ZERO",
+                }),
+            }, "*");
         });
     });
 
