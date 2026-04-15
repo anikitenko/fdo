@@ -83,6 +83,7 @@ FDO now enforces critical policy in the plugin runtime bootstrap (host side), no
 - capability gate for privileged module access (`sudo.prompt` required for `@expo/sudo-prompt` and `child_process`)
 - write-path boundary: plugin writes are allowed only under `PLUGIN_HOME`
 - writes to `PLUGIN_CODE_HOME` are blocked at runtime
+- network access is deny-by-default and requires base capability + transport capability + matching destination scope
 - external privileged filesystem and process operations are host-mediated, scoped, and audited
 
 This reduces risk from plugin-side SDK bypass attempts and keeps signed plugin code immutable while running.
@@ -92,6 +93,15 @@ Capability policy is deny-by-default in host runtime:
 - if a plugin has no granted capabilities, it receives `[]`
 - grants are resolved from plugin registry capability settings
 - `FDO_PLUGIN_CAPABILITIES` is treated as an explicit override (primarily for development/testing)
+
+For direct networking, host runtime is the real boundary:
+
+- `system.network` alone does nothing
+- `system.network.<transport>` alone does nothing without `system.network`
+- `system.network` + transport grant still does nothing without a matching `system.network.scope.<scope-id>`
+- both backend and iframe runtime paths enforce this policy before traffic is allowed
+
+This is intended to reduce SSRF-style abuse, unrestricted egress, local network pivoting, and accidental plaintext transport usage from plugins.
 
 ## Scoped Operator Tooling
 
@@ -120,6 +130,13 @@ Important constraint:
 - curated SDK operator presets are an authoring convenience only; host capability checks and scope policy enforcement remain the real security boundary
 - curated helper guidance should be presented before transport-level troubleshooting whenever a curated preset exists
 - multi-step operator workflows should remain scoped, auditable, and host-mediated, with per-step typed results and preserved step correlation IDs
+
+Practical note for diagnostics tooling:
+
+- host fallback scopes may allow utilities such as `ping` under `system.process.scope.network-diagnostics`
+- this is allowed because `ping` is a narrow, operator-facing diagnostics command for reachability troubleshooting
+- this is still host-mediated process execution, with allowlisted binaries, cwd/env restrictions, timeout ceilings, and confirmation policy
+- it must not be interpreted as blanket permission for plugin code to open arbitrary sockets or bypass transport-specific network capabilities
 
 ## Residual Risk
 

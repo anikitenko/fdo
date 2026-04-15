@@ -42,6 +42,46 @@ describe("plugin runtime security", () => {
         expect(result.homeWrite).toBe("allowed");
     });
 
+    test("blocks outbound network APIs without network capability grants", () => {
+        const result = runBootstrapPolicy("storage.json");
+        expect(result.fetch).toBe("blocked");
+        expect(result.http).toBe("blocked");
+        expect(result.https).toBe("blocked");
+        expect(result.net).toBe("blocked");
+        expect(result.dns).toBe("blocked");
+    });
+
+    test("blocks HTTPS fetch without a matching network scope even when transport is granted", () => {
+        const result = runBootstrapPolicy("storage.json,system.network,system.network.https");
+        expect(result.fetch).toBe("blocked");
+        expect(result.https).toBe("allowed");
+        expect(result.httpsRequest).toBe("blocked");
+        expect(result.http2Connect).toBe("blocked");
+    });
+
+    test("allows HTTPS and HTTP network APIs with matching grants while still blocking raw sockets by default", () => {
+        const result = runBootstrapPolicy("storage.json,system.network,system.network.https,system.network.http,system.network.scope.public-web-secure,system.network.scope.public-web-legacy");
+        expect(result.fetch).toBe("allowed");
+        expect(result.http).toBe("allowed");
+        expect(result.https).toBe("allowed");
+        expect(result.net).toBe("blocked");
+        expect(result.dns).toBe("blocked");
+    });
+
+    test("allows low-level DNS and TCP modules only when explicitly granted", () => {
+        const result = runBootstrapPolicy("storage.json,system.network,system.network.tcp,system.network.dns,system.network.scope.loopback-dev");
+        expect(result.net).toBe("allowed");
+        expect(result.dns).toBe("allowed");
+        expect(result.http).toBe("blocked");
+        expect(result.tlsConnect).toBe("allowed");
+    });
+
+    test("blocks internal bindings and worker threads as runtime escape hatches", () => {
+        const result = runBootstrapPolicy("storage.json,system.network,system.network.https,system.network.scope.public-web-secure");
+        expect(result.processBinding).toBe("blocked");
+        expect(result.workerThreads).toBe("blocked");
+    });
+
     test("exposes SDK-compatible createBackendReq bridge in backend runtime", () => {
         const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "fdo-plugin-bridge-"));
         try {
@@ -120,6 +160,85 @@ try {
     result.homeWrite = "allowed";
 } catch (_) {
     result.homeWrite = "blocked";
+}
+
+try {
+    if (typeof fetch !== "function") {
+        throw new Error("fetch-unavailable");
+    }
+    Promise.resolve(fetch("https://example.com")).catch(() => undefined);
+    result.fetch = "allowed";
+} catch (_) {
+    result.fetch = "blocked";
+}
+
+try {
+    require("node:http");
+    result.http = "allowed";
+} catch (_) {
+    result.http = "blocked";
+}
+
+try {
+    require("node:https");
+    result.https = "allowed";
+} catch (_) {
+    result.https = "blocked";
+}
+
+try {
+    const req = require("node:https").request("https://example.com");
+    req.on("error", () => {});
+    req.destroy();
+    result.httpsRequest = "allowed";
+} catch (_) {
+    result.httpsRequest = "blocked";
+}
+
+try {
+    const session = require("node:http2").connect("https://example.com");
+    session.on("error", () => {});
+    session.close();
+    result.http2Connect = "allowed";
+} catch (_) {
+    result.http2Connect = "blocked";
+}
+
+try {
+    require("node:net");
+    result.net = "allowed";
+} catch (_) {
+    result.net = "blocked";
+}
+
+try {
+    require("node:dns");
+    result.dns = "allowed";
+} catch (_) {
+    result.dns = "blocked";
+}
+
+try {
+    const socket = require("node:tls").connect({host: "127.0.0.1", port: 65535});
+    socket.on("error", () => {});
+    socket.destroy();
+    result.tlsConnect = "allowed";
+} catch (_) {
+    result.tlsConnect = "blocked";
+}
+
+try {
+    process.binding("fs");
+    result.processBinding = "allowed";
+} catch (_) {
+    result.processBinding = "blocked";
+}
+
+try {
+    require("node:worker_threads");
+    result.workerThreads = "allowed";
+} catch (_) {
+    result.workerThreads = "blocked";
 }
 
 process.stdout.write(JSON.stringify(result));

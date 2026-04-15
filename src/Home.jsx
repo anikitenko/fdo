@@ -235,7 +235,8 @@ function collectMissingProcessScopeIds({
 function isScopedCapability(capabilityId = "") {
     const normalizedCapabilityId = String(capabilityId || "").trim();
     return normalizedCapabilityId.startsWith("system.process.scope.")
-        || normalizedCapabilityId.startsWith("system.fs.scope.");
+        || normalizedCapabilityId.startsWith("system.fs.scope.")
+        || normalizedCapabilityId.startsWith("system.network.scope.");
 }
 
 function getRequestedCommandPathFromIssue({
@@ -1918,11 +1919,27 @@ export const Home = () => {
             setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
             return;
         }
+        const recommendationFamily = ((Array.isArray(capabilityDeniedNotice.missingCapabilityDiagnostics) ? capabilityDeniedNotice.missingCapabilityDiagnostics : [])
+            .some((item) => {
+                const capability = String(item?.capability || "").trim();
+                return capability.startsWith("system.network");
+            }))
+            ? "network"
+            : "";
+        const focusCapabilityIds = [
+            ...new Set([
+                ...(Array.isArray(capabilityDeniedNotice.missingCapabilities) ? capabilityDeniedNotice.missingCapabilities : []),
+                ...((Array.isArray(capabilityDeniedNotice.missingCapabilityDiagnostics) ? capabilityDeniedNotice.missingCapabilityDiagnostics : [])
+                    .map((item) => String(item?.capability || "").trim())
+                    .filter(Boolean)),
+            ]),
+        ];
         setCapabilityFocusRequest({
             requestId: `${Date.now()}`,
             pluginId: capabilityDeniedNotice.pluginId,
-            capabilityIds: capabilityDeniedNotice.missingCapabilities,
+            capabilityIds: focusCapabilityIds,
             focusSection: "capabilities",
+            recommendationFamily,
         });
         setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
     };
@@ -2369,6 +2386,7 @@ export const Home = () => {
                                 <PluginContainer
                                     key={`${pluginId}:${pluginRenderEpochs.get(pluginId) || 0}`}
                                     plugin={pluginId}
+                                    capabilities={Array.isArray(activePlugin.capabilities) ? activePlugin.capabilities : []}
                                     active={isSelected}
                                     onStageChange={isSelected ? setSelectedPluginLifecycleStage : undefined}
                                     onRequestCommandBar={() => setShowCommandSearch(true)}

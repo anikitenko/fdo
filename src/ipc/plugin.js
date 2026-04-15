@@ -44,6 +44,7 @@ import {
     setHostPluginCustomFilesystemScopes,
     setHostSharedFilesystemScopes,
 } from "../utils/privilegedFsScopeRegistry";
+import {getAllHostNetworkScopePolicies} from "../utils/networkScopeRegistry";
 import {
     getAllHostProcessScopePolicies,
     getHostPluginCustomProcessScopes,
@@ -56,7 +57,17 @@ import {
 } from "../utils/privilegedProcessScopeRegistry";
 import {getPluginTrustTier, summarizePrivilegedRuntime} from "../utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary, extractCapabilityDeclarationComparison} from "../utils/pluginCapabilityDeclaration";
-import {STORAGE_CAPABILITY, STORAGE_JSON_CAPABILITY} from "../utils/pluginCapabilities";
+import {
+    NETWORK_CAPABILITY,
+    NETWORK_DNS_CAPABILITY,
+    NETWORK_HTTPS_CAPABILITY,
+    NETWORK_HTTP_CAPABILITY,
+    NETWORK_TCP_CAPABILITY,
+    NETWORK_UDP_CAPABILITY,
+    NETWORK_WEBSOCKET_CAPABILITY,
+    STORAGE_CAPABILITY,
+    STORAGE_JSON_CAPABILITY
+} from "../utils/pluginCapabilities";
 
 function buildHostPluginMessage(message, content = undefined) {
     const envelope = { message };
@@ -213,6 +224,26 @@ function didStorageCapabilityFamilyChange(previousCapabilities = [], nextCapabil
     const nextStorageBase = nextSet.has(STORAGE_CAPABILITY);
     const nextStorageJson = nextSet.has(STORAGE_JSON_CAPABILITY);
     return previousStorageBase !== nextStorageBase || previousStorageJson !== nextStorageJson;
+}
+
+function didNetworkCapabilityFamilyChange(previousCapabilities = [], nextCapabilities = []) {
+    const previousSet = toCapabilitySet(previousCapabilities);
+    const nextSet = toCapabilitySet(nextCapabilities);
+    const networkCapabilities = [
+        NETWORK_CAPABILITY,
+        NETWORK_HTTPS_CAPABILITY,
+        NETWORK_HTTP_CAPABILITY,
+        NETWORK_WEBSOCKET_CAPABILITY,
+        NETWORK_TCP_CAPABILITY,
+        NETWORK_UDP_CAPABILITY,
+        NETWORK_DNS_CAPABILITY,
+    ];
+    const networkScopeCapabilities = new Set([
+        ...[...previousSet].filter((capability) => capability.startsWith("system.network.scope.")),
+        ...[...nextSet].filter((capability) => capability.startsWith("system.network.scope.")),
+    ]);
+    return networkCapabilities.some((capability) => previousSet.has(capability) !== nextSet.has(capability))
+        || [...networkScopeCapabilities].some((capability) => previousSet.has(capability) !== nextSet.has(capability));
 }
 
 function uniqueNormalizedStrings(values = []) {
@@ -1065,6 +1096,7 @@ export function registerPluginHandlers() {
                 success: true,
                 scopes: [
                     ...Object.values(getAllHostFilesystemScopePolicies({pluginId}) || {}).map((policy) => sanitizeScopePolicy(policy)),
+                    ...Object.values(getAllHostNetworkScopePolicies({pluginId}) || {}).map((policy) => sanitizeScopePolicy(policy)),
                     ...Object.values(getAllHostProcessScopePolicies({pluginId}) || {}).map((policy) => sanitizeScopePolicy(policy)),
                 ].filter((policy) => policy.scope),
             };
@@ -2187,14 +2219,18 @@ export function registerPluginHandlers() {
             let runtimeRestartError = "";
             if (loadedPlugin) {
                 const storageChanged = didStorageCapabilityFamilyChange(previousGrantedCapabilities, nextGrantedCapabilities);
-                if (storageChanged) {
+                const networkChanged = didNetworkCapabilityFamilyChange(previousGrantedCapabilities, nextGrantedCapabilities);
+                if (storageChanged || networkChanged) {
+                    const restartReason = storageChanged
+                        ? "capabilities_storage_changed"
+                        : "capabilities_network_changed";
                     try {
-                        PluginManager.unLoadPlugin(id, {force: true, reason: "capabilities_storage_changed"});
+                        PluginManager.unLoadPlugin(id, {force: true, reason: restartReason});
                         const restartResult = await PluginManager.loadPlugin(id);
                         if (restartResult?.success) {
                             runtimeRestarted = true;
                         } else {
-                            runtimeRestartError = restartResult?.error || "Failed to restart plugin runtime after storage capability update.";
+                            runtimeRestartError = restartResult?.error || "Failed to restart plugin runtime after capability family update.";
                         }
                     } catch (restartError) {
                         runtimeRestartError = restartError?.message || String(restartError);

@@ -86,6 +86,17 @@ describe("ManagePluginsDialog capability UX", () => {
                         timeoutCeilingMs: 120000,
                         requireConfirmation: true,
                     },
+                    {
+                        scope: "public-web-secure",
+                        kind: "network",
+                        category: "Network",
+                        description: "Allows secure outbound web traffic to public HTTPS and WSS endpoints.",
+                        allowedSchemes: ["https", "wss"],
+                        allowedHostPatterns: ["*"],
+                        allowedPorts: ["*"],
+                        allowedTransports: ["fetch", "xhr", "eventsource", "websocket"],
+                        requireConfirmation: false,
+                    },
                 ],
             }),
             getRuntimeStatus: jest.fn().mockResolvedValue({
@@ -221,11 +232,39 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(screen.getAllByText(/system\.process\.scope\.docker-cli/).length).toBeGreaterThan(0);
         expect(screen.getByText("Privileged host actions")).toBeInTheDocument();
         expect(screen.getAllByText("Allow Scoped Tool Execution").length).toBeGreaterThan(0);
+        expect(screen.getByText("Network access")).toBeInTheDocument();
+        expect(screen.getByText("HTTPS requests")).toBeInTheDocument();
+        expect(screen.getByText("Plain HTTP requests")).toBeInTheDocument();
+        expect(screen.getByText("WebSocket connections")).toBeInTheDocument();
+        const httpsRequests = screen.getByText("HTTPS requests");
+        expect(screen.queryByText("Recommended network setup")).not.toBeInTheDocument();
+        expect(httpsRequests).toBeInTheDocument();
+        expect(screen.queryByRole("button", {name: "Enable Secure Public Web"})).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", {name: "Enable Loopback Dev"})).not.toBeInTheDocument();
         expect(screen.getByText("Persistent plugin JSON storage")).toBeInTheDocument();
         expect(screen.getByText(/Trust tier: Basic|Trust tier: Operator|Trust tier: Admin/)).toBeInTheDocument();
         expect(screen.getAllByText(/Technical ID:/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText("system.host.write").length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
+    });
+
+    test("shows network recommendations when opened from a network capability error", async () => {
+        renderDialog({}, {
+            requestId: "network-fix-1",
+            pluginId: "plugin-a",
+            focusSection: "capabilities",
+            capabilityIds: ["system.network", "system.network.https", "system.network.scope.public-web-secure"],
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
+        });
+
+        const recommendedNetworkSetup = screen.getByText("Recommended network setup");
+        const httpsRequests = screen.getByText("HTTPS requests");
+        expect(recommendedNetworkSetup).toBeInTheDocument();
+        expect(recommendedNetworkSetup.compareDocumentPosition(httpsRequests) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getByRole("button", {name: "Enable Secure Public Web"})).toBeInTheDocument();
     });
 
     test("filters scope groups without hiding the base capability controls", async () => {
@@ -388,6 +427,81 @@ describe("ManagePluginsDialog capability UX", () => {
                 expect.arrayContaining(["storage", "storage.json"])
             );
         });
+    });
+
+    test("network capability family requires explicit child selection", async () => {
+        renderDialog();
+
+        await waitFor(() => {
+            expect(screen.getByText("Capabilities & Privileged Access")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Expand"}));
+
+        const networkBase = screen.getByRole("checkbox", {name: "Network access"});
+        const networkHttps = screen.getByRole("checkbox", {name: "HTTPS requests"});
+        const networkHttp = screen.getByRole("checkbox", {name: "Plain HTTP requests"});
+        const securePublicWebScope = screen.getByRole("checkbox", {name: "Secure Public Web Scope"});
+
+        expect(networkBase).not.toBeChecked();
+        expect(networkHttps).not.toBeChecked();
+        expect(networkHttp).not.toBeChecked();
+        expect(networkHttps).toBeDisabled();
+        expect(networkHttp).toBeDisabled();
+
+        fireEvent.click(networkBase);
+        expect(networkBase).toBeChecked();
+        expect(networkHttps).not.toBeDisabled();
+        expect(networkHttp).not.toBeDisabled();
+        expect(screen.getByText("Network access is enabled, but no transport is selected yet. Select the exact network API the plugin needs. Start with HTTPS. Avoid Plain HTTP and update the plugin to use HTTPS unless migration is blocked. Grant raw sockets only to high-trust plugins.")).toBeInTheDocument();
+        expect(screen.getByText("Public HTTPS APIs")).toBeInTheDocument();
+        expect(screen.getByText("Localhost development services")).toBeInTheDocument();
+
+        fireEvent.click(networkHttps);
+        expect(networkHttps).toBeChecked();
+        fireEvent.click(networkHttp);
+        expect(networkHttp).toBeChecked();
+        expect(screen.getByText(/Selected transports: HTTPS requests, Plain HTTP requests\./)).toBeInTheDocument();
+        expect(screen.getByText(/These grants alone do not allow outbound traffic yet\./)).toBeInTheDocument();
+        expect(screen.getByText(/Plain HTTP is not recommended\./)).toBeInTheDocument();
+        expect(screen.getByRole("button", {name: "Replace HTTP With HTTPS"})).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", {name: "Replace HTTP With HTTPS"}));
+        expect(networkHttp).not.toBeChecked();
+        expect(networkHttps).toBeChecked();
+        expect(securePublicWebScope).toBeChecked();
+        expect(screen.getByText("Review and save pending network changes")).toBeInTheDocument();
+        expect(screen.getByText(/recommended HTTPS-based selection/)).toBeInTheDocument();
+
+        fireEvent.click(networkBase);
+        expect(networkBase).not.toBeChecked();
+        expect(networkHttps).not.toBeChecked();
+        expect(networkHttp).not.toBeChecked();
+        expect(securePublicWebScope).not.toBeChecked();
+
+        fireEvent.click(networkBase);
+        expect(screen.getByText("Recommended network setup")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", {name: "Enable Secure Public Web"}));
+        expect(networkBase).toBeChecked();
+        expect(networkHttps).toBeChecked();
+        expect(securePublicWebScope).toBeChecked();
+        expect(screen.queryByText("Recommended network setup")).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", {name: "Enable Secure Public Web"})).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", {name: "Enable Loopback Dev"})).not.toBeInTheDocument();
+        expect(screen.getByText("Review and save pending network changes")).toBeInTheDocument();
+        expect(screen.getAllByRole("button", {name: "Save Capabilities"}).length).toBeGreaterThan(0);
+        fireEvent.click(screen.getAllByRole("button", {name: "Save Capabilities"})[0]);
+
+        await waitFor(() =>
+            expect(window.electron.plugin.setCapabilities).toHaveBeenCalledWith(
+                "plugin-a",
+                expect.arrayContaining([
+                    "system.network",
+                    "system.network.https",
+                    "system.network.scope.public-web-secure",
+                ])
+            )
+        );
     });
 
     test("custom scope form uses scope-specific labels and closes after save", async () => {

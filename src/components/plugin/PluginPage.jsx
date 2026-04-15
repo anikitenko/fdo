@@ -4,6 +4,37 @@ import {
     isValidPluginRenderMessage,
     isValidPluginUiResponseEvent,
 } from "./utils/pluginRenderSecurity";
+import {buildRuntimeSecurityPolicy} from "../../utils/pluginCapabilities";
+import {isNetworkTargetAllowed} from "../../utils/networkScopeRegistry";
+
+const NETWORK_CAPABILITY = "system.network";
+const NETWORK_HTTPS_CAPABILITY = "system.network.https";
+const NETWORK_HTTP_CAPABILITY = "system.network.http";
+const NETWORK_WEBSOCKET_CAPABILITY = "system.network.websocket";
+
+function getGrantedPluginCapabilities() {
+    const metaTag = document.querySelector('meta[name="fdo-plugin-capabilities"]');
+    const raw = metaTag?.getAttribute("content") || "[]";
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((value) => typeof value === "string" && value.trim()) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function hasGrantedCapability(capabilities = [], capability = "") {
+    const normalizedCapability = String(capability || "").trim();
+    return (Array.isArray(capabilities) ? capabilities : []).some((value) => String(value || "").trim() === normalizedCapability);
+}
+
+function parseUrlProtocol(input, fallbackBase = window.location.href) {
+    try {
+        return new URL(String(input || ""), fallbackBase).protocol;
+    } catch (_) {
+        return "";
+    }
+}
 
 export const PluginPage = () => {
     const [PluginComponent, SetPluginComponent] = useState(null);
@@ -13,6 +44,19 @@ export const PluginPage = () => {
     useEffect(() => {
         const iframeDocument = document;
         const head = iframeDocument.head;
+        const grantedCapabilities = getGrantedPluginCapabilities();
+        const runtimePolicy = buildRuntimeSecurityPolicy(grantedCapabilities);
+        const hasNetworkBase = hasGrantedCapability(grantedCapabilities, NETWORK_CAPABILITY);
+        const allowHttps = hasNetworkBase && runtimePolicy?.networkAccess?.https === true;
+        const allowHttp = hasNetworkBase && runtimePolicy?.networkAccess?.http === true;
+        const allowWebSocket = hasNetworkBase && runtimePolicy?.networkAccess?.websocket === true;
+        const networkScopes = Array.isArray(runtimePolicy?.networkScopes) ? runtimePolicy.networkScopes : [];
+        const connectSrc = [
+            allowHttps ? "https:" : "",
+            allowHttp ? "http:" : "",
+            allowWebSocket ? "wss:" : "",
+            allowWebSocket ? "ws:" : "",
+        ].filter(Boolean);
         if (head) {
             const meta = iframeDocument.createElement("meta");
             meta.httpEquiv = "Content-Security-Policy";
@@ -20,9 +64,15 @@ export const PluginPage = () => {
                 "default-src 'self'; " +
                 "script-src 'self' 'nonce-plugin-script-inject' blob: static://*; " +
                 "style-src 'unsafe-inline' 'self' static://*; " +
+                `connect-src ${connectSrc.length > 0 ? connectSrc.join(" ") : "'none'"}; ` +
+                "worker-src 'none'; " +
+                "child-src 'none'; " +
+                "frame-src 'none'; " +
                 "img-src 'self' data: blob: static://*; " +
                 "font-src 'self' data: static://*; " +
-                "object-src 'none';";
+                "object-src 'none'; " +
+                "base-uri 'none'; " +
+                "form-action 'none';";
 
             // Remove existing CSP to prevent duplicates
             const existingCSP = head.querySelector("meta[http-equiv='Content-Security-Policy']");
@@ -33,6 +83,239 @@ export const PluginPage = () => {
             // Append new CSP meta tag
             head.appendChild(meta);
         }
+
+        const denyNetworkAccess = (apiName, requiredCapability = "") => {
+            const suffix = requiredCapability
+                ? ` Grant "${NETWORK_CAPABILITY}" and "${requiredCapability}" to allow this transport.`
+                : ` Grant "${NETWORK_CAPABILITY}" and the matching transport capability to allow this operation.`;
+            throw new Error(
+                `Network access denied for "${apiName}".${suffix}`
+            );
+        };
+
+        const getServiceWorkerContainer = () => {
+            try {
+                return navigator?.serviceWorker || null;
+            } catch (_) {
+                return null;
+            }
+        };
+
+        const ensureScopeAllowed = (transport, urlLike, capability = "") => {
+            const parsed = (() => {
+                try {
+                    return new URL(String(urlLike || ""), window.location.href);
+                } catch (_) {
+                    return null;
+                }
+            })();
+            const hostname = parsed?.hostname || "";
+            const port = parsed?.port || "";
+            const scheme = (parsed?.protocol || "").replace(/:$/, "");
+            const allowed = isNetworkTargetAllowed({
+                transport,
+                scheme,
+                hostname,
+                port,
+            }, networkScopes);
+            if (!allowed) {
+                throw new Error(
+                    `Network target denied for "${transport}" to "${String(urlLike || "")}". Grant "${NETWORK_CAPABILITY}", "${capability}", and a matching "system.network.scope.<scope-id>" capability.`
+                );
+            }
+        };
+
+        const originalFetch = typeof window.fetch === "function" ? window.fetch.bind(window) : null;
+        const originalXmlHttpRequestOpen = window.XMLHttpRequest?.prototype?.open;
+        const originalWebSocket = window.WebSocket;
+        const originalEventSource = window.EventSource;
+        const originalWorker = window.Worker;
+        const originalSharedWorker = window.SharedWorker;
+        const serviceWorkerContainer = getServiceWorkerContainer();
+        const originalSendBeacon = typeof navigator?.sendBeacon === "function"
+            ? navigator.sendBeacon.bind(navigator)
+            : null;
+        const originalServiceWorkerRegister = typeof serviceWorkerContainer?.register === "function"
+            ? serviceWorkerContainer.register.bind(serviceWorkerContainer)
+            : null;
+        const originalServiceWorkerGetRegistration = typeof serviceWorkerContainer?.getRegistration === "function"
+            ? serviceWorkerContainer.getRegistration.bind(serviceWorkerContainer)
+            : null;
+        const originalServiceWorkerGetRegistrations = typeof serviceWorkerContainer?.getRegistrations === "function"
+            ? serviceWorkerContainer.getRegistrations.bind(serviceWorkerContainer)
+            : null;
+        const originalRTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+
+        if (originalFetch) {
+            window.fetch = function guardedFetch(input, init) {
+                const protocol = parseUrlProtocol(typeof input === "string" ? input : input?.url);
+                if (protocol === "https:" && allowHttps) {
+                    ensureScopeAllowed("fetch", typeof input === "string" ? input : input?.url, NETWORK_HTTPS_CAPABILITY);
+                    return originalFetch(input, init);
+                }
+                if (protocol === "http:" && allowHttp) {
+                    ensureScopeAllowed("fetch", typeof input === "string" ? input : input?.url, NETWORK_HTTP_CAPABILITY);
+                    return originalFetch(input, init);
+                }
+                if (protocol === "https:") {
+                    return denyNetworkAccess("fetch", NETWORK_HTTPS_CAPABILITY);
+                }
+                if (protocol === "http:") {
+                    return denyNetworkAccess("fetch", NETWORK_HTTP_CAPABILITY);
+                }
+                return denyNetworkAccess("fetch");
+            };
+        }
+
+        if (typeof originalXmlHttpRequestOpen === "function") {
+            window.XMLHttpRequest.prototype.open = function guardedXmlHttpRequestOpen(method, url, ...rest) {
+                const protocol = parseUrlProtocol(url);
+                if (protocol === "https:" && allowHttps) {
+                    ensureScopeAllowed("xhr", url, NETWORK_HTTPS_CAPABILITY);
+                    return originalXmlHttpRequestOpen.call(this, method, url, ...rest);
+                }
+                if (protocol === "http:" && allowHttp) {
+                    ensureScopeAllowed("xhr", url, NETWORK_HTTP_CAPABILITY);
+                    return originalXmlHttpRequestOpen.call(this, method, url, ...rest);
+                }
+                if (protocol === "https:") {
+                    return denyNetworkAccess("XMLHttpRequest", NETWORK_HTTPS_CAPABILITY);
+                }
+                if (protocol === "http:") {
+                    return denyNetworkAccess("XMLHttpRequest", NETWORK_HTTP_CAPABILITY);
+                }
+                return denyNetworkAccess("XMLHttpRequest");
+            };
+        }
+
+        if (typeof originalWebSocket === "function") {
+            window.WebSocket = function guardedWebSocket(url, protocols) {
+                if (!allowWebSocket) {
+                    return denyNetworkAccess("WebSocket", NETWORK_WEBSOCKET_CAPABILITY);
+                }
+                ensureScopeAllowed("websocket", url, NETWORK_WEBSOCKET_CAPABILITY);
+                return new originalWebSocket(url, protocols);
+            };
+        }
+
+        if (typeof originalEventSource === "function") {
+            window.EventSource = function guardedEventSource(url, configuration) {
+                const protocol = parseUrlProtocol(url);
+                if (protocol === "https:" && allowHttps) {
+                    ensureScopeAllowed("eventsource", url, NETWORK_HTTPS_CAPABILITY);
+                    return new originalEventSource(url, configuration);
+                }
+                if (protocol === "http:" && allowHttp) {
+                    ensureScopeAllowed("eventsource", url, NETWORK_HTTP_CAPABILITY);
+                    return new originalEventSource(url, configuration);
+                }
+                if (protocol === "https:") {
+                    return denyNetworkAccess("EventSource", NETWORK_HTTPS_CAPABILITY);
+                }
+                if (protocol === "http:") {
+                    return denyNetworkAccess("EventSource", NETWORK_HTTP_CAPABILITY);
+                }
+                return denyNetworkAccess("EventSource");
+            };
+        }
+
+        if (typeof originalWorker === "function") {
+            window.Worker = function guardedWorker() {
+                return denyNetworkAccess("Worker");
+            };
+        }
+
+        if (typeof originalSharedWorker === "function") {
+            window.SharedWorker = function guardedSharedWorker() {
+                return denyNetworkAccess("SharedWorker");
+            };
+        }
+
+        if (originalSendBeacon && navigator) {
+            navigator.sendBeacon = function guardedSendBeacon(url) {
+                const protocol = parseUrlProtocol(url);
+                if (protocol === "https:" && allowHttps) {
+                    ensureScopeAllowed("fetch", url, NETWORK_HTTPS_CAPABILITY);
+                    return originalSendBeacon(url);
+                }
+                if (protocol === "http:" && allowHttp) {
+                    ensureScopeAllowed("fetch", url, NETWORK_HTTP_CAPABILITY);
+                    return originalSendBeacon(url);
+                }
+                if (protocol === "https:") {
+                    return denyNetworkAccess("sendBeacon", NETWORK_HTTPS_CAPABILITY);
+                }
+                if (protocol === "http:") {
+                    return denyNetworkAccess("sendBeacon", NETWORK_HTTP_CAPABILITY);
+                }
+                return denyNetworkAccess("sendBeacon");
+            };
+        }
+
+        if (originalServiceWorkerRegister && serviceWorkerContainer) {
+            serviceWorkerContainer.register = function guardedServiceWorkerRegister() {
+                return Promise.reject(new Error('Network access denied for "serviceWorker.register". Service workers are disabled inside plugin iframes.'));
+            };
+        }
+
+        if (originalServiceWorkerGetRegistration && serviceWorkerContainer) {
+            serviceWorkerContainer.getRegistration = function guardedServiceWorkerGetRegistration() {
+                return Promise.resolve(undefined);
+            };
+        }
+
+        if (originalServiceWorkerGetRegistrations && serviceWorkerContainer) {
+            serviceWorkerContainer.getRegistrations = function guardedServiceWorkerGetRegistrations() {
+                return Promise.resolve([]);
+            };
+        }
+
+        if (typeof originalRTCPeerConnection === "function") {
+            const blockedPeerConnection = function blockedPeerConnection() {
+                throw new Error('Network access denied for "RTCPeerConnection". WebRTC transports are disabled inside plugin iframes.');
+            };
+            window.RTCPeerConnection = blockedPeerConnection;
+            window.webkitRTCPeerConnection = blockedPeerConnection;
+            window.mozRTCPeerConnection = blockedPeerConnection;
+        }
+
+        return () => {
+            if (originalFetch) {
+                window.fetch = originalFetch;
+            }
+            if (typeof originalXmlHttpRequestOpen === "function") {
+                window.XMLHttpRequest.prototype.open = originalXmlHttpRequestOpen;
+            }
+            if (originalWebSocket) {
+                window.WebSocket = originalWebSocket;
+            }
+            if (originalEventSource) {
+                window.EventSource = originalEventSource;
+            }
+            if (originalWorker) {
+                window.Worker = originalWorker;
+            }
+            if (originalSharedWorker) {
+                window.SharedWorker = originalSharedWorker;
+            }
+            if (originalSendBeacon && navigator) {
+                navigator.sendBeacon = originalSendBeacon;
+            }
+            if (originalServiceWorkerRegister && serviceWorkerContainer) {
+                serviceWorkerContainer.register = originalServiceWorkerRegister;
+            }
+            if (originalServiceWorkerGetRegistration && serviceWorkerContainer) {
+                serviceWorkerContainer.getRegistration = originalServiceWorkerGetRegistration;
+            }
+            if (originalServiceWorkerGetRegistrations && serviceWorkerContainer) {
+                serviceWorkerContainer.getRegistrations = originalServiceWorkerGetRegistrations;
+            }
+            if (typeof originalRTCPeerConnection === "function") {
+                window.RTCPeerConnection = originalRTCPeerConnection;
+                window.webkitRTCPeerConnection = originalRTCPeerConnection;
+                window.mozRTCPeerConnection = originalRTCPeerConnection;
+            }
+        };
     }, []);
 
     useEffect(() => {

@@ -17,6 +17,9 @@ const failFastRules = [
     { pattern: /\bdocument\.cookie\b/g, reason: "cookie access" },
     { pattern: /\blocalStorage\b/g, reason: "localStorage access" },
     { pattern: /\bsessionStorage\b/g, reason: "sessionStorage access" },
+    { pattern: /\bnavigator\.sendBeacon\b/g, reason: "beacon network access" },
+    { pattern: /\b(?:SharedWorker|Worker)\s*\(/g, reason: "worker creation" },
+    { pattern: /\bRTCPeerConnection\s*\(/g, reason: "WebRTC network access" },
 ];
 
 export function rejectKnownUnsafeRenderPatterns(code, label = "plugin UI source") {

@@ -214,10 +214,19 @@ function systemOpenEditorWindow(data) {
 export function registerSystemHandlers() {
     // Listen for external link requests
     ipcMain.on(SystemChannels.OPEN_EXTERNAL_LINK, (event, url) => {
-        if (typeof url === "string" && (url.startsWith("http") || url.startsWith("file:"))) {
-            shell.openExternal(url).catch((error) => {
-                console.error("[System] Failed to open external URL", { url, error: error?.message || error });
+        if (typeof url !== "string") {
+            return;
+        }
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                return;
+            }
+            shell.openExternal(parsed.href).catch((error) => {
+                console.error("[System] Failed to open external URL", { url: parsed.href, error: error?.message || error });
             });
+        } catch (_) {
+            // Ignore invalid external-link requests.
         }
     });
 

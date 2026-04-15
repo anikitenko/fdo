@@ -55,6 +55,16 @@ jest.mock("../../src/components/PluginContainer.jsx", () => ({
                 type="button"
                 onClick={() => onCapabilityDenied?.({
                     pluginId: plugin,
+                    missingCapabilities: ["system.network"],
+                    details: 'Capability "system.network" is required to prefetch original configured repository metadata. Configure PluginRegistry.configureCapabilities({ granted: ["system.network"] }) in the host before plugin initialization.',
+                })}
+            >
+                trigger-network-capability-denied
+            </button>
+            <button
+                type="button"
+                onClick={() => onCapabilityDenied?.({
+                    pluginId: plugin,
                     missingCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
                     details: 'Capabilities "system.process.exec" and "system.process.scope.docker-cli" are required.',
                 })}
@@ -607,6 +617,37 @@ describe("Home capability denied flow", () => {
 
         await waitFor(() => {
             expect(screen.getByText("Grant Missing Capabilities")).toBeInTheDocument();
+        });
+    });
+
+    test("passes expanded network capability context into Manage Plugins from network denials", async () => {
+        renderHome();
+
+        const pluginButton = await screen.findByRole("button", {name: "Plugin One"});
+        fireEvent.click(pluginButton);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "trigger-network-capability-denied"}));
+
+        await waitFor(() => {
+            expect(screen.getByText("Permission Required")).toBeInTheDocument();
+            expect(screen.getByText("Network access")).toBeInTheDocument();
+            expect(screen.getByText("HTTPS requests")).toBeInTheDocument();
+            expect(screen.getByText("Secure Public Web Scope")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByRole("button", {name: "Open Capabilities"}));
+
+        await waitFor(() => {
+            const requestText = screen.getByTestId("capability-focus-request").textContent || "";
+            expect(requestText).toContain("\"pluginId\":\"plugin-1\"");
+            expect(requestText).toContain("system.network");
+            expect(requestText).toContain("system.network.https");
+            expect(requestText).toContain("system.network.scope.public-web-secure");
+            expect(requestText).toContain("\"recommendationFamily\":\"network\"");
         });
     });
 

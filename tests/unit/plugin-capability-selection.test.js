@@ -30,6 +30,10 @@ describe("pluginCapabilitySelection", () => {
             allowedOperationTypes: ["writeFile"],
             allowedExecutables: [],
             allowedEnvKeys: [],
+            allowedSchemes: [],
+            allowedHostPatterns: [],
+            allowedPorts: [],
+            allowedTransports: [],
             additionalAllowedFirstArgs: [],
             additionalAllowedFirstArgsByExecutable: {},
             additionalAllowedLeadingOptions: [],
@@ -67,6 +71,10 @@ describe("pluginCapabilitySelection", () => {
             allowedOperationTypes: [],
             allowedExecutables: ["/usr/local/bin/docker"],
             allowedEnvKeys: ["DOCKER_CONTEXT"],
+            allowedSchemes: [],
+            allowedHostPatterns: [],
+            allowedPorts: [],
+            allowedTransports: [],
             additionalAllowedFirstArgs: [],
             additionalAllowedFirstArgsByExecutable: {},
             additionalAllowedLeadingOptions: [],
@@ -74,6 +82,47 @@ describe("pluginCapabilitySelection", () => {
             argumentPolicy: null,
             timeoutCeilingMs: 30000,
             requireConfirmation: true,
+        }]);
+    });
+
+    test("maps network scope policies to UI shape", () => {
+        const result = buildScopeCapabilities([{
+            scope: "public-web-secure",
+            kind: "network",
+            description: "Secure public web access",
+            allowedSchemes: ["https", "wss"],
+            allowedHostPatterns: ["*"],
+            allowedPorts: ["*"],
+            allowedTransports: ["fetch", "websocket"],
+            requireConfirmation: false,
+        }]);
+
+        expect(result).toEqual([{
+            id: "public-web-secure",
+            title: "",
+            kind: "network",
+            category: "Network",
+            description: "Secure public web access",
+            fallback: false,
+            userDefined: false,
+            capability: "system.network.scope.public-web-secure",
+            baseCapability: "system.network",
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            allowedSchemes: ["https", "wss"],
+            allowedHostPatterns: ["*"],
+            allowedPorts: ["*"],
+            allowedTransports: ["fetch", "websocket"],
+            additionalAllowedFirstArgs: [],
+            additionalAllowedFirstArgsByExecutable: {},
+            additionalAllowedLeadingOptions: [],
+            additionalAllowedLeadingOptionsByExecutable: {},
+            argumentPolicy: null,
+            timeoutCeilingMs: null,
+            requireConfirmation: false,
         }]);
     });
 

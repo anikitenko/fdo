@@ -133,6 +133,7 @@ describe("plugin IPC capability settings", () => {
         expect(scopeResult.scopes.some((scope) => scope.scope === "aws-cli")).toBe(true);
         expect(scopeResult.scopes.some((scope) => scope.scope === "gcloud")).toBe(true);
         expect(scopeResult.scopes.some((scope) => scope.scope === "azure-cli")).toBe(true);
+        expect(scopeResult.scopes.some((scope) => scope.scope === "public-web-secure" && scope.kind === "network")).toBe(true);
         const gitScope = scopeResult.scopes.find((scope) => scope.scope === "git");
         expect(gitScope?.argumentPolicy).toEqual(expect.objectContaining({
             version: 1,
@@ -477,5 +478,87 @@ describe("plugin IPC capability settings", () => {
         expect(PluginManager.unLoadPlugin).not.toHaveBeenCalled();
         expect(PluginManager.loadPlugin).not.toHaveBeenCalled();
         expect(loadedPlugin.grantedCapabilities).toEqual(["storage", "storage.json", "system.process.exec"]);
+    });
+
+    test("restarts loaded runtime when network capability family changes", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+
+        ipcMain.handle.mockClear();
+        PluginManager.getLoadedPlugin.mockReset();
+        PluginManager.loadPlugin.mockReset();
+        PluginManager.unLoadPlugin.mockReset();
+        mockSetPluginCapabilities.mockReset();
+        mockGetPlugin.mockReset();
+        mockGetPlugin.mockImplementation(() => ({
+            id: "plugin-a",
+            metadata: {name: "Plugin A", version: "1.0.0", author: "E2E", description: "d", icon: "clean"},
+            capabilities: ["storage", "storage.json", "system.network", "system.network.http"],
+        }));
+
+        registerPluginHandlers();
+        const setCapabilitiesHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.SET_CAPABILITIES)[1];
+
+        const loadedPlugin = {grantedCapabilities: ["storage", "storage.json"]};
+        PluginManager.getLoadedPlugin.mockReturnValue(loadedPlugin);
+        PluginManager.loadPlugin.mockResolvedValue({success: true});
+        mockSetPluginCapabilities.mockImplementation((_id, caps) => ({success: true, capabilities: caps}));
+
+        const updateResult = await setCapabilitiesHandler({}, "plugin-a", ["storage", "storage.json", "system.network", "system.network.http"]);
+        expect(updateResult.success).toBe(true);
+        expect(updateResult.runtimeRestarted).toBe(true);
+        expect(updateResult.runtimeRestartError).toBe("");
+        expect(PluginManager.unLoadPlugin).toHaveBeenCalledWith("plugin-a", {
+            force: true,
+            reason: "capabilities_network_changed",
+        });
+        expect(PluginManager.loadPlugin).toHaveBeenCalledWith("plugin-a");
+    });
+
+    test("restarts loaded runtime when network scope capabilities change", async () => {
+        jest.resetModules();
+        const {ipcMain} = require("electron");
+        const {registerPluginHandlers} = require("../../src/ipc/plugin");
+        const {PluginChannels} = require("../../src/ipc/channels");
+        const PluginManager = require("../../src/utils/PluginManager").default;
+
+        ipcMain.handle.mockClear();
+        PluginManager.getLoadedPlugin.mockReset();
+        PluginManager.loadPlugin.mockReset();
+        PluginManager.unLoadPlugin.mockReset();
+        mockSetPluginCapabilities.mockReset();
+        mockGetPlugin.mockReset();
+        mockGetPlugin.mockImplementation(() => ({
+            id: "plugin-a",
+            metadata: {name: "Plugin A", version: "1.0.0", author: "E2E", description: "d", icon: "clean"},
+            capabilities: ["storage", "storage.json", "system.network", "system.network.https", "system.network.scope.public-web-secure"],
+        }));
+
+        registerPluginHandlers();
+        const setCapabilitiesHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.SET_CAPABILITIES)[1];
+
+        const loadedPlugin = {grantedCapabilities: ["storage", "storage.json", "system.network", "system.network.https"]};
+        PluginManager.getLoadedPlugin.mockReturnValue(loadedPlugin);
+        PluginManager.loadPlugin.mockResolvedValue({success: true});
+        mockSetPluginCapabilities.mockImplementation((_id, caps) => ({success: true, capabilities: caps}));
+
+        const updateResult = await setCapabilitiesHandler({}, "plugin-a", [
+            "storage",
+            "storage.json",
+            "system.network",
+            "system.network.https",
+            "system.network.scope.public-web-secure",
+        ]);
+        expect(updateResult.success).toBe(true);
+        expect(updateResult.runtimeRestarted).toBe(true);
+        expect(updateResult.runtimeRestartError).toBe("");
+        expect(PluginManager.unLoadPlugin).toHaveBeenCalledWith("plugin-a", {
+            force: true,
+            reason: "capabilities_network_changed",
+        });
+        expect(PluginManager.loadPlugin).toHaveBeenCalledWith("plugin-a");
     });
 });

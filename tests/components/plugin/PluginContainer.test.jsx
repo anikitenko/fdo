@@ -105,7 +105,7 @@ describe("PluginContainer message hardening", () => {
     });
 
     test("registers the render listener before requesting plugin render", async () => {
-        const { container } = render(<PluginContainer plugin="example-plugin" />);
+        const { container } = render(<PluginContainer plugin="example-plugin" capabilities={["system.network", "system.network.https"]} />);
 
         await waitFor(() => {
             expect(window.electron.plugin.render).toHaveBeenCalled();
@@ -113,6 +113,8 @@ describe("PluginContainer message hardening", () => {
 
         expect(window.fetch).toHaveBeenCalledWith("static://host/plugin_host.html");
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('src="static://host/plugin_host.test.js"');
+        expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('name="fdo-plugin-capabilities"');
+        expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('system.network.https');
         expect(container.querySelector("iframe")?.getAttribute("sandbox")).toBe("allow-scripts");
         expect(window.electron.plugin.on.render.mock.invocationCallOrder[0]).toBeLessThan(
             window.electron.plugin.render.mock.invocationCallOrder[0]

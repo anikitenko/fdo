@@ -20,6 +20,32 @@ function rewritePluginHostHtml(html) {
     });
 }
 
+function injectPluginCapabilityMetadata(html, capabilities = []) {
+    if (typeof html !== "string" || !html) {
+        return "";
+    }
+
+    const serializedCapabilities = JSON.stringify(
+        (Array.isArray(capabilities) ? capabilities : [])
+            .filter((value) => typeof value === "string" && value.trim())
+            .map((value) => value.trim())
+    );
+    const metaTag = `<meta name="fdo-plugin-capabilities" content=${JSON.stringify(serializedCapabilities)} />`;
+
+    if (html.includes('name="fdo-plugin-capabilities"')) {
+        return html.replace(
+            /<meta\s+name="fdo-plugin-capabilities"\s+content=(?:"[^"]*"|'[^']*')\s*\/?>/i,
+            metaTag
+        );
+    }
+
+    if (html.includes("</head>")) {
+        return html.replace("</head>", `    ${metaTag}\n</head>`);
+    }
+
+    return `${metaTag}\n${html}`;
+}
+
 function toSerializedStringSegment(value, fallback = "") {
     if (typeof value === "string") {
         try {
@@ -121,6 +147,7 @@ function shouldSurfacePluginBackendFailure(code = "") {
 
 export const PluginContainer = ({
     plugin,
+    capabilities,
     active = true,
     onStageChange,
     onCapabilityDenied,
@@ -153,6 +180,10 @@ export const PluginContainer = ({
     const [iframeHello, setIframeHello] = useState(false);
     const [iframeLayoutReady, setIframeLayoutReady] = useState(false);
     const [iframeMounted, setIframeMounted] = useState(false);
+    const normalizedCapabilities = useMemo(
+        () => (Array.isArray(capabilities) ? capabilities.filter((value) => typeof value === "string" && value.trim()) : []),
+        [capabilities]
+    );
 
     const showPluginStageDebug = (
         localStorage.getItem("fdo:plugin-stage-debug-ui") === "1"
@@ -308,7 +339,7 @@ export const PluginContainer = ({
             .then((response) => response.text())
             .then((html) => {
                 if (cancelled) return;
-                setHostDocument(rewritePluginHostHtml(html));
+                setHostDocument(injectPluginCapabilityMetadata(rewritePluginHostHtml(html), normalizedCapabilities));
                 setDebugStage("host-document-loaded");
             })
             .catch((error) => {
@@ -320,7 +351,7 @@ export const PluginContainer = ({
         return () => {
             cancelled = true;
         };
-    }, [plugin, renderAttempt]);
+    }, [normalizedCapabilities, plugin, renderAttempt]);
 
     useEffect(() => {
         let cancelled = false;
@@ -868,6 +899,7 @@ export const PluginContainer = ({
 };
 
 PluginContainer.propTypes = {
+    capabilities: PropTypes.arrayOf(PropTypes.string),
     plugin: PropTypes.string.isRequired,
     active: PropTypes.bool,
     onStageChange: PropTypes.func,
