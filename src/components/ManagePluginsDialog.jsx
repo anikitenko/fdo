@@ -38,6 +38,13 @@ import {getCapabilityPresentation} from "../utils/capabilityPresentation";
 import {
     hasCapability as hasGrantedCapability,
     HOST_WRITE_CAPABILITY,
+    NETWORK_CAPABILITY,
+    NETWORK_DNS_CAPABILITY,
+    NETWORK_HTTPS_CAPABILITY,
+    NETWORK_HTTP_CAPABILITY,
+    NETWORK_TCP_CAPABILITY,
+    NETWORK_UDP_CAPABILITY,
+    NETWORK_WEBSOCKET_CAPABILITY,
     STORAGE_CAPABILITY,
     STORAGE_JSON_CAPABILITY
 } from "../utils/pluginCapabilities";
@@ -435,6 +442,10 @@ function buildScopeSummary(scopeItem = {}) {
     const commandCount = Array.isArray(scopeItem?.allowedExecutables) ? scopeItem.allowedExecutables.length : 0;
     const cwdCount = Array.isArray(scopeItem?.allowedCwdRoots) ? scopeItem.allowedCwdRoots.length : 0;
     const envCount = Array.isArray(scopeItem?.allowedEnvKeys) ? scopeItem.allowedEnvKeys.length : 0;
+    const schemeCount = Array.isArray(scopeItem?.allowedSchemes) ? scopeItem.allowedSchemes.length : 0;
+    const hostPatternCount = Array.isArray(scopeItem?.allowedHostPatterns) ? scopeItem.allowedHostPatterns.length : 0;
+    const portCount = Array.isArray(scopeItem?.allowedPorts) ? scopeItem.allowedPorts.length : 0;
+    const transportCount = Array.isArray(scopeItem?.allowedTransports) ? scopeItem.allowedTransports.length : 0;
     const parts = [];
 
     if (commandCount > 0) {
@@ -446,6 +457,18 @@ function buildScopeSummary(scopeItem = {}) {
     }
     if (envCount > 0) {
         parts.push(`Env keys: ${envCount}`);
+    }
+    if (transportCount > 0) {
+        parts.push(`Transports: ${transportCount}`);
+    }
+    if (schemeCount > 0) {
+        parts.push(`Schemes: ${scopeItem.allowedSchemes.slice(0, 3).join(", ")}${schemeCount > 3 ? ` +${schemeCount - 3} more` : ""}`);
+    }
+    if (hostPatternCount > 0) {
+        parts.push(`Hosts: ${scopeItem.allowedHostPatterns.slice(0, 2).join(", ")}${hostPatternCount > 2 ? ` +${hostPatternCount - 2} more` : ""}`);
+    }
+    if (portCount > 0) {
+        parts.push(`Ports: ${scopeItem.allowedPorts.slice(0, 3).join(", ")}${portCount > 3 ? ` +${portCount - 3} more` : ""}`);
     }
     if (scopeItem?.timeoutCeilingMs) {
         parts.push(`Timeout max: ${scopeItem.timeoutCeilingMs}ms`);
@@ -461,7 +484,8 @@ function buildScopeSummary(scopeItem = {}) {
 function isScopeCapabilityId(capabilityId = "") {
     const normalizedCapabilityId = String(capabilityId || "").trim();
     return normalizedCapabilityId.startsWith("system.process.scope.")
-        || normalizedCapabilityId.startsWith("system.fs.scope.");
+        || normalizedCapabilityId.startsWith("system.fs.scope.")
+        || normalizedCapabilityId.startsWith("system.network.scope.");
 }
 
 export const ManagePluginsDialog = ({
@@ -736,6 +760,7 @@ ManagePluginsDialog.propTypes = {
         pluginId: PropTypes.string,
         capabilityIds: PropTypes.array,
         focusSection: PropTypes.string,
+        recommendationFamily: PropTypes.string,
         scopeIds: PropTypes.array,
         suggestedScope: PropTypes.shape({
             scopeId: PropTypes.string,
@@ -799,6 +824,7 @@ const SelectPluginPanel = ({
     };
     const BASE_PRIVILEGED_CAPABILITIES = [
         STORAGE_CAPABILITY,
+        NETWORK_CAPABILITY,
         HOST_WRITE_CAPABILITY,
         "system.process.exec",
     ];
@@ -820,9 +846,11 @@ const SelectPluginPanel = ({
     const [isOpenRemove, setIsOpenRemove] = useState(false)
     const [capabilitiesDraft, setCapabilitiesDraft] = useState([]);
     const [isSavingCapabilities, setIsSavingCapabilities] = useState(false);
+    const [stagedCapabilityWorkflow, setStagedCapabilityWorkflow] = useState(null);
     const [capabilityFilter, setCapabilityFilter] = useState("");
     const [showCapabilityIntent, setShowCapabilityIntent] = useState(false);
     const [showCapabilitiesPanel, setShowCapabilitiesPanel] = useState(false);
+    const [persistedFocusRequest, setPersistedFocusRequest] = useState(null);
     const [customProcessScopes, setCustomProcessScopes] = useState([]);
     const [customProcessScopesLoaded, setCustomProcessScopesLoaded] = useState(false);
     const [showCustomScopeEditor, setShowCustomScopeEditor] = useState(false);
@@ -946,6 +974,20 @@ const SelectPluginPanel = ({
     }, [plugin?.id]);
 
     const hasCapability = (capability) => hasGrantedCapability(capabilitiesDraft, capability);
+    const effectiveFocusRequest = persistedFocusRequest || focusRequest || null;
+
+    useEffect(() => {
+        if (focusRequest?.requestId) {
+            setPersistedFocusRequest(focusRequest);
+        }
+    }, [focusRequest]);
+
+    useEffect(() => {
+        if (!dialogOpen) {
+            setPersistedFocusRequest(null);
+        }
+    }, [dialogOpen]);
+
     const resetCustomScopeDraft = () => {
         setCustomScopeDraft(emptyCustomScopeDraft);
         setCustomScopeError("");
@@ -1391,6 +1433,116 @@ const SelectPluginPanel = ({
         },
         // Reserved for future storage capability children (for example: "storage.sqlite").
     ]), []);
+    const networkCapabilityChildren = useMemo(() => ([
+        {
+            id: "network-https",
+            title: "HTTPS requests",
+            kind: "capability",
+            category: "Network",
+            description: "Preferred secure transport for outbound web/API requests.",
+            fallback: false,
+            userDefined: false,
+            capability: NETWORK_HTTPS_CAPABILITY,
+            baseCapability: NETWORK_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        {
+            id: "network-http",
+            title: "Plain HTTP requests",
+            kind: "capability",
+            category: "Network",
+            description: "Not recommended. Plain HTTP is insecure on untrusted networks; change the plugin and remote endpoint to HTTPS whenever possible. Enable this only when migration is genuinely blocked.",
+            fallback: false,
+            userDefined: false,
+            capability: NETWORK_HTTP_CAPABILITY,
+            baseCapability: NETWORK_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        {
+            id: "network-websocket",
+            title: "WebSocket connections",
+            kind: "capability",
+            category: "Network",
+            description: "Allows WebSocket access. Prefer secure wss:// endpoints.",
+            fallback: false,
+            userDefined: false,
+            capability: NETWORK_WEBSOCKET_CAPABILITY,
+            baseCapability: NETWORK_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        {
+            id: "network-tcp",
+            title: "Raw TCP sockets",
+            kind: "capability",
+            category: "Network",
+            description: "Low-level TCP sockets for high-trust plugins only.",
+            fallback: false,
+            userDefined: false,
+            capability: NETWORK_TCP_CAPABILITY,
+            baseCapability: NETWORK_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        {
+            id: "network-udp",
+            title: "Raw UDP sockets",
+            kind: "capability",
+            category: "Network",
+            description: "Low-level UDP sockets for specialized protocols.",
+            fallback: false,
+            userDefined: false,
+            capability: NETWORK_UDP_CAPABILITY,
+            baseCapability: NETWORK_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        {
+            id: "network-dns",
+            title: "Direct DNS resolution",
+            kind: "capability",
+            category: "Network",
+            description: "Direct DNS queries outside ordinary application fetch flows.",
+            fallback: false,
+            userDefined: false,
+            capability: NETWORK_DNS_CAPABILITY,
+            baseCapability: NETWORK_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+    ]), []);
     const scopeCapabilitiesByBase = useMemo(() => {
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             groups[baseCapability] = scopeCapabilities.filter((item) => item.baseCapability === baseCapability);
@@ -1405,12 +1557,14 @@ const SelectPluginPanel = ({
                     ? clipboardCapabilityChildren
                     : baseCapability === STORAGE_CAPABILITY
                         ? storageCapabilityChildren
+                        : baseCapability === NETWORK_CAPABILITY
+                            ? networkCapabilityChildren
                         : []
             );
             groups[baseCapability] = [...scopeChildren, ...extraChildren];
             return groups;
         }, {});
-    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren]);
+    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, networkCapabilityChildren]);
     const unresolvedGrantedScopeCapabilities = useMemo(
         () => [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
             .map((capability) => String(capability || "").trim())
@@ -1468,14 +1622,109 @@ const SelectPluginPanel = ({
             return groups;
         }, {});
     }, [capabilitiesDraft, capabilityChildrenByBase]);
+    const selectedNetworkTransportCapabilities = useMemo(
+        () => (capabilityChildrenByBase[NETWORK_CAPABILITY] || [])
+            .filter((item) => item.kind === "capability" && hasCapability(item.capability)),
+        [capabilitiesDraft, capabilityChildrenByBase]
+    );
+    const selectedNetworkScopeCapabilities = useMemo(
+        () => (capabilityChildrenByBase[NETWORK_CAPABILITY] || [])
+            .filter((item) => item.kind === "network" && hasCapability(item.capability)),
+        [capabilitiesDraft, capabilityChildrenByBase]
+    );
+    const selectedNetworkTransportLabels = useMemo(
+        () => selectedNetworkTransportCapabilities
+            .map((item) => String(item?.title || "").trim())
+            .filter(Boolean),
+        [selectedNetworkTransportCapabilities]
+    );
+    const selectedNetworkIncludesHttp = useMemo(
+        () => selectedNetworkTransportCapabilities.some((item) => item?.capability === NETWORK_HTTP_CAPABILITY),
+        [selectedNetworkTransportCapabilities]
+    );
+    const securePublicWebScopeCapability = "system.network.scope.public-web-secure";
+    const loopbackDevScopeCapability = "system.network.scope.loopback-dev";
+    const hasSecurePublicWebDraftSelected = hasCapability(NETWORK_CAPABILITY)
+        && hasCapability(NETWORK_HTTPS_CAPABILITY)
+        && hasCapability(securePublicWebScopeCapability);
+    const hasLoopbackDevDraftSelected = hasCapability(NETWORK_CAPABILITY)
+        && hasCapability(NETWORK_HTTPS_CAPABILITY)
+        && hasCapability(loopbackDevScopeCapability);
+    const hasRecommendedNetworkDraftSelected = hasSecurePublicWebDraftSelected || hasLoopbackDevDraftSelected;
+    const highlightedNetworkCapabilities = useMemo(
+        () => (Array.isArray(effectiveFocusRequest?.capabilityIds) ? effectiveFocusRequest.capabilityIds : (Array.isArray(highlightedCapabilityIds) ? highlightedCapabilityIds : []))
+            .filter((capability) => String(capability || "").startsWith("system.network")),
+        [effectiveFocusRequest?.capabilityIds, highlightedCapabilityIds]
+    );
+    const hasHighlightedNetworkAttention = highlightedNetworkCapabilities.length > 0;
+    const focusRequestsNetworkRecommendation = String(effectiveFocusRequest?.recommendationFamily || "").trim() === "network";
+    const hasPartialNetworkDraft = hasCapability(NETWORK_CAPABILITY)
+        && (
+            selectedNetworkTransportCapabilities.length === 0
+            || selectedNetworkScopeCapabilities.length === 0
+        );
+    const availableNetworkScopeCapabilities = useMemo(
+        () => new Set((capabilityChildrenByBase[NETWORK_CAPABILITY] || [])
+            .filter((item) => item.kind === "network")
+            .map((item) => item.capability)),
+        [capabilityChildrenByBase]
+    );
+    const hasSecurePublicWebScope = availableNetworkScopeCapabilities.has(securePublicWebScopeCapability);
+    const hasLoopbackDevScope = availableNetworkScopeCapabilities.has(loopbackDevScopeCapability);
+    const applyNetworkCapabilities = useCallback((capabilitiesToEnable = [], capabilitiesToDisable = []) => {
+        setCapabilitiesDraft((prev) => {
+            const previous = Array.isArray(prev) ? prev : [];
+            const disabledSet = new Set((Array.isArray(capabilitiesToDisable) ? capabilitiesToDisable : [])
+                .map((value) => String(value || "").trim())
+                .filter(Boolean));
+            const next = previous.filter((value) => !disabledSet.has(String(value || "").trim()));
+            return [...new Set([
+                ...next,
+                ...(Array.isArray(capabilitiesToEnable) ? capabilitiesToEnable : []),
+            ])];
+        });
+    }, []);
+    const enableSecurePublicWebBundle = useCallback(() => {
+        applyNetworkCapabilities([
+            NETWORK_CAPABILITY,
+            NETWORK_HTTPS_CAPABILITY,
+            securePublicWebScopeCapability,
+        ]);
+        setStagedCapabilityWorkflow("secure-public-web");
+    }, [applyNetworkCapabilities]);
+    const enableLoopbackDevBundle = useCallback(() => {
+        applyNetworkCapabilities([
+            NETWORK_CAPABILITY,
+            NETWORK_HTTPS_CAPABILITY,
+            loopbackDevScopeCapability,
+        ]);
+        setStagedCapabilityWorkflow("loopback-dev");
+    }, [applyNetworkCapabilities]);
+    const switchHttpToHttpsBundle = useCallback(() => {
+        applyNetworkCapabilities([
+            NETWORK_CAPABILITY,
+            NETWORK_HTTPS_CAPABILITY,
+            securePublicWebScopeCapability,
+        ], [
+            NETWORK_HTTP_CAPABILITY,
+        ]);
+        setStagedCapabilityWorkflow("replace-http-with-https");
+    }, [applyNetworkCapabilities]);
     const highlightedSet = useMemo(
-        () => new Set(Array.isArray(highlightedCapabilityIds) ? highlightedCapabilityIds : []),
-        [highlightedCapabilityIds]
+        () => new Set(Array.isArray(effectiveFocusRequest?.capabilityIds) ? effectiveFocusRequest.capabilityIds : (Array.isArray(highlightedCapabilityIds) ? highlightedCapabilityIds : [])),
+        [effectiveFocusRequest?.capabilityIds, highlightedCapabilityIds]
     );
     const hasUnsavedCapabilityChanges = useMemo(
         () => hasCapabilitySelectionChanges(plugin?.capabilities, capabilitiesDraft),
         [plugin?.capabilities, capabilitiesDraft]
     );
+    const shouldShowNetworkRecommendations = (
+        stagedCapabilityWorkflow && hasUnsavedCapabilityChanges
+    ) || selectedNetworkIncludesHttp
+        || hasHighlightedNetworkAttention
+        || focusRequestsNetworkRecommendation
+        || hasPartialNetworkDraft
+        || (!hasRecommendedNetworkDraftSelected && hasUnsavedCapabilityChanges && selectedNetworkTransportCapabilities.length > 0);
     const trustTier = useMemo(
         () => getPluginTrustTier(capabilitiesDraft),
         [capabilitiesDraft]
@@ -1568,19 +1817,19 @@ const SelectPluginPanel = ({
     }, [normalizedCapabilityFilter, showCapabilitiesPanel]);
 
     useEffect(() => {
-        if (!focusRequest?.requestId) return;
-        if (focusRequest.focusSection === "capabilities" || focusRequest.focusSection === "pluginScopes") {
+        if (!effectiveFocusRequest?.requestId) return;
+        if (effectiveFocusRequest.focusSection === "capabilities" || effectiveFocusRequest.focusSection === "pluginScopes") {
             setShowCapabilitiesPanel(true);
         }
-        if (focusRequest.focusSection === "pluginScopes") {
+        if (effectiveFocusRequest.focusSection === "pluginScopes") {
             if (!customProcessScopesLoaded) {
                 return;
             }
-            const suggestedScopeIds = (Array.isArray(focusRequest?.scopeIds) ? focusRequest.scopeIds : [])
+            const suggestedScopeIds = (Array.isArray(effectiveFocusRequest?.scopeIds) ? effectiveFocusRequest.scopeIds : [])
                 .map((scopeId) => String(scopeId || "").trim())
                 .filter(Boolean);
-            const suggestedScopeId = String(focusRequest?.suggestedScope?.scopeId || suggestedScopeIds[0] || "").trim();
-            const suggestedCommandPath = String(focusRequest?.suggestedScope?.commandPath || "").trim();
+            const suggestedScopeId = String(effectiveFocusRequest?.suggestedScope?.scopeId || suggestedScopeIds[0] || "").trim();
+            const suggestedCommandPath = String(effectiveFocusRequest?.suggestedScope?.commandPath || "").trim();
             const scopeAlreadyExists = suggestedScopeId
                 ? customProcessScopes.some((scope) => String(scope?.scope || "").trim() === suggestedScopeId)
                 : false;
@@ -1597,19 +1846,19 @@ const SelectPluginPanel = ({
             } else {
                 setScopeSetupSuggestion(null);
             }
-            consumeFocusRequest?.(focusRequest.requestId);
+            consumeFocusRequest?.(effectiveFocusRequest.requestId);
             return;
         }
         setScopeSetupSuggestion(null);
-        consumeFocusRequest?.(focusRequest.requestId);
+        consumeFocusRequest?.(effectiveFocusRequest.requestId);
     }, [
         customProcessScopes,
         customProcessScopesLoaded,
-        focusRequest?.requestId,
-        focusRequest?.focusSection,
-        focusRequest?.scopeIds,
-        focusRequest?.suggestedScope?.scopeId,
-        focusRequest?.suggestedScope?.commandPath,
+        effectiveFocusRequest?.requestId,
+        effectiveFocusRequest?.focusSection,
+        effectiveFocusRequest?.scopeIds,
+        effectiveFocusRequest?.suggestedScope?.scopeId,
+        effectiveFocusRequest?.suggestedScope?.commandPath,
         consumeFocusRequest,
     ]);
 
@@ -1658,6 +1907,12 @@ const SelectPluginPanel = ({
     }, [focusRequest?.requestId, persistentSuggestedScopeId]);
 
     useEffect(() => {
+        if (!hasUnsavedCapabilityChanges) {
+            setStagedCapabilityWorkflow(null);
+        }
+    }, [hasUnsavedCapabilityChanges]);
+
+    useEffect(() => {
         if (!scopeSetupSuggestion?.scopeId) {
             return;
         }
@@ -1696,6 +1951,7 @@ const SelectPluginPanel = ({
                 message: `Capabilities updated for ${plugin.id}.`,
                 intent: "success",
             });
+            setStagedCapabilityWorkflow(null);
             await refreshPluginsState?.();
             await refreshRuntimeStatuses?.([plugin.id]);
             if (wasActive) {
@@ -3206,6 +3462,10 @@ const SelectPluginPanel = ({
                                 <PolicyDetailList label="Commands" values={activePolicyDetails.allowedExecutables} maxVisible={12}/>
                                 <PolicyDetailList label="CWD roots" values={activePolicyDetails.allowedCwdRoots} maxVisible={12}/>
                                 <PolicyDetailList label="Env keys" values={activePolicyDetails.allowedEnvKeys} maxVisible={12}/>
+                                <PolicyDetailList label="Schemes" values={activePolicyDetails.allowedSchemes} maxVisible={12}/>
+                                <PolicyDetailList label="Host patterns" values={activePolicyDetails.allowedHostPatterns} maxVisible={12}/>
+                                <PolicyDetailList label="Ports" values={activePolicyDetails.allowedPorts} maxVisible={12}/>
+                                <PolicyDetailList label="Transports" values={activePolicyDetails.allowedTransports} maxVisible={12}/>
                                 <ProcessArgumentPolicyDetails scopeItem={activePolicyDetails}/>
                             </Card>
                         </>
@@ -3345,6 +3605,123 @@ const SelectPluginPanel = ({
                             <div className={classNames("bp6-text-small", "bp6-text-muted")}>
                                 Technical ID: <code>{baseCapability}</code>
                             </div>
+                            {baseCapability === NETWORK_CAPABILITY && shouldShowNetworkRecommendations ? (
+                                <Card style={{border: "1px solid #d8e7f5", background: "#f5f9fd", marginTop: "10px"}}>
+                                    {stagedCapabilityWorkflow && hasUnsavedCapabilityChanges ? (
+                                        <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginBottom: "8px"}}>
+                                            <div className={classNames("bp6-text-small")} style={{fontWeight: 600}}>
+                                                Review and save pending network changes
+                                            </div>
+                                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                {stagedCapabilityWorkflow === "secure-public-web"
+                                                    ? "The secure public web setup has been selected in this dialog."
+                                                    : stagedCapabilityWorkflow === "loopback-dev"
+                                                        ? "The loopback development setup has been selected in this dialog."
+                                                        : "The insecure HTTP grant has been replaced with the recommended HTTPS-based selection in this dialog."}
+                                                {" "}Review the toggles below if needed, then save to apply these changes to the plugin runtime.
+                                            </div>
+                                            <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
+                                                <Button
+                                                    small
+                                                    intent="primary"
+                                                    icon="floppy-disk"
+                                                    loading={isSavingCapabilities}
+                                                    onClick={saveCapabilities}
+                                                >
+                                                    Save Capabilities
+                                                </Button>
+                                                <Button
+                                                    small
+                                                    minimal
+                                                    onClick={() => setStagedCapabilityWorkflow(null)}
+                                                >
+                                                    Keep Editing
+                                                </Button>
+                                            </div>
+                                        </Card>
+                                    ) : null}
+                                    {!hasRecommendedNetworkDraftSelected ? (
+                                        <>
+                                            <div className={classNames("bp6-text-small")} style={{fontWeight: 600, marginBottom: "6px"}}>
+                                                Recommended network setup
+                                            </div>
+                                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginBottom: "8px"}}>
+                                                Start here. Choose the setup that matches the plugin before adjusting individual network toggles.
+                                            </div>
+                                            <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
+                                                <Card style={{border: "1px solid #eef0f2", background: "white"}}>
+                                                    <div className={classNames("bp6-text-small")} style={{fontWeight: 600}}>
+                                                        Public HTTPS APIs
+                                                    </div>
+                                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                        Use this for remote APIs, repository metadata fetches, and other public web requests.
+                                                    </div>
+                                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                        Enables: <code>system.network</code>, <code>system.network.https</code>, <code>system.network.scope.public-web-secure</code>
+                                                    </div>
+                                                    <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
+                                                        <Button
+                                                            small
+                                                            intent="primary"
+                                                            disabled={!hasSecurePublicWebScope}
+                                                            onClick={enableSecurePublicWebBundle}
+                                                        >
+                                                            Enable Secure Public Web
+                                                        </Button>
+                                                        {!hasSecurePublicWebScope ? (
+                                                            <Tag minimal intent="warning">Host scope unavailable</Tag>
+                                                        ) : null}
+                                                    </div>
+                                                </Card>
+                                                <Card style={{border: "1px solid #eef0f2", background: "white"}}>
+                                                    <div className={classNames("bp6-text-small")} style={{fontWeight: 600}}>
+                                                        Localhost development services
+                                                    </div>
+                                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                        Use this for services running on <code>localhost</code>, <code>127.0.0.1</code>, or other loopback addresses during development.
+                                                    </div>
+                                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                        Enables: <code>system.network</code>, <code>system.network.https</code>, <code>system.network.scope.loopback-dev</code>
+                                                    </div>
+                                                    <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
+                                                        <Button
+                                                            small
+                                                            intent="none"
+                                                            disabled={!hasLoopbackDevScope}
+                                                            onClick={enableLoopbackDevBundle}
+                                                        >
+                                                            Enable Loopback Dev
+                                                        </Button>
+                                                        {!hasLoopbackDevScope ? (
+                                                            <Tag minimal intent="warning">Host scope unavailable</Tag>
+                                                        ) : null}
+                                                    </div>
+                                                </Card>
+                                            </div>
+                                        </>
+                                    ) : null}
+                                    {selectedNetworkIncludesHttp ? (
+                                        <Card style={{border: "1px solid #f3c67a", background: "#fff4df", marginTop: hasRecommendedNetworkDraftSelected ? "0" : "8px"}}>
+                                            <div className={classNames("bp6-text-small")} style={{fontWeight: 600}}>
+                                                Plain HTTP is enabled
+                                            </div>
+                                            <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
+                                                This is not the recommended production path. If possible, change the plugin code to use <code>https://</code> endpoints and switch to the secure public web bundle.
+                                            </div>
+                                            <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
+                                                <Button
+                                                    small
+                                                    intent="warning"
+                                                    disabled={!hasSecurePublicWebScope}
+                                                    onClick={switchHttpToHttpsBundle}
+                                                >
+                                                    Replace HTTP With HTTPS
+                                                </Button>
+                                            </div>
+                                        </Card>
+                                    ) : null}
+                                </Card>
+                            ) : null}
                             {categoryEntries.length > 0 ? (
                                 <div style={{marginTop: "10px"}}>
                                     {categoryEntries.map(([categoryLabel, categoryScopes]) => (
@@ -3399,6 +3776,7 @@ const SelectPluginPanel = ({
                                                             ) : null}
                                                             {scopeItem.timeoutCeilingMs ? <Tag minimal>timeout max: {scopeItem.timeoutCeilingMs}ms</Tag> : null}
                                                             {scopeItem.allowedExecutables.length > 0 ? <Tag minimal>{scopeItem.allowedExecutables.length} command path{scopeItem.allowedExecutables.length === 1 ? "" : "s"}</Tag> : null}
+                                                            {scopeItem.allowedHostPatterns?.length > 0 ? <Tag minimal>{scopeItem.allowedHostPatterns.length} host pattern{scopeItem.allowedHostPatterns.length === 1 ? "" : "s"}</Tag> : null}
                                                             {hasArgumentPolicy ? <Tag minimal>argument policy</Tag> : null}
                                                         </div>
                                                         {scopeSummary ? (
@@ -3422,6 +3800,10 @@ const SelectPluginPanel = ({
                                                                         allowedExecutables: scopeItem.allowedExecutables,
                                                                         allowedCwdRoots: scopeItem.allowedCwdRoots,
                                                                         allowedEnvKeys: scopeItem.allowedEnvKeys,
+                                                                        allowedSchemes: scopeItem.allowedSchemes,
+                                                                        allowedHostPatterns: scopeItem.allowedHostPatterns,
+                                                                        allowedPorts: scopeItem.allowedPorts,
+                                                                        allowedTransports: scopeItem.allowedTransports,
                                                                         additionalAllowedFirstArgs: scopeItem.additionalAllowedFirstArgs,
                                                                         additionalAllowedFirstArgsByExecutable: scopeItem.additionalAllowedFirstArgsByExecutable,
                                                                         additionalAllowedLeadingOptions: scopeItem.additionalAllowedLeadingOptions,
@@ -3472,7 +3854,28 @@ const SelectPluginPanel = ({
                                             ? "Base tool execution is enabled, but no process scopes are granted yet. Both are required for process execution requests."
                                             : baseCapability === STORAGE_CAPABILITY
                                                 ? "Base storage capability is enabled, but no storage backend is selected yet."
+                                                : baseCapability === NETWORK_CAPABILITY
+                                                    ? "Network access is enabled, but no transport is selected yet. Select the exact network API the plugin needs. Start with HTTPS. Avoid Plain HTTP and update the plugin to use HTTPS unless migration is blocked. Grant raw sockets only to high-trust plugins."
                                                 : "Base privileged host actions are enabled, but no filesystem/clipboard child grants are selected yet."}
+                                    </div>
+                                </Card>
+                            ) : null}
+                            {baseCapability === NETWORK_CAPABILITY && baseEnabled && selectedNetworkTransportCapabilities.length > 0 && selectedNetworkScopeCapabilities.length === 0 ? (
+                                <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginTop: "8px"}}>
+                                    <div className={classNames("bp6-text-small")}>
+                                        {`Selected transports: ${selectedNetworkTransportLabels.join(", ")}. These grants alone do not allow outbound traffic yet. To make network access actually work, also enable at least one destination scope under Network, such as "Secure Public Web Scope" for public HTTPS/WSS services or "Loopback Development Scope" for localhost services.`}
+                                    </div>
+                                    {selectedNetworkIncludesHttp ? (
+                                        <div className={classNames("bp6-text-small")} style={{marginTop: "8px"}}>
+                                            Plain HTTP is not recommended. If possible, change the plugin code and upstream service to HTTPS, then keep only "HTTPS requests" enabled instead of granting insecure HTTP.
+                                        </div>
+                                    ) : null}
+                                </Card>
+                            ) : null}
+                            {baseCapability === NETWORK_CAPABILITY && baseEnabled && selectedNetworkIncludesHttp ? (
+                                <Card style={{border: "1px solid #f3c67a", background: "#fff4df", marginTop: "8px"}}>
+                                    <div className={classNames("bp6-text-small")}>
+                                        "Plain HTTP requests" is enabled. This is insecure and should not be the default path. Prefer changing the plugin code to call HTTPS endpoints and remove the HTTP grant unless there is a hard legacy dependency.
                                     </div>
                                 </Card>
                             ) : null}

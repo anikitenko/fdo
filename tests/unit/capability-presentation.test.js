@@ -125,4 +125,23 @@ describe("capability presentation", () => {
             description: 'Allows host-approved filesystem access inside scope "custom-fs".',
         }));
     });
+
+    test("renders friendly labels for network capabilities and scopes", () => {
+        expect(getCapabilityPresentation("system.network")).toEqual(expect.objectContaining({
+            title: "Network access",
+            description: expect.stringContaining("Base network capability family"),
+        }));
+        expect(getCapabilityPresentation("system.network.http")).toEqual(expect.objectContaining({
+            title: "Plain HTTP requests",
+            description: expect.stringMatching(/plaintext|not recommend|https/i),
+        }));
+        expect(getCapabilityPresentation("system.network.scope.public-web-secure")).toEqual(expect.objectContaining({
+            title: "Secure Public Web Scope",
+            description: expect.stringContaining("Narrow scope"),
+        }));
+        expect(getCapabilityPresentation("system.network.scope.custom-egress")).toEqual(expect.objectContaining({
+            title: "Network Scope: custom-egress",
+            description: 'Narrow network scope paired with broad capability system.network for host-approved destinations inside scope "custom-egress".',
+        }));
+    });
 });

@@ -5,6 +5,16 @@ import {PluginPage} from "../../../src/components/plugin/PluginPage.jsx";
 describe("PluginPage host contract", () => {
     beforeEach(() => {
         jest.restoreAllMocks();
+        document.head.innerHTML = "";
+        window.fetch = jest.fn(() => Promise.resolve({ok: true}));
+        window.Worker = jest.fn();
+        window.SharedWorker = jest.fn();
+        window.RTCPeerConnection = jest.fn();
+        Object.defineProperty(window.navigator, "sendBeacon", {
+            configurable: true,
+            writable: true,
+            value: jest.fn(() => true),
+        });
         window.electron.notifications = {
             add: jest.fn(),
         };
@@ -124,5 +134,57 @@ describe("PluginPage host contract", () => {
         });
 
         expect(preventDefault).toHaveBeenCalled();
+    });
+
+    test("applies deny-by-default network CSP and blocks fetch without network grants", () => {
+        render(<PluginPage />);
+
+        const cspMeta = document.head.querySelector("meta[http-equiv='Content-Security-Policy']");
+        expect(cspMeta?.getAttribute("content")).toContain("connect-src 'none'");
+        expect(cspMeta?.getAttribute("content")).toContain("worker-src 'none'");
+        expect(cspMeta?.getAttribute("content")).toContain("navigate-to 'none'");
+        expect(() => window.fetch("https://example.com")).toThrow(/system\.network\.https/);
+        expect(() => new window.Worker("blob:test")).toThrow(/Network access denied/);
+        expect(() => navigator.sendBeacon("https://example.com/collect")).toThrow(/system\.network\.https/);
+        expect(() => new window.RTCPeerConnection()).toThrow(/WebRTC transports are disabled/);
+    });
+
+    test("allows HTTPS fetch when network capabilities are granted via host metadata", () => {
+        const meta = document.createElement("meta");
+        meta.setAttribute("name", "fdo-plugin-capabilities");
+        meta.setAttribute("content", JSON.stringify([
+            "system.network",
+            "system.network.https",
+            "system.network.scope.public-web-secure",
+        ]));
+        document.head.appendChild(meta);
+
+        const originalFetch = window.fetch;
+        window.fetch = jest.fn(() => Promise.resolve({ok: true}));
+
+        render(<PluginPage />);
+
+        const cspMeta = document.head.querySelector("meta[http-equiv='Content-Security-Policy']");
+        expect(cspMeta?.getAttribute("content")).toContain("connect-src https:");
+        expect(() => window.fetch("https://example.com")).not.toThrow();
+        expect(() => window.fetch("http://example.com")).toThrow(/system\.network\.http/);
+
+        window.fetch = originalFetch;
+    });
+
+    test("enforces destination scope checks for browser network primitives", () => {
+        const meta = document.createElement("meta");
+        meta.setAttribute("name", "fdo-plugin-capabilities");
+        meta.setAttribute("content", JSON.stringify([
+            "system.network",
+            "system.network.https",
+            "system.network.scope.loopback-dev",
+        ]));
+        document.head.appendChild(meta);
+
+        render(<PluginPage />);
+
+        expect(() => window.fetch("https://example.com")).toThrow(/scope\.<scope-id>/);
+        expect(() => navigator.sendBeacon("https://example.com/collect")).toThrow(/scope\.<scope-id>/);
     });
 });

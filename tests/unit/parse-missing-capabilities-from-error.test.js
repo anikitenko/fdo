@@ -40,6 +40,80 @@ describe("parseMissingCapabilitiesFromError", () => {
         ]);
     });
 
+    test("expands SDK-style network base capability errors into concrete outbound web guidance", () => {
+        const result = parseMissingCapabilityDiagnosticsFromError(
+            'Capability "system.network" is required to prefetch original configured repository metadata. Configure PluginRegistry.configureCapabilities({ granted: ["system.network"] }) in the host before plugin initialization.'
+        );
+
+        expect(result).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                capability: "system.network",
+                action: "prefetch original configured repository metadata",
+                label: "Network access",
+                source: "sdk",
+                remediation: expect.stringContaining('exact transport capability'),
+            }),
+            expect.objectContaining({
+                capability: "system.network.https",
+                action: "prefetch original configured repository metadata",
+                label: "HTTPS requests",
+                source: "sdk",
+            }),
+            expect.objectContaining({
+                capability: "system.network.scope.public-web-secure",
+                action: "prefetch original configured repository metadata",
+                label: "Secure Public Web Scope",
+                source: "sdk",
+            }),
+        ]));
+    });
+
+    test("parses SDK-style network capability guidance when embedded inside multiline UI text", () => {
+        const result = parseMissingCapabilityDiagnosticsFromError(
+            [
+                "Plugin test-doc12: The plugin requested a privileged action that is not currently granted.",
+                "",
+                'Capability "system.network" is required to prefetch original configured repository metadata. Configure PluginRegistry.configureCapabilities({ granted: ["system.network"] }) in the host before plugin initialization.',
+            ].join("\n")
+        );
+
+        expect(result).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                capability: "system.network",
+                source: "sdk",
+            }),
+            expect.objectContaining({
+                capability: "system.network.https",
+                source: "sdk",
+            }),
+            expect.objectContaining({
+                capability: "system.network.scope.public-web-secure",
+                source: "sdk",
+            }),
+        ]));
+    });
+
+    test("expands localhost-oriented network errors into loopback scope guidance", () => {
+        const result = parseMissingCapabilityDiagnosticsFromError(
+            'Capability "system.network" is required to fetch localhost development metadata from http://127.0.0.1:3000/status.'
+        );
+
+        expect(result).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                capability: "system.network",
+                label: "Network access",
+            }),
+            expect.objectContaining({
+                capability: "system.network.http",
+                label: "Plain HTTP requests",
+            }),
+            expect.objectContaining({
+                capability: "system.network.scope.loopback-dev",
+                label: "Loopback Development Scope",
+            }),
+        ]));
+    });
+
     test("builds structured diagnostics for host-style plural capability errors", () => {
         const result = parseMissingCapabilityDiagnosticsFromError(
             'Capabilities "system.hosts.write" and "system.fs.scope.etc-hosts" are required.'

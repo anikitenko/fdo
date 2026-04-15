@@ -1,7 +1,15 @@
 import {isHostFallbackProcessScopeId} from "./processScopeCatalog";
+import {getAllHostNetworkScopePolicies} from "./networkScopeRegistry";
 import {
     HOST_WRITE_CAPABILITY,
     HOST_WRITE_CAPABILITY_LEGACY,
+    NETWORK_CAPABILITY,
+    NETWORK_DNS_CAPABILITY,
+    NETWORK_HTTPS_CAPABILITY,
+    NETWORK_HTTP_CAPABILITY,
+    NETWORK_TCP_CAPABILITY,
+    NETWORK_UDP_CAPABILITY,
+    NETWORK_WEBSOCKET_CAPABILITY,
     STORAGE_CAPABILITY,
     STORAGE_JSON_CAPABILITY,
     toCanonicalCapabilityId
@@ -29,6 +37,62 @@ export const CAPABILITY_PRESENTATION = Object.freeze({
         risk: CAPABILITY_RISK_LEVELS.low,
         dependsOn: Object.freeze([STORAGE_CAPABILITY]),
         category: "data",
+    }),
+    [NETWORK_CAPABILITY]: Object.freeze({
+        id: NETWORK_CAPABILITY,
+        title: "Network access",
+        description: "Base network capability family. Pair it only with the concrete transports the plugin actually needs.",
+        risk: CAPABILITY_RISK_LEVELS.medium,
+        dependsOn: Object.freeze([]),
+        category: "network",
+    }),
+    [NETWORK_HTTPS_CAPABILITY]: Object.freeze({
+        id: NETWORK_HTTPS_CAPABILITY,
+        title: "HTTPS requests",
+        description: "Allows outbound HTTPS requests from plugin runtime and UI. Prefer this over plaintext HTTP whenever possible.",
+        risk: CAPABILITY_RISK_LEVELS.medium,
+        dependsOn: Object.freeze([NETWORK_CAPABILITY]),
+        category: "network",
+    }),
+    [NETWORK_HTTP_CAPABILITY]: Object.freeze({
+        id: NETWORK_HTTP_CAPABILITY,
+        title: "Plain HTTP requests",
+        description: "Allows outbound plaintext HTTP requests from plugin runtime and UI. HTTP is not secure against interception or tampering on untrusted networks; do not recommend this by default. Prefer changing plugin code and upstream services to HTTPS, and grant HTTP only when migration is genuinely blocked.",
+        risk: CAPABILITY_RISK_LEVELS.high,
+        dependsOn: Object.freeze([NETWORK_CAPABILITY]),
+        category: "network",
+    }),
+    [NETWORK_WEBSOCKET_CAPABILITY]: Object.freeze({
+        id: NETWORK_WEBSOCKET_CAPABILITY,
+        title: "WebSocket connections",
+        description: "Allows outbound WebSocket connections from plugin runtime and UI. Prefer secure `wss://` endpoints; plaintext `ws://` should be treated as high risk.",
+        risk: CAPABILITY_RISK_LEVELS.high,
+        dependsOn: Object.freeze([NETWORK_CAPABILITY]),
+        category: "network",
+    }),
+    [NETWORK_TCP_CAPABILITY]: Object.freeze({
+        id: NETWORK_TCP_CAPABILITY,
+        title: "Raw TCP sockets",
+        description: "Allows direct TCP socket APIs. This is a high-trust grant suitable only for plugins that genuinely need low-level socket control.",
+        risk: CAPABILITY_RISK_LEVELS.high,
+        dependsOn: Object.freeze([NETWORK_CAPABILITY]),
+        category: "network",
+    }),
+    [NETWORK_UDP_CAPABILITY]: Object.freeze({
+        id: NETWORK_UDP_CAPABILITY,
+        title: "Raw UDP sockets",
+        description: "Allows direct UDP socket APIs. Use only for protocols that cannot run over safer higher-level transports.",
+        risk: CAPABILITY_RISK_LEVELS.high,
+        dependsOn: Object.freeze([NETWORK_CAPABILITY]),
+        category: "network",
+    }),
+    [NETWORK_DNS_CAPABILITY]: Object.freeze({
+        id: NETWORK_DNS_CAPABILITY,
+        title: "Direct DNS resolution",
+        description: "Allows direct DNS lookup APIs. Prefer normal application-level HTTP(S) requests unless the plugin truly needs explicit resolver behavior.",
+        risk: CAPABILITY_RISK_LEVELS.medium,
+        dependsOn: Object.freeze([NETWORK_CAPABILITY]),
+        category: "network",
     }),
     [HOST_WRITE_CAPABILITY]: Object.freeze({
         id: HOST_WRITE_CAPABILITY,
@@ -77,7 +141,11 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
     if (!scopeId) {
         return null;
     }
-    const kind = scopePolicy?.kind === "process" ? "process" : "filesystem";
+    const kind = scopePolicy?.kind === "process"
+        ? "process"
+        : scopePolicy?.kind === "network"
+            ? "network"
+            : "filesystem";
 
     const roots = Array.isArray(scopePolicy.allowedRoots) ? scopePolicy.allowedRoots : [];
     const cwdRoots = Array.isArray(scopePolicy.allowedCwdRoots) ? scopePolicy.allowedCwdRoots : [];
@@ -205,6 +273,32 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
         };
     }
 
+    if (kind === "network") {
+        const knownNetworkScopePresentation = {
+            "public-web-secure": {
+                title: "Secure Public Web Scope",
+                description: "Narrow scope paired with system.network for secure HTTPS/WSS traffic to public endpoints.",
+            },
+            "public-web-legacy": {
+                title: "Legacy Public Web Scope",
+                description: "Fallback scope paired with system.network for legacy HTTP/WS endpoints. Prefer secure scopes first.",
+            },
+            "loopback-dev": {
+                title: "Loopback Development Scope",
+                description: "Narrow scope paired with system.network for localhost and loopback development services.",
+            },
+        };
+        const known = knownNetworkScopePresentation[scopeId];
+        return {
+            id: `system.network.scope.${scopeId}`,
+            title: known?.title || `Network Scope: ${scopeId}`,
+            description: known?.description || `Narrow network scope paired with broad capability system.network for host-approved destinations inside scope "${scopeId}".`,
+            risk: CAPABILITY_RISK_LEVELS.high,
+            dependsOn: ["system.network"],
+            category: "network-scope",
+        };
+    }
+
     return {
         id: `system.fs.scope.${scopeId}`,
         title: `Filesystem Scope: ${scopeId}`,
@@ -247,6 +341,14 @@ export function getCapabilityPresentation(capabilityId, scopePolicies = []) {
             });
         }
         return buildScopeCapabilityPresentation(scopePolicy || {scope: scopeId, kind: "process"});
+    }
+
+    if (typeof normalizedCapabilityId === "string" && normalizedCapabilityId.startsWith("system.network.scope.")) {
+        const scopeId = normalizedCapabilityId.slice("system.network.scope.".length);
+        const scopePolicy = (Array.isArray(scopePolicies) ? scopePolicies : [])
+            .find((policy) => policy?.scope === scopeId)
+            || getAllHostNetworkScopePolicies()?.[scopeId];
+        return buildScopeCapabilityPresentation(scopePolicy || {scope: scopeId, kind: "network"});
     }
 
     return {

@@ -131,6 +131,7 @@ NavigationPluginsButton.propTypes = {
         pluginId: PropTypes.string,
         capabilityIds: PropTypes.array,
         focusSection: PropTypes.string,
+        recommendationFamily: PropTypes.string,
         scopeIds: PropTypes.array,
         suggestedScope: PropTypes.shape({
             scopeId: PropTypes.string,
