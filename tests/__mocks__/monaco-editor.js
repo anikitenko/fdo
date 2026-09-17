@@ -27,7 +27,7 @@ const javascriptDefaults = {
 
 const monaco = {
   Uri: {
-    file: (p) => ({ toString: () => `file://${p}`, toString: (x) => `file://${p}` }),
+    file: (p) => ({ path: p, toString: () => `file://${p}`, toString: (x) => `file://${p}` }),
   },
   editor: {
     _models: models,
@@ -69,6 +69,21 @@ const monaco = {
     javascriptDefaults,
   },
   languages: {
+    registerCompletionItemProvider: jest.fn(() => ({ dispose() {} })),
+    registerCodeActionProvider: jest.fn(() => ({ dispose() {} })),
+    CompletionItemInsertTextRule: {
+      InsertAsSnippet: 4,
+    },
+    CompletionItemKind: {
+      Function: 1,
+      Method: 2,
+      Keyword: 3,
+      Module: 4,
+      Property: 5,
+      Snippet: 6,
+      Text: 7,
+      Variable: 8,
+    },
     typescript: {
       typescriptDefaults: languageDefaults,
       javascriptDefaults,

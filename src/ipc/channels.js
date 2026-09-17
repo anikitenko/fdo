@@ -46,6 +46,9 @@ export const SettingsChannels = withPrefix('settings', {
         CODEX_AUTH_LOGIN: 'codex-auth-login',
         CODEX_AUTH_LOGOUT: 'codex-auth-logout',
         CODEX_AUTH_CANCEL: 'codex-auth-cancel',
+        on_off: {
+            UPDATED: 'updated'
+        }
     }
 })
 
@@ -92,6 +95,10 @@ export const SystemChannels = withPrefix('system', {
     OPEN_FILE_DIALOG: 'open-file-dialog',
     GET_MODULE_FILES: 'get-module-files',
     GET_FDO_SDK_TYPES: 'get-fdo-sdk-path',
+    GET_FDO_SDK_EDITOR_SUPPORT: 'get-fdo-sdk-editor-support',
+    GET_FDO_SDK_EDITOR_MONACO_POLICY: 'get-fdo-sdk-editor-monaco-policy',
+    GET_FDO_SDK_RENDER_ON_LOAD_TEMPLATES: 'get-fdo-sdk-render-on-load-templates',
+    GET_FDO_SDK_RENDER_ON_LOAD_TEMPLATE: 'get-fdo-sdk-render-on-load-template',
     GET_FDO_SDK_DOM_METADATA: 'get-fdo-sdk-dom-metadata',
     GET_FDO_SDK_KNOWLEDGE: 'get-fdo-sdk-knowledge',
     GET_EXTERNAL_REFERENCE_KNOWLEDGE: 'get-external-reference-knowledge',

@@ -46,7 +46,10 @@ import {
     NETWORK_UDP_CAPABILITY,
     NETWORK_WEBSOCKET_CAPABILITY,
     STORAGE_CAPABILITY,
-    STORAGE_JSON_CAPABILITY
+    STORAGE_JSON_CAPABILITY,
+    SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
+    SYSTEM_AI_CAPABILITY,
+    SYSTEM_AI_REQUEST_CAPABILITY
 } from "../utils/pluginCapabilities";
 import {getPluginTrustTier} from "../utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "../utils/pluginCapabilityDeclaration";
@@ -825,6 +828,7 @@ const SelectPluginPanel = ({
     const BASE_PRIVILEGED_CAPABILITIES = [
         STORAGE_CAPABILITY,
         NETWORK_CAPABILITY,
+        SYSTEM_AI_CAPABILITY,
         HOST_WRITE_CAPABILITY,
         "system.process.exec",
     ];
@@ -1543,6 +1547,44 @@ const SelectPluginPanel = ({
             requireConfirmation: null,
         },
     ]), []);
+    const aiCapabilityChildren = useMemo(() => ([
+        {
+            id: "ai-assistants-list",
+            title: "List assistants",
+            kind: "capability",
+            category: "AI",
+            description: "Allows plugin UI to list host-configured assistants for user selection.",
+            fallback: false,
+            userDefined: false,
+            capability: SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
+            baseCapability: SYSTEM_AI_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+        {
+            id: "ai-request",
+            title: "Send AI requests",
+            kind: "capability",
+            category: "AI",
+            description: "Allows plugin backend to route host AI tasks to a selected assistant.",
+            fallback: false,
+            userDefined: false,
+            capability: SYSTEM_AI_REQUEST_CAPABILITY,
+            baseCapability: SYSTEM_AI_CAPABILITY,
+            allowedRoots: [],
+            allowedCwdRoots: [],
+            allowedOperationTypes: [],
+            allowedExecutables: [],
+            allowedEnvKeys: [],
+            timeoutCeilingMs: null,
+            requireConfirmation: null,
+        },
+    ]), []);
     const scopeCapabilitiesByBase = useMemo(() => {
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             groups[baseCapability] = scopeCapabilities.filter((item) => item.baseCapability === baseCapability);
@@ -1557,6 +1599,8 @@ const SelectPluginPanel = ({
                     ? clipboardCapabilityChildren
                     : baseCapability === STORAGE_CAPABILITY
                         ? storageCapabilityChildren
+                        : baseCapability === SYSTEM_AI_CAPABILITY
+                            ? aiCapabilityChildren
                         : baseCapability === NETWORK_CAPABILITY
                             ? networkCapabilityChildren
                         : []
@@ -1564,7 +1608,7 @@ const SelectPluginPanel = ({
             groups[baseCapability] = [...scopeChildren, ...extraChildren];
             return groups;
         }, {});
-    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, networkCapabilityChildren]);
+    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, aiCapabilityChildren, networkCapabilityChildren]);
     const unresolvedGrantedScopeCapabilities = useMemo(
         () => [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
             .map((capability) => String(capability || "").trim())
@@ -1600,6 +1644,12 @@ const SelectPluginPanel = ({
                 checked,
                 baseCapability: childItem?.baseCapability || capability,
             });
+            if (checked && capability === SYSTEM_AI_CAPABILITY) {
+                const aiChildCapabilities = (capabilityChildrenByBase[SYSTEM_AI_CAPABILITY] || [])
+                    .map((item) => item.capability)
+                    .filter(Boolean);
+                next = [...new Set([...next, ...aiChildCapabilities])];
+            }
             if (!checked && BASE_PRIVILEGED_CAPABILITIES.includes(capability)) {
                 const childCapabilities = (capabilityChildrenByBase[capability] || []).map((item) => item.capability);
                 next = next.filter((item) => !childCapabilities.includes(item));
@@ -1733,6 +1783,18 @@ const SelectPluginPanel = ({
     const capabilityIntentSummary = useMemo(
         () => buildCapabilityDeclarationSummary(capabilityIntent || {}),
         [capabilityIntent]
+    );
+    const capabilityPreflightMissingItems = useMemo(
+        () => Array.isArray(capabilityIntent?.missingDiagnostics) ? capabilityIntent.missingDiagnostics : [],
+        [capabilityIntent?.missingDiagnostics]
+    );
+    const capabilityPreflightRemediations = useMemo(
+        () => Array.isArray(capabilityIntent?.remediations) ? capabilityIntent.remediations : [],
+        [capabilityIntent?.remediations]
+    );
+    const capabilityPreflightUndeclaredDescriptors = useMemo(
+        () => Array.isArray(capabilityIntent?.undeclaredGrantedDetails) ? capabilityIntent.undeclaredGrantedDetails : [],
+        [capabilityIntent?.undeclaredGrantedDetails]
     );
     const unresolvedDeclaredScopeCapabilities = useMemo(
         () => [...new Set((Array.isArray(capabilityIntent?.declared) ? capabilityIntent.declared : [])
@@ -2704,6 +2766,32 @@ const SelectPluginPanel = ({
                 ) : null}
                 {showCapabilityIntent && capabilityIntent ? (
                     <>
+                        {(capabilityIntent.summaryText || capabilityPreflightRemediations.length > 0) ? (
+                            <Card style={{marginTop: "10px", border: "1px solid #d8e1f0", background: "#f7f9fc"}}>
+                                <div className={"bp6-text-small"} style={{fontWeight: 600}}>
+                                    Host Capability Preflight
+                                </div>
+                                {capabilityIntent.summaryText ? (
+                                    <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                        {capabilityIntent.summaryText}
+                                    </div>
+                                ) : null}
+                                {capabilityPreflightRemediations.length > 0 ? (
+                                    <div style={{marginTop: "10px"}}>
+                                        <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                                            Recommended next steps
+                                        </div>
+                                        <div style={{display: "flex", flexDirection: "column", gap: "6px"}}>
+                                            {capabilityPreflightRemediations.map((remediation, index) => (
+                                                <div key={`preflight-remediation-${index}`} className={classNames("bp6-text-small", "bp6-text-muted")}>
+                                                    {remediation}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </Card>
+                        ) : null}
                         <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px", marginBottom: "8px"}}>
                             <Tag minimal>Declared: {capabilityIntent.declared.length}</Tag>
                             <Tag minimal intent={capabilityIntent.missingDeclared.length > 0 ? "warning" : "success"}>
@@ -2736,6 +2824,55 @@ const SelectPluginPanel = ({
                                 )}
                             </div>
                         ))}
+                        {capabilityPreflightMissingItems.length > 0 ? (
+                            <div style={{marginTop: "12px"}}>
+                                <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                                    Missing capability diagnostics
+                                </div>
+                                <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
+                                    {capabilityPreflightMissingItems.map((item, index) => (
+                                        <Card key={`preflight-missing-${item.capability || index}`} style={{border: "1px solid #f6d667", background: "#fff8db"}}>
+                                            <div style={{display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap"}}>
+                                                <Tag minimal intent="warning">{item.label || item.capability}</Tag>
+                                                {item.capability ? <code>{item.capability}</code> : null}
+                                            </div>
+                                            {item.description ? (
+                                                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                                    {item.description}
+                                                </div>
+                                            ) : null}
+                                            {item.remediation ? (
+                                                <div className={"bp6-text-small"} style={{marginTop: "8px"}}>
+                                                    {item.remediation}
+                                                </div>
+                                            ) : null}
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : null}
+                        {capabilityPreflightUndeclaredDescriptors.length > 0 ? (
+                            <div style={{marginTop: "12px"}}>
+                                <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
+                                    Granted by host but undeclared
+                                </div>
+                                <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
+                                    {capabilityPreflightUndeclaredDescriptors.map((item, index) => (
+                                        <Card key={`preflight-undeclared-${item.capability || index}`} style={{border: "1px solid #d8e1f0", background: "#f7f9fc"}}>
+                                            <div style={{display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap"}}>
+                                                <Tag minimal intent="primary">{item.label || item.capability}</Tag>
+                                                {item.capability ? <code>{item.capability}</code> : null}
+                                            </div>
+                                            {item.description ? (
+                                                <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
+                                                    {item.description}
+                                                </div>
+                                            ) : null}
+                                        </Card>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : null}
                     </>
                 ) : showCapabilityIntent ? (
                     <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "10px"}}>

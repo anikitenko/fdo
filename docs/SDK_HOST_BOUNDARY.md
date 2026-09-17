@@ -138,6 +138,51 @@ Practical note for diagnostics tooling:
 - this is still host-mediated process execution, with allowlisted binaries, cwd/env restrictions, timeout ceilings, and confirmation policy
 - it must not be interpreted as blanket permission for plugin code to open arbitrary sockets or bypass transport-specific network capabilities
 
+Plugin diagnostics UX should prefer the SDK Plugin Doctor model:
+
+- raw diagnostics still come from the plugin `UI_MESSAGE` handler `__sdk.getDiagnostics`
+- the host should build `createPluginDoctorReport(diagnostics, options?)` and then `createPluginDoctorPanelModel(report, options?)`
+- host diagnostics UI should render from panel model fields (`prioritizedFindings`, `sections`, `blocking`, normalized counts/status) without host-side severity/category sorting logic
+- raw diagnostics remain the underlying transport/debug payload and should still be available as a legacy fallback when the installed SDK does not expose Plugin Doctor yet
+
+## Handshake Compatibility Policy
+
+Host compatibility gating must be sourced from SDK contract helpers, not duplicated host logic:
+
+- read plugin handshake payload from `__sdk.getDiagnostics` before enabling advanced host UX paths
+- evaluate with `evaluateSdkHandshakeCompatibility(handshake, expectations)` where expectations include:
+  - `expectedContractVersion`
+  - `expectedApiVersion`
+  - `expectedCapabilitySchemaVersion`
+  - `requiredFeatureFlags`
+- optional fast gate checks may use `isSdkHandshakeCompatible(...)` for boolean allow/deny decisions
+- diagnostics presentation should pass the same `handshake` expectations into `createPluginDoctorReport(...)`
+
+Status handling policy:
+
+- `compatible`: enable full host UX path
+- `needs-attention`: keep fallback behavior enabled and surface warnings
+- `incompatible`: block incompatible path and surface code-specific remediation
+
+Handshake findings must render code-specific fixes via:
+
+- `getDiagnosticFixTemplate(code)`
+- `formatDiagnosticExactFix(code)`
+
+so users get exact remediation text instead of generic runtime errors.
+
+## SDK Upgrade Rollout Policy
+
+For every SDK/FDO rollout, migration and compatibility gating stay coupled:
+
+1. Run migration dry-run and apply as needed:
+   - `fdo sdk migrate --target <path>`
+   - `fdo sdk migrate --target <path> --write`
+2. Update host handshake expectations in the same PR as SDK version bump.
+3. Require handshake compatibility checks in CI before release.
+4. Treat contract or API major mismatch findings as release blockers.
+5. Document capability schema and required feature-flag changes in release notes with migration guidance.
+
 ## Residual Risk
 
 FDO still reads bundled SDK files from the installed app for host tooling. That is acceptable, but it means:

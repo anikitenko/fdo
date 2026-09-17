@@ -245,6 +245,7 @@ describe("plugin IPC privileged action transport", () => {
         }));
         expect(NotificationCenter.addNotification).toHaveBeenCalledWith(expect.objectContaining({
             title: "Deprecated privileged request shape",
+            message: expect.stringContaining("requestPrivilegedActionFromEnvelope"),
             type: "warning",
         }));
         expect(postMessage).not.toHaveBeenCalled();

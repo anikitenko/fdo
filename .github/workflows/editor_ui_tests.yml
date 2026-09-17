@@ -100,6 +100,46 @@ jobs:
             test-results
           if-no-files-found: ignore
 
+  sdk-fixture-runtime-matrix:
+    name: SDK Fixture Runtime Matrix (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers and dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run SDK fixture runtime matrix
+        env:
+          FDO_E2E_FIXTURE_MATRIX_CONCURRENCY: 2
+        run: xvfb-run -a npm run test:e2e:fixtures:matrix
+
+      - name: Upload fixture runtime matrix artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-fixture-runtime-matrix
+          path: |
+            playwright-report
+            test-results/sdk-fixture-runtime-matrix.json
+            test-results/sdk-fixture-runtime-matrix.md
+          if-no-files-found: ignore
+
   ui-fault-injection:
     name: App UI Fault Injection (ubuntu-latest)
     if: github.event_name == 'workflow_dispatch'

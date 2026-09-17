@@ -4,6 +4,7 @@ import LLM from "@themaximalist/llm.js";
 import {settings} from "../utils/store.js";
 import {spawn} from "node:child_process";
 import { resolveCodexCliInvocation } from "../utils/codexCli.js";
+import {resolveGeminiCliInvocation} from "../utils/geminiCli.js";
 import { extractCodexJsonEventText, extractCodexJsonProgress, isLikelyCodexJsonEventStream } from "../utils/codexCliJson.js";
 import { CODEX_JSON_EARLY_RETRY_MS, shouldRetryCodexWithoutJsonEarly } from "../utils/codexCliRetryPolicy.js";
 import {
@@ -197,11 +198,13 @@ When working with FDO plugins, be aware of:
   2. For known operator tool families, prefer createOperatorToolCapabilityPreset(...), createOperatorToolActionRequest(...), and requestOperatorTool(...)
   3. For host-specific/internal tools not covered by curated presets, prefer createProcessCapabilityBundle(...), createProcessScopeCapability(...), and requestScopedProcessExec(...)
      Treat generic scopes such as system-observe, network-diagnostics, service-management, archive-tools, package-management, source-control, build-tooling, task-runners, and platform-specific aliases like homebrew as host-specific fallback scopes, not as equal first-choice production scaffolds
-  4. Only suggest createProcessExecActionRequest(...) and requestPrivilegedAction(...) when the user explicitly needs transport-level control, debugging, or a non-curated action family
+  4. For envelope-compatible privileged flows, prefer requestPrivilegedActionFromEnvelope(...) over manual envelope unwrapping and direct window.createBackendReq("requestPrivilegedAction", ...)
+  5. Only suggest createProcessExecActionRequest(...) and requestPrivilegedAction(...) when the user explicitly needs transport-level control, debugging, or a non-curated action family
 - Use SDK terminology consistently: operator fixture, curated helper, scoped capability, broad capability plus narrow scope
 - Explain operator capabilities as a pair: broad capability system.process.exec plus narrow scope system.process.scope.<scope-id>
 - Treat declareCapabilities() as additive diagnostics/preflight UX only. It does not grant authority and does not replace runtime capability checks or host enforcement.
 - If capability access is denied, explain which broad capability or narrow scope is missing and whether the user should request a curated tool-family grant or a host-specific scope
+- When the host provides both declared and granted capabilities, prefer runCapabilityPreflight(...) to surface summary, missing items, remediations, and extra grants before deeper privileged execution failures
 - When a generic host scope could fit, still prefer operator fixtures/presets/workflows first and describe the generic scope as a fallback only when no curated operator family fits
 - For multi-step host-mediated process orchestration, prefer createScopedWorkflowRequest(...) and requestScopedWorkflow(...) instead of chaining multiple raw process requests inside the plugin
 - Recommend the workflow primitive for preview/apply and inspect/act flows when multiple host-mediated steps are involved, but keep single-action fixtures and helpers for single-step cases
@@ -650,8 +653,187 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
     }
 }
 
+async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
+    const invocation = await resolveGeminiCliInvocation({
+        configuredPath: assistantInfo?.executablePath,
+    });
+
+    return await new Promise((resolve, reject) => {
+        const baseArgs = [...(invocation.args || [])];
+        if (assistantInfo?.model) {
+            baseArgs.push("--model", String(assistantInfo.model));
+        }
+        const promptArgVariants = [
+            ["--prompt", prompt],
+            ["-p", prompt],
+        ];
+        const triedVariants = [];
+        let attemptIndex = 0;
+        const startedAt = Date.now();
+        let settled = false;
+
+        const finish = (err, payload) => {
+            if (settled) return;
+            settled = true;
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(payload);
+        };
+
+        const runAttempt = (useStdin = false) => {
+            if (attemptIndex >= promptArgVariants.length && !useStdin) {
+                runAttempt(true);
+                return;
+            }
+
+            const attemptArgs = [...baseArgs];
+            if (!useStdin) {
+                const variant = promptArgVariants[attemptIndex];
+                triedVariants.push(variant[0]);
+                attemptArgs.push(...variant);
+                attemptIndex += 1;
+            }
+
+            sendBackendStatus(
+                event,
+                requestId,
+                buildAiCodingLaunchStatus({ assistantName: assistantInfo?.name || "Gemini CLI assistant" }),
+                { phase: "launch", provider: assistantInfo?.provider || "", cliAttempt: useStdin ? "stdin" : `arg:${triedVariants[triedVariants.length - 1] || ""}` },
+            );
+            sendBackendStatus(
+                event,
+                requestId,
+                buildAiCodingWaitingStatus({ elapsedMs: 0, retrying: false }),
+                { phase: "waiting-for-first-content", provider: assistantInfo?.provider || "" },
+            );
+
+            const child = spawn(invocation.command, attemptArgs, {
+                env: { ...process.env, ...(invocation.env || {}) },
+                stdio: ["pipe", "pipe", "pipe"],
+            });
+            updateActiveCodingRequest(requestId, {
+                cancel: () => {
+                    if (!child.killed) {
+                        child.kill();
+                    }
+                },
+            });
+
+            let fullContent = "";
+            let stderr = "";
+            let firstContentAt = null;
+            const heartbeat = setInterval(() => {
+                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                    requestId,
+                    type: "heartbeat",
+                    content: " ",
+                });
+                if (!firstContentAt) {
+                    sendBackendStatus(
+                        event,
+                        requestId,
+                        buildAiCodingWaitingStatus({ elapsedMs: Date.now() - startedAt, retrying: false }),
+                        { phase: "waiting-for-first-content", elapsedMs: Date.now() - startedAt },
+                    );
+                }
+            }, 10000);
+
+            child.stdout.on("data", (chunk) => {
+                const text = String(chunk || "");
+                if (!text) return;
+                if (!firstContentAt) {
+                    firstContentAt = Date.now();
+                    sendBackendStatus(
+                        event,
+                        requestId,
+                        buildAiCodingFirstResponseStatus(firstContentAt - startedAt),
+                        { phase: "first-content", elapsedMs: firstContentAt - startedAt },
+                    );
+                }
+                fullContent += text;
+                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                    requestId,
+                    type: "content",
+                    content: text,
+                });
+            });
+
+            child.stderr.on("data", (chunk) => {
+                stderr += String(chunk || "");
+            });
+
+            child.on("error", (error) => {
+                clearInterval(heartbeat);
+                if (!useStdin && /unknown option|unrecognized option|unknown flag/i.test(String(error?.message || ""))) {
+                    runAttempt(false);
+                    return;
+                }
+                finish(error);
+            });
+
+            child.on("close", (code) => {
+                clearInterval(heartbeat);
+                if (isActiveCodingRequestCancelled(requestId)) {
+                    finish(new AiCodingRequestCancelledError());
+                    return;
+                }
+
+                if (Number(code) === 0 && fullContent.trim()) {
+                    sendBackendStatus(
+                        event,
+                        requestId,
+                        buildAiCodingDoneStatus(Date.now() - startedAt),
+                        { phase: "done", elapsedMs: Date.now() - startedAt },
+                    );
+                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, {requestId, fullContent});
+                    finish(null, {success: true, requestId, content: fullContent});
+                    return;
+                }
+
+                const normalizedError = String(stderr || "").trim();
+                if (!useStdin && (/unknown option|unrecognized option|unknown flag/i.test(normalizedError) || Number(code) === 2)) {
+                    runAttempt(false);
+                    return;
+                }
+                if (!useStdin && attemptIndex >= promptArgVariants.length) {
+                    runAttempt(true);
+                    return;
+                }
+
+                const message = normalizedError || `Gemini CLI exited with code ${code}`;
+                finish(new Error(message));
+            });
+
+            if (useStdin) {
+                child.stdin.write(prompt);
+                child.stdin.end("\n");
+            } else {
+                child.stdin.end();
+            }
+        };
+
+        runAttempt(false);
+    }).catch((error) => {
+        if (error instanceof AiCodingRequestCancelledError || isActiveCodingRequestCancelled(requestId)) {
+            event.sender.send(AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
+                requestId,
+                message: "AI request stopped by user.",
+            });
+            return { success: false, requestId, cancelled: true, error: "AI request stopped by user." };
+        }
+        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+            requestId,
+            error: error?.message || "Gemini CLI request failed.",
+        });
+        throw error;
+    });
+}
+
 async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null } = {}) {
     registerActiveCodingRequest(requestId);
+    let waitingHeartbeat = null;
     try {
         const scopedPrompt = `${PLUGIN_WORKSPACE_ONLY_PROMPT}\n\n${prompt}`;
         if (assistantInfo.provider === "codex-cli") {
@@ -660,11 +842,16 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             }
             return await runCodexCliStream(event, requestId, assistantInfo, scopedPrompt);
         }
+        if (assistantInfo.provider === "gemini-cli") {
+            if (image) {
+                throw new Error("Gemini CLI does not support image mockups in this integration yet.");
+            }
+            return await runGeminiCliStream(event, requestId, assistantInfo, scopedPrompt);
+        }
 
         const llm = await createCodingLlm(assistantInfo, true);
         const startedAt = Date.now();
         let firstContentAt = null;
-        let waitingHeartbeat = null;
         sendBackendStatus(
             event,
             requestId,
@@ -882,7 +1069,7 @@ IMPORTANT CONSTRAINTS:
 - The iframe host may preload UI-only libraries such as goober, ace, highlight.js, notyf, FontAwesome, and Split Grid
 - Those injected UI libraries are available only inside the iframe UI runtime, not in plugin backend/bootstrap/error-fallback paths unless the current workspace explicitly proves otherwise
 - Plugins have access to these global functions in the plugin host environment:
-  * window.createBackendReq(type, data) - for IPC communication with main app
+  * window.createBackendReq(type, data) - low-level IPC bridge available in the host, but deprecated as the default privileged-action authoring path when requestPrivilegedActionFromEnvelope(...) or other SDK helpers fit
   * window.executeInjectedScript(scriptContent) - to execute dynamic scripts
   * window.waitForElement(selector, callback, timeout) - to wait for DOM elements
   * window.addGlobalEventListener(eventType, callback) - to add event listeners
@@ -1204,7 +1391,7 @@ async function handleRouteJudge(_event, data = {}) {
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        if (!assistantInfo?.provider || assistantInfo.provider === "codex-cli") {
+        if (!assistantInfo?.provider || assistantInfo.provider === "codex-cli" || assistantInfo.provider === "gemini-cli") {
             return {
                 success: true,
                 judge: {

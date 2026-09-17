@@ -153,7 +153,7 @@ export function classifyPrivilegedActionIssue(payload = {}) {
         return {
             title: "Invalid Privileged Request",
             summary: "The plugin sent a malformed privileged-action request envelope.",
-            remediation: "Fix plugin request shape before retrying. For envelope handlers, pass the validated request object (for example, envelope.request) to the host privileged-action bridge.",
+            remediation: "Fix plugin request shape before retrying. Prefer requestPrivilegedActionFromEnvelope(...) for envelope-compatible flows, or pass the extracted validated request object directly to the host privileged-action bridge.",
             intent: "warning",
             showCapabilitiesButton: false,
         };

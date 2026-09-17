@@ -64,6 +64,10 @@ global.window.electron = {
     confirmEditorReloadApproved: jest.fn(),
     getModuleFiles: jest.fn().mockResolvedValue({ files: [] }),
     getFdoSdkTypes: jest.fn().mockResolvedValue({ files: [] }),
+    getFdoSdkEditorSupport: jest.fn().mockResolvedValue({ success: true, bundle: null }),
+    getFdoSdkEditorMonacoPolicy: jest.fn().mockResolvedValue({ success: true, policy: null }),
+    getFdoSdkRenderOnLoadTemplates: jest.fn().mockResolvedValue({ success: true, templates: [] }),
+    getFdoSdkRenderOnLoadTemplate: jest.fn().mockResolvedValue({ success: true, template: null }),
   },
   plugin: {
     compile: jest.fn().mockResolvedValue({ result: 'ok' }),

@@ -134,8 +134,8 @@ function isPrivilegedFailureCode(code = "") {
     if (normalized === "CONFIRMATION_DENIED") return true;
     if (normalized.startsWith("SCOPE_")) return true;
     if (normalized === "STEP_SCOPE_VIOLATION") return true;
-    if (normalized.endsWith("_POLICY_DENIED")) return true;
-    return false;
+    return normalized.endsWith("_POLICY_DENIED");
+
 }
 
 function shouldSurfacePluginBackendFailure(code = "") {
@@ -143,6 +143,19 @@ function shouldSurfacePluginBackendFailure(code = "") {
     return normalized === "PLUGIN_BACKEND_EMPTY_RESPONSE"
         || normalized === "PLUGIN_BACKEND_HANDLER_NOT_REGISTERED"
         || normalized === "PLUGIN_BACKEND_TIMEOUT";
+}
+
+function getHandshakeCompatibilityMessage(compatibility = null) {
+    if (!compatibility || compatibility.status !== "incompatible") {
+        return "";
+    }
+    const findings = Array.isArray(compatibility.findings) ? compatibility.findings : [];
+    const apiMismatchFinding = findings.find((finding) => String(finding?.code || "").trim() === "HANDSHAKE_API_INCOMPATIBLE");
+    return String(
+        apiMismatchFinding?.message
+        || compatibility.summary
+        || "Plugin SDK handshake is incompatible with the current host."
+    ).trim();
 }
 
 export const PluginContainer = ({
@@ -390,6 +403,13 @@ export const PluginContainer = ({
                     reportCapabilityDeniedFromAudit(status.lastPrivilegedAudit);
                 }
 
+                const handshakeCompatibilityMessage = getHandshakeCompatibilityMessage(status?.handshakeCompatibility);
+                if (handshakeCompatibilityMessage) {
+                    setHostError(handshakeCompatibilityMessage);
+                    setDebugStage("plugin-handshake-incompatible");
+                    return;
+                }
+
                 if (status?.inited) {
                     setPluginCanRender(true);
                     setDebugStage("plugin-inited");
@@ -401,6 +421,15 @@ export const PluginContainer = ({
                     setDebugStage("requesting-plugin-init");
                     const initResult = await window.electron.plugin.init(plugin);
                     if (initResult?.success === false) {
+                        if (String(initResult?.code || "").trim() === "HANDSHAKE_API_INCOMPATIBLE") {
+                            setHostError(String(
+                                initResult?.error
+                                || initResult?.details?.handshakeCompatibility?.summary
+                                || "Plugin SDK handshake is incompatible with the current host."
+                            ));
+                            setDebugStage("plugin-handshake-incompatible");
+                            return;
+                        }
                         reportCapabilityDeniedFromText(String(initResult?.error || ""), String(initResult?.code || ""));
                         requestedInitRef.current = false;
                     }

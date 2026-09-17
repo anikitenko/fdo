@@ -76,6 +76,10 @@ module.exports = {
                     from: path.resolve(__dirname, "src/workers/codexAuthWorker.js"),
                     to: "workers/codexAuthWorker.js",
                 },
+                {
+                    from: path.resolve(__dirname, "src/workers/geminiAuthWorker.js"),
+                    to: "workers/geminiAuthWorker.js",
+                },
             ],
         }),
         new webpack.IgnorePlugin({

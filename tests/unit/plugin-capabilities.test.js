@@ -14,12 +14,16 @@ describe("plugin capability registry", () => {
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.network.tcp")).toBe(true);
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.network.udp")).toBe(true);
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.network.dns")).toBe(true);
+        expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.ai")).toBe(true);
+        expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.ai.assistants.list")).toBe(true);
+        expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.ai.request")).toBe(true);
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.process.exec")).toBe(true);
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.clipboard.read")).toBe(true);
         expect(KNOWN_PLUGIN_CAPABILITIES.includes("system.clipboard.write")).toBe(true);
         expect(normalizeCapabilityList(["storage.json", "storage.json", "unknown"])).toEqual(["storage.json"]);
         expect(normalizeCapabilityList(["system.network", "system.network.https", "system.network.http"])).toEqual(["system.network", "system.network.https", "system.network.http"]);
         expect(normalizeCapabilityList(["system.network.scope.public-web-secure"])).toEqual(["system.network.scope.public-web-secure"]);
+        expect(normalizeCapabilityList(["system.ai", "system.ai.request"])).toEqual(["system.ai", "system.ai.request"]);
         expect(normalizeCapabilityList(["system.fs.scope.etc-hosts"])).toEqual(["system.fs.scope.etc-hosts"]);
         expect(normalizeCapabilityList(["system.process.scope.docker-cli"])).toEqual(["system.process.scope.docker-cli"]);
         expect(normalizeCapabilityList(["system.clipboard.read", "system.clipboard.write"])).toEqual(["system.clipboard.read", "system.clipboard.write"]);

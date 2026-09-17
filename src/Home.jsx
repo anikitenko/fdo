@@ -14,6 +14,7 @@ import {
     NavbarDivider,
     NavbarGroup,
     Popover,
+    Switch,
     Tag,
 } from "@blueprintjs/core";
 import * as styles from './Home.module.scss'
@@ -33,6 +34,14 @@ import {getPluginTrustTier} from "./utils/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "./utils/pluginCapabilityDeclaration";
 import {resolveBlueprintIcon, sanitizeBlueprintIcon} from "./utils/blueprintIcons";
 import {toCanonicalCapabilityId} from "./utils/pluginCapabilities";
+import {
+    formatDiagnosticExactFixForCode,
+    getDiagnosticFixTemplateForCode,
+} from "./utils/diagnosticFixTemplates";
+import {
+    createPluginDoctorPresentation,
+    DEFAULT_PLUGIN_DOCTOR_OPTIONS,
+} from "./utils/pluginDoctor";
 
 // Lazy load settings dialog (only needed when opened)
 const SettingsDialog = lazy(() => import("./components/settings/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
@@ -130,6 +139,79 @@ function shouldShowPluginStatusIndicator(summary = null, hasCapabilityIntent = f
         return false;
     }
     return summary.status === "missing" || summary.status === "extra-grants" || summary.status === "undeclared";
+}
+
+function DiagnosticFixTemplateBlock({
+    code = "",
+    template = null,
+    exactFix = "",
+    onCopyExactFix = null,
+}) {
+    if (!template) {
+        return null;
+    }
+    const normalizedCode = String(code || "").trim();
+    const normalizedExactFix = String(exactFix || "").trim();
+    const steps = Array.isArray(template.steps) ? template.steps : [];
+    const docsLinks = Array.isArray(template.docsLinks) ? template.docsLinks : [];
+
+    return (
+        <Card style={{border: "1px solid #eef0f2", background: "#ffffff", marginTop: "10px"}}>
+            <div className="bp6-text-small" style={{fontWeight: 600}}>
+                {template.title || "Recommended fix"}
+                {normalizedCode ? <> (<code>{normalizedCode}</code>)</> : null}
+            </div>
+            {template.summary ? (
+                <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                    {template.summary}
+                </div>
+            ) : null}
+            {normalizedExactFix ? (
+                <div style={{marginTop: "8px"}}>
+                    <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: "6px"}}>Exact fix</div>
+                    <pre className="bp6-code-block" style={{whiteSpace: "pre-wrap", marginBottom: "8px"}}>
+                        {normalizedExactFix}
+                    </pre>
+                    <Button
+                        size={"small"}
+                        variant={"minimal"}
+                        icon="duplicate"
+                        onClick={onCopyExactFix}
+                    >
+                        Copy exact fix
+                    </Button>
+                </div>
+            ) : null}
+            {steps.length > 0 ? (
+                <div style={{marginTop: "10px"}}>
+                    <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: "4px"}}>Steps</div>
+                    <ol className="bp6-text-small bp6-text-muted" style={{margin: 0, paddingLeft: "18px"}}>
+                        {steps.map((step, index) => (
+                            <li key={`${normalizedCode || "fix"}-step-${index}`}>{step}</li>
+                        ))}
+                    </ol>
+                </div>
+            ) : null}
+            {docsLinks.length > 0 ? (
+                <div style={{marginTop: "10px"}}>
+                    <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: "4px"}}>Docs</div>
+                    <div style={{display: "flex", flexDirection: "column", gap: "4px"}}>
+                        {docsLinks.map((entry, index) => (
+                            <a
+                                key={`${normalizedCode || "fix"}-docs-${index}`}
+                                className="bp6-text-small"
+                                href={entry.url}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                {entry.title || entry.url}
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
+        </Card>
+    );
 }
 
 function classifyValidationScenario(event = {}) {
@@ -517,6 +599,8 @@ export const Home = () => {
         loading: false,
         error: "",
         events: [],
+        diagnostics: null,
+        doctorOptions: DEFAULT_PLUGIN_DOCTOR_OPTIONS,
     });
 
     const buttonMenuRef = useRef(null)
@@ -569,6 +653,10 @@ export const Home = () => {
         details: capabilityDeniedNotice.details,
         extraDetails: capabilityDeniedNotice.extraDetails,
     });
+    const capabilityDeniedFixTemplate = getDiagnosticFixTemplateForCode(capabilityDeniedNotice.code, {
+        context: "capability-denied-dialog",
+    });
+    const capabilityDeniedExactFix = formatDiagnosticExactFixForCode(capabilityDeniedNotice.code, capabilityDeniedFixTemplate);
     const missingProcessScopeIds = collectMissingProcessScopeIds(capabilityDeniedNotice);
     const normalizedMissingCapabilities = [...new Set(
         (Array.isArray(capabilityDeniedNotice.missingCapabilities) ? capabilityDeniedNotice.missingCapabilities : [])
@@ -669,6 +757,95 @@ export const Home = () => {
         ? (pluginRuntimeStatuses.get(runtimeValidationDialog.pluginId) || null)
         : null;
     const runtimeValidationSummary = runtimeValidationStatus?.diagnosticsSummary || null;
+    const pluginDoctorPresentation = createPluginDoctorPresentation(
+        runtimeValidationDialog.diagnostics,
+        runtimeValidationDialog.doctorOptions,
+    );
+    const pluginDoctorReport = pluginDoctorPresentation.report;
+    const pluginDoctorPanelModel = pluginDoctorPresentation.panelModel;
+    const pluginHandshakeCompatibility = pluginDoctorPresentation.handshakeCompatibility || null;
+    const pluginHandshake = pluginHandshakeCompatibility?.handshake || null;
+    const pluginDoctorStatusIntent = !pluginDoctorPanelModel
+        ? "warning"
+        : pluginDoctorPanelModel.status === "healthy"
+            ? "success"
+            : pluginDoctorPanelModel.status === "needs-attention"
+                ? "warning"
+                : "danger";
+    const pluginDoctorStatusLabel = !pluginDoctorPanelModel
+        ? "Legacy diagnostics"
+        : pluginDoctorPanelModel.status === "needs-attention"
+            ? "Needs attention"
+            : pluginDoctorPanelModel.status === "degraded"
+                ? "Degraded"
+                : "Healthy";
+    const pluginHandshakeStatusIntent = pluginHandshakeCompatibility?.status === "compatible"
+        ? "success"
+        : pluginHandshakeCompatibility?.status === "incompatible"
+            ? "danger"
+            : "warning";
+    const pluginHandshakeStatusLabel = pluginHandshakeCompatibility?.status === "compatible"
+        ? "Compatible"
+        : pluginHandshakeCompatibility?.status === "incompatible"
+            ? "Incompatible"
+            : "Needs attention";
+    const pluginHandshakeFindings = Array.isArray(pluginHandshakeCompatibility?.findings)
+        ? pluginHandshakeCompatibility.findings
+        : [];
+    const pluginHandshakeFixTemplatesByCode = pluginHandshakeFindings.reduce((acc, finding) => {
+        const code = String(finding?.code || "").trim();
+        if (!code || acc[code]) {
+            return acc;
+        }
+        const template = getDiagnosticFixTemplateForCode(code, {
+            context: "plugin-doctor-handshake",
+        });
+        if (template) {
+            acc[code] = {
+                template,
+                exactFix: formatDiagnosticExactFixForCode(code, template),
+            };
+        }
+        return acc;
+    }, {});
+    const pluginDoctorFixTemplatesByCode = (pluginDoctorPanelModel?.prioritizedFindings || []).reduce((acc, finding) => {
+        const code = String(finding?.code || "").trim();
+        if (!code || acc[code]) {
+            return acc;
+        }
+        const template = getDiagnosticFixTemplateForCode(code, {
+            context: "plugin-doctor-findings",
+        });
+        if (template) {
+            acc[code] = {
+                template,
+                exactFix: formatDiagnosticExactFixForCode(code, template),
+            };
+        }
+        return acc;
+    }, {});
+    const pluginDoctorSectionFixTemplatesByCode = (pluginDoctorPanelModel?.sections || []).reduce((acc, section) => {
+        const sectionFindings = Array.isArray(section?.findings) ? section.findings : [];
+        sectionFindings.forEach((finding) => {
+            const code = String(finding?.code || "").trim();
+            if (!code || acc[code]) {
+                return;
+            }
+            const template = getDiagnosticFixTemplateForCode(code, {
+                context: "plugin-doctor-findings",
+            });
+            if (template) {
+                acc[code] = {
+                    template,
+                    exactFix: formatDiagnosticExactFixForCode(code, template),
+                };
+            }
+        });
+        return acc;
+    }, {});
+    const pluginHandshakeFeatureFlags = pluginHandshake && typeof pluginHandshake.featureFlags === "object"
+        ? Object.entries(pluginHandshake.featureFlags)
+        : [];
     const getPluginDisplayName = useCallback((pluginId = "") => {
         const resolvedId = String(pluginId || "").trim();
         if (!resolvedId) {
@@ -713,7 +890,11 @@ export const Home = () => {
 
     const openRuntimeValidationDialog = useCallback(async (pluginId) => {
         const targetPluginId = String(pluginId || "").trim();
-        if (!targetPluginId || typeof window?.electron?.plugin?.getPrivilegedAudit !== "function") {
+        if (
+            !targetPluginId
+            || typeof window?.electron?.plugin?.getPrivilegedAudit !== "function"
+            || typeof window?.electron?.plugin?.uiMessage !== "function"
+        ) {
             return;
         }
         setRuntimeValidationDialog({
@@ -722,15 +903,29 @@ export const Home = () => {
             loading: true,
             error: "",
             events: [],
+            diagnostics: null,
+            doctorOptions: DEFAULT_PLUGIN_DOCTOR_OPTIONS,
         });
         try {
-            const result = await window.electron.plugin.getPrivilegedAudit(targetPluginId, {limit: 80});
+            const [auditResult, diagnosticsResult] = await Promise.all([
+                window.electron.plugin.getPrivilegedAudit(targetPluginId, {limit: 80}),
+                window.electron.plugin.uiMessage(targetPluginId, {
+                    handler: "__sdk.getDiagnostics",
+                    content: {
+                        notificationsLimit: 5,
+                    },
+                }),
+            ]);
             setRuntimeValidationDialog({
                 open: true,
                 pluginId: targetPluginId,
                 loading: false,
-                error: result?.success ? "" : (result?.error || "Could not load runtime validation evidence."),
-                events: Array.isArray(result?.events) ? result.events : [],
+                error: (auditResult?.success || diagnosticsResult)
+                    ? ""
+                    : (auditResult?.error || "Could not load Plugin Doctor diagnostics."),
+                events: Array.isArray(auditResult?.events) ? auditResult.events : [],
+                diagnostics: diagnosticsResult && typeof diagnosticsResult === "object" ? diagnosticsResult : null,
+                doctorOptions: DEFAULT_PLUGIN_DOCTOR_OPTIONS,
             });
         } catch (error) {
             setRuntimeValidationDialog({
@@ -739,8 +934,20 @@ export const Home = () => {
                 loading: false,
                 error: error?.message || String(error),
                 events: [],
+                diagnostics: null,
+                doctorOptions: DEFAULT_PLUGIN_DOCTOR_OPTIONS,
             });
         }
+    }, []);
+
+    const togglePluginDoctorOption = useCallback((optionKey) => {
+        setRuntimeValidationDialog((prev) => ({
+            ...prev,
+            doctorOptions: {
+                ...prev.doctorOptions,
+                [optionKey]: !prev.doctorOptions?.[optionKey],
+            },
+        }));
     }, []);
 
     useEffect(() => {
@@ -2008,6 +2215,29 @@ export const Home = () => {
         }
     };
 
+    const copyDiagnosticTextToClipboard = async ({
+        text = "",
+        successMessage = "Copied to clipboard.",
+        failureMessage = "Unable to copy to clipboard.",
+    } = {}) => {
+        const normalizedText = String(text || "").trim();
+        if (!normalizedText) {
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(normalizedText);
+            (await AppToaster).show({
+                message: successMessage,
+                intent: "success",
+            });
+        } catch (_) {
+            (await AppToaster).show({
+                message: failureMessage,
+                intent: "warning",
+            });
+        }
+    };
+
     const handleGrantMissingCapabilitiesFromDenied = async () => {
         const pluginId = String(capabilityDeniedNotice.pluginId || "").trim();
         if (!pluginId) {
@@ -2248,7 +2478,7 @@ export const Home = () => {
             onClick: () => openPrivilegedAuditDialog(capabilityDeniedNotice.pluginId),
         }, {
             key: "open-validation",
-            text: "Open Validation",
+            text: "Open Plugin Doctor",
             onClick: () => openRuntimeValidationDialog(capabilityDeniedNotice.pluginId),
         }] : []),
     ];
@@ -2276,7 +2506,7 @@ export const Home = () => {
             ...pluginItem,
             intent: sidebarIntent,
             tooltip: runtimeNeedsReview
-                ? "Runtime issues detected. Open Runtime Validation."
+                ? "Runtime issues detected. Open Plugin Doctor."
                 : (capabilityNeedsAttention
                     ? "Capability intent differs from current grants. Review in Capabilities."
                     : pluginItem.name),
@@ -2284,7 +2514,7 @@ export const Home = () => {
                 {
                     id: "plugin-validate",
                     icon: "endorsed",
-                    name: "Runtime Validation",
+                    name: "Plugin Doctor",
                     labelElement: runtimeNeedsReview ? <Tag minimal intent="warning">Needs review</Tag> : null,
                 },
                 {
@@ -2525,6 +2755,16 @@ export const Home = () => {
                             </div>
                         </Card>
                     ) : null}
+                    <DiagnosticFixTemplateBlock
+                        code={capabilityDeniedNotice.code}
+                        template={capabilityDeniedFixTemplate}
+                        exactFix={capabilityDeniedExactFix}
+                        onCopyExactFix={() => copyDiagnosticTextToClipboard({
+                            text: capabilityDeniedExactFix,
+                            successMessage: "Exact fix copied to clipboard.",
+                            failureMessage: "Unable to copy exact fix to clipboard.",
+                        })}
+                    />
                     <div className="bp6-text-small bp6-text-muted">
                         {capabilityDeniedNotice.details}
                     </div>
@@ -2636,6 +2876,19 @@ export const Home = () => {
                 <div className="bp6-dialog-footer">
                     <div className="bp6-dialog-footer-actions">
                         <Button minimal onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
+                        {capabilityDeniedExactFix ? (
+                            <Button
+                                minimal
+                                icon="duplicate"
+                                onClick={() => copyDiagnosticTextToClipboard({
+                                    text: capabilityDeniedExactFix,
+                                    successMessage: "Exact fix copied to clipboard.",
+                                    failureMessage: "Unable to copy exact fix to clipboard.",
+                                })}
+                            >
+                                Copy Exact Fix
+                            </Button>
+                        ) : null}
                         {capabilityDeniedMoreActions.length > 0 ? (
                             <Popover
                                 content={(
@@ -2672,71 +2925,366 @@ export const Home = () => {
             <Dialog
                 isOpen={runtimeValidationDialog.open}
                 onClose={() => setRuntimeValidationDialog((prev) => ({...prev, open: false}))}
-                title={`Runtime Validation${runtimeValidationDialog.pluginId ? `: ${runtimeValidationDialog.pluginId}` : ""}`}
+                title={`Plugin Doctor${runtimeValidationDialog.pluginId ? `: ${runtimeValidationDialog.pluginId}` : ""}`}
                 canEscapeKeyClose={true}
                 canOutsideClickClose={true}
             >
                 <div className="bp6-dialog-body">
                     {runtimeValidationDialog.loading ? (
-                        <p className="bp6-text-muted">Loading runtime validation evidence...</p>
+                        <p className="bp6-text-muted">Loading Plugin Doctor diagnostics...</p>
                     ) : null}
                     {!runtimeValidationDialog.loading && runtimeValidationDialog.error ? (
                         <p className="bp6-text-muted">{runtimeValidationDialog.error}</p>
                     ) : null}
                     {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
-                        <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
-                            Events: <code>{String(runtimeValidationSummary?.totalEvents || 0)}</code>
-                            {" | "}
-                            Failures: <code>{String(runtimeValidationSummary?.failureCount || 0)}</code>
-                            {" | "}
-                            Last failure code: <code>{runtimeValidationSummary?.latestFailureCode || "none"}</code>
-                        </div>
-                    ) : null}
-                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
-                        <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
-                            This view summarizes runtime execution, policy, and approval outcomes from privileged audit events. Failures here are not automatically capability-denial issues.
-                        </p>
-                    ) : null}
-                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error ? (
-                        <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
-                            Note: runtime validation history may reset when plugin runtime restarts (for example after reload, redeploy, or capability updates).
-                        </p>
-                    ) : null}
-                    {!runtimeValidationDialog.loading && !runtimeValidationDialog.error && runtimeValidationScenarios.length === 0 ? (
-                        <p className="bp6-text-muted">
-                            No privileged runtime evidence recorded yet. Trigger a privileged action (process/workflow/clipboard) and reopen this view.
-                        </p>
-                    ) : null}
-                    {!runtimeValidationDialog.loading && runtimeValidationScenarios.length > 0 ? (
-                        <div style={{display: "flex", flexDirection: "column", gap: "12px"}}>
-                            {runtimeValidationScenarios.map((scenario) => (
-                                <div key={scenario.label} style={{border: "1px solid #eef0f2", borderRadius: "6px", padding: "10px", background: "#fafbfc"}}>
-                                    <div className="bp6-text-small">
-                                        <strong>{scenario.label}</strong> | occurrences: <code>{String(scenario.count)}</code>
-                                    </div>
+                        <>
+                            <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "10px"}}>
+                                <div>
+                                    <div className="bp6-heading" style={{fontSize: "0.95rem"}}>Plugin Doctor</div>
                                     <div className="bp6-text-small bp6-text-muted">
-                                        Latest action: <code>{scenario.latest.action || "unknown"}</code>
-                                        {scenario.latest.timestamp ? <> | Last seen: <code>{scenario.latest.timestamp}</code></> : null}
-                                        {typeof scenario.latest.success === "boolean" ? <> | Latest outcome: <code>{scenario.latest.success ? "success" : "failure"}</code></> : null}
+                                        Raw diagnostics still come from <code>__sdk.getDiagnostics</code>. Plugin Doctor is the normalized presentation model on top of that transport.
                                     </div>
-                                    {scenario.scopes.length > 0 ? (
-                                        <div className="bp6-text-small bp6-text-muted">
-                                            Scopes: <code>{scenario.scopes.join(", ")}</code>
-                                        </div>
-                                    ) : null}
-                                    {scenario.workflows.length > 0 ? (
-                                        <div className="bp6-text-small bp6-text-muted">
-                                            Workflows: <code>{scenario.workflows.join(", ")}</code>
-                                        </div>
-                                    ) : null}
-                                    {scenario.codes.length > 0 ? (
-                                        <div className="bp6-text-small bp6-text-muted">
-                                            Error codes: <code>{scenario.codes.join(", ")}</code>
-                                        </div>
-                                    ) : null}
                                 </div>
-                            ))}
-                        </div>
+                                <div style={{display: "flex", gap: "8px", flexWrap: "wrap"}}>
+                                    <Tag intent={pluginHandshakeStatusIntent} large>
+                                        Handshake: {pluginHandshakeStatusLabel}
+                                    </Tag>
+                                    <Tag intent={pluginDoctorStatusIntent} large>
+                                        {pluginDoctorStatusLabel}
+                                    </Tag>
+                                </div>
+                            </div>
+                            <Card style={{border: "1px solid #eef0f2", background: "#fafbfc", marginBottom: "16px"}}>
+                                <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: "6px"}}>
+                                    SDK handshake compatibility
+                                </div>
+                                <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                                    {pluginHandshakeCompatibility?.summary || "No handshake diagnostics available."}
+                                </div>
+                                {pluginHandshake ? (
+                                    <>
+                                        <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "8px"}}>
+                                            SDK version: <code>{pluginHandshake.sdkVersion || "unknown"}</code>
+                                            {" | "}
+                                            API version: <code>{pluginHandshake.apiVersion || "unknown"}</code>
+                                            {" | "}
+                                            Capability schema: <code>{pluginHandshake.capabilitySchemaVersion || "unknown"}</code>
+                                        </div>
+                                        <div className="bp6-text-small bp6-text-muted" style={{marginBottom: pluginHandshakeFeatureFlags.length > 0 ? "8px" : 0}}>
+                                            Contract version: <code>{pluginHandshake.contractVersion || "unknown"}</code>
+                                        </div>
+                                        {pluginHandshakeFeatureFlags.length > 0 ? (
+                                            <div style={{display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px"}}>
+                                                {pluginHandshakeFeatureFlags.map(([flag, enabled]) => (
+                                                    <Tag key={flag} minimal intent={enabled ? "success" : "warning"}>
+                                                        {flag}: {enabled ? "enabled" : "missing"}
+                                                    </Tag>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "8px"}}>
+                                                Feature flags: <code>none reported</code>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "8px"}}>
+                                        Legacy SDK detected. This runtime did not report a handshake contract, so the host is running in degraded compatibility mode.
+                                    </div>
+                                )}
+                                {pluginHandshakeFindings.length > 0 ? (
+                                    <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
+                                        {pluginHandshakeFindings.map((finding) => (
+                                            <div
+                                                key={`${finding.code}-${finding.message}`}
+                                                style={{
+                                                    border: "1px solid #eef0f2",
+                                                    borderRadius: "6px",
+                                                    padding: "10px",
+                                                    background: "#ffffff",
+                                                }}
+                                            >
+                                                <div className="bp6-text-small">
+                                                    <strong>{finding.message}</strong>
+                                                </div>
+                                                {finding.remediation ? (
+                                                    <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                                                        Fix: {finding.remediation}
+                                                    </div>
+                                                ) : null}
+                                                {finding.details && Object.keys(finding.details).length > 0 ? (
+                                                    <details style={{marginTop: "8px"}}>
+                                                        <summary className="bp6-text-small bp6-text-muted">Details</summary>
+                                                        <pre className="bp6-code-block" style={{marginTop: "8px", whiteSpace: "pre-wrap"}}>
+                                                            {JSON.stringify(finding.details, null, 2)}
+                                                        </pre>
+                                                    </details>
+                                                ) : null}
+                                                {(() => {
+                                                    const fixEntry = pluginHandshakeFixTemplatesByCode[String(finding?.code || "").trim()] || null;
+                                                    if (!fixEntry) {
+                                                        return null;
+                                                    }
+                                                    return (
+                                                        <DiagnosticFixTemplateBlock
+                                                            code={finding.code}
+                                                            template={fixEntry.template}
+                                                            exactFix={fixEntry.exactFix}
+                                                            onCopyExactFix={() => copyDiagnosticTextToClipboard({
+                                                                text: fixEntry.exactFix,
+                                                                successMessage: "Exact fix copied to clipboard.",
+                                                                failureMessage: "Unable to copy exact fix to clipboard.",
+                                                            })}
+                                                        />
+                                                    );
+                                                })()}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
+                            </Card>
+                            {pluginDoctorPresentation.mode === "doctor" && pluginDoctorPanelModel ? (
+                                <>
+                                    <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                                        {pluginDoctorPanelModel.summary}
+                                    </div>
+                                    {pluginDoctorPanelModel.blocking === true ? (
+                                        <Card style={{border: "1px solid #f6d3d3", background: "#fff5f5", marginBottom: "12px"}}>
+                                            <div className="bp6-text-small" style={{fontWeight: 600, color: "#a82a2a"}}>
+                                                Blocking Plugin Doctor findings detected
+                                            </div>
+                                            <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                                                Host is running degraded compatibility behavior until blocking findings are remediated.
+                                            </div>
+                                        </Card>
+                                    ) : null}
+                                    <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px"}}>
+                                        <Tag minimal intent="danger">Errors: {String(pluginDoctorPanelModel.counts?.error || 0)}</Tag>
+                                        <Tag minimal intent="warning">Warnings: {String(pluginDoctorPanelModel.counts?.warning || 0)}</Tag>
+                                        <Tag minimal intent="primary">Info: {String(pluginDoctorPanelModel.counts?.info || 0)}</Tag>
+                                    </div>
+                                    <div style={{display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "12px"}}>
+                                        <Switch
+                                            checked={runtimeValidationDialog.doctorOptions?.includeInfo !== false}
+                                            label="Show info findings"
+                                            onChange={() => togglePluginDoctorOption("includeInfo")}
+                                        />
+                                        <Switch
+                                            checked={runtimeValidationDialog.doctorOptions?.includeNotificationFindings !== false}
+                                            label="Show notification findings"
+                                            onChange={() => togglePluginDoctorOption("includeNotificationFindings")}
+                                        />
+                                    </div>
+                                    {Array.isArray(pluginDoctorPanelModel.prioritizedFindings) && pluginDoctorPanelModel.prioritizedFindings.length > 0 ? (
+                                        <div style={{display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px"}}>
+                                            <div className="bp6-text-small" style={{fontWeight: 600}}>
+                                                Prioritized findings
+                                            </div>
+                                            {pluginDoctorPanelModel.prioritizedFindings.map((finding) => (
+                                                <Card key={`prioritized-${finding.code}-${finding.message}`} style={{border: "1px solid #eef0f2", background: "#ffffff"}}>
+                                                    <div className="bp6-text-small">
+                                                        <strong>{finding.message}</strong>
+                                                    </div>
+                                                    {finding.remediation ? (
+                                                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                                                            Fix: {finding.remediation}
+                                                        </div>
+                                                    ) : null}
+                                                    {finding.exactFix ? (
+                                                        <div style={{marginTop: "8px"}}>
+                                                            <Button
+                                                                small
+                                                                minimal
+                                                                icon="duplicate"
+                                                                onClick={() => copyDiagnosticTextToClipboard({
+                                                                    text: String(finding.exactFix || ""),
+                                                                    successMessage: "Exact fix copied to clipboard.",
+                                                                    failureMessage: "Unable to copy exact fix to clipboard.",
+                                                                })}
+                                                            >
+                                                                Copy exact fix
+                                                            </Button>
+                                                        </div>
+                                                    ) : null}
+                                                    {finding.details && Object.keys(finding.details).length > 0 ? (
+                                                        <details style={{marginTop: "8px"}}>
+                                                            <summary className="bp6-text-small bp6-text-muted">Details</summary>
+                                                            <pre className="bp6-code-block" style={{marginTop: "8px", whiteSpace: "pre-wrap"}}>
+                                                                {JSON.stringify(finding.details, null, 2)}
+                                                            </pre>
+                                                        </details>
+                                                    ) : null}
+                                                    {(() => {
+                                                        if (finding.exactFix) {
+                                                            return null;
+                                                        }
+                                                        const fixEntry = pluginDoctorFixTemplatesByCode[String(finding?.code || "").trim()] || null;
+                                                        if (!fixEntry) {
+                                                            return null;
+                                                        }
+                                                        return (
+                                                            <DiagnosticFixTemplateBlock
+                                                                code={finding.code}
+                                                                template={fixEntry.template}
+                                                                exactFix={fixEntry.exactFix}
+                                                                onCopyExactFix={() => copyDiagnosticTextToClipboard({
+                                                                    text: fixEntry.exactFix,
+                                                                    successMessage: "Exact fix copied to clipboard.",
+                                                                    failureMessage: "Unable to copy exact fix to clipboard.",
+                                                                })}
+                                                            />
+                                                        );
+                                                    })()}
+                                                </Card>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                    {Array.isArray(pluginDoctorPanelModel.sections) && pluginDoctorPanelModel.sections.length > 0 ? (
+                                        <div style={{display: "flex", flexDirection: "column", gap: "12px", marginBottom: "16px"}}>
+                                            {pluginDoctorPanelModel.sections.map((section) => {
+                                                const findings = Array.isArray(section?.findings) ? section.findings : [];
+                                                if (findings.length === 0) {
+                                                    return null;
+                                                }
+                                                return (
+                                                    <div key={String(section?.category || section?.title || "section")}>
+                                                        <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: "6px"}}>
+                                                            <Tag minimal>
+                                                                {section?.title || section?.category || "Section"}
+                                                            </Tag>
+                                                            {" "}
+                                                            {String(section?.counts?.total || findings.length)}
+                                                        </div>
+                                                        <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
+                                                            {findings.map((finding) => (
+                                                                <Card key={`${section?.category || "section"}-${finding.code}-${finding.message}`} style={{border: "1px solid #eef0f2", background: "#fafbfc"}}>
+                                                                    <div className="bp6-text-small">
+                                                                        <strong>{finding.message}</strong>
+                                                                    </div>
+                                                                    {finding.remediation ? (
+                                                                        <div className="bp6-text-small bp6-text-muted" style={{marginTop: "6px"}}>
+                                                                            Fix: {finding.remediation}
+                                                                        </div>
+                                                                    ) : null}
+                                                                    {finding.exactFix ? (
+                                                                        <div style={{marginTop: "8px"}}>
+                                                                            <Button
+                                                                                small
+                                                                                minimal
+                                                                                icon="duplicate"
+                                                                                onClick={() => copyDiagnosticTextToClipboard({
+                                                                                    text: String(finding.exactFix || ""),
+                                                                                    successMessage: "Exact fix copied to clipboard.",
+                                                                                    failureMessage: "Unable to copy exact fix to clipboard.",
+                                                                                })}
+                                                                            >
+                                                                                Copy exact fix
+                                                                            </Button>
+                                                                        </div>
+                                                                    ) : null}
+                                                                    {finding.details && Object.keys(finding.details).length > 0 ? (
+                                                                        <details style={{marginTop: "8px"}}>
+                                                                            <summary className="bp6-text-small bp6-text-muted">Details</summary>
+                                                                            <pre className="bp6-code-block" style={{marginTop: "8px", whiteSpace: "pre-wrap"}}>
+                                                                                {JSON.stringify(finding.details, null, 2)}
+                                                                            </pre>
+                                                                        </details>
+                                                                    ) : null}
+                                                                    {(() => {
+                                                                        if (finding.exactFix) {
+                                                                            return null;
+                                                                        }
+                                                                        const fixEntry = pluginDoctorSectionFixTemplatesByCode[String(finding?.code || "").trim()] || null;
+                                                                        if (!fixEntry) {
+                                                                            return null;
+                                                                        }
+                                                                        return (
+                                                                            <DiagnosticFixTemplateBlock
+                                                                                code={finding.code}
+                                                                                template={fixEntry.template}
+                                                                                exactFix={fixEntry.exactFix}
+                                                                                onCopyExactFix={() => copyDiagnosticTextToClipboard({
+                                                                                    text: fixEntry.exactFix,
+                                                                                    successMessage: "Exact fix copied to clipboard.",
+                                                                                    failureMessage: "Unable to copy exact fix to clipboard.",
+                                                                                })}
+                                                                            />
+                                                                        );
+                                                                    })()}
+                                                                </Card>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <p className="bp6-text-muted">No Plugin Doctor sections were returned for the selected options.</p>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                                        The installed SDK runtime does not expose Plugin Doctor yet. Showing legacy raw diagnostics instead.
+                                    </p>
+                                    {runtimeValidationDialog.diagnostics ? (
+                                        <pre className="bp6-code-block" style={{whiteSpace: "pre-wrap", marginBottom: "16px"}}>
+                                            {JSON.stringify(runtimeValidationDialog.diagnostics, null, 2)}
+                                        </pre>
+                                    ) : (
+                                        <p className="bp6-text-muted">No raw diagnostics returned from the plugin runtime.</p>
+                                    )}
+                                </>
+                            )}
+                            <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                                Privileged runtime evidence below comes from host audit events. Failures there are not automatically capability-denial issues.
+                            </div>
+                            <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                                Audit events: <code>{String(runtimeValidationSummary?.totalEvents || 0)}</code>
+                                {" | "}
+                                Failures: <code>{String(runtimeValidationSummary?.failureCount || 0)}</code>
+                                {" | "}
+                                Last failure code: <code>{runtimeValidationSummary?.latestFailureCode || "none"}</code>
+                            </div>
+                            <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
+                                Note: runtime validation history may reset when plugin runtime restarts (for example after reload, redeploy, or capability updates).
+                            </p>
+                            {runtimeValidationScenarios.length === 0 ? (
+                                <p className="bp6-text-muted">
+                                    No privileged runtime evidence recorded yet. Trigger a privileged action (process/workflow/clipboard) and reopen this view.
+                                </p>
+                            ) : (
+                                <div style={{display: "flex", flexDirection: "column", gap: "12px"}}>
+                                    {runtimeValidationScenarios.map((scenario) => (
+                                        <div key={scenario.label} style={{border: "1px solid #eef0f2", borderRadius: "6px", padding: "10px", background: "#fafbfc"}}>
+                                            <div className="bp6-text-small">
+                                                <strong>{scenario.label}</strong> | occurrences: <code>{String(scenario.count)}</code>
+                                            </div>
+                                            <div className="bp6-text-small bp6-text-muted">
+                                                Latest action: <code>{scenario.latest.action || "unknown"}</code>
+                                                {scenario.latest.timestamp ? <> | Last seen: <code>{scenario.latest.timestamp}</code></> : null}
+                                                {typeof scenario.latest.success === "boolean" ? <> | Latest outcome: <code>{scenario.latest.success ? "success" : "failure"}</code></> : null}
+                                            </div>
+                                            {scenario.scopes.length > 0 ? (
+                                                <div className="bp6-text-small bp6-text-muted">
+                                                    Scopes: <code>{scenario.scopes.join(", ")}</code>
+                                                </div>
+                                            ) : null}
+                                            {scenario.workflows.length > 0 ? (
+                                                <div className="bp6-text-small bp6-text-muted">
+                                                    Workflows: <code>{scenario.workflows.join(", ")}</code>
+                                                </div>
+                                            ) : null}
+                                            {scenario.codes.length > 0 ? (
+                                                <div className="bp6-text-small bp6-text-muted">
+                                                    Error codes: <code>{scenario.codes.join(", ")}</code>
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
                     ) : null}
                 </div>
                 <div className="bp6-dialog-footer">

@@ -1,10 +1,18 @@
-import {ipcMain, utilityProcess} from "electron";
+import {ipcMain, utilityProcess, BrowserWindow} from "electron";
 import {SettingsChannels} from "./channels";
 import {settings} from "../utils/store";
 import {Certs} from "../utils/certs";
 import LLM from "@themaximalist/llm.js"
 import { fetchOpenAICapabilities } from "./ai/model_capabilities/fetchers/openai_fetcher";
 import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout, verifyCodexModelAccess } from "../utils/codexCli.js";
+import {
+    fetchGeminiCliModels,
+    readGeminiAuthStatus,
+    resolveGeminiCliInvocation,
+    runGeminiLogout,
+    startGeminiLogin,
+    clearGeminiAuthProbeCache
+} from "../utils/geminiCli.js";
 import path from "node:path";
 
 const STATIC_ANTHROPIC_MODELS = [
@@ -53,7 +61,26 @@ async function fetchCodexCliModels() {
 }
 
 const activeCodexAuthProcesses = new Map();
+const activeGeminiAuthProcesses = new Map();
 const CODEX_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const GEMINI_AUTH_TIMEOUT_MS = 10 * 60 * 1000;
+
+function broadcastAIAssistantsUpdate() {
+    const chat = settings.get('ai.chat', []) || [];
+    const coding = settings.get('ai.coding', []) || [];
+    const fullList = [
+        ...chat.map(a => ({ ...a, purpose: 'chat' })),
+        ...coding.map(a => ({ ...a, purpose: 'coding' })),
+    ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+
+    // Notify all windows that assistants have been updated
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+        if (!win.isDestroyed()) {
+            win.webContents.send(SettingsChannels.ai_assistants.on_off.UPDATED, fullList);
+        }
+    }
+}
 
 function updateCodexAssistantState(assistantId, patch = {}) {
     const list = settings.get("ai.coding", []) || [];
@@ -65,11 +92,16 @@ function updateCodexAssistantState(assistantId, patch = {}) {
         updatedAt: new Date().toISOString(),
     };
     settings.set("ai.coding", list);
+    broadcastAIAssistantsUpdate();
     return list[index];
 }
 
 function getCodexAuthWorkerPath() {
     return path.join(__dirname, "workers", "codexAuthWorker.js");
+}
+
+function getGeminiAuthWorkerPath() {
+    return path.join(__dirname, "workers", "geminiAuthWorker.js");
 }
 
 function stopCodexAuthProcess(assistantId, { status = "cancelled", message = "Codex authentication was cancelled." } = {}) {
@@ -104,10 +136,49 @@ function stopCodexAuthProcess(assistantId, { status = "cancelled", message = "Co
     return true;
 }
 
-export function interruptAllCodexAuthProcesses(reason = "Codex authentication was interrupted because FDO is shutting down.") {
-    const assistantIds = Array.from(activeCodexAuthProcesses.keys());
-    for (const assistantId of assistantIds) {
+function stopGeminiAuthProcess(assistantId, { status = "cancelled", message = "Gemini authentication was cancelled." } = {}) {
+    const active = activeGeminiAuthProcesses.get(assistantId);
+    if (!active) {
+        updateCodexAssistantState(assistantId, {
+            codexAuth: {
+                status,
+                message,
+                checkedAt: new Date().toISOString(),
+            },
+        });
+        return false;
+    }
+
+    if (active.timeoutId) {
+        clearTimeout(active.timeoutId);
+    }
+    activeGeminiAuthProcesses.delete(assistantId);
+    try {
+        active.child?.kill?.();
+    } catch {
+        // ignore
+    }
+    updateCodexAssistantState(assistantId, {
+        codexAuth: {
+            status,
+            message,
+            checkedAt: new Date().toISOString(),
+        },
+    });
+    return true;
+}
+
+export function interruptAllCodexAuthProcesses(reason = "Authentication was interrupted because FDO is shutting down.") {
+    const codexAssistantIds = Array.from(activeCodexAuthProcesses.keys());
+    for (const assistantId of codexAssistantIds) {
         stopCodexAuthProcess(assistantId, {
+            status: "interrupted",
+            message: reason,
+        });
+    }
+    const geminiAssistantIds = Array.from(activeGeminiAuthProcesses.keys());
+    for (const assistantId of geminiAssistantIds) {
+        stopGeminiAuthProcess(assistantId, {
             status: "interrupted",
             message: reason,
         });
@@ -195,6 +266,145 @@ function launchCodexLoginUtilityProcess(assistant, invocation) {
     return { started: true, mode: "utilityProcess", alreadyRunning: false };
 }
 
+function launchGeminiLoginUtilityProcess(assistant, invocation) {
+    if (activeGeminiAuthProcesses.has(assistant.id)) {
+        return { started: true, mode: "utilityProcess", alreadyRunning: true };
+    }
+
+    const child = utilityProcess.fork(getGeminiAuthWorkerPath(), [
+        invocation.command,
+        JSON.stringify(invocation.args || []),
+        JSON.stringify(invocation.env || {}),
+    ], {
+        serviceName: `gemini-auth-${assistant.id}`,
+        env: {
+            ...process.env,
+            ...(invocation.env || {}),
+        },
+    });
+    
+    let isHandled = false;
+    const timeoutId = setTimeout(() => {
+        if (isHandled) return;
+        isHandled = true;
+        stopGeminiAuthProcess(assistant.id, {
+            status: "timeout",
+            message: "Gemini authentication timed out. Complete sign-in in Terminal, then click Check auth.",
+        });
+    }, GEMINI_AUTH_TIMEOUT_MS);
+    
+    activeGeminiAuthProcesses.set(assistant.id, { child, timeoutId });
+
+    const finish = async () => {
+        if (isHandled) return;
+        isHandled = true;
+        const active = activeGeminiAuthProcesses.get(assistant.id);
+        if (active?.timeoutId) clearTimeout(active.timeoutId);
+        activeGeminiAuthProcesses.delete(assistant.id);
+        
+        clearGeminiAuthProbeCache();
+        const authStatus = await readGeminiAuthStatus(invocation);
+        updateCodexAssistantState(assistant.id, {
+            codexAuth: {
+                status: authStatus.status,
+                message: authStatus.message || null,
+                checkedAt: new Date().toISOString(),
+            },
+        });
+    };
+
+    child.on("message", async (message) => {
+        if (!message) return;
+        if (message.type === "exit") {
+            await finish();
+        }
+        if (message.type === "error") {
+            if (isHandled) return;
+            isHandled = true;
+            const active = activeGeminiAuthProcesses.get(assistant.id);
+            if (active?.timeoutId) clearTimeout(active.timeoutId);
+            activeGeminiAuthProcesses.delete(assistant.id);
+            
+            updateCodexAssistantState(assistant.id, {
+                codexAuth: {
+                    status: "error",
+                    message: message.error,
+                    checkedAt: new Date().toISOString(),
+                },
+            });
+        }
+    });
+
+    child.on("exit", async () => {
+        await finish();
+    });
+
+    child.on("error", async (error) => {
+        if (isHandled) return;
+        isHandled = true;
+        const active = activeGeminiAuthProcesses.get(assistant.id);
+        if (active?.timeoutId) clearTimeout(active.timeoutId);
+        activeGeminiAuthProcesses.delete(assistant.id);
+        
+        updateCodexAssistantState(assistant.id, {
+            codexAuth: {
+                status: "error",
+                message: error.message,
+                checkedAt: new Date().toISOString(),
+            },
+        });
+    });
+
+    return { started: true, mode: "utilityProcess", alreadyRunning: false };
+}
+
+function monitorGeminiTerminalSession(assistant, invocation, loginLaunchResult) {
+    const monitorChild = loginLaunchResult?.monitorChild;
+    if (!monitorChild || typeof monitorChild.once !== "function") return;
+
+    const syncAfterTerminalClose = async () => {
+        if (!activeGeminiAuthProcesses.has(assistant.id)) return;
+        clearGeminiAuthProbeCache();
+        let authStatus;
+        try {
+            authStatus = await readGeminiAuthStatus(invocation);
+        } catch (error) {
+            authStatus = {
+                status: "error",
+                message: String(error?.message || "Unable to verify Gemini authentication after terminal closed."),
+            };
+        }
+
+        if (authStatus.status === "authorized") {
+            stopGeminiAuthProcess(assistant.id, {
+                status: "authorized",
+                message: authStatus.message || "Gemini authentication is active.",
+            });
+            return;
+        }
+
+        if (authStatus.status === "error") {
+            stopGeminiAuthProcess(assistant.id, {
+                status: "error",
+                message: authStatus.message || "Unable to verify Gemini authentication after terminal closed.",
+            });
+            return;
+        }
+
+        stopGeminiAuthProcess(assistant.id, {
+            status: "unauthorized",
+            message: "Gemini sign-in terminal was closed before authentication completed.",
+        });
+    };
+
+    monitorChild.once("exit", () => {
+        syncAfterTerminalClose().catch(() => {});
+    });
+    monitorChild.once("error", () => {
+        syncAfterTerminalClose().catch(() => {});
+    });
+}
+
 export function registerSettingsHandlers() {
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
         return settings.get('certificates.root') || [];
@@ -261,6 +471,9 @@ export function registerSettingsHandlers() {
         if (provider === "codex-cli") {
             return await fetchCodexCliModels();
         }
+        if (provider === "gemini-cli") {
+            return await fetchGeminiCliModels();
+        }
 
         if (!apiKey || !String(apiKey).trim()) {
             return [];
@@ -323,6 +536,32 @@ export function registerSettingsHandlers() {
             }
             data.apiKey = "";
             data.model = data.model || "gpt-5-codex";
+        } else if (data.provider === "gemini-cli") {
+            if (data.purpose !== "coding") {
+                throw new Error("Gemini CLI is supported only for Coding Assistant purpose.");
+            }
+            try {
+                const invocation = await resolveGeminiCliInvocation({
+                    configuredPath: data.executablePath,
+                    preferBundled: true,
+                });
+                data.executablePath = invocation.entrypoint || invocation.command;
+                data.geminiRuntime = {
+                    source: invocation.source,
+                    version: invocation.version || "",
+                    bundled: !!invocation.bundled,
+                };
+                const authStatus = await readGeminiAuthStatus(invocation);
+                data.codexAuth = {
+                    status: authStatus.status,
+                    message: authStatus.message || null,
+                    checkedAt: new Date().toISOString(),
+                };
+            } catch (error) {
+                throw new Error(`Gemini CLI verification failed. ${error?.message || error}`);
+            }
+            data.apiKey = "";
+            data.model = data.model || "gemini-2.5-pro";
         } else {
             const llm = new LLM({
                 service: data.provider,
@@ -358,6 +597,16 @@ export function registerSettingsHandlers() {
                         message: "Codex authentication was reset because the executable or runtime changed.",
                     });
                 }
+            } else if (previous?.provider === "gemini-cli" && data.provider === "gemini-cli") {
+                const executableChanged = String(previous.executablePath || "") !== String(cleanData.executablePath || "");
+                const runtimeChanged = String(previous.geminiRuntime?.version || "") !== String(cleanData.geminiRuntime?.version || "");
+                if (executableChanged || runtimeChanged) {
+                    cleanData.codexAuth = {
+                        status: "unauthorized",
+                        message: "Gemini authentication was reset because the executable or runtime changed.",
+                        checkedAt: new Date().toISOString(),
+                    };
+                }
             }
             list[i] = { ...list[i], ...cleanData, updatedAt: now };
         } else {
@@ -380,14 +629,39 @@ export function registerSettingsHandlers() {
                     configuredPath: storedAssistant?.executablePath,
                     preferBundled: true,
                 });
-                launchCodexLoginUtilityProcess(storedAssistant, invocation);
                 updateCodexAssistantState(storedAssistant.id, {
                     codexAuth: {
                         status: "pending",
-                        message: "Codex login started automatically. Finish the login flow, then auth state will sync back into FDO.",
+                        message: "Codex login started automatically. Complete the flow to authenticate.",
                         checkedAt: new Date().toISOString(),
                     },
                 });
+                launchCodexLoginUtilityProcess(storedAssistant, invocation);
+            }
+        } else if (data.provider === "gemini-cli") {
+            const storedAssistant = list.find((item) => norm(item.name) === target);
+            if (storedAssistant?.codexAuth?.status !== "authorized") {
+                const invocation = await resolveGeminiCliInvocation({
+                    configuredPath: storedAssistant?.executablePath,
+                    preferBundled: true,
+                });
+                updateCodexAssistantState(storedAssistant.id, {
+                    codexAuth: {
+                        status: "pending",
+                        message: "Gemini sign-in started automatically. Complete the flow in Terminal, then click Check auth.",
+                        checkedAt: new Date().toISOString(),
+                    },
+                });
+                launchGeminiLoginUtilityProcess(storedAssistant, invocation);
+                try {
+                    const loginLaunchResult = await startGeminiLogin(invocation);
+                    monitorGeminiTerminalSession(storedAssistant, invocation, loginLaunchResult);
+                } catch (error) {
+                    stopGeminiAuthProcess(storedAssistant.id, {
+                        status: "error",
+                        message: String(error?.message || "Unable to start Gemini sign-in terminal."),
+                    });
+                }
             }
         }
     });
@@ -395,14 +669,34 @@ export function registerSettingsHandlers() {
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_STATUS, async (_, assistantId) => {
         const list = settings.get("ai.coding", []) || [];
         const assistant = list.find((item) => item.id === assistantId);
-        if (!assistant || assistant.provider !== "codex-cli") {
-            throw new Error("Codex assistant not found.");
+        if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
+            throw new Error("CLI assistant not found.");
         }
-        const invocation = await resolveCodexCliInvocation({
-            configuredPath: assistant.executablePath,
-            preferBundled: true,
-        });
-        const authStatus = await readCodexAuthStatus(invocation);
+        
+        let authStatus;
+        if (assistant.provider === "codex-cli") {
+            const invocation = await resolveCodexCliInvocation({
+                configuredPath: assistant.executablePath,
+                preferBundled: true,
+            });
+            authStatus = await readCodexAuthStatus(invocation);
+        } else {
+            const invocation = await resolveGeminiCliInvocation({
+                configuredPath: assistant.executablePath,
+                preferBundled: true,
+            });
+            authStatus = await readGeminiAuthStatus(invocation);
+        }
+
+        // Keep pending only while a login process is actively running.
+        const hasActiveProcess = assistant.provider === "codex-cli" 
+            ? activeCodexAuthProcesses.has(assistant.id)
+            : activeGeminiAuthProcesses.has(assistant.id);
+
+        if (authStatus.status !== "authorized" && hasActiveProcess) {
+            return assistant.codexAuth;
+        }
+
         const updated = {
             status: authStatus.status,
             message: authStatus.message || null,
@@ -410,45 +704,113 @@ export function registerSettingsHandlers() {
         };
         const nextList = list.map((item) => item.id === assistant.id ? { ...item, codexAuth: updated } : item);
         settings.set("ai.coding", nextList);
+        broadcastAIAssistantsUpdate();
         return updated;
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, async (_, assistantId) => {
         const list = settings.get("ai.coding", []) || [];
         const assistant = list.find((item) => item.id === assistantId);
-        if (!assistant || assistant.provider !== "codex-cli") {
-            throw new Error("Codex assistant not found.");
+        if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
+            throw new Error("CLI assistant not found.");
         }
-        const invocation = await resolveCodexCliInvocation({
-            configuredPath: assistant.executablePath,
-            preferBundled: true,
-        });
-        const result = launchCodexLoginUtilityProcess(assistant, invocation);
-        const updated = {
+
+        // Set status to pending immediately so UI knows we started
+        const startStatus = {
             status: "pending",
-            message: "Codex login was started in a background utility process. Finish the login flow, then auth state will sync back into FDO.",
+            message: assistant.provider === "codex-cli"
+                ? "Starting Codex login..."
+                : "Starting Gemini sign-in in Terminal...",
             checkedAt: new Date().toISOString(),
         };
-        const nextList = list.map((item) => item.id === assistant.id ? { ...item, codexAuth: updated } : item);
-        settings.set("ai.coding", nextList);
-        return { ...result, auth: updated };
+        updateCodexAssistantState(assistant.id, { codexAuth: startStatus });
+
+        let result = { started: false };
+        if (assistant.provider === "codex-cli") {
+            const invocation = await resolveCodexCliInvocation({
+                configuredPath: assistant.executablePath,
+                preferBundled: true,
+            });
+            result = launchCodexLoginUtilityProcess(assistant, invocation);
+        } else {
+            if (activeGeminiAuthProcesses.has(assistant.id)) {
+                const latest = (settings.get("ai.coding", []) || []).find((item) => item.id === assistant.id);
+                return {
+                    started: true,
+                    mode: "utilityProcess",
+                    alreadyRunning: true,
+                    auth: latest?.codexAuth || startStatus,
+                };
+            }
+            const invocation = await resolveGeminiCliInvocation({
+                configuredPath: assistant.executablePath,
+                preferBundled: true,
+            });
+
+            clearGeminiAuthProbeCache();
+            const authStatus = await readGeminiAuthStatus(invocation);
+            if (authStatus.status === "authorized") {
+                const authorized = {
+                    status: authStatus.status,
+                    message: authStatus.message || null,
+                    checkedAt: new Date().toISOString(),
+                };
+                updateCodexAssistantState(assistant.id, { codexAuth: authorized });
+                return {
+                    started: false,
+                    mode: "alreadyAuthorized",
+                    alreadyRunning: false,
+                    auth: authorized,
+                };
+            }
+            result = launchGeminiLoginUtilityProcess(assistant, invocation);
+            try {
+                const loginLaunchResult = await startGeminiLogin(invocation);
+                monitorGeminiTerminalSession(assistant, invocation, loginLaunchResult);
+            } catch (error) {
+                stopGeminiAuthProcess(assistant.id, {
+                    status: "error",
+                    message: String(error?.message || "Unable to start Gemini sign-in terminal."),
+                });
+                throw error;
+            }
+        }
+
+        const latest = (settings.get("ai.coding", []) || []).find((item) => item.id === assistant.id);
+        return {
+            ...result,
+            auth: latest?.codexAuth || startStatus,
+        };
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, async (_, assistantId) => {
         const list = settings.get("ai.coding", []) || [];
         const assistant = list.find((item) => item.id === assistantId);
-        if (!assistant || assistant.provider !== "codex-cli") {
-            throw new Error("Codex assistant not found.");
+        if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
+            throw new Error("CLI assistant not found.");
         }
-        stopCodexAuthProcess(assistant.id, {
-            status: "cancelled",
-            message: "Codex authentication was cancelled before sign out.",
-        });
-        const invocation = await resolveCodexCliInvocation({
-            configuredPath: assistant.executablePath,
-            preferBundled: true,
-        });
-        const authStatus = await runCodexLogout(invocation);
+        let authStatus;
+        if (assistant.provider === "codex-cli") {
+            stopCodexAuthProcess(assistant.id, {
+                status: "cancelled",
+                message: "Codex authentication was cancelled before sign out.",
+            });
+            const invocation = await resolveCodexCliInvocation({
+                configuredPath: assistant.executablePath,
+                preferBundled: true,
+            });
+            authStatus = await runCodexLogout(invocation);
+        } else {
+            stopGeminiAuthProcess(assistant.id, {
+                status: "cancelled",
+                message: "Gemini sign-in was cancelled before sign out.",
+            });
+            const invocation = await resolveGeminiCliInvocation({
+                configuredPath: assistant.executablePath,
+                preferBundled: true,
+            });
+            authStatus = await runGeminiLogout(invocation);
+        }
         const updated = {
             status: authStatus.status,
             message: authStatus.message || null,
@@ -456,22 +818,33 @@ export function registerSettingsHandlers() {
         };
         const nextList = list.map((item) => item.id === assistant.id ? { ...item, codexAuth: updated } : item);
         settings.set("ai.coding", nextList);
+        broadcastAIAssistantsUpdate();
         return updated;
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_CANCEL, async (_, assistantId) => {
         const list = settings.get("ai.coding", []) || [];
         const assistant = list.find((item) => item.id === assistantId);
-        if (!assistant || assistant.provider !== "codex-cli") {
-            throw new Error("Codex assistant not found.");
+        if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
+            throw new Error("CLI assistant not found.");
         }
-        stopCodexAuthProcess(assistant.id, {
-            status: "cancelled",
-            message: "Codex authentication was cancelled.",
-        });
+        if (assistant.provider === "codex-cli") {
+            stopCodexAuthProcess(assistant.id, {
+                status: "cancelled",
+                message: "Codex authentication was cancelled.",
+            });
+        } else {
+            stopGeminiAuthProcess(assistant.id, {
+                status: "cancelled",
+                message: "Gemini sign-in was cancelled.",
+            });
+        }
+        const message = assistant.provider === "codex-cli"
+            ? "Codex authentication was cancelled."
+            : "Gemini sign-in was cancelled. If a terminal is still open, you can close it manually.";
         return {
             status: "cancelled",
-            message: "Codex authentication was cancelled.",
+            message,
             checkedAt: new Date().toISOString(),
         };
     });

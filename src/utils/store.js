@@ -99,6 +99,17 @@ export const settings = new Store({
                                 required: ["source", "bundled"],
                                 additionalProperties: false,
                             },
+                            geminiRuntime: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                    source: { type: "string" },
+                                    version: { type: "string", nullable: true },
+                                    bundled: { type: "boolean", default: false },
+                                },
+                                required: ["source", "bundled"],
+                                additionalProperties: false,
+                            },
                             codexAuth: {
                                 type: "object",
                                 nullable: true,
@@ -140,6 +151,17 @@ export const settings = new Store({
                             apiKey: {type: "string", nullable: true},
                             executablePath: {type: "string", nullable: true},
                             codexRuntime: {
+                                type: "object",
+                                nullable: true,
+                                properties: {
+                                    source: { type: "string" },
+                                    version: { type: "string", nullable: true },
+                                    bundled: { type: "boolean", default: false },
+                                },
+                                required: ["source", "bundled"],
+                                additionalProperties: false,
+                            },
+                            geminiRuntime: {
                                 type: "object",
                                 nullable: true,
                                 properties: {

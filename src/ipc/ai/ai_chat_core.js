@@ -22,7 +22,7 @@ import { getCacheInfo, getModelCapabilities } from "./model_capabilities/index";
 import fs from "fs";
 import {detectAttachmentType, getRemoteFileCategory} from "./utils/detectAttachmentType";
 
-import Jimp from "jimp";
+import {Jimp} from "jimp";
 import * as os from "node:os";
 import path from "node:path";
 import crypto from "crypto";
@@ -1160,7 +1160,7 @@ async function compressImage(source, {
 
         // Resize while keeping aspect ratio
         if (width > maxWidth) {
-            await img.resize({ w: maxWidth, h: Jimp.AUTO });
+            await img.resize({ w: maxWidth });
         }
 
         // Detect transparency (alpha channel)

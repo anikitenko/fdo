@@ -130,5 +130,7 @@ Requirements:
 - prefer `createProcessCapabilityBundle(...)` + `createProcessScopeCapability(...)` + `requestScopedProcessExec(...)` for unknown or host-specific tool families
 - prefer `createFilesystemCapabilityBundle(...)` for scoped filesystem mutation capability setup
 - prefer `parseMissingCapabilityError(...)` + `describeCapability(...)` for capability-denied remediation
+- prefer `runCapabilityPreflight(...)` when both declared and granted capabilities are available in the host
+- prefer `requestPrivilegedActionFromEnvelope(...)` over manual envelope unwrapping and direct privileged bridge glue
 - prefer `requestPrivilegedAction(...)` over raw `window.createBackendReq("requestPrivilegedAction", ...)` when you need the low-level transport helper
-- for serialized `renderOnLoad()` strings, prefer the self-contained `requestPrivilegedAction(...)` helper rather than preset helpers that are less suitable for `.toString()` embedding
+- for serialized `renderOnLoad()` strings, treat raw low-level privileged transport wiring as an explicit exception, not the default guidance

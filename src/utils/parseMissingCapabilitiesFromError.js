@@ -10,6 +10,9 @@ import {
     NETWORK_TCP_CAPABILITY,
     NETWORK_UDP_CAPABILITY,
     NETWORK_WEBSOCKET_CAPABILITY,
+    SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
+    SYSTEM_AI_CAPABILITY,
+    SYSTEM_AI_REQUEST_CAPABILITY,
     toCanonicalCapabilityId
 } from "./pluginCapabilities";
 
@@ -110,6 +113,12 @@ function toDiagnostic(capability, {
         remediation = `Enable "${NETWORK_CAPABILITY}", "${NETWORK_UDP_CAPABILITY}", and a matching destination scope only for trusted plugins that truly require raw UDP socket APIs.`;
     } else if (capability === NETWORK_DNS_CAPABILITY) {
         remediation = `Enable "${NETWORK_CAPABILITY}", "${NETWORK_DNS_CAPABILITY}", and a matching destination scope only when the plugin truly needs direct DNS resolution APIs.`;
+    } else if (capability === SYSTEM_AI_CAPABILITY) {
+        remediation = `Enable "${SYSTEM_AI_CAPABILITY}", then also grant only the concrete AI actions needed by the plugin (for example "${SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY}" and/or "${SYSTEM_AI_REQUEST_CAPABILITY}").`;
+    } else if (capability === SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY) {
+        remediation = `Enable "${SYSTEM_AI_CAPABILITY}" and "${SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY}" to allow host assistant discovery in plugin UI flows.`;
+    } else if (capability === SYSTEM_AI_REQUEST_CAPABILITY) {
+        remediation = `Enable "${SYSTEM_AI_CAPABILITY}" and "${SYSTEM_AI_REQUEST_CAPABILITY}" to allow host AI task execution.`;
     }
 
     return {

@@ -23,6 +23,7 @@ export type PrivilegedActionErrorResponse = any;
 export function createPrivilegedActionCorrelationId(prefix?: string): string;
 export function createPrivilegedActionBackendRequest<TRequest = unknown>(request: TRequest, options?: any): { correlationId: string; request: TRequest };
 export function requestPrivilegedAction<TResult = unknown, TRequest = unknown>(request: TRequest, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+export function requestPrivilegedActionFromEnvelope<TResult = unknown>(envelopeOrRequest: unknown, options?: any): Promise<{ response: PrivilegedActionResponse<TResult>; errorMessage?: string }>;
 export function createScopedProcessExecActionRequest(scopeId: string, payload: any): any;
 export function requestScopedProcessExec<TResult = unknown>(scopeId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
 export function createScopedWorkflowRequest(scopeId: string, payload: any): any;
@@ -37,6 +38,7 @@ export function createFilesystemCapabilityBundle(scopeId: string): string[];
 export function createProcessCapabilityBundle(scopeId: string): string[];
 export function describeCapability(capability: string): any;
 export function parseMissingCapabilityError(error: unknown): any;
+export function runCapabilityPreflight(options: { declared: string[]; granted?: string[]; action?: string }): any;
 export function isPrivilegedActionSuccessResponse(value: unknown): boolean;
 export function isPrivilegedActionErrorResponse(value: unknown): boolean;
 export function unwrapPrivilegedActionResponse<TResult = unknown>(response: PrivilegedActionResponse<TResult>): TResult;
@@ -63,7 +65,7 @@ Use DOMTable to create table layouts for plugin UIs.
             path: "docs/OPERATOR_PLUGIN_PATTERNS.md",
             content: `
 # Operator Plugin Patterns
-Use requestOperatorTool, createOperatorToolCapabilityPreset, requestScopedProcessExec, requestPrivilegedAction, createPrivilegedActionBackendRequest, createPrivilegedActionCorrelationId, createProcessExecActionRequest, isPrivilegedActionSuccessResponse, and isPrivilegedActionErrorResponse for operator-style plugins.
+Use requestOperatorTool, createOperatorToolCapabilityPreset, requestScopedProcessExec, requestPrivilegedAction, requestPrivilegedActionFromEnvelope, runCapabilityPreflight, createPrivilegedActionBackendRequest, createPrivilegedActionCorrelationId, createProcessExecActionRequest, isPrivilegedActionSuccessResponse, and isPrivilegedActionErrorResponse for operator-style plugins.
             `.trim(),
         },
         {

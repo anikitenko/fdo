@@ -1,5 +1,5 @@
 export const BLANK_TEMPLATE_MAIN = (name) => {
-    const data_class_header = `import {FDO_SDK, FDOInterface, PluginMetadata} from '@anikitenko/fdo-sdk';
+    const data_class_header = `import {defineRenderOnLoadActions, FDO_SDK, FDOInterface, PluginMetadata} from '@anikitenko/fdo-sdk';
 import {Render} from "./render"
 
 class MyPlugin extends FDO_SDK implements FDOInterface {
@@ -30,17 +30,52 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
         }))
     }
     `
+    const data_render_on_load = `
+    public renderOnLoad() {
+        return defineRenderOnLoadActions({
+            handlers: {
+                refreshStatus: async ({ element }) => {
+                    const response = await window.createBackendReq("UI_MESSAGE", {
+                        handler: "refreshStatus",
+                        content: {
+                            plugin: "${name}",
+                        },
+                    });
+                    const target = document.querySelector("[data-role=\\"status\\"]");
+                    if (target) {
+                        target.textContent = String(response?.message || "Status updated");
+                    }
+                    if (element instanceof HTMLElement) {
+                        element.dataset.state = "ready";
+                    }
+                },
+            },
+            bindings: [
+                {
+                    selector: "[data-role=\\"refresh-status\\"]",
+                    event: "click",
+                    handler: "refreshStatus",
+                    preventDefault: true,
+                    required: true,
+                },
+            ],
+            // strict: true surfaces selector mismatch diagnostics early during plugin authoring.
+            strict: true,
+            language: "typescript",
+        });
+    }
+    `
     const data_class_footer = `
 }
 export default MyPlugin;
 
 new MyPlugin();
 `
-    return data_class_header + data_metadata + data_init + data_render + data_class_footer;
+    return data_class_header + data_metadata + data_init + data_render + data_render_on_load + data_class_footer;
 }
 
 export const BLANK_TEMPLATE_RENDER = (name) => {
-    const dataImports = "import {DOM, DOMText, DOMNested} from '@anikitenko/fdo-sdk';\n"
+    const dataImports = "import {DOM, DOMButton, DOMNested, DOMText} from '@anikitenko/fdo-sdk';\n"
     const dataType = "type RenderProps = {\n" +
         "    version: string;\n" +
         "    author: string;\n" +
@@ -54,11 +89,24 @@ export const BLANK_TEMPLATE_RENDER = (name) => {
         "    const pVersion = text.createPText(`Version: ${version}`);\n" +
         "    const pAuthor = text.createPText(`Author: ${author}`);\n" +
         "    const pDescription = text.createPText(`Description: ${description}`);\n" +
+        "    const refreshButton = new DOMButton().createButton(\"Refresh status\", {\n" +
+        "        attrs: {\n" +
+        "            \"data-role\": \"refresh-status\",\n" +
+        "            type: \"button\",\n" +
+        "        },\n" +
+        "    });\n" +
+        "    const status = text.createPText(\"Click the button to fetch plugin UI status.\", {\n" +
+        "        attrs: {\n" +
+        "            \"data-role\": \"status\",\n" +
+        "        },\n" +
+        "    });\n" +
         "    const nested = new DOMNested().createBlockDiv([\n" +
         "        myPlugin,\n" +
         "        pVersion,\n" +
         "        pAuthor,\n" +
-        "        pDescription\n" +
+        "        pDescription,\n" +
+        "        refreshButton,\n" +
+        "        status\n" +
         "    ]);\n" +
         "    return (\n" +
         "        new DOM().renderHTML(nested)\n" +

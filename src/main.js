@@ -3,6 +3,7 @@ import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/PluginManager";
 import fs, {existsSync, mkdirSync} from "node:fs";
+import {createInterface} from "node:readline/promises";
 
 import nodePath from "node:path";
 
@@ -29,6 +30,7 @@ import PluginORM from "./utils/PluginORM";
 import generatePluginName from "./components/editor/utils/generatePluginName";
 import {PluginChannels} from "./ipc/channels";
 import {checkPathAccess} from "./utils/pathHelper";
+import {getSdkMigrationExitCode, runSdkMigration} from "./utils/sdkMigrationCli";
 
 import log from 'electron-log/main';
 import {extractMetadata} from "./utils/extractMetadata";
@@ -221,6 +223,65 @@ function signPluginCLI(path, label) {
     Certs.signPlugin(path, label)
 }
 
+async function confirmSdkMigrationWrite({targetPath, filesToUpdate}) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        console.error(styleText("red", "❌ --write requires an interactive terminal for confirmation."));
+        return false;
+    }
+
+    const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+
+    try {
+        const answer = await rl.question(
+            `Apply SDK migration changes to ${filesToUpdate} file(s) in ${targetPath}? [y/N] `
+        );
+        const normalized = String(answer || "").trim().toLowerCase();
+        return normalized === "y" || normalized === "yes";
+    } finally {
+        rl.close();
+    }
+}
+
+function printSdkMigrationReport(report) {
+    console.log(styleText("bold", `🧭 SDK migration (${report.mode})`));
+    console.log(`Target: ${report.targetPath}`);
+    console.log(`Scanned files: ${report.scannedFiles}`);
+    console.log(`Files to update: ${report.filesToUpdate}`);
+    console.log(`Updated files: ${report.updatedFiles}`);
+
+    if (report.files.length > 0) {
+        console.log(styleText("bold", "\n📄 File changes"));
+        for (const file of report.files) {
+            console.log(`- ${file.relativePath}`);
+            for (const hit of file.ruleHits) {
+                const replacementSuffix = hit.replacements === 1 ? "" : "s";
+                console.log(`  - ${hit.rule} (${hit.replacements} replacement${replacementSuffix})`);
+            }
+        }
+    }
+
+    if (report.ruleHits.length > 0) {
+        console.log(styleText("bold", "\n📊 Rule summary"));
+        for (const hit of report.ruleHits) {
+            const fileSuffix = hit.files.length === 1 ? "" : "s";
+            const replacementSuffix = hit.replacements === 1 ? "" : "s";
+            console.log(`- ${hit.rule}: ${hit.replacements} replacement${replacementSuffix} across ${hit.files.length} file${fileSuffix}`);
+        }
+    }
+
+    if (report.cancelled) {
+        console.log(styleText("yellow", "\n⚠️ Migration write cancelled. No files were modified."));
+    } else if (report.mode === "dry-run") {
+        console.log(styleText("cyan", "\nℹ️ Dry-run only. Re-run with --write to apply these edits."));
+    } else if (report.updatedFiles > 0) {
+        console.log(styleText("green", "\n✅ Migration changes were applied."));
+        console.log(styleText("italic", "Hint: run `git diff` to review applied updates."));
+    }
+}
+
 // Early exit for Windows installer events (squirrel)
 // The 'started' variable was imported from 'electron-squirrel-startup' at the top
 debugLog(`[MAIN] Squirrel started: ${started}`);
@@ -376,6 +437,51 @@ sign
     });
 
 program.addCommand(sign);
+
+const sdk = new Command("sdk")
+    .description("SDK-focused development commands")
+    .action(() => {
+        sdk.help();
+    });
+
+sdk.configureHelp(colorHelp);
+
+sdk
+    .command("migrate")
+    .description("Run SDK migration codemods against plugin sources (dry-run by default)")
+    .requiredOption("--target <path>", "Path to plugin file or directory to migrate")
+    .option("--write", "Apply migration updates to disk")
+    .action(async (options) => {
+        actionInProgress = true;
+        const target = options?.target;
+        const write = !!options?.write;
+
+        try {
+            const {resolvedPath, isProtected, platform} = await checkPathAccess(target);
+            if (isProtected) {
+                console.log(styleText("yellow", `⚠️ Accessing a protected directory on ${platform}:`));
+                console.log(styleText("yellow", `   ${resolvedPath}`));
+            }
+
+            const report = await runSdkMigration({
+                target: resolvedPath,
+                write,
+                confirmWrite: confirmSdkMigrationWrite,
+            });
+
+            printSdkMigrationReport(report);
+            app.exit(0);
+        } catch (error) {
+            const exitCode = getSdkMigrationExitCode(error);
+            console.error(styleText("red", `❌ ${error?.message || String(error)}`));
+            if (error?.cause) {
+                console.error(styleText("red", `Cause: ${error.cause?.message || String(error.cause)}`));
+            }
+            app.exit(exitCode);
+        }
+    });
+
+program.addCommand(sdk);
 
 // Get CLI arguments (excluding electron/node and script path)
 const cliArgs = getCleanCliArgs(process.argv);

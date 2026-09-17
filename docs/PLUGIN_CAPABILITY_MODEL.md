@@ -157,6 +157,15 @@ Editor-side diagnostics now surface capability and deprecation hints while codin
 
 These are editor UX markers only. Host-side enforcement remains authoritative.
 
+## Plugin Doctor
+
+For runtime diagnostics, prefer the host Plugin Doctor view over raw diagnostics JSON:
+
+- raw diagnostics are fetched from the plugin via `__sdk.getDiagnostics`
+- the host should transform that payload with `createPluginDoctorReport(...)`
+- the resulting doctor report is the normalized presentation model for status, counts, findings, remediation, and details
+- raw diagnostics should remain available only as a compatibility or debugging fallback when the helper is unavailable in an older SDK runtime
+
 ## How To Add A New Capability
 
 1. Add capability definition to `PLUGIN_CAPABILITY_DEFINITIONS` in `src/utils/pluginCapabilities.js`.

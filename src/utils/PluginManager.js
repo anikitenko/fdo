@@ -12,9 +12,28 @@ import {
     executeHostPrivilegedAction,
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
+    HOST_PRIVILEGED_HANDLER,
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
 } from "./hostPrivilegedActions";
 import {extractCapabilityDeclarationComparison} from "./pluginCapabilityDeclaration";
+import {evaluatePluginHandshakeCompatibility, normalizeDiagnosticsHandshake} from "./pluginHandshakeCompatibility";
+import {
+    FDO_AI_LIST_ASSISTANTS_HANDLER_ID,
+    FDO_AI_REQUEST_HANDLER_ID,
+    handleHostAiAssistantsListRequest,
+    handleHostAiRequest,
+} from "./pluginHostAi";
+import {
+    FDO_AUTH_LOGOUT_HANDLER_ID,
+    FDO_AUTH_REFRESH_HANDLER_ID,
+    FDO_AUTH_START_HANDLER_ID,
+    FDO_SESSION_REQUEST_HANDLER_ID,
+    handleHostAuthBrokerLogoutRequest,
+    handleHostAuthBrokerRefreshRequest,
+    handleHostAuthBrokerStartRequest,
+    handleHostSessionRequest,
+} from "./pluginHostAuth";
+import {FDO_BROWSER_OPEN_HANDLER_ID, handleHostBrowserOpenRequest} from "./pluginHostBrowser";
 
 function createHostPluginMessage(message, content = undefined) {
     const envelope = { message };
@@ -30,6 +49,7 @@ function createHostPluginMessage(message, content = undefined) {
 const BACKEND_BRIDGE_REQUEST = "HOST_BACKEND_REQUEST";
 const BACKEND_BRIDGE_RESPONSE = "HOST_BACKEND_RESPONSE";
 const SDK_DIAGNOSTICS_HANDLER = "__sdk.getDiagnostics";
+const SDK_PRIVILEGED_ACTION_HANDLER = "requestPrivilegedAction";
 
 const PluginManager = {
     mainWindow: null,
@@ -188,9 +208,14 @@ const PluginManager = {
             ? this.loadedPlugins[pluginId].sessionId
             : "";
         const capabilityComparison = extractCapabilityDeclarationComparison(diagnostics, grantedCapabilities);
+        const handshake = normalizeDiagnosticsHandshake(diagnostics?.handshake);
+        const handshakeCompatibility = evaluatePluginHandshakeCompatibility({
+            handshake,
+        });
         return {
             pluginId: typeof diagnostics?.pluginId === "string" ? diagnostics.pluginId : String(pluginId || ""),
             runtimeSessionId,
+            apiVersion: typeof diagnostics?.apiVersion === "string" ? diagnostics.apiVersion : "",
             health: {
                 status: typeof diagnostics?.health?.status === "string" ? diagnostics.health.status : "",
                 lastErrorMessage: typeof diagnostics?.health?.lastErrorMessage === "string" ? diagnostics.health.lastErrorMessage : "",
@@ -206,6 +231,8 @@ const PluginManager = {
                     granted: capabilityComparison.granted,
                 },
             },
+            handshake,
+            handshakeCompatibility,
         };
     },
     async postPluginUiMessageAndAwaitResult(pluginId, content, options = {}) {
@@ -299,6 +326,129 @@ const PluginManager = {
             return this.refreshPluginDiagnostics(id, options);
         }
         return this.pluginDiagnosticsByPlugin?.[id] || null;
+    },
+    async resolveBackendBridgeResponse(pluginId, payload = {}, correlationId = "") {
+        const normalizedHandler = String(payload?.handler || "").trim();
+        const grantedCapabilities = this.loadedPlugins?.[pluginId]?.grantedCapabilities || [];
+        const diagnostics = await this.getPluginDiagnostics(pluginId, {refreshIfMissing: true, timeoutMs: 1800});
+        const declaredCapabilities = Array.isArray(diagnostics?.capabilities?.declaration?.declared)
+            ? diagnostics.capabilities.declaration.declared
+            : [];
+        const requestPayload = payload?.content && typeof payload.content === "object" ? payload.content : {};
+
+        if (normalizedHandler === FDO_AI_LIST_ASSISTANTS_HANDLER_ID) {
+            return await handleHostAiAssistantsListRequest(requestPayload, {
+                pluginId,
+                grantedCapabilities,
+            });
+        }
+        if (normalizedHandler === FDO_AI_REQUEST_HANDLER_ID) {
+            return await handleHostAiRequest(requestPayload, {
+                pluginId,
+                grantedCapabilities,
+            });
+        }
+        if (normalizedHandler === FDO_AUTH_START_HANDLER_ID) {
+            return await handleHostAuthBrokerStartRequest(requestPayload, {
+                pluginId,
+                grantedCapabilities,
+                declaredCapabilities,
+            });
+        }
+        if (normalizedHandler === FDO_AUTH_REFRESH_HANDLER_ID) {
+            return await handleHostAuthBrokerRefreshRequest(requestPayload, {
+                pluginId,
+                grantedCapabilities,
+                declaredCapabilities,
+            });
+        }
+        if (normalizedHandler === FDO_AUTH_LOGOUT_HANDLER_ID) {
+            return await handleHostAuthBrokerLogoutRequest(requestPayload, {
+                pluginId,
+                grantedCapabilities,
+                declaredCapabilities,
+            });
+        }
+        if (normalizedHandler === FDO_SESSION_REQUEST_HANDLER_ID) {
+            return await handleHostSessionRequest(requestPayload, {
+                pluginId,
+                grantedCapabilities,
+                declaredCapabilities,
+            });
+        }
+        if (normalizedHandler === FDO_BROWSER_OPEN_HANDLER_ID) {
+            return await handleHostBrowserOpenRequest(requestPayload, {
+                pluginId,
+                openExternal: (url) => shell.openExternal(url),
+            });
+        }
+
+        const privilegedPayload = requestPayload?.request ?? requestPayload;
+        if (
+            normalizedHandler === HOST_PRIVILEGED_HANDLER
+            || normalizedHandler === SDK_PRIVILEGED_ACTION_HANDLER
+            || !normalizedHandler
+        ) {
+            return await executeHostPrivilegedAction(privilegedPayload || {}, {
+                pluginId,
+                correlationId,
+                grantedCapabilities,
+                onAudit: (event) => {
+                    this.recordPrivilegedAudit(pluginId, event);
+                    console.info("[PLUGIN_PRIVILEGED_AUDIT]", JSON.stringify(event));
+                },
+                approvalSessionStore: this.getPrivilegedApprovalSession(pluginId),
+                confirmPrivilegedAction: async ({title, message: confirmMessage, detail, confirmLabel, cancelLabel, action}) => {
+                    if (process.env.FDO_E2E === "1") {
+                        const confirmMode = String(process.env.FDO_E2E_PRIVILEGED_CONFIRM_MODE || "").toLowerCase().trim();
+                        if (confirmMode === "approve") {
+                            return true;
+                        }
+                        if (confirmMode === "deny") {
+                            return false;
+                        }
+                        if (process.env.FDO_E2E_AUTO_APPROVE_PRIVILEGED !== "0") {
+                            return true;
+                        }
+                    }
+                    const defaultTitle = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
+                        ? "Confirm Scoped Process Execution"
+                        : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ
+                            ? "Confirm Clipboard Read"
+                            : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE
+                                ? "Confirm Clipboard Write"
+                                : "Confirm Privileged Plugin Action";
+                    const defaultMessage = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
+                        ? "Plugin requests running an approved external tool"
+                        : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ
+                            ? "Plugin requests reading text from the host clipboard"
+                            : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE
+                                ? "Plugin requests writing text to the host clipboard"
+                                : "Plugin requests a privileged host action";
+                    const result = await Promise.race([
+                        dialog.showMessageBox({
+                            type: "warning",
+                            title: title || defaultTitle,
+                            message: confirmMessage || defaultMessage,
+                            detail: detail || "",
+                            buttons: [cancelLabel || "Cancel", confirmLabel || "Apply"],
+                            cancelId: 0,
+                            defaultId: 1,
+                            noLink: true,
+                        }),
+                        new Promise((resolve) => setTimeout(() => resolve({response: 0}), 45000)),
+                    ]);
+                    return result.response === 1;
+                },
+            });
+        }
+
+        return {
+            ok: false,
+            correlationId,
+            code: "BACKEND_BRIDGE_HANDLER_UNSUPPORTED",
+            error: `Unsupported backend bridge handler "${normalizedHandler}".`,
+        };
     },
     capturePluginCodeSnapshot(pluginHome, options = {}) {
         const {
@@ -724,58 +874,7 @@ const PluginManager = {
                             correlationId,
                             sessionId,
                         });
-                        Promise.resolve(executeHostPrivilegedAction(payload?.content?.request ?? payload?.content ?? {}, {
-                            pluginId: id,
-                            correlationId,
-                            grantedCapabilities: this.loadedPlugins?.[id]?.grantedCapabilities || [],
-                            onAudit: (event) => {
-                                this.recordPrivilegedAudit(id, event);
-                                console.info("[PLUGIN_PRIVILEGED_AUDIT]", JSON.stringify(event));
-                            },
-                            approvalSessionStore: this.getPrivilegedApprovalSession(id),
-                            confirmPrivilegedAction: async ({title, message: confirmMessage, detail, confirmLabel, cancelLabel, action}) => {
-                                if (process.env.FDO_E2E === "1") {
-                                    const confirmMode = String(process.env.FDO_E2E_PRIVILEGED_CONFIRM_MODE || "").toLowerCase().trim();
-                                    if (confirmMode === "approve") {
-                                        return true;
-                                    }
-                                    if (confirmMode === "deny") {
-                                        return false;
-                                    }
-                                    if (process.env.FDO_E2E_AUTO_APPROVE_PRIVILEGED !== "0") {
-                                        return true;
-                                    }
-                                }
-                                const defaultTitle = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
-                                    ? "Confirm Scoped Process Execution"
-                                    : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ
-                                        ? "Confirm Clipboard Read"
-                                        : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE
-                                            ? "Confirm Clipboard Write"
-                                            : "Confirm Privileged Plugin Action";
-                                const defaultMessage = action === HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC
-                                    ? "Plugin requests running an approved external tool"
-                                    : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ
-                                        ? "Plugin requests reading text from the host clipboard"
-                                        : action === HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE
-                                            ? "Plugin requests writing text to the host clipboard"
-                                            : "Plugin requests a privileged host action";
-                                const result = await Promise.race([
-                                    dialog.showMessageBox({
-                                        type: "warning",
-                                        title: title || defaultTitle,
-                                        message: confirmMessage || defaultMessage,
-                                        detail: detail || "",
-                                        buttons: [cancelLabel || "Cancel", confirmLabel || "Apply"],
-                                        cancelId: 0,
-                                        defaultId: 1,
-                                        noLink: true,
-                                    }),
-                                    new Promise((resolve) => setTimeout(() => resolve({response: 0}), 45000)),
-                                ]);
-                                return result.response === 1;
-                            },
-                        })).then((response) => {
+                        Promise.resolve(this.resolveBackendBridgeResponse(id, payload, correlationId)).then((response) => {
                             child.postMessage(createHostPluginMessage(BACKEND_BRIDGE_RESPONSE, {
                                 requestId,
                                 response,

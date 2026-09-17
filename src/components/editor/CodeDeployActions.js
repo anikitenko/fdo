@@ -1,4 +1,4 @@
-import {Alert, Button, ButtonGroup, Divider, FormGroup, MenuItem} from "@blueprintjs/core";
+import {Alert, Button, ButtonGroup, Dialog, Divider, HTMLSelect, Switch} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 import SidebarSection from "../common/SidebarSection.jsx";
 
@@ -15,7 +15,21 @@ import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
 import {RootCertificateSelectionComponent, selectRootCert} from "./utils/RootCertificateSelectionComponent";
 
-const CodeDeployActions = ({setSelectedTabId, currentSelectedTabId, pluginDirectory}) => {
+const CodeDeployActions = ({
+    setSelectedTabId,
+    currentSelectedTabId,
+    pluginDirectory,
+    renderOnLoadTemplates = [],
+    renderOnLoadTemplateId = "",
+    onRenderOnLoadTemplateIdChange = () => {},
+    renderOnLoadStrictMode = true,
+    onRenderOnLoadStrictModeChange = () => {},
+    showRenderOnLoadStrictToggle = false,
+    renderOnLoadTemplateApplying = false,
+    onApplyRenderOnLoadTemplate = async () => {},
+    renderOnLoadTemplateError = "",
+    highlightRenderOnLoadRecommendation = false,
+}) => {
     const [version, setVersion] = useState(virtualFS.fs.version())
     const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
     const [versions, setVersions] = useState(virtualFS.fs.list())
@@ -32,6 +46,7 @@ const CodeDeployActions = ({setSelectedTabId, currentSelectedTabId, pluginDirect
     const [onRootCertificateSelected, setOnRootCertificateSelected] = useState(null)
     const [showRootCertificateDialog, setShowRootCertificateDialog] = useState(false)
     const [rememberedRootCertificate, setRememberedRootCertificate] = useState(null);
+    const [showRenderOnLoadGuide, setShowRenderOnLoadGuide] = useState(false);
 
     const rememberChoiceRef = useRef(false);
     const versionText = (name, date, prev, pretty = false) => {
@@ -250,6 +265,132 @@ const CodeDeployActions = ({setSelectedTabId, currentSelectedTabId, pluginDirect
     }, []);
     return (
         <>
+            {renderOnLoadTemplates.length > 0 && (
+                <SidebarSection
+                    id="render-on-load"
+                    title={(
+                        <div className={styles["renderOnLoadSectionTitle"]}>
+                            <span>Render On Load (Optional)</span>
+                            <Button
+                                minimal={true}
+                                small={true}
+                                icon="help"
+                                aria-label="Render On Load guide"
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setShowRenderOnLoadGuide(true);
+                                }}
+                            />
+                        </div>
+                    )}
+                    defaultCollapsed={true}
+                >
+                    <div className={styles["renderOnLoadSidebarSection"]}>
+                        <div className="bp6-text-muted bp6-text-small">
+                            Optional: inject startup UI behavior for your plugin after render.
+                        </div>
+                        <div className="bp6-text-small">
+                            Pick a template, adjust strict mode, then apply.
+                        </div>
+                        <HTMLSelect
+                            fill={true}
+                            value={renderOnLoadTemplateId}
+                            onChange={(event) => onRenderOnLoadTemplateIdChange(event.target.value)}
+                            className={styles["renderOnLoadSidebarSelect"]}
+                            aria-label="renderOnLoad template picker"
+                        >
+                            {renderOnLoadTemplates.map((template) => {
+                                const optionLabel = `${template.label} (${template.context})`;
+                                const isActionsTemplate = String(template?.source || "").includes("defineRenderOnLoadActions(");
+                                return (
+                                    <option key={template.id} value={template.id}>
+                                        {isActionsTemplate ? `${optionLabel} • recommended for multi-binding` : optionLabel}
+                                    </option>
+                                );
+                            })}
+                        </HTMLSelect>
+                        <div className={styles["renderOnLoadSidebarActions"]}>
+                            {showRenderOnLoadStrictToggle && (
+                                <Switch
+                                    checked={renderOnLoadStrictMode}
+                                    label="Strict mode"
+                                    onChange={(event) => onRenderOnLoadStrictModeChange(event.target.checked)}
+                                    className={styles["renderOnLoadSidebarStrict"]}
+                                />
+                            )}
+                            <Button
+                                fill={true}
+                                icon="insert"
+                                text="Apply Template"
+                                onClick={onApplyRenderOnLoadTemplate}
+                                loading={renderOnLoadTemplateApplying}
+                                disabled={!renderOnLoadTemplateId}
+                                intent={highlightRenderOnLoadRecommendation ? "primary" : "none"}
+                            />
+                        </div>
+                        {highlightRenderOnLoadRecommendation && (
+                            <div className="bp6-text-muted bp6-text-small">
+                                Recommended when you bind multiple selectors/events.
+                            </div>
+                        )}
+                        {renderOnLoadTemplateError && (
+                            <div className={styles["renderOnLoadSidebarError"]} role="alert">
+                                {renderOnLoadTemplateError}
+                            </div>
+                        )}
+                    </div>
+                </SidebarSection>
+            )}
+            <Dialog
+                title="Render On Load Guide"
+                isOpen={showRenderOnLoadGuide}
+                onClose={() => setShowRenderOnLoadGuide(false)}
+                canEscapeKeyClose={true}
+                canOutsideClickClose={true}
+            >
+                <div className="bp6-dialog-body">
+                    <p>
+                        Render On Load is the post-render behavior layer for your plugin UI.
+                    </p>
+                    <p>
+                        Use it when markup alone is not enough and you need runtime behavior such as click handlers,
+                        startup initialization, or UI-to-backend messaging.
+                    </p>
+                    <ol>
+                        <li>Choose a template that matches where code should live.</li>
+                        <li>Set Strict mode based on development safety needs.</li>
+                        <li>Click Apply Template to insert scaffold code into the correct file.</li>
+                        <li>Implement your business logic in generated handlers.</li>
+                    </ol>
+                    <p>
+                        <b>Template contexts:</b>
+                    </p>
+                    <ul>
+                        <li><b>plugin-method</b>: updates your plugin class `renderOnLoad()` method in `/index.*`.</li>
+                        <li><b>runtime-source</b>: creates or updates `/render.onload.ts` or `/render.onload.js`.</li>
+                    </ul>
+                    <p>
+                        <b>Strict mode:</b> when enabled, selector mismatches and binding issues fail fast so bugs are visible
+                        during development instead of silently failing at runtime.
+                    </p>
+                    <p>
+                        <b>Recommendation:</b> for multiple UI actions, prefer `defineRenderOnLoadActions(...)` templates.
+                        They keep handlers typed, reduce fragile manual listener code, and improve diagnostics.
+                    </p>
+                    <p>
+                        If your plugin is static content only, you can ignore this section safely.
+                    </p>
+                </div>
+                <div className="bp6-dialog-footer">
+                    <div className="bp6-dialog-footer-actions">
+                        <Button intent="primary" onClick={() => setShowRenderOnLoadGuide(false)}>
+                            Got it
+                        </Button>
+                    </div>
+                </div>
+            </Dialog>
+
             <SidebarSection
               id="snapshots"
               title="Snapshots"
@@ -323,7 +464,17 @@ const CodeDeployActions = ({setSelectedTabId, currentSelectedTabId, pluginDirect
 CodeDeployActions.propTypes = {
     setSelectedTabId: PropTypes.func.isRequired,
     currentSelectedTabId: PropTypes.string,
-    pluginDirectory: PropTypes.string.isRequired
+    pluginDirectory: PropTypes.string.isRequired,
+    renderOnLoadTemplates: PropTypes.array,
+    renderOnLoadTemplateId: PropTypes.string,
+    onRenderOnLoadTemplateIdChange: PropTypes.func,
+    renderOnLoadStrictMode: PropTypes.bool,
+    onRenderOnLoadStrictModeChange: PropTypes.func,
+    showRenderOnLoadStrictToggle: PropTypes.bool,
+    renderOnLoadTemplateApplying: PropTypes.bool,
+    onApplyRenderOnLoadTemplate: PropTypes.func,
+    renderOnLoadTemplateError: PropTypes.string,
+    highlightRenderOnLoadRecommendation: PropTypes.bool,
 }
 
 export default CodeDeployActions;
