@@ -2,8 +2,9 @@ import {app} from "electron";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import path from "node:path";
 import {buildRuntimeSecurityPolicy, KNOWN_PLUGIN_CAPABILITIES, normalizeCapabilityList} from "./pluginCapabilities";
+import {HOST_PLUGIN_API_VERSION} from "./pluginHostContract";
 
-export const HOST_PLUGIN_API_VERSION = "1.0.0";
+export {HOST_PLUGIN_API_VERSION} from "./pluginHostContract";
 
 function parseCapabilityList(raw) {
     if (typeof raw !== "string" || !raw.trim()) {
@@ -147,6 +148,158 @@ if (typeof bridgeTarget.createBackendReq !== "function") {
             });
         });
     };
+}
+const hostAiAssistantsListHandler = "fdo.ai.assistants.list.v1";
+const hostAiRequestHandler = "fdo.ai.request.v1";
+const hostAuthStartHandler = "fdo.auth.start.v1";
+const hostAuthRefreshHandler = "fdo.auth.refresh.v1";
+const hostAuthLogoutHandler = "fdo.auth.logout.v1";
+const hostSessionRequestHandler = "fdo.session.request.v1";
+const hostBrowserOpenHandler = "fdo.browser.open.v1";
+function normalizeHostAiErrorPayload(response, fallbackCode) {
+    if (!response || typeof response !== "object") {
+        return {
+            code: fallbackCode,
+            error: "Host AI bridge returned an invalid response.",
+            degraded: true,
+        };
+    }
+    return {
+        code: typeof response.code === "string" && response.code ? response.code : fallbackCode,
+        error: typeof response.error === "string" && response.error ? response.error : "Host AI request failed.",
+        degraded: response.degraded === true,
+        details: response.details && typeof response.details === "object" ? response.details : {},
+    };
+}
+function normalizeHostBrokerErrorPayload(response, fallbackCode, fallbackMessage) {
+    if (!response || typeof response !== "object") {
+        return {
+            code: fallbackCode,
+            error: fallbackMessage,
+            details: {},
+        };
+    }
+    return {
+        code: typeof response.code === "string" && response.code ? response.code : fallbackCode,
+        error: typeof response.error === "string" && response.error ? response.error : fallbackMessage,
+        details: response.details && typeof response.details === "object" ? response.details : {},
+        correlationId: typeof response.correlationId === "string" ? response.correlationId : "",
+        status: typeof response.status === "number" ? response.status : undefined,
+    };
+}
+async function callHostBroker(handler, content) {
+    const response = await bridgeTarget.createBackendReq("UI_MESSAGE", {
+        handler,
+        content: content && typeof content === "object" ? content : {},
+    });
+    return response;
+}
+function toHostBrokerErrorMessage(prefix, payload) {
+    const normalized = normalizeHostBrokerErrorPayload(payload, "HOST_BROKER_FAILED", "Host broker request failed.");
+    const correlationSuffix = normalized.correlationId ? " [correlationId=" + normalized.correlationId + "]" : "";
+    const statusSuffix = typeof normalized.status === "number" ? " [status=" + normalized.status + "]" : "";
+    return String(prefix || "Host broker failed") + " (" + normalized.code + "): " + normalized.error + statusSuffix + correlationSuffix;
+}
+if (typeof globalThis.__FDO_AI_LIST_ASSISTANTS !== "function") {
+    globalThis.__FDO_AI_LIST_ASSISTANTS = async function __FDO_AI_LIST_ASSISTANTS(filters = {}) {
+        try {
+            const response = await bridgeTarget.createBackendReq("UI_MESSAGE", {
+                handler: hostAiAssistantsListHandler,
+                content: filters && typeof filters === "object" ? filters : {},
+            });
+            if (response && typeof response === "object" && response.ok === false) {
+                return {
+                    assistants: [],
+                    ...normalizeHostAiErrorPayload(response, "AI_ASSISTANTS_LIST_FAILED"),
+                };
+            }
+            const assistants = Array.isArray(response?.assistants) ? response.assistants : [];
+            return {
+                assistants,
+            };
+        } catch (error) {
+            return {
+                assistants: [],
+                code: "AI_ASSISTANTS_LIST_FAILED",
+                error: error?.message || String(error),
+                degraded: true,
+            };
+        }
+    };
+}
+if (typeof globalThis.__FDO_AI_REQUEST !== "function") {
+    globalThis.__FDO_AI_REQUEST = async function __FDO_AI_REQUEST(payload = {}) {
+        try {
+            const response = await bridgeTarget.createBackendReq("UI_MESSAGE", {
+                handler: hostAiRequestHandler,
+                content: payload && typeof payload === "object" ? payload : {},
+            });
+            if (response && typeof response === "object" && response.ok === false) {
+                return normalizeHostAiErrorPayload(response, "AI_REQUEST_FAILED");
+            }
+            return response && typeof response === "object"
+                ? response
+                : {
+                    message: String(response || ""),
+                };
+        } catch (error) {
+            return {
+                code: "AI_REQUEST_FAILED",
+                error: error?.message || String(error),
+                degraded: true,
+            };
+        }
+    };
+}
+if (!globalThis.__FDO_AUTH_BROKER || typeof globalThis.__FDO_AUTH_BROKER !== "object") {
+    globalThis.__FDO_AUTH_BROKER = {
+        start: async (payload = {}) => {
+            const response = await callHostBroker(hostAuthStartHandler, payload);
+            if (!response || response.ok === false) {
+                throw new Error(toHostBrokerErrorMessage("Host auth start failed", response));
+            }
+            return response;
+        },
+        refresh: async (payload = {}) => {
+            const response = await callHostBroker(hostAuthRefreshHandler, payload);
+            if (!response || response.ok === false) {
+                throw new Error(toHostBrokerErrorMessage("Host auth refresh failed", response));
+            }
+            return response;
+        },
+        logout: async (payload = {}) => {
+            const response = await callHostBroker(hostAuthLogoutHandler, payload);
+            if (!response || response.ok === false) {
+                throw new Error(toHostBrokerErrorMessage("Host auth logout failed", response));
+            }
+            return response;
+        },
+    };
+}
+if (!globalThis.__FDO_SESSION_REQUEST || typeof globalThis.__FDO_SESSION_REQUEST !== "object") {
+    globalThis.__FDO_SESSION_REQUEST = {
+        request: async (payload = {}) => {
+            const response = await callHostBroker(hostSessionRequestHandler, payload);
+            if (!response || response.ok === false) {
+                throw new Error(toHostBrokerErrorMessage("Host session request failed", response));
+            }
+            return response;
+        },
+    };
+}
+if (!globalThis.__FDO_BROWSER_BROKER || typeof globalThis.__FDO_BROWSER_BROKER !== "object") {
+    globalThis.__FDO_BROWSER_BROKER = {
+        open: async (payload = {}) => {
+            const response = await callHostBroker(hostBrowserOpenHandler, payload);
+            if (!response || response.ok === false) {
+                throw new Error(toHostBrokerErrorMessage("Host browser open failed", response));
+            }
+            return response;
+        },
+    };
+}
+if (!globalThis.__FDO_OPEN_EXTERNAL || typeof globalThis.__FDO_OPEN_EXTERNAL !== "object") {
+    globalThis.__FDO_OPEN_EXTERNAL = globalThis.__FDO_BROWSER_BROKER;
 }
 
 const hostNodePath = process.env.FDO_PLUGIN_NODE_PATH || process.env.NODE_PATH || "";

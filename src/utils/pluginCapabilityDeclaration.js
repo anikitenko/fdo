@@ -4,10 +4,88 @@ function normalizeList(values = []) {
     return normalizeCapabilityList(Array.isArray(values) ? values : []);
 }
 
+let cachedOptionalSdkModule;
+
+function getOptionalSdkModule() {
+    if (cachedOptionalSdkModule !== undefined) {
+        return cachedOptionalSdkModule;
+    }
+
+    try {
+        cachedOptionalSdkModule = typeof __non_webpack_require__ === "function"
+            ? __non_webpack_require__("@anikitenko/fdo-sdk")
+            : null;
+    } catch (_) {
+        cachedOptionalSdkModule = null;
+    }
+
+    return cachedOptionalSdkModule;
+}
+
+function describeCapabilityWithFallback(capability = "") {
+    const sdkModule = getOptionalSdkModule();
+    const normalizedCapability = String(capability || "").trim();
+    if (!normalizedCapability) {
+        return {
+            capability: "",
+            label: "",
+            description: "",
+            category: "unknown",
+        };
+    }
+
+    if (typeof sdkModule?.describeCapability === "function") {
+        try {
+            const descriptor = sdkModule.describeCapability(normalizedCapability);
+            if (descriptor && typeof descriptor === "object") {
+                return {
+                    capability: typeof descriptor.capability === "string" ? descriptor.capability : normalizedCapability,
+                    label: typeof descriptor.label === "string" && descriptor.label.trim()
+                        ? descriptor.label
+                        : normalizedCapability,
+                    description: typeof descriptor.description === "string" ? descriptor.description : "",
+                    category: typeof descriptor.category === "string" ? descriptor.category : "unknown",
+                };
+            }
+        } catch (_) {
+            // Fall through to a deterministic local descriptor.
+        }
+    }
+
+    return {
+        capability: normalizedCapability,
+        label: normalizedCapability,
+        description: "",
+        category: "unknown",
+    };
+}
+
+function runCapabilityPreflightWithFallback({
+    declared = [],
+    granted = [],
+    action = "plugin privileged actions",
+} = {}) {
+    const sdkModule = getOptionalSdkModule();
+    if (typeof sdkModule?.runCapabilityPreflight !== "function") {
+        return null;
+    }
+    try {
+        const report = sdkModule.runCapabilityPreflight({
+            declared,
+            granted,
+            action,
+        });
+        return report && typeof report === "object" ? report : null;
+    } catch (_) {
+        return null;
+    }
+}
+
 export function buildCapabilityDeclarationComparison({
     declared = [],
     granted = [],
     diagnosticsAvailable = false,
+    action = "plugin privileged actions",
 } = {}) {
     const normalizedDeclared = normalizeList(declared);
     const normalizedGranted = normalizeList(granted);
@@ -16,14 +94,44 @@ export function buildCapabilityDeclarationComparison({
     const missingDeclared = normalizedDeclared.filter((capability) => !grantedSet.has(capability));
     const undeclaredGranted = normalizedGranted.filter((capability) => !declaredSet.has(capability));
     const hasDeclaration = normalizedDeclared.length > 0;
+    const preflight = runCapabilityPreflightWithFallback({
+        declared: normalizedDeclared,
+        granted: normalizedGranted,
+        action,
+    });
+    const missingDiagnostics = Array.isArray(preflight?.missing) && preflight.missing.length > 0
+        ? preflight.missing
+        : missingDeclared.map((capability) => {
+            const descriptor = describeCapabilityWithFallback(capability);
+            return {
+                ...descriptor,
+                action,
+                requiredCapabilities: [capability],
+                missingPrerequisites: [capability],
+                grantedPrerequisites: [],
+                remediation: `Grant "${capability}" in Manage Plugins -> Capabilities.`,
+            };
+        });
+    const undeclaredGrantedDetails = Array.isArray(preflight?.undeclaredGranted) && preflight.undeclaredGranted.length > 0
+        ? preflight.undeclaredGranted
+        : undeclaredGranted.map((capability) => describeCapabilityWithFallback(capability));
+    const remediations = Array.isArray(preflight?.remediations)
+        ? preflight.remediations.filter((entry) => typeof entry === "string" && entry.trim())
+        : [];
 
     return {
         available: diagnosticsAvailable || hasDeclaration || normalizedGranted.length > 0,
         hasDeclaration,
+        action,
         declared: normalizedDeclared,
         granted: normalizedGranted,
         missingDeclared,
         undeclaredGranted,
+        missingDiagnostics,
+        undeclaredGrantedDetails,
+        remediations,
+        summaryText: typeof preflight?.summary === "string" ? preflight.summary : "",
+        preflight,
     };
 }
 
@@ -47,7 +155,7 @@ export function buildCapabilityDeclarationSummary(comparison = {}) {
             status: "undeclared",
             intent: "warning",
             title: "No declared capability manifest",
-            summary: `Host grants ${undeclaredCount} ${undeclaredCount === 1 ? "capability" : "capabilities"}, but the plugin did not declare its intent via declareCapabilities().`,
+            summary: comparison?.summaryText || `Host grants ${undeclaredCount} ${undeclaredCount === 1 ? "capability" : "capabilities"}, but the plugin did not declare its intent via declareCapabilities().`,
         };
     }
 
@@ -56,7 +164,7 @@ export function buildCapabilityDeclarationSummary(comparison = {}) {
             status: "missing",
             intent: "warning",
             title: "Declared capability gaps",
-            summary: `Plugin declared ${declaredCount} ${declaredCount === 1 ? "capability" : "capabilities"} and is still missing ${missingCount}.`,
+            summary: comparison?.summaryText || `Plugin declared ${declaredCount} ${declaredCount === 1 ? "capability" : "capabilities"} and is still missing ${missingCount}.`,
         };
     }
 
@@ -65,7 +173,7 @@ export function buildCapabilityDeclarationSummary(comparison = {}) {
             status: "extra-grants",
             intent: "primary",
             title: "Declared intent with extra grants",
-            summary: `Declared capabilities are satisfied, but ${undeclaredCount} granted ${undeclaredCount === 1 ? "capability" : "capabilities"} are not declared by the plugin.`,
+            summary: comparison?.summaryText || `Declared capabilities are satisfied, but ${undeclaredCount} granted ${undeclaredCount === 1 ? "capability" : "capabilities"} are not declared by the plugin.`,
         };
     }
 
@@ -73,9 +181,9 @@ export function buildCapabilityDeclarationSummary(comparison = {}) {
         status: "aligned",
         intent: "success",
         title: "Declared and granted aligned",
-        summary: hasDeclaration
+        summary: comparison?.summaryText || (hasDeclaration
             ? `Declared capability intent matches current grants (${declaredCount} total).`
-            : "Plugin does not declare capabilities and currently has no granted privileged capabilities.",
+            : "Plugin does not declare capabilities and currently has no granted privileged capabilities."),
     };
 }
 
@@ -89,5 +197,6 @@ export function extractCapabilityDeclarationComparison(diagnostics = null, grant
             ? grantedCapabilities
             : (Array.isArray(grantedFromDiagnostics) ? grantedFromDiagnostics : []),
         diagnosticsAvailable: !!(diagnostics && typeof diagnostics === "object"),
+        action: "plugin privileged actions",
     });
 }

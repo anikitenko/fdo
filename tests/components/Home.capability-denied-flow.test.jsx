@@ -433,6 +433,58 @@ describe("Home capability denied flow", () => {
                     },
                 ],
             }),
+            uiMessage: jest.fn().mockResolvedValue({
+                apiVersion: "1.0.0",
+                pluginId: "plugin-1",
+                metadata: {
+                    name: "Plugin One",
+                    version: "1.0.0",
+                    author: "Author",
+                    description: "Desc",
+                    icon: "cog",
+                },
+                health: {
+                    status: "degraded",
+                    startedAt: "2026-04-06T10:00:00.000Z",
+                    lastErrorAt: "2026-04-06T10:05:00.000Z",
+                    lastErrorMessage: "Host privileged action failed.",
+                    initCount: 1,
+                    renderCount: 1,
+                    handlerCount: 1,
+                    errorCount: 1,
+                },
+                capabilities: {
+                    diagnosticsHandler: "__sdk.getDiagnostics",
+                    registeredHandlers: ["requestPrivilegedAction", "__sdk.getDiagnostics"],
+                    registeredStores: [],
+                    quickActionsCount: 0,
+                    hasSidePanel: false,
+                    stores: [],
+                    declaration: {
+                        declared: ["system.process.exec", "system.process.scope.terraform"],
+                        missing: ["system.process.scope.terraform"],
+                        undeclaredGranted: [],
+                    },
+                    permissions: {
+                        granted: ["system.process.exec"],
+                        usageCount: {},
+                        deniedCount: {
+                            "system.process.scope.terraform": 1,
+                        },
+                    },
+                },
+                notifications: {
+                    count: 1,
+                    capacity: 20,
+                    recent: [
+                        {
+                            message: "Terraform apply failed",
+                            type: "warning",
+                            timestamp: "2026-04-06T10:05:00.000Z",
+                        },
+                    ],
+                },
+            }),
             activate: jest.fn().mockResolvedValue({success: true}),
             deactivate: jest.fn().mockResolvedValue({success: true}),
             deactivateUsers: jest.fn().mockResolvedValue({success: true}),
@@ -896,6 +948,7 @@ describe("Home capability denied flow", () => {
         });
     });
 
+
     test("opens privileged audit trail from a failure dialog", async () => {
         renderHome();
 
@@ -938,11 +991,15 @@ describe("Home capability denied flow", () => {
         });
 
         fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
-        fireEvent.click(screen.getByText("Open Validation"));
+        fireEvent.click(screen.getByText("Open Plugin Doctor"));
 
         await waitFor(() => {
             expect(window.electron.plugin.getPrivilegedAudit).toHaveBeenCalledWith("plugin-1", {limit: 80});
-            expect(screen.getByText(/Runtime Validation: plugin-1/)).toBeInTheDocument();
+            expect(window.electron.plugin.uiMessage).toHaveBeenCalledWith("plugin-1", expect.objectContaining({
+                handler: "__sdk.getDiagnostics",
+            }));
+            expect(screen.getByText(/Plugin Doctor: plugin-1/)).toBeInTheDocument();
+            expect(screen.getByText(/Handshake:/)).toBeInTheDocument();
         });
     });
 
@@ -984,14 +1041,15 @@ describe("Home capability denied flow", () => {
         });
 
         fireEvent.click(screen.getByRole("button", {name: "More Actions"}));
-        fireEvent.click(screen.getByText("Open Validation"));
+        fireEvent.click(screen.getByText("Open Plugin Doctor"));
 
         await waitFor(() => {
-            expect(screen.getByText(/Runtime Validation: plugin-1/)).toBeInTheDocument();
+            expect(screen.getByText(/Plugin Doctor: plugin-1/)).toBeInTheDocument();
             expect(screen.getByText("Process execution failure")).toBeInTheDocument();
             expect(screen.getByText(/not automatically capability-denial issues/i)).toBeInTheDocument();
             expect(screen.getByText("Error codes:")).toBeInTheDocument();
             expect(screen.getByText("PROCESS_EXIT_NON_ZERO")).toBeInTheDocument();
         });
     });
+
 });

@@ -91,7 +91,15 @@ describe("plugin runtime security", () => {
             fs.writeFileSync(runtimeEntry, `
 process.stdout.write(JSON.stringify({
   hasWindow: typeof globalThis.window === "object",
-  hasCreateBackendReq: typeof globalThis.window?.createBackendReq === "function"
+  hasCreateBackendReq: typeof globalThis.window?.createBackendReq === "function",
+  hasAiListBridge: typeof globalThis.__FDO_AI_LIST_ASSISTANTS === "function",
+  hasAiRequestBridge: typeof globalThis.__FDO_AI_REQUEST === "function",
+  hasAuthBroker: typeof globalThis.__FDO_AUTH_BROKER?.start === "function"
+    && typeof globalThis.__FDO_AUTH_BROKER?.refresh === "function"
+    && typeof globalThis.__FDO_AUTH_BROKER?.logout === "function",
+  hasSessionRequestBridge: typeof globalThis.__FDO_SESSION_REQUEST?.request === "function",
+  hasBrowserBroker: typeof globalThis.__FDO_BROWSER_BROKER?.open === "function"
+    && typeof globalThis.__FDO_OPEN_EXTERNAL?.open === "function"
 }));
 `, "utf8");
 
@@ -112,6 +120,11 @@ process.stdout.write(JSON.stringify({
             expect(JSON.parse((execution.stdout || "").trim())).toEqual({
                 hasWindow: true,
                 hasCreateBackendReq: true,
+                hasAiListBridge: true,
+                hasAiRequestBridge: true,
+                hasAuthBroker: true,
+                hasSessionRequestBridge: true,
+                hasBrowserBroker: true,
             });
         } finally {
             fs.rmSync(tempRoot, {recursive: true, force: true});

@@ -25,7 +25,10 @@ Authoring priority order:
    - `createProcessCapabilityBundle(...)`
    - `createProcessScopeCapability(...)`
    - `requestScopedProcessExec(...)`
-4. only suggest lower-level transport helpers when the user explicitly needs transport-level control, debugging, or a non-curated action family:
+4. for envelope-compatible privileged flows, prefer:
+   - `requestPrivilegedActionFromEnvelope(...)`
+   - `runCapabilityPreflight(...)` when both declared and granted capabilities are known
+5. only suggest lower-level transport helpers when the user explicitly needs transport-level control, debugging, or a non-curated action family:
    - `createProcessExecActionRequest(...)`
    - `requestPrivilegedAction(...)`
 
@@ -47,12 +50,81 @@ For operator-style request/response handling, the preferred SDK pattern is:
 - use `createProcessCapabilityBundle(...)`, `createProcessScopeCapability(...)`, and `requestScopedProcessExec(...)` for host-defined or internal custom tools
 - use `createFilesystemCapabilityBundle(...)` for scoped filesystem capability setup
 - use `parseMissingCapabilityError(...)` and `describeCapability(...)` for capability-denied remediation and user-facing copy
+- use `runCapabilityPreflight(...)` when the host knows both declared and granted capabilities so diagnostics can show summary, missing items, remediation strings, and extra grants before action execution
+- use `requestPrivilegedActionFromEnvelope(...)` instead of manual `envelope?.result?.request ?? envelope?.request ?? envelope` glue and direct privileged bridge calls in generated plugin code
 - keep `requestPrivilegedAction(request, { correlationIdPrefix })` and `createProcessExecActionRequest(...)` as the low-level helper path only when explicit transport-level control is required
 - use `createPrivilegedActionBackendRequest(...)` when plugin code needs the stable transport envelope without sending immediately
 - branch on `isPrivilegedActionSuccessResponse(...)` / `isPrivilegedActionErrorResponse(...)`
 - optionally simplify handling with `unwrapPrivilegedActionResponse(...)`
 
-For serialized `renderOnLoad()` handlers, prefer inlining `requestPrivilegedAction(...).toString()` rather than manually wiring `window.createBackendReq("requestPrivilegedAction", ...)`. Preset helpers are preferred for normal authoring, but the low-level transport helper is a better fit for `.toString()` embedding.
+For serialized `renderOnLoad()` handlers, prefer SDK helpers and avoid manually wiring `window.createBackendReq("requestPrivilegedAction", ...)`. If a low-level transport helper is still required for a `.toString()` embedding case, keep that as an explicit exception rather than the default authoring pattern.
+
+For UI action wiring inside `renderOnLoad()`, prefer declarative bindings when a plugin has more than one meaningful interactive element:
+
+- `defineRenderOnLoadActions(...)` for typed handlers plus selector/event bindings
+- `createRenderOnLoadActionsSource(...)` only when code generation needs the raw source string explicitly
+
+Use `strict: true` in authoring examples unless the plugin intentionally tolerates optional selectors. Strict mode is the preferred DX because selector mismatches become visible diagnostics instead of silently missing event listeners.
+
+Before:
+
+```typescript
+public renderOnLoad() {
+    return `
+        const button = document.querySelector("[data-role='refresh']");
+        if (button) {
+            button.addEventListener("click", async (event) => {
+                event.preventDefault();
+                const response = await window.createBackendReq("UI_MESSAGE", {
+                    handler: "refreshStatus",
+                    content: { source: "manual-onload" },
+                });
+                const status = document.querySelector("[data-role='status']");
+                if (status) {
+                    status.textContent = String(response?.message || "Updated");
+                }
+            });
+        }
+    `;
+}
+```
+
+After:
+
+```typescript
+public renderOnLoad() {
+    return defineRenderOnLoadActions({
+        handlers: {
+            refreshStatus: async ({ element }) => {
+                const response = await window.createBackendReq("UI_MESSAGE", {
+                    handler: "refreshStatus",
+                    content: { source: "renderOnLoad-actions" },
+                });
+                const status = document.querySelector("[data-role='status']");
+                if (status) {
+                    status.textContent = String(response?.message || "Updated");
+                }
+                if (element instanceof HTMLElement) {
+                    element.dataset.state = "ready";
+                }
+            },
+        },
+        bindings: [
+            {
+                selector: "[data-role='refresh']",
+                event: "click",
+                handler: "refreshStatus",
+                preventDefault: true,
+                required: true,
+            },
+        ],
+        strict: true,
+        language: "typescript",
+    });
+}
+```
+
+This keeps action handlers typed, makes selector mismatch diagnostics easier to reason about, and removes repetitive `querySelector` / `addEventListener` wiring from generated plugins.
 
 For operator-style generation, prefer the packaged SDK references in this order:
 

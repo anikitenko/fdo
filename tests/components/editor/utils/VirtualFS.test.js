@@ -21,6 +21,12 @@ describe('VirtualFS snapshots', () => {
     localStorage.clear();
     monaco.typescript.typescriptDefaults.setCompilerOptions.mockClear();
     monaco.typescript.javascriptDefaults.setCompilerOptions.mockClear();
+    monaco.typescript.typescriptDefaults.addExtraLib.mockClear();
+    monaco.typescript.javascriptDefaults.addExtraLib.mockClear();
+    window.electron.system.getFdoSdkEditorSupport.mockReset();
+    window.electron.system.getFdoSdkEditorSupport.mockResolvedValue({ success: true, bundle: null });
+    window.electron.system.getFdoSdkEditorMonacoPolicy.mockReset();
+    window.electron.system.getFdoSdkEditorMonacoPolicy.mockResolvedValue({ success: true, policy: null });
   });
 
   const createModel = (path, content = 'hello') => {
@@ -157,20 +163,17 @@ describe('VirtualFS snapshots', () => {
   });
 
   test('fallback SDK typings include operator response helpers and response types', async () => {
-    window.electron = window.electron || {};
-    window.electron.fs = {
-      getNodeModules: jest.fn().mockResolvedValue({success: true, files: []}),
-    };
-    window.electron.sdk = {
-      getTypes: jest.fn().mockResolvedValue({success: true, files: []}),
-    };
-
     await virtualFS.fs.setupNodeModules();
 
     const fallbackTypes = virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/index.d.ts');
     expect(fallbackTypes).toContain('createPrivilegedActionCorrelationId');
     expect(fallbackTypes).toContain('createPrivilegedActionBackendRequest');
     expect(fallbackTypes).toContain('requestPrivilegedAction');
+    expect(fallbackTypes).toContain('requestPrivilegedActionFromEnvelope');
+    expect(fallbackTypes).toContain('defineRenderOnLoadActions');
+    expect(fallbackTypes).toContain('createRenderOnLoadActionsSource');
+    expect(fallbackTypes).toContain('resolveRenderOnLoadSource');
+    expect(fallbackTypes).toContain('export type RenderOnLoadActionBindingsModuleOptions');
     expect(fallbackTypes).toContain('createScopedProcessExecActionRequest');
     expect(fallbackTypes).toContain('requestScopedProcessExec');
     expect(fallbackTypes).toContain('createScopedWorkflowRequest');
@@ -185,15 +188,124 @@ describe('VirtualFS snapshots', () => {
     expect(fallbackTypes).toContain('createProcessCapabilityBundle');
     expect(fallbackTypes).toContain('describeCapability');
     expect(fallbackTypes).toContain('parseMissingCapabilityError');
+    expect(fallbackTypes).toContain('runCapabilityPreflight');
     expect(fallbackTypes).toContain('isPrivilegedActionSuccessResponse');
     expect(fallbackTypes).toContain('isPrivilegedActionErrorResponse');
     expect(fallbackTypes).toContain('unwrapPrivilegedActionResponse');
     expect(fallbackTypes).toContain('export type PrivilegedActionResponse');
     expect(fallbackTypes).toContain('export type PrivilegedActionSuccessResponse');
     expect(fallbackTypes).toContain('export type PrivilegedActionErrorResponse');
+    expect(fallbackTypes).toContain('export type PrivilegedActionPipelineResult');
+    expect(fallbackTypes).toContain('export type CapabilityPreflightReport');
     expect(fallbackTypes).toContain('export type ScopedWorkflowProcessStepResultData');
     expect(fallbackTypes).toContain('export type ScopedWorkflowStepResult');
     expect(fallbackTypes).toContain('export type ScopedWorkflowResult');
     expect(fallbackTypes).toContain('export type ScopedWorkflowSummary');
+
+    const renderOnLoadTypes = virtualFS.getFileContent('/node_modules/@types/fdo-render-onload.d.ts');
+    expect(renderOnLoadTypes).toContain('declare namespace FDOOnLoad');
+    expect(renderOnLoadTypes).not.toContain('declare module "@anikitenko/fdo-sdk"');
+  });
+
+  test('with SDK index present, injects package manifest and does not inject fallback SDK module declaration', async () => {
+    const originalGetFdoSdkTypes = window.electron.system.getFdoSdkTypes;
+    window.electron.system.getFdoSdkTypes = jest.fn().mockResolvedValue({
+      files: [
+        { path: 'index.d.ts', content: 'export class FDO_SDK {}\nexport interface FDOInterface {}\nexport interface PluginMetadata { name: string; version: string; author: string; }' },
+        { path: 'render/index.d.ts', content: 'export {}' },
+      ],
+    });
+
+    try {
+      await virtualFS.fs.setupNodeModules();
+
+      expect(virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/index.d.ts')).toContain('export class FDO_SDK');
+      expect(virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/index.d.ts')).not.toContain('createPrivilegedActionCorrelationId');
+
+      const packageJson = JSON.parse(virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/package.json'));
+      expect(packageJson.name).toBe('@anikitenko/fdo-sdk');
+      expect(packageJson.types).toBe('./index.d.ts');
+      expect(packageJson.exports['.'].types).toBe('./index.d.ts');
+
+      expect(monaco.typescript.typescriptDefaults.addExtraLib).toHaveBeenCalledWith(
+        expect.any(String),
+        '/node_modules/@types/fdo-render-onload.d.ts'
+      );
+      expect(monaco.typescript.javascriptDefaults.addExtraLib).toHaveBeenCalledWith(
+        expect.any(String),
+        '/node_modules/@types/fdo-render-onload.d.ts'
+      );
+      const renderOnLoadTypes = virtualFS.getFileContent('/node_modules/@types/fdo-render-onload.d.ts');
+      expect(renderOnLoadTypes.length).toBeGreaterThan(20);
+      expect(
+        renderOnLoadTypes.includes('waitForElement')
+        || renderOnLoadTypes.includes('declare namespace FDOOnLoad')
+      ).toBe(true);
+      expect(renderOnLoadTypes).not.toContain('declare module "@anikitenko/fdo-sdk"');
+    } finally {
+      window.electron.system.getFdoSdkTypes = originalGetFdoSdkTypes;
+    }
+  });
+
+  test('with missing SDK index, fallback renderOnLoad typings do not shadow SDK module exports', async () => {
+    const originalGetFdoSdkTypes = window.electron.system.getFdoSdkTypes;
+    window.electron.system.getFdoSdkTypes = jest.fn().mockResolvedValue({
+      files: [{ path: 'nested/only.d.ts', content: 'export type Unused = true;' }],
+    });
+
+    try {
+      await virtualFS.fs.setupNodeModules();
+
+      const fallbackTypes = virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/index.d.ts');
+      expect(fallbackTypes).toContain('declare module "@anikitenko/fdo-sdk"');
+
+      const renderOnLoadTypes = virtualFS.getFileContent('/node_modules/@types/fdo-render-onload.d.ts');
+      expect(renderOnLoadTypes).toContain('declare namespace FDOOnLoad');
+      expect(renderOnLoadTypes).not.toContain('declare module "@anikitenko/fdo-sdk"');
+      expect(virtualFS.getFileContent('/node_modules/@anikitenko/fdo-sdk/package.json')).toBeUndefined();
+    } finally {
+      window.electron.system.getFdoSdkTypes = originalGetFdoSdkTypes;
+    }
+  });
+
+  test("passes hasSdkIndex into SDK Monaco policy and honors SDK virtual package path", async () => {
+    const originalGetFdoSdkTypes = window.electron.system.getFdoSdkTypes;
+    const originalGetFdoSdkEditorSupport = window.electron.system.getFdoSdkEditorSupport;
+    window.electron.system.getFdoSdkTypes = jest.fn().mockResolvedValue({
+      files: [{ path: "index.d.ts", content: "export const sdk = true;" }],
+    });
+    window.electron.system.getFdoSdkEditorSupport = jest.fn().mockResolvedValue({
+      success: true,
+      bundle: {
+        moduleId: "@anikitenko/fdo-sdk",
+        indexTypesVirtualPath: "/node_modules/@anikitenko/fdo-sdk/index.d.ts",
+        packageJsonVirtualPath: "/node_modules/@anikitenko/fdo-sdk/custom-package.json",
+        packageManifest: {
+          name: "@anikitenko/fdo-sdk",
+          types: "./index.d.ts",
+          exports: {
+            ".": { types: "./index.d.ts", default: "./dist/fdo-sdk.bundle.js" },
+          },
+        },
+        packageJson: "{\"name\":\"@anikitenko/fdo-sdk\"}",
+        renderOnLoadTypeDefinitions: "declare namespace FDOOnLoad { interface Context {} }",
+        renderOnLoadHints: [],
+      },
+    });
+
+    try {
+      await virtualFS.fs.setupNodeModules();
+      expect(window.electron.system.getFdoSdkEditorMonacoPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hasSdkIndex: true,
+        })
+      );
+      const customPackageJson = virtualFS.getFileContent("/node_modules/@anikitenko/fdo-sdk/custom-package.json");
+      const defaultPackageJson = virtualFS.getFileContent("/node_modules/@anikitenko/fdo-sdk/package.json");
+      expect(String(customPackageJson || defaultPackageJson || "")).toContain("@anikitenko/fdo-sdk");
+    } finally {
+      window.electron.system.getFdoSdkTypes = originalGetFdoSdkTypes;
+      window.electron.system.getFdoSdkEditorSupport = originalGetFdoSdkEditorSupport;
+    }
   });
 });

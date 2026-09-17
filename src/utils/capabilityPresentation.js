@@ -10,6 +10,9 @@ import {
     NETWORK_TCP_CAPABILITY,
     NETWORK_UDP_CAPABILITY,
     NETWORK_WEBSOCKET_CAPABILITY,
+    SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
+    SYSTEM_AI_CAPABILITY,
+    SYSTEM_AI_REQUEST_CAPABILITY,
     STORAGE_CAPABILITY,
     STORAGE_JSON_CAPABILITY,
     toCanonicalCapabilityId
@@ -100,6 +103,30 @@ export const CAPABILITY_PRESENTATION = Object.freeze({
         description: "Allows host-mediated privileged mutations with explicit host-side checks.",
         risk: CAPABILITY_RISK_LEVELS.high,
         dependsOn: Object.freeze([]),
+        category: "system",
+    }),
+    [SYSTEM_AI_CAPABILITY]: Object.freeze({
+        id: SYSTEM_AI_CAPABILITY,
+        title: "Host AI access",
+        description: "Base host AI capability family. Pair it only with the concrete AI actions required by the plugin.",
+        risk: CAPABILITY_RISK_LEVELS.medium,
+        dependsOn: Object.freeze([]),
+        category: "system",
+    }),
+    [SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY]: Object.freeze({
+        id: SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
+        title: "List AI assistants",
+        description: "Allows plugins to read host-configured assistant metadata so users can pick an assistant explicitly.",
+        risk: CAPABILITY_RISK_LEVELS.low,
+        dependsOn: Object.freeze([SYSTEM_AI_CAPABILITY]),
+        category: "system",
+    }),
+    [SYSTEM_AI_REQUEST_CAPABILITY]: Object.freeze({
+        id: SYSTEM_AI_REQUEST_CAPABILITY,
+        title: "Send AI requests",
+        description: "Allows plugins to send AI task requests through host-managed assistant routing.",
+        risk: CAPABILITY_RISK_LEVELS.medium,
+        dependsOn: Object.freeze([SYSTEM_AI_CAPABILITY]),
         category: "system",
     }),
     "system.process.exec": Object.freeze({
@@ -286,6 +313,10 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
             "loopback-dev": {
                 title: "Loopback Development Scope",
                 description: "Narrow scope paired with system.network for localhost and loopback development services.",
+            },
+            "external-services": {
+                title: "External Services Scope",
+                description: "Narrow scope paired with system.network for approved external SaaS/content service endpoints.",
             },
         };
         const known = knownNetworkScopePresentation[scopeId];

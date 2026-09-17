@@ -3,14 +3,19 @@ const os = require("node:os");
 const path = require("node:path");
 
 let e2eUserDataDir = "";
+const appUserDataDirs = new WeakMap();
+
+function createE2EUserDataDir() {
+  const workerIndex = process.env.TEST_WORKER_INDEX || "0";
+  const prefix = `fdo-e2e-${process.pid}-${workerIndex}-`;
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
 
 function ensureE2EUserDataDir() {
   if (e2eUserDataDir) {
     return e2eUserDataDir;
   }
-  const workerIndex = process.env.TEST_WORKER_INDEX || "0";
-  const prefix = `fdo-e2e-${process.pid}-${workerIndex}-`;
-  e2eUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  e2eUserDataDir = createE2EUserDataDir();
   return e2eUserDataDir;
 }
 
@@ -46,8 +51,9 @@ async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
   }
 }
 
-async function launchElectronApp(electron) {
-  const userDataDir = ensureE2EUserDataDir();
+async function launchElectronApp(electron, options = {}) {
+  const isolatedUserDataDir = options?.isolatedUserDataDir === true;
+  const userDataDir = isolatedUserDataDir ? createE2EUserDataDir() : ensureE2EUserDataDir();
   let app = null;
   let lastError = null;
   const maxLaunchAttempts = Number(process.env.FDO_E2E_LAUNCH_RETRIES || 3);
@@ -74,6 +80,10 @@ async function launchElectronApp(electron) {
   if (!app) {
     throw lastError || new Error("Electron app launch failed");
   }
+  appUserDataDirs.set(app, {
+    path: userDataDir,
+    isolated: isolatedUserDataDir,
+  });
   const firstWindow = await app.firstWindow();
   try {
     await firstWindow.evaluate(() => {
@@ -171,6 +181,7 @@ async function clearConfirmLog(page) {
 
 async function closeElectronApp(app) {
   if (!app) return;
+  const appUserData = appUserDataDirs.get(app) || null;
   try {
     const windows = app.windows();
     for (const win of windows) {
@@ -192,12 +203,15 @@ async function closeElectronApp(app) {
     await app.close();
   } catch (_) {}
 
-  if (e2eUserDataDir && process.env.FDO_E2E_KEEP_USER_DATA !== "1") {
+  if (appUserData?.path && process.env.FDO_E2E_KEEP_USER_DATA !== "1") {
     try {
-      fs.rmSync(e2eUserDataDir, { recursive: true, force: true });
+      fs.rmSync(appUserData.path, { recursive: true, force: true });
     } catch (_) {}
-    e2eUserDataDir = "";
+    if (!appUserData.isolated && e2eUserDataDir === appUserData.path) {
+      e2eUserDataDir = "";
+    }
   }
+  appUserDataDirs.delete(app);
 }
 
 async function openEditorWithMockedIPC(app, overrides = {}) {

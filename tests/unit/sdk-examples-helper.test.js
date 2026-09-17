@@ -7,6 +7,10 @@ const {
   discoverSdkExampleEntries,
   resolveSdkExamplesPath,
 } = require("../e2e/helpers/sdkExamples");
+const {
+  FIXTURE_RUNTIME_MATRIX_INCLUDE,
+  FIXTURE_RUNTIME_MATRIX_SMOKE_HANDLERS,
+} = require("../e2e/helpers/fixtureRuntimeMatrixConfig");
 
 describe("sdkExamples helper", () => {
   test("exports candidate SDK example paths for local and CI resolution", () => {
@@ -48,5 +52,21 @@ describe("sdkExamples helper", () => {
     ]);
 
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("fixture runtime matrix config keeps an explicit fixture include list", () => {
+    expect(Array.isArray(FIXTURE_RUNTIME_MATRIX_INCLUDE)).toBe(true);
+    expect(FIXTURE_RUNTIME_MATRIX_INCLUDE.length).toBeGreaterThan(0);
+    expect(new Set(FIXTURE_RUNTIME_MATRIX_INCLUDE).size).toBe(FIXTURE_RUNTIME_MATRIX_INCLUDE.length);
+    expect(FIXTURE_RUNTIME_MATRIX_INCLUDE.every((item) => item.startsWith("fixtures/"))).toBe(true);
+  });
+
+  test("fixture runtime smoke handlers only target explicitly included fixtures", () => {
+    const includeSet = new Set(FIXTURE_RUNTIME_MATRIX_INCLUDE);
+    for (const [relativePath, config] of Object.entries(FIXTURE_RUNTIME_MATRIX_SMOKE_HANDLERS)) {
+      expect(includeSet.has(relativePath)).toBe(true);
+      expect(typeof config.handler).toBe("string");
+      expect(config.handler.length).toBeGreaterThan(0);
+    }
   });
 });

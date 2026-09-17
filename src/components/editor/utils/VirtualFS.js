@@ -10,6 +10,22 @@ import LZString from "lz-string";
 import {createVirtualFile} from "./createVirtualFile";
 import {extractMetadata} from "../../../utils/extractMetadata";
 import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
+import {
+    getSdkEditorSupportBundleWithFallback,
+    getSdkEditorSupportMonacoPolicyWithFallback,
+} from "./renderOnLoadMonacoSupport";
+
+function getMonacoTypeScriptApi() {
+    return monaco?.typescript || monaco?.default?.typescript;
+}
+
+function getMonacoTypeScriptDefaults() {
+    return getMonacoTypeScriptApi()?.typescriptDefaults;
+}
+
+function getMonacoJavaScriptDefaults() {
+    return getMonacoTypeScriptApi()?.javascriptDefaults;
+}
 
 const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
   export type PluginCapability = string;
@@ -56,12 +72,63 @@ const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
   export function validatePluginInitPayload(input: any): any;
   export function validateSerializedRenderPayload(input: any): any;
   export function validateUIMessagePayload(input: any): any;
+  export type RenderOnLoadSource = string | (() => void);
+  export type RenderOnLoadLanguage = "javascript" | "typescript";
+  export type RenderOnLoadHintKind = "snippet" | "function" | "keyword" | "variable";
+  export type RenderOnLoadHint = {
+    label: string;
+    insertText: string;
+    detail?: string;
+    documentation?: string;
+    kind?: RenderOnLoadHintKind;
+  };
+  export type RenderOnLoadModule = {
+    source: RenderOnLoadSource;
+    language?: RenderOnLoadLanguage;
+    hints?: RenderOnLoadHint[];
+    description?: string;
+  };
+  export type RenderOnLoadOutput = RenderOnLoadSource | RenderOnLoadModule;
+  export type RenderOnLoadActionHandlerContext = {
+    event: unknown;
+    element: unknown;
+    window: unknown;
+    document: unknown;
+  };
+  export type RenderOnLoadActionHandler = string | ((context: RenderOnLoadActionHandlerContext) => void | Promise<void>);
+  export type RenderOnLoadActionBinding = {
+    selector: string;
+    event: string;
+    handler: string;
+    preventDefault?: boolean;
+    stopPropagation?: boolean;
+    once?: boolean;
+    passive?: boolean;
+    capture?: boolean;
+    required?: boolean;
+  };
+  export type RenderOnLoadActionBindingsModuleOptions = {
+    handlers: Record<string, RenderOnLoadActionHandler>;
+    bindings: RenderOnLoadActionBinding[];
+    setup?: RenderOnLoadSource;
+    strict?: boolean;
+    language?: RenderOnLoadLanguage;
+    hints?: RenderOnLoadHint[];
+    description?: string;
+  };
+  export function defineRenderOnLoad(source: RenderOnLoadSource, options?: Omit<RenderOnLoadModule, "source">): RenderOnLoadModule;
+  export function defineRenderOnLoadActions(options: RenderOnLoadActionBindingsModuleOptions): RenderOnLoadModule;
+  export function createRenderOnLoadActionsSource(options: RenderOnLoadActionBindingsModuleOptions): string;
+  export function resolveRenderOnLoadSource(output: RenderOnLoadOutput): string;
+  export function getRenderOnLoadMonacoTypeDefinitions(): string;
+  export function getRenderOnLoadMonacoHints(): RenderOnLoadHint[];
   export function createHostsWriteActionRequest(payload: any): any;
   export function createFilesystemMutateActionRequest(payload: any): any;
   export function createProcessExecActionRequest(payload: any): any;
   export function createPrivilegedActionCorrelationId(prefix?: string): string;
   export function createPrivilegedActionBackendRequest<TRequest = any>(request: TRequest, options?: any): { correlationId: string; request: TRequest };
   export function requestPrivilegedAction<TResult = any, TRequest = any>(request: TRequest, options?: any): Promise<PrivilegedActionResponse<TResult>>;
+  export function requestPrivilegedActionFromEnvelope<TResult = any>(envelopeOrRequest: unknown, options?: PrivilegedActionPipelineOptions): Promise<PrivilegedActionPipelineResult<TResult>>;
   export function createScopedProcessExecActionRequest(scopeId: string, payload: any): any;
   export function requestScopedProcessExec<TResult = any>(scopeId: string, payload: any, options?: any): Promise<PrivilegedActionResponse<TResult>>;
   export type ScopedWorkflowKind = "process-sequence";
@@ -105,6 +172,7 @@ const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
   export function createProcessCapabilityBundle(scopeId: string): string[];
   export function describeCapability(capability: string): { capability: string; label: string; description: string; category: string };
   export function parseMissingCapabilityError(error: unknown): { capability: string; action: string; category: string; label: string; description: string; remediation: string } | null;
+  export function runCapabilityPreflight(options: { declared: string[]; granted?: string[]; action?: string }): CapabilityPreflightReport;
   export function createFilesystemScopeCapability(scope: string): string;
   export function createProcessScopeCapability(scope: string): string;
   export function requireFilesystemScopeCapability(scope: string): string;
@@ -124,6 +192,44 @@ const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
     code?: string;
   };
   export type PrivilegedActionResponse<TResult = any> = PrivilegedActionSuccessResponse<TResult> | PrivilegedActionErrorResponse;
+  export type PrivilegedActionPipelineOptions = {
+    correlationId?: string;
+    handler?: string;
+    correlationIdPrefix?: string;
+    context?: string;
+    fallbackCorrelationId?: string;
+    maxDetailLength?: number;
+    includeStdoutWhenStderrMissing?: boolean;
+    throwOnError?: boolean;
+  };
+  export type PrivilegedActionPipelineResult<TResult = any> = {
+    request: any;
+    response: PrivilegedActionResponse<TResult>;
+    errorMessage?: string;
+  };
+  export type MissingCapabilityDiagnostic = {
+    capability: string;
+    action: string;
+    category: string;
+    label: string;
+    description: string;
+    remediation: string;
+  };
+  export type CapabilityPreflightMissingDiagnostic = MissingCapabilityDiagnostic & {
+    requiredCapabilities: string[];
+    missingPrerequisites: string[];
+    grantedPrerequisites: string[];
+  };
+  export type CapabilityPreflightReport = {
+    ok: boolean;
+    action: string;
+    declared: string[];
+    granted: string[];
+    missing: CapabilityPreflightMissingDiagnostic[];
+    undeclaredGranted: Array<{ capability: string; label: string; description: string; category: string }>;
+    remediations: string[];
+    summary: string;
+  };
   export type ScopedWorkflowProcessStepResultData = {
     command: string;
     args: string[];
@@ -360,6 +466,7 @@ const virtualFS = {
         version_current: 0,
         tsCounter: 0,
         nodeModulesPromise: null,
+        renderOnLoadTypeDefsPromise: null,
         parent: Object,
         loading: false,
         nodeModulesLoading: false,
@@ -511,10 +618,11 @@ const virtualFS = {
             return { version: latest, date: date, prev: prevVersion, error: persistError };
         },
         set(version) {
+            const tsDefaults = getMonacoTypeScriptDefaults();
             this.setRestoreLoading()
             this.setRestorePhase("clearing-models")
             for (const key of Object.keys(this.parent.files)) {
-                monaco.typescript.typescriptDefaults.addExtraLib("", key);
+                tsDefaults?.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`))
                 if (model) {
                     model.dispose()
@@ -537,7 +645,7 @@ const virtualFS = {
             for (const file of this.versions[version].content) {
                 const uri = monaco.Uri.file(`${file.id}`)
                 const fileContent = file.content
-                monaco.typescript.typescriptDefaults.addExtraLib(fileContent, file.id)
+                tsDefaults?.addExtraLib(fileContent, file.id)
                 let model = {}
                 model = monaco.editor.getModel(uri)
                 if (!model) {
@@ -559,8 +667,8 @@ const virtualFS = {
 
             const nodeModulesPromise = this.setupNodeModules()
             this.setRestorePhase("restoring-selection")
-            monaco.typescript.typescriptDefaults.setCompilerOptions({
-                ...monaco.typescript.typescriptDefaults.getCompilerOptions()
+            tsDefaults?.setCompilerOptions({
+                ...(tsDefaults.getCompilerOptions?.() || {})
             });
 
             this.version_current = version
@@ -609,6 +717,8 @@ const virtualFS = {
             }
         },
         async setupNodeModules() {
+            const tsDefaults = getMonacoTypeScriptDefaults();
+            const jsDefaults = getMonacoJavaScriptDefaults();
             if (this.nodeModulesPromise) {
                 return this.nodeModulesPromise;
             }
@@ -617,7 +727,7 @@ const virtualFS = {
                 '    const styles: { [className: string]: Record<string, string> };\n'+
                 '    export default styles;\n' +
                 '}'
-            monaco.typescript.typescriptDefaults.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
+            tsDefaults?.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType, undefined, false, false, undefined, {
                 suppressTreeUpdate: true,
                 suppressFileSelected: true,
@@ -652,6 +762,37 @@ const virtualFS = {
                 };
                 const moduleFiles = resolveFiles(moduleFilesResult, "module files");
                 const sdkTypeFiles = resolveFiles(sdkTypesResult, "sdk type files");
+                const hasSdkIndex = sdkTypeFiles.some((file) => String(file?.path || "").replace(/\\/g, "/") === "index.d.ts");
+                const createSafeSdkManifest = (moduleId = "@anikitenko/fdo-sdk") => ({
+                    name: moduleId,
+                    private: true,
+                    types: "./index.d.ts",
+                    exports: {
+                        ".": {
+                            types: "./index.d.ts",
+                            default: "./dist/fdo-sdk.bundle.js",
+                        },
+                    },
+                });
+                const registerRenderOnLoadExtraLib = (typeDefs) => {
+                    if (!tsDefaults || !jsDefaults || typeof typeDefs !== "string" || !typeDefs.trim()) {
+                        return;
+                    }
+                    tsDefaults.addExtraLib(
+                        typeDefs,
+                        `/node_modules/@types/fdo-render-onload.d.ts`
+                    );
+                    jsDefaults.addExtraLib(
+                        typeDefs,
+                        `/node_modules/@types/fdo-render-onload.d.ts`
+                    );
+                    createVirtualFile(`/node_modules/@types/fdo-render-onload.d.ts`, typeDefs, undefined, false, false, undefined, {
+                        suppressTreeUpdate: true,
+                        suppressFileSelected: true,
+                        suppressDefaultSelection: true,
+                        suppressCompilerRefresh: true,
+                    });
+                };
 
                 for (const file of moduleFiles) {
                     let plaintext = false;
@@ -662,7 +803,7 @@ const virtualFS = {
                         continue;
                     }
 
-                    monaco.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/${file.path}`);
+                    tsDefaults?.addExtraLib(file.content, `/node_modules/${file.path}`);
 
                     if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
                         plaintext = true;
@@ -679,7 +820,7 @@ const virtualFS = {
                     if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
                         continue;
                     }
-                    monaco.typescript.typescriptDefaults.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`);
+                    tsDefaults?.addExtraLib(file.content, `/node_modules/@anikitenko/fdo-sdk/${file.path}`);
                     createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/${file.path}`, file.content, undefined, false, false, undefined, {
                         suppressTreeUpdate: true,
                         suppressFileSelected: true,
@@ -687,26 +828,92 @@ const virtualFS = {
                         suppressCompilerRefresh: true
                     });
                 }
-                if (sdkTypeFiles.length === 0) {
-                    monaco.typescript.typescriptDefaults.addExtraLib(
-                        FDO_SDK_FALLBACK_D_TS,
-                        `/node_modules/@anikitenko/fdo-sdk/index.d.ts`
-                    );
-                    createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/index.d.ts`, FDO_SDK_FALLBACK_D_TS, undefined, false, false, undefined, {
-                        suppressTreeUpdate: true,
-                        suppressFileSelected: true,
-                        suppressDefaultSelection: true,
-                        suppressCompilerRefresh: true
+                this.renderOnLoadTypeDefsPromise = getSdkEditorSupportBundleWithFallback()
+                    .then(async (bundle) => {
+                        const moduleId = String(bundle?.moduleId || "@anikitenko/fdo-sdk").trim() || "@anikitenko/fdo-sdk";
+                        const fallbackIndexTypesVirtualPath = `/node_modules/${moduleId}/index.d.ts`;
+                        const fallbackPackageJsonVirtualPath = `/node_modules/${moduleId}/package.json`;
+                        const monacoPolicy = await getSdkEditorSupportMonacoPolicyWithFallback({
+                            hasSdkIndex,
+                            moduleId,
+                            indexTypesVirtualPath: bundle?.indexTypesVirtualPath || fallbackIndexTypesVirtualPath,
+                            packageJsonVirtualPath: bundle?.packageJsonVirtualPath || fallbackPackageJsonVirtualPath,
+                            namespaceFallbackTypeDefinitions: typeof bundle?.renderOnLoadTypeDefinitions === "string"
+                                ? bundle.renderOnLoadTypeDefinitions
+                                : "",
+                        });
+                        const indexTypesVirtualPath = String(
+                            monacoPolicy?.indexTypesVirtualPath
+                            || bundle?.indexTypesVirtualPath
+                            || fallbackIndexTypesVirtualPath
+                        );
+                        const packageJsonVirtualPath = String(
+                            monacoPolicy?.packageJsonVirtualPath
+                            || bundle?.packageJsonVirtualPath
+                            || fallbackPackageJsonVirtualPath
+                        );
+                        const includePackageJsonVirtualFile = hasSdkIndex;
+                        const includeSdkModuleFallbackTypes = !hasSdkIndex;
+                        const includeRenderOnLoadNamespaceFallback = monacoPolicy?.includeRenderOnLoadNamespaceFallback !== false;
+
+                        if (includePackageJsonVirtualFile) {
+                            const manifestObject = bundle?.packageManifest && typeof bundle.packageManifest === "object"
+                                ? bundle.packageManifest
+                                : createSafeSdkManifest(moduleId);
+                            const packageJson = (
+                                typeof bundle?.packageJson === "string" && bundle.packageJson.trim()
+                                    ? bundle.packageJson
+                                    : JSON.stringify(manifestObject, null, 2)
+                            );
+                            createVirtualFile(packageJsonVirtualPath, packageJson, undefined, false, false, undefined, {
+                                suppressTreeUpdate: true,
+                                suppressFileSelected: true,
+                                suppressDefaultSelection: true,
+                                suppressCompilerRefresh: true,
+                            });
+                        }
+
+                        if (includeSdkModuleFallbackTypes) {
+                            tsDefaults?.addExtraLib(
+                                FDO_SDK_FALLBACK_D_TS,
+                                indexTypesVirtualPath
+                            );
+                            createVirtualFile(indexTypesVirtualPath, FDO_SDK_FALLBACK_D_TS, undefined, false, false, undefined, {
+                                suppressTreeUpdate: true,
+                                suppressFileSelected: true,
+                                suppressDefaultSelection: true,
+                                suppressCompilerRefresh: true
+                            });
+                        }
+
+                        if (includeRenderOnLoadNamespaceFallback) {
+                            registerRenderOnLoadExtraLib(bundle?.renderOnLoadTypeDefinitions);
+                        }
+                    })
+                    .catch(() => {
+                        if (!hasSdkIndex) {
+                            tsDefaults?.addExtraLib(
+                                FDO_SDK_FALLBACK_D_TS,
+                                `/node_modules/@anikitenko/fdo-sdk/index.d.ts`
+                            );
+                            createVirtualFile(`/node_modules/@anikitenko/fdo-sdk/index.d.ts`, FDO_SDK_FALLBACK_D_TS, undefined, false, false, undefined, {
+                                suppressTreeUpdate: true,
+                                suppressFileSelected: true,
+                                suppressDefaultSelection: true,
+                                suppressCompilerRefresh: true
+                            });
+                        }
                     });
-                }
 
                 this.parent.notifications.addToQueue("treeUpdate", this.parent.getTreeObjectSortedAsc());
+                return this.renderOnLoadTypeDefsPromise;
             }).finally(() => {
                 this.stopNodeModulesLoading();
                 if (this.restoreLoading) {
                     this.parent.notifications.addToQueue("restorePhase", "node-modules-complete");
                 }
                 this.nodeModulesPromise = null;
+                this.renderOnLoadTypeDefsPromise = null;
             });
 
             return this.nodeModulesPromise;
@@ -1349,11 +1556,12 @@ const virtualFS = {
         return true;
     },
     deleteFile(fileName) {
+        const tsDefaults = getMonacoTypeScriptDefaults();
         const fileIDs = []
         for (const key of Object.keys(this.files)) {
             if (key.startsWith(fileName)) {
                 fileIDs.push(key)
-                monaco.typescript.typescriptDefaults.addExtraLib("", key);
+                tsDefaults?.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`));
                 if (model) {
                     model.dispose(); // Remove it from Monaco
@@ -1369,8 +1577,8 @@ const virtualFS = {
         fileIDs.forEach((id) => {
             this.notifications.addToQueue("fileRemoved", id);
         });
-        monaco.typescript.typescriptDefaults.setCompilerOptions({
-            ...monaco.typescript.typescriptDefaults.getCompilerOptions()
+        tsDefaults?.setCompilerOptions({
+            ...(tsDefaults.getCompilerOptions?.() || {})
         });
         this.removeTreeObjectItemById(fileName)
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
@@ -1463,6 +1671,7 @@ const virtualFS = {
     },
 
     rename(node, newFile) {
+        const tsDefaults = getMonacoTypeScriptDefaults();
         if (this.getTreeObjectItemById(newFile)) return
         const object = _.cloneDeep(this.getTreeObjectItemById(node.id))
         if (!object) return;
@@ -1498,8 +1707,8 @@ const virtualFS = {
                 }
             }
         }
-        monaco.typescript.typescriptDefaults.setCompilerOptions({
-            ...monaco.typescript.typescriptDefaults.getCompilerOptions()
+        tsDefaults?.setCompilerOptions({
+            ...(tsDefaults.getCompilerOptions?.() || {})
         });
     },
 

@@ -212,8 +212,11 @@ async function ensureRootCertificate(window) {
 async function deploySdkExample(window, entry, options = {}) {
   const pluginName = options.pluginName || `sdk-e2e-${entry.slug}`;
   const compiledContent = await compileSdkExample(entry);
+  const capabilities = Array.isArray(options.capabilities)
+    ? Array.from(new Set(options.capabilities.map((item) => String(item || "").trim()).filter(Boolean)))
+    : [];
   await ensureRootCertificate(window);
-  const result = await window.evaluate(async ({ pluginName, compiledContent, relativePath }) => {
+  const result = await window.evaluate(async ({ pluginName, compiledContent, relativePath, capabilities }) => {
     return await window.electron.plugin.deployToMainFromEditor({
       name: pluginName,
       sandbox: `sdk_examples_${pluginName}`,
@@ -226,12 +229,14 @@ async function deploySdkExample(window, entry, options = {}) {
         description: `Live E2E validation for ${relativePath}`,
         icon: "clean",
       },
+      capabilities,
       rootCert: "root",
     });
   }, {
     pluginName,
     compiledContent,
     relativePath: entry.relativePath,
+    capabilities,
   });
 
   if (!result?.success) {

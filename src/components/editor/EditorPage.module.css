@@ -386,12 +386,101 @@
 
 .editor-header-right {
     display: flex;
-    justify-content: flex-end;
-    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: nowrap;
     min-width: 0;
     padding: 6px 10px 6px 10px;
     color: #ccc;
     font-size: 14px;
+}
+
+.editorHeaderToolbarRow {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+    min-width: 0;
+}
+
+.renderOnLoadTemplateToolbar {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-right: 8px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(121, 151, 195, 0.24);
+    background: rgba(28, 35, 45, 0.8);
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.renderOnLoadTemplateSelect {
+    flex: 1 1 260px;
+    min-width: 240px;
+    max-width: 320px;
+    background: #2d3440 !important;
+    color: #d9e5ff !important;
+    border-color: rgba(122, 163, 219, 0.35) !important;
+}
+
+.renderOnLoadStrictSwitch {
+    margin: 0;
+    color: #d9e5ff;
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+
+.renderOnLoadTemplateError {
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(189, 77, 77, 0.38);
+    background: rgba(78, 26, 26, 0.72);
+    color: #ffd3d3;
+    font-size: 12px;
+}
+
+.renderOnLoadSidebarSection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.renderOnLoadSectionTitle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.renderOnLoadSidebarSelect {
+    width: 100%;
+    background: #242a34 !important;
+    color: #d9e5ff !important;
+    border: 1px solid rgba(122, 163, 219, 0.35) !important;
+    border-radius: 6px;
+}
+
+.renderOnLoadSidebarActions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.renderOnLoadSidebarStrict {
+    margin: 0;
+    color: #d9e5ff;
+}
+
+.renderOnLoadSidebarError {
+    border: 1px solid rgba(189, 77, 77, 0.38);
+    background: rgba(78, 26, 26, 0.72);
+    color: #ffd3d3;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.35;
 }
 
 .grid-container {
@@ -434,6 +523,16 @@
 .code-deploy-actions {
     background: #333;
     padding: 20px;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+.deploy-actions-cell {
+    min-height: 0;
+    overflow: hidden;
 }
 
 .build-output-terminal {

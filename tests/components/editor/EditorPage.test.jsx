@@ -4,6 +4,7 @@ import {MemoryRouter} from "react-router-dom";
 import * as monaco from "monaco-editor";
 import virtualFS from "../../../src/components/editor/utils/VirtualFS";
 import {EditorPage} from "../../../src/components/editor/EditorPage.jsx";
+import {__resetRenderOnLoadSdkSupportCacheForTests} from "../../../src/components/editor/utils/renderOnLoadMonacoSupport";
 
 jest.mock("react-split-grid", () => ({
     __esModule: true,
@@ -23,7 +24,46 @@ jest.mock("@monaco-editor/react", () => ({
 jest.mock("../../../src/components/editor/FileBrowserComponent", () => () => <div>File Browser</div>);
 jest.mock("../../../src/components/editor/FileTabComponent", () => () => <div>File Tabs</div>);
 jest.mock("../../../src/components/editor/FileDialogComponent", () => () => null);
-jest.mock("../../../src/components/editor/CodeDeployActions", () => () => <div>Deploy Actions</div>);
+jest.mock("../../../src/components/editor/CodeDeployActions", () => (props) => (
+    <div>
+        <div>Deploy Actions</div>
+        {Array.isArray(props?.renderOnLoadTemplates) && props.renderOnLoadTemplates.length > 0 && (
+            <div>
+                <label htmlFor="renderOnLoadTemplatePicker">renderOnLoad template picker</label>
+                <select
+                    id="renderOnLoadTemplatePicker"
+                    aria-label="renderOnLoad template picker"
+                    value={props.renderOnLoadTemplateId || ""}
+                    onChange={(event) => props.onRenderOnLoadTemplateIdChange?.(event.target.value)}
+                >
+                    {props.renderOnLoadTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                            {template.label}
+                        </option>
+                    ))}
+                </select>
+                {props.showRenderOnLoadStrictToggle && (
+                    <label>
+                        Strict mode
+                        <input
+                            aria-label="Strict mode"
+                            type="checkbox"
+                            checked={Boolean(props.renderOnLoadStrictMode)}
+                            onChange={(event) => props.onRenderOnLoadStrictModeChange?.(event.target.checked)}
+                        />
+                    </label>
+                )}
+                <button
+                    type="button"
+                    disabled={!props.renderOnLoadTemplateId}
+                    onClick={() => props.onApplyRenderOnLoadTemplate?.()}
+                >
+                    Apply Template
+                </button>
+            </div>
+        )}
+    </div>
+));
 jest.mock("../../../src/components/editor/snapshots/SnapshotMount.jsx", () => () => <div>Snapshot Toolbar</div>);
 jest.mock("../../../src/components/common/SidebarSection.jsx", () => ({children}) => <div>{children}</div>);
 jest.mock("../../../src/components/editor/BuildOutputTerminalComponent", () => () => <div>Build Output</div>);
@@ -76,10 +116,260 @@ function resetVirtualFs() {
 describe("EditorPage baseline snapshot", () => {
     beforeEach(() => {
         resetVirtualFs();
+        __resetRenderOnLoadSdkSupportCacheForTests();
         window.electron.system.on.confirmEditorClose.mockClear();
         window.electron.system.on.confirmEditorReload.mockClear();
         window.electron.system.off.confirmEditorClose.mockClear();
         window.electron.system.off.confirmEditorReload.mockClear();
+        window.electron.system.getFdoSdkRenderOnLoadTemplates.mockReset();
+        window.electron.system.getFdoSdkRenderOnLoadTemplate.mockReset();
+        window.electron.system.getFdoSdkRenderOnLoadTemplates.mockResolvedValue({success: true, templates: []});
+        window.electron.system.getFdoSdkRenderOnLoadTemplate.mockResolvedValue({success: true, template: null});
+    });
+
+    test("registers renderOnLoad completions for Monaco editor languages", async () => {
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(monaco.languages.registerCompletionItemProvider).toHaveBeenCalled();
+        });
+
+        const completionLanguages = monaco.languages.registerCompletionItemProvider.mock.calls.map(([languageId]) => languageId);
+        expect(completionLanguages).toEqual(expect.arrayContaining([
+            "typescript",
+            "javascript",
+            "typescriptreact",
+            "javascriptreact",
+        ]));
+
+        const providers = monaco.languages.registerCompletionItemProvider.mock.calls.map(([, provider]) => provider);
+        const renderOnLoadProvider = providers.find((provider) => {
+            const result = provider?.provideCompletionItems?.({
+                uri: {path: "/index.ts"},
+                getValue: () => `
+                    export default class MyPlugin {
+                        renderOnLoad() {
+                            return defineRenderOnLoad(() => {
+                                return null;
+                            });
+                        }
+                    }
+                `,
+            }, { lineNumber: 4, column: 20 });
+            return result && typeof result.then === "function";
+        });
+
+        expect(renderOnLoadProvider).toBeTruthy();
+        const renderOnLoadSuggestions = await renderOnLoadProvider.provideCompletionItems({
+            uri: {path: "/index.ts"},
+            getValue: () => `
+                export default class MyPlugin {
+                    renderOnLoad() {
+                        return defineRenderOnLoad(() => {
+                            return null;
+                        });
+                    }
+                }
+            `,
+        }, { lineNumber: 4, column: 20 });
+        expect(renderOnLoadSuggestions.suggestions.some((item) => String(item?.label || "").includes("defineRenderOnLoadActions"))).toBe(true);
+    });
+
+    test("registers privileged helper completions for Monaco editor languages", async () => {
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        await waitFor(() => {
+            expect(monaco.languages.registerCompletionItemProvider).toHaveBeenCalled();
+        });
+
+        const providers = monaco.languages.registerCompletionItemProvider.mock.calls.map(([, provider]) => provider);
+        const privilegedProvider = providers.find((provider) => {
+            const result = provider?.provideCompletionItems?.({
+                uri: {path: "/index.ts"},
+                getValue: () => 'import { FDO_SDK } from "@anikitenko/fdo-sdk";\nexport default class MyPlugin extends FDO_SDK {}',
+            });
+            return Array.isArray(result?.suggestions)
+                && result.suggestions.some((item) => String(item?.label || "").includes("requestPrivilegedActionFromEnvelope"));
+        });
+
+        expect(privilegedProvider).toBeTruthy();
+    });
+
+    test("applies SDK plugin-method renderOnLoad template to the TypeScript scaffold", async () => {
+        window.electron.system.getFdoSdkRenderOnLoadTemplates.mockResolvedValueOnce({
+            success: true,
+            templates: [{
+                id: "method-define-render-on-load-actions",
+                label: "Method defineRenderOnLoadActions",
+                context: "plugin-method",
+                language: "typescript",
+                source: `renderOnLoad() {
+  return defineRenderOnLoadActions({
+    handlers: { run: async () => {} },
+    bindings: [{ selector: "#run", event: "click", handler: "run" }],
+    strict: true,
+  });
+}`,
+            }],
+        });
+        window.electron.system.getFdoSdkRenderOnLoadTemplate.mockResolvedValueOnce({
+            success: true,
+            template: {
+                id: "method-define-render-on-load-actions",
+                label: "Method defineRenderOnLoadActions",
+                context: "plugin-method",
+                language: "typescript",
+                source: `renderOnLoad() {
+  return defineRenderOnLoadActions({
+    handlers: { run: async () => {} },
+    bindings: [{ selector: "#run", event: "click", handler: "run" }],
+    strict: true,
+  });
+}`,
+            },
+        });
+
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        const applyButton = await screen.findByRole("button", {name: /apply template/i});
+        fireEvent.click(applyButton);
+
+        await waitFor(() => {
+            const content = virtualFS.getFileContent("/index.ts");
+            expect(content).toContain("renderOnLoad()");
+            expect(content).toContain("defineRenderOnLoadActions");
+            expect(content).toContain("strict: true");
+        });
+    });
+
+    test("maps strict toggle directly to defineRenderOnLoadActions strict option", async () => {
+        window.electron.system.getFdoSdkRenderOnLoadTemplates.mockResolvedValueOnce({
+            success: true,
+            templates: [{
+                id: "method-define-render-on-load-actions",
+                label: "Method defineRenderOnLoadActions",
+                context: "plugin-method",
+                language: "typescript",
+                source: `renderOnLoad() {
+  return defineRenderOnLoadActions({
+    handlers: { run: async () => {} },
+    bindings: [{ selector: "#run", event: "click", handler: "run" }],
+    strict: true,
+  });
+}`,
+            }],
+        });
+        window.electron.system.getFdoSdkRenderOnLoadTemplate.mockResolvedValueOnce({
+            success: true,
+            template: {
+                id: "method-define-render-on-load-actions",
+                label: "Method defineRenderOnLoadActions",
+                context: "plugin-method",
+                language: "typescript",
+                source: `renderOnLoad() {
+  return defineRenderOnLoadActions({
+    handlers: { run: async () => {} },
+    bindings: [{ selector: "#run", event: "click", handler: "run" }],
+    strict: true,
+  });
+}`,
+            },
+        });
+
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        const strictSwitch = await screen.findByLabelText(/strict/i);
+        fireEvent.click(strictSwitch);
+        const applyButton = screen.getByRole("button", {name: /apply template/i});
+        fireEvent.click(applyButton);
+
+        await waitFor(() => {
+            const content = virtualFS.getFileContent("/index.ts");
+            expect(content).toContain("strict: false");
+        });
+    });
+
+    test("routes runtime-source template to onload runtime editor file", async () => {
+        window.electron.system.getFdoSdkRenderOnLoadTemplates.mockResolvedValueOnce({
+            success: true,
+            templates: [{
+                id: "runtime-ui-message",
+                label: "Runtime UI_MESSAGE call",
+                context: "runtime-source",
+                language: "javascript",
+                source: "(() => { console.log('runtime'); })();",
+            }],
+        });
+        window.electron.system.getFdoSdkRenderOnLoadTemplate.mockResolvedValueOnce({
+            success: true,
+            template: {
+                id: "runtime-ui-message",
+                label: "Runtime UI_MESSAGE call",
+                context: "runtime-source",
+                language: "javascript",
+                source: "(() => { console.log('runtime'); })();",
+            },
+        });
+
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+
+        render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+
+        const picker = await screen.findByLabelText("renderOnLoad template picker");
+        fireEvent.change(picker, {target: {value: "runtime-ui-message"}});
+        fireEvent.click(screen.getByRole("button", {name: /apply template/i}));
+
+        await waitFor(() => {
+            expect(virtualFS.getFileContent("/render.onload.js")).toBe("(() => { console.log('runtime'); })();");
+        });
     });
 
     test("creates exactly one baseline snapshot for a new workspace after startup stabilizes", async () => {
@@ -355,7 +645,6 @@ describe("EditorPage baseline snapshot", () => {
     });
 
     test("registers quick-fix provider with Monaco textEdit payloads", async () => {
-        monaco.languages.registerCodeActionProvider = jest.fn();
         const pluginData = encodeURIComponent(JSON.stringify({
             name: "Test Plugin",
             template: "blank",
@@ -369,10 +658,10 @@ describe("EditorPage baseline snapshot", () => {
         );
 
         await waitFor(() => {
-            expect(monaco.languages.registerCodeActionProvider).toHaveBeenCalled();
+            expect(virtualFS.tabs.get().length).toBeGreaterThan(0);
         });
 
-        const provider = monaco.languages.registerCodeActionProvider.mock.calls[0]?.[1];
+        const provider = monaco.languages.registerCodeActionProvider.mock.calls.at(-1)?.[1];
         expect(provider).toBeTruthy();
 
         const source = `const req = createHostsWriteActionRequest({ action: "system.hosts.write" });`;

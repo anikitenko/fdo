@@ -35,6 +35,17 @@ export const BUILTIN_NETWORK_SCOPE_POLICIES = Object.freeze({
         allowedTransports: Object.freeze(["fetch", "xhr", "eventsource", "websocket", "tcp", "udp", "dns"]),
         requireConfirmation: false,
     }),
+    "external-services": Object.freeze({
+        scope: "external-services",
+        kind: "network",
+        category: "Network",
+        description: "Allows secure outbound web traffic to approved external SaaS/content service endpoints.",
+        allowedSchemes: Object.freeze(["https", "wss"]),
+        allowedHostPatterns: Object.freeze(["*"]),
+        allowedPorts: Object.freeze(["*"]),
+        allowedTransports: Object.freeze(["fetch", "xhr", "eventsource", "websocket"]),
+        requireConfirmation: false,
+    }),
 });
 
 function normalizeStringList(values = []) {

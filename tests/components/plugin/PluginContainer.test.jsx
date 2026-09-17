@@ -170,6 +170,35 @@ describe("PluginContainer message hardening", () => {
         });
     });
 
+    test("blocks plugin boot when handshake compatibility is incompatible", async () => {
+        runtimeStatusResponses = [
+            {
+                success: true,
+                statuses: [{
+                    id: "example-plugin",
+                    ready: true,
+                    inited: false,
+                    handshakeCompatibility: {
+                        status: "incompatible",
+                        summary: "Handshake contract is incompatible with the current host.",
+                        findings: [{
+                            code: "HANDSHAKE_API_INCOMPATIBLE",
+                            severity: "error",
+                            message: "Plugin API major 2 is incompatible with host API major 1.",
+                        }],
+                    },
+                }],
+            },
+        ];
+
+        render(<PluginContainer plugin="example-plugin" />);
+
+        expect(await screen.findByText("Plugin UI failed to load")).toBeInTheDocument();
+        expect(await screen.findByText(/Plugin API major 2 is incompatible with host API major 1/i)).toBeInTheDocument();
+        expect(window.electron.plugin.init).not.toHaveBeenCalled();
+        expect(window.electron.plugin.render).not.toHaveBeenCalled();
+    });
+
     test("ignores render payloads from other plugins", async () => {
         render(<PluginContainer plugin="example-plugin" />);
 

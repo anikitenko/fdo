@@ -58,6 +58,7 @@ jest.mock("../../src/utils/PluginManager", () => ({
         getLoadedPlugin: jest.fn(),
         getLoadedPluginReady: jest.fn(() => true),
         getLoadedPluginInited: jest.fn(() => true),
+        getPluginDiagnostics: jest.fn(async () => null),
         loadingPlugins: {},
         mainWindow: {
             focus: jest.fn(),
@@ -215,6 +216,85 @@ describe("plugin IPC init host contract", () => {
                 capabilities: ["storage.json"],
             }),
         }));
+    });
+
+    test("blocks plugin init on handshake API major mismatch", async () => {
+        const postMessage = jest.fn();
+        PluginManager.getLoadedPlugin.mockReturnValue({
+            ready: true,
+            instance: {postMessage},
+        });
+        PluginManager.getPluginDiagnostics.mockResolvedValue({
+            handshake: {
+                sdkVersion: "2.0.0",
+                apiVersion: "2.0.0",
+                capabilitySchemaVersion: "1",
+                featureFlags: {pluginDoctor: true},
+            },
+            handshakeCompatibility: {
+                status: "incompatible",
+                summary: "Handshake contract is incompatible with the current host.",
+                findings: [{
+                    code: "HANDSHAKE_API_INCOMPATIBLE",
+                    severity: "error",
+                    message: "Plugin API major 2 is incompatible with host API major 1.",
+                    remediation: "Upgrade the plugin SDK or host so both use the same API major version.",
+                }],
+            },
+        });
+
+        const initHandler = getInitHandler();
+        const result = await initHandler({}, "demo-plugin");
+
+        expect(result).toEqual({
+            success: false,
+            code: "HANDSHAKE_API_INCOMPATIBLE",
+            error: "Plugin API major 2 is incompatible with host API major 1.",
+            details: {
+                handshake: {
+                    sdkVersion: "2.0.0",
+                    apiVersion: "2.0.0",
+                    capabilitySchemaVersion: "1",
+                    featureFlags: {pluginDoctor: true},
+                },
+                handshakeCompatibility: expect.objectContaining({
+                    status: "incompatible",
+                }),
+            },
+        });
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    test("allows plugin init when handshake only reports schema mismatch warnings", async () => {
+        const postMessage = jest.fn();
+        PluginManager.getLoadedPlugin.mockReturnValue({
+            ready: true,
+            instance: {postMessage},
+        });
+        PluginManager.getPluginDiagnostics.mockResolvedValue({
+            handshake: {
+                sdkVersion: "1.2.3",
+                apiVersion: "1.0.0",
+                capabilitySchemaVersion: "2",
+                featureFlags: {pluginDoctor: true},
+            },
+            handshakeCompatibility: {
+                status: "warning",
+                summary: "Handshake contract is usable but has compatibility warnings.",
+                findings: [{
+                    code: "HANDSHAKE_CAPABILITY_SCHEMA_MISMATCH",
+                    severity: "warning",
+                    message: "Capability schema version 2 differs from host schema 1.",
+                    remediation: "Upgrade the plugin SDK or host capability model.",
+                }],
+            },
+        });
+
+        const initHandler = getInitHandler();
+        const result = await initHandler({}, "demo-plugin");
+
+        expect(result).toEqual({success: true});
+        expect(postMessage).toHaveBeenCalledTimes(1);
     });
 
     test("returns error when plugin is not loaded", async () => {

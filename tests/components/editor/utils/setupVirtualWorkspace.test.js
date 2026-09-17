@@ -84,8 +84,8 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         await setupVirtualWorkspace("missing-plugin", "Missing Plugin", "blank", dir);
 
         expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
-        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "missing-plugin", "blank");
-        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "missing-plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "Missing Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "Missing Plugin", "blank");
         expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
@@ -100,8 +100,24 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         await setupVirtualWorkspace("empty-plugin", "Empty Plugin", "blank", dir);
 
         expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
-        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "empty-plugin", "blank");
-        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "empty-plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "Empty Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "Empty Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
+        expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
+    });
+
+    test("defaults to blank template when template is missing for existing plugin fallback", async () => {
+        const dir = "/Users/alexvwan/Library/Application Support/FDO/plugins/no-template-plugin";
+        window.electron.plugin.getData.mockResolvedValue({
+            success: false,
+            error: "No source file found",
+        });
+
+        await setupVirtualWorkspace("no-template-plugin", "No Template Plugin", undefined, dir);
+
+        expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "No Template Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "No Template Plugin", "blank");
         expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });

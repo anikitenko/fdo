@@ -28,12 +28,59 @@ import {
     mergeMonacoValidationMarkers,
     suggestBlueprintIcons,
 } from "./utils/monacoCapabilityDiagnostics";
+import {
+    applyRenderOnLoadActionsStrictMode,
+    buildRenderOnLoadMigrationFix,
+    getRenderOnLoadTemplateWithFallback,
+    getRenderOnLoadMonacoHintsWithFallback,
+    isLikelyRenderOnLoadContext,
+    listRenderOnLoadTemplatesWithFallback,
+    mapRenderOnLoadHintKind,
+} from "./utils/renderOnLoadMonacoSupport";
 
 loader.config({monaco});
 
 let editorOpenerRegistered = false;
 let fdoCodeActionProvidersRegistered = false;
+let fdoRenderOnLoadCompletionProvidersRegistered = false;
+let fdoPrivilegedHelperCompletionProvidersRegistered = false;
 let activeCodeEditor = null;
+const ONLOAD_FILE_PATTERN = /\.onload\.[cm]?[jt]sx?$/i;
+
+const FDO_PRIVILEGED_HELPER_MONACO_HINTS = Object.freeze([
+    {
+        label: "requestPrivilegedActionFromEnvelope helper",
+        detail: "Unwrap legacy or modern envelopes through the SDK helper",
+        documentation: "Preferred privileged bridge helper for generated/plugin code. Works with raw requests and legacy envelope-compatible shapes.",
+        insertText: [
+            "const { response, errorMessage } = await requestPrivilegedActionFromEnvelope(${1:envelopeOrRequest}, {",
+            "    context: \"${2:Run privileged action}\",",
+            "});",
+            "if (!response.ok) {",
+            "    throw new Error(errorMessage || response.error);",
+            "}",
+            "${3:return response.result;}",
+        ].join("\n"),
+        sortText: "1_requestPrivilegedActionFromEnvelope",
+    },
+    {
+        label: "runCapabilityPreflight helper",
+        detail: "Preview missing capabilities before action execution",
+        documentation: "Use host-known declared and granted capabilities to surface summary, missing items, remediations, and extra grants before the action path fails.",
+        insertText: [
+            "const preflight = runCapabilityPreflight({",
+            "    declared: ${1:declaredCapabilities},",
+            "    granted: ${2:grantedCapabilities},",
+            "    action: \"${3:Run privileged action}\",",
+            "});",
+            "if (!preflight.ok) {",
+            "    console.warn(preflight.summary, preflight.missing, preflight.remediations);",
+            "}",
+            "${4:return preflight;}",
+        ].join("\n"),
+        sortText: "1_runCapabilityPreflight",
+    },
+]);
 
 function ensureFdoCodeActionProvidersRegistered() {
     if (fdoCodeActionProvidersRegistered) {
@@ -70,6 +117,21 @@ function ensureFdoCodeActionProvidersRegistered() {
                 });
             });
 
+            const renderOnLoadMigrationFix = buildRenderOnLoadMigrationFix({model, range: context?.range || _range});
+            if (renderOnLoadMigrationFix) {
+                actions.push({
+                    title: renderOnLoadMigrationFix.title,
+                    kind: "refactor.rewrite.fdo",
+                    edit: {
+                        edits: [{
+                            resource: model.uri,
+                            textEdit: renderOnLoadMigrationFix.edit,
+                        }],
+                    },
+                    isPreferred: false,
+                });
+            }
+
             return {actions, dispose: () => {}};
         },
     });
@@ -79,6 +141,98 @@ function ensureFdoCodeActionProvidersRegistered() {
     monaco.languages.registerCodeActionProvider("typescriptreact", createProvider());
     monaco.languages.registerCodeActionProvider("javascriptreact", createProvider());
     fdoCodeActionProvidersRegistered = true;
+}
+
+function ensureFdoRenderOnLoadCompletionProvidersRegistered() {
+    if (fdoRenderOnLoadCompletionProvidersRegistered) {
+        return;
+    }
+    if (typeof monaco?.languages?.registerCompletionItemProvider !== "function") {
+        return;
+    }
+
+    const languages = ["typescript", "javascript", "typescriptreact", "javascriptreact"];
+    const createProvider = () => ({
+        async provideCompletionItems(model, position) {
+            if (!isLikelyRenderOnLoadContext(model, position)) {
+                return {suggestions: []};
+            }
+            const hints = await getRenderOnLoadMonacoHintsWithFallback();
+            return {
+                suggestions: hints.map((hint, index) => ({
+                    label: hint.label,
+                    kind: mapRenderOnLoadHintKind(monaco, hint.kind),
+                    insertText: hint.insertText,
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule?.InsertAsSnippet,
+                    detail: hint.detail || "renderOnLoad helper",
+                    documentation: hint.documentation || "",
+                    sortText: hint.sortText || `renderOnLoad_${String(index).padStart(3, "0")}`,
+                    filterText: hint.filterText || hint.label,
+                    range: undefined,
+                })),
+            };
+        },
+    });
+
+    languages.forEach((languageId) => {
+        monaco.languages.registerCompletionItemProvider(languageId, createProvider());
+    });
+    fdoRenderOnLoadCompletionProvidersRegistered = true;
+}
+
+function isLikelyPrivilegedHelperContext(model) {
+    const modelPath = String(model?.uri?.path || model?.uri?.toString?.() || "").trim().toLowerCase();
+    if (/\/index\.[cm]?[jt]sx?$/.test(modelPath) || /plugin/.test(modelPath)) {
+        return true;
+    }
+    const source = String(model?.getValue?.() || "");
+    if (!source) {
+        return false;
+    }
+    return (
+        source.includes("@anikitenko/fdo-sdk")
+        || source.includes("declareCapabilities")
+        || source.includes("requestPrivilegedAction")
+        || source.includes("createPrivilegedActionBackendRequest")
+        || source.includes("window.createBackendReq(\"requestPrivilegedAction\"")
+        || source.includes("window.createBackendReq('requestPrivilegedAction'")
+    );
+}
+
+function ensureFdoPrivilegedHelperCompletionProvidersRegistered() {
+    if (fdoPrivilegedHelperCompletionProvidersRegistered) {
+        return;
+    }
+    if (typeof monaco?.languages?.registerCompletionItemProvider !== "function") {
+        return;
+    }
+
+    const languages = ["typescript", "javascript", "typescriptreact", "javascriptreact"];
+    const createProvider = () => ({
+        provideCompletionItems(model) {
+            if (!isLikelyPrivilegedHelperContext(model)) {
+                return {suggestions: []};
+            }
+            return {
+                suggestions: FDO_PRIVILEGED_HELPER_MONACO_HINTS.map((hint) => ({
+                    label: hint.label,
+                    kind: monaco.languages.CompletionItemKind?.Snippet || monaco.languages.CompletionItemKind?.Function,
+                    insertText: hint.insertText,
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule?.InsertAsSnippet,
+                    detail: hint.detail,
+                    documentation: hint.documentation,
+                    sortText: hint.sortText,
+                    filterText: hint.label,
+                    range: undefined,
+                })),
+            };
+        },
+    });
+
+    languages.forEach((languageId) => {
+        monaco.languages.registerCompletionItemProvider(languageId, createProvider());
+    });
+    fdoPrivilegedHelperCompletionProvidersRegistered = true;
 }
 
 export const EditorPage = () => {
@@ -101,6 +255,11 @@ export const EditorPage = () => {
     const [debugRenderStats, setDebugRenderStats] = useState({ shell: 0, tabs: 0, tree: 0, lastComponent: "", lastTs: 0 })
     const [grantedCapabilities, setGrantedCapabilities] = useState([]);
     const [pluginPersisted, setPluginPersisted] = useState(false);
+    const [renderOnLoadTemplates, setRenderOnLoadTemplates] = useState([]);
+    const [renderOnLoadTemplateId, setRenderOnLoadTemplateId] = useState("");
+    const [renderOnLoadStrictMode, setRenderOnLoadStrictMode] = useState(true);
+    const [renderOnLoadTemplateApplying, setRenderOnLoadTemplateApplying] = useState(false);
+    const [renderOnLoadTemplateError, setRenderOnLoadTemplateError] = useState("");
     const diagnosticsListenerDisposeRef = useRef(null);
     const initialSnapshotCreatedRef = useRef(false)
     // Request deduplication flags for window close/reload
@@ -184,9 +343,188 @@ export const EditorPage = () => {
 
     useEffect(() => codeEditorActions(codeEditor), [codeEditor]);
 
+    const getWorkspaceFileIds = () => {
+        try {
+            return Object.keys(virtualFS.getLatestContent?.() || {});
+        } catch (_) {
+            return [];
+        }
+    };
+
+    const isLikelyMultiBindingSource = (source = "") => {
+        if (typeof source !== "string" || !source) {
+            return false;
+        }
+        const addEventListenerCount = (source.match(/addEventListener\s*\(/g) || []).length;
+        const bindingsArraySize = (source.match(/selector\s*:\s*["'`]/g) || []).length;
+        return addEventListenerCount >= 2 || bindingsArraySize >= 2;
+    };
+
+    const findMatchingBraceIndex = (content, openBraceIndex) => {
+        if (typeof content !== "string" || openBraceIndex < 0) {
+            return -1;
+        }
+        let depth = 0;
+        for (let i = openBraceIndex; i < content.length; i += 1) {
+            if (content[i] === "{") depth += 1;
+            if (content[i] === "}") {
+                depth -= 1;
+                if (depth === 0) return i;
+            }
+        }
+        return -1;
+    };
+
+    const replaceOrInsertRenderOnLoadMethod = (source = "", methodSource = "") => {
+        const normalizedSource = typeof source === "string" ? source : "";
+        const normalizedMethod = String(methodSource || "").trim();
+        if (!normalizedMethod) {
+            return normalizedSource;
+        }
+        const existingMethodMatch = /\brenderOnLoad\s*\([^)]*\)\s*\{/m.exec(normalizedSource);
+        if (existingMethodMatch) {
+            const methodStart = existingMethodMatch.index;
+            const bodyStart = normalizedSource.indexOf("{", methodStart);
+            const methodEnd = findMatchingBraceIndex(normalizedSource, bodyStart);
+            if (methodEnd > methodStart) {
+                return `${normalizedSource.slice(0, methodStart)}${normalizedMethod}${normalizedSource.slice(methodEnd + 1)}`;
+            }
+        }
+
+        const classMatch = /class\s+[A-Za-z0-9_$]+\s+[^{]*\{/m.exec(normalizedSource);
+        if (classMatch) {
+            const classOpenBrace = normalizedSource.indexOf("{", classMatch.index);
+            const classCloseBrace = findMatchingBraceIndex(normalizedSource, classOpenBrace);
+            if (classCloseBrace > classOpenBrace) {
+                const prefix = normalizedSource.slice(0, classCloseBrace).replace(/\s*$/, "");
+                const suffix = normalizedSource.slice(classCloseBrace);
+                return `${prefix}\n\n${normalizedMethod}\n${suffix}`;
+            }
+        }
+
+        return `${normalizedSource.trimEnd()}\n\n${normalizedMethod}\n`;
+    };
+
+    const setActiveEditorPath = (filePath) => {
+        const selected = virtualFS.getTreeObjectItemById(filePath);
+        if (selected) {
+            virtualFS.setTreeObjectItemSelectedSilent(filePath);
+            virtualFS.tabs.add(selected);
+        }
+        setHasOpenTabs(true);
+        setEditorModelPath(filePath);
+    };
+
+    const getPluginMethodTemplateTargetPath = () => {
+        const preferred = ["/index.ts", "/index.tsx", "/index.js", "/index.jsx", editorModelPath];
+        const selected = preferred.find((filePath) => (
+            typeof filePath === "string"
+            && filePath
+            && virtualFS.getModel(filePath)
+        ));
+        if (selected) {
+            return selected;
+        }
+        const fallback = getWorkspaceFileIds().find((filePath) => (
+            /^\/.+\.[cm]?[jt]sx?$/.test(filePath)
+            && !filePath.startsWith("/node_modules/")
+            && !ONLOAD_FILE_PATTERN.test(filePath)
+        ));
+        return fallback || "/index.ts";
+    };
+
+    const getRuntimeSourceTemplateTargetPath = (language = "typescript") => {
+        const existing = getWorkspaceFileIds().find((filePath) => ONLOAD_FILE_PATTERN.test(filePath));
+        if (existing) {
+            return existing;
+        }
+        return language === "javascript" ? "/render.onload.js" : "/render.onload.ts";
+    };
+
+    const applyTemplateToFile = (filePath, source = "", language = "typescript") => {
+        let model = virtualFS.getModel(filePath);
+        if (!model) {
+            const monacoLanguage = language === "javascript" ? "javascript" : "typescript";
+            model = monaco.editor.createModel(source, monacoLanguage, monaco.Uri.file(filePath));
+            virtualFS.createFile(filePath, model);
+        } else {
+            model.setValue(source);
+        }
+        setActiveEditorPath(filePath);
+    };
+
+    const applyRenderOnLoadTemplate = async () => {
+        const templateId = String(renderOnLoadTemplateId || "").trim();
+        if (!templateId) {
+            return;
+        }
+        setRenderOnLoadTemplateApplying(true);
+        setRenderOnLoadTemplateError("");
+        try {
+            const template = await getRenderOnLoadTemplateWithFallback(templateId);
+            if (!template?.source) {
+                throw new Error("Template content is not available in the installed SDK.");
+            }
+            let source = template.source;
+            source = applyRenderOnLoadActionsStrictMode(source, renderOnLoadStrictMode);
+            if (template.context === "runtime-source") {
+                const targetPath = getRuntimeSourceTemplateTargetPath(template.language);
+                applyTemplateToFile(targetPath, source, template.language);
+            } else {
+                const targetPath = getPluginMethodTemplateTargetPath();
+                const model = virtualFS.getModel(targetPath);
+                const currentSource = model?.getValue?.() || "";
+                const nextSource = replaceOrInsertRenderOnLoadMethod(currentSource, source);
+                applyTemplateToFile(targetPath, nextSource, targetPath.endsWith(".js") || targetPath.endsWith(".jsx") ? "javascript" : "typescript");
+            }
+        } catch (error) {
+            setRenderOnLoadTemplateError(error?.message || "Failed to apply renderOnLoad template.");
+        } finally {
+            setRenderOnLoadTemplateApplying(false);
+        }
+    };
+
     useEffect(() => {
         ensureFdoCodeActionProvidersRegistered();
+        ensureFdoRenderOnLoadCompletionProvidersRegistered();
+        ensureFdoPrivilegedHelperCompletionProvidersRegistered();
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        const loadTemplates = async () => {
+            const templates = await listRenderOnLoadTemplatesWithFallback();
+            if (cancelled) {
+                return;
+            }
+            setRenderOnLoadTemplates(templates);
+            if (!templates.length) {
+                setRenderOnLoadTemplateId("");
+                return;
+            }
+
+            const currentSource = virtualFS.getModel(editorModelPath)?.getValue?.() || "";
+            const preferActionBindings = isLikelyMultiBindingSource(currentSource);
+            const actionTemplate = templates.find((template) => (
+                template.context === "plugin-method"
+                && String(template?.source || "").includes("defineRenderOnLoadActions(")
+            ));
+            const defaultTemplate = (
+                (preferActionBindings && actionTemplate)
+                || actionTemplate
+                || templates[0]
+            );
+            setRenderOnLoadTemplateId((currentId) => (
+                templates.some((template) => template.id === currentId)
+                    ? currentId
+                    : (defaultTemplate?.id || "")
+            ));
+        };
+        loadTemplates();
+        return () => {
+            cancelled = true;
+        };
+    }, [editorModelPath]);
 
     const getBaseMonacoMarkersForModel = (model) => {
         if (!model?.uri) {
@@ -823,6 +1161,13 @@ export const EditorPage = () => {
         try { window.dispatchEvent(new Event('ui:compact-changed')); } catch (_) {}
     };*/
 
+    const selectedRenderOnLoadTemplate = renderOnLoadTemplates.find((template) => template.id === renderOnLoadTemplateId) || null;
+    const showStrictToggle = !!selectedRenderOnLoadTemplate
+        && String(selectedRenderOnLoadTemplate.source || "").includes("defineRenderOnLoadActions(");
+    const isActionBindingRecommended = !!selectedRenderOnLoadTemplate
+        && selectedRenderOnLoadTemplate.context === "plugin-method"
+        && String(selectedRenderOnLoadTemplate.source || "").includes("defineRenderOnLoadActions(");
+
     return (
         <div className={`${styles["editor-page-component"]} ${compact ? styles["compact"] : ""}`}>
             <div className={styles["editor-header"]}>
@@ -845,7 +1190,9 @@ export const EditorPage = () => {
                 </div>
                 <div className={styles["editor-header-right"]}>
                     {/* Snapshot Toolbar (always on) */}
-                    <SnapshotToolbarMount />
+                    <div className={styles["editorHeaderToolbarRow"]}>
+                        <SnapshotToolbarMount />
+                    </div>
                 </div>
             </div>
             {!workspaceReady && !workspaceError && (
@@ -890,12 +1237,25 @@ export const EditorPage = () => {
                                         </SidebarSection>
                                     </div>
                                     <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
-                            <div>
+                            <div className={styles["deploy-actions-cell"]}>
                                 <div className={styles["code-deploy-actions"]}>
                                             <CodeDeployActions
                                                 setSelectedTabId={setBuildOutputSelectedTabId}
                                                 currentSelectedTabId={buildOutputSelectedTabId}
                                                 pluginDirectory={pluginDirectory}
+                                                renderOnLoadTemplates={renderOnLoadTemplates}
+                                                renderOnLoadTemplateId={renderOnLoadTemplateId}
+                                                onRenderOnLoadTemplateIdChange={(nextId) => {
+                                                    setRenderOnLoadTemplateId(nextId);
+                                                    setRenderOnLoadTemplateError("");
+                                                }}
+                                                renderOnLoadStrictMode={renderOnLoadStrictMode}
+                                                onRenderOnLoadStrictModeChange={setRenderOnLoadStrictMode}
+                                                showRenderOnLoadStrictToggle={showStrictToggle}
+                                                renderOnLoadTemplateApplying={renderOnLoadTemplateApplying}
+                                                onApplyRenderOnLoadTemplate={applyRenderOnLoadTemplate}
+                                                renderOnLoadTemplateError={renderOnLoadTemplateError}
+                                                highlightRenderOnLoadRecommendation={isActionBindingRecommended}
                                             />
                                         </div>
                                     </div>

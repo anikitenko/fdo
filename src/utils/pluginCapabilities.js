@@ -11,6 +11,9 @@ export const NETWORK_WEBSOCKET_CAPABILITY = "system.network.websocket";
 export const NETWORK_TCP_CAPABILITY = "system.network.tcp";
 export const NETWORK_UDP_CAPABILITY = "system.network.udp";
 export const NETWORK_DNS_CAPABILITY = "system.network.dns";
+export const SYSTEM_AI_CAPABILITY = "system.ai";
+export const SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY = "system.ai.assistants.list";
+export const SYSTEM_AI_REQUEST_CAPABILITY = "system.ai.request";
 
 const CAPABILITY_ALIAS_TO_CANONICAL = Object.freeze({
     [HOST_WRITE_CAPABILITY_LEGACY]: HOST_WRITE_CAPABILITY,
@@ -50,6 +53,15 @@ export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
     }),
     [NETWORK_DNS_CAPABILITY]: Object.freeze({
         description: "Allows direct DNS resolution APIs through runtime network modules.",
+    }),
+    [SYSTEM_AI_CAPABILITY]: Object.freeze({
+        description: "Allows host AI capability family grants for plugin AI workflows.",
+    }),
+    [SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY]: Object.freeze({
+        description: "Allows listing host-configured assistants for plugin AI assistant selection UX.",
+    }),
+    [SYSTEM_AI_REQUEST_CAPABILITY]: Object.freeze({
+        description: "Allows sending AI requests through host-managed assistant routing.",
     }),
     [HOST_WRITE_CAPABILITY]: Object.freeze({
         description: "Allows host-mediated privileged filesystem and host-side write actions.",

@@ -140,6 +140,12 @@ contextBridge.exposeInMainWorld('electron', {
             startCodexLogin: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, assistantId),
             codexLogout: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, assistantId),
             cancelCodexAuth: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_CANCEL, assistantId),
+            on: {
+                updated: (cb) => ipcRenderer.on(SettingsChannels.ai_assistants.on_off.UPDATED, cb)
+            },
+            off: {
+                updated: (cb) => ipcRenderer.off(SettingsChannels.ai_assistants.on_off.UPDATED, cb)
+            }
         }
     },
     system:{
@@ -151,6 +157,10 @@ contextBridge.exposeInMainWorld('electron', {
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
         getFdoSdkTypes: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_TYPES),
+        getFdoSdkEditorSupport: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_EDITOR_SUPPORT),
+        getFdoSdkEditorMonacoPolicy: (options) => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_EDITOR_MONACO_POLICY, options),
+        getFdoSdkRenderOnLoadTemplates: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_RENDER_ON_LOAD_TEMPLATES),
+        getFdoSdkRenderOnLoadTemplate: (id) => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_RENDER_ON_LOAD_TEMPLATE, id),
         getFdoSdkDomMetadata: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_DOM_METADATA),
         getFdoSdkKnowledge: (query, limit) => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_KNOWLEDGE, query, limit),
         getExternalReferenceKnowledge: (query, limit) => ipcRenderer.invoke(SystemChannels.GET_EXTERNAL_REFERENCE_KNOWLEDGE, query, limit),

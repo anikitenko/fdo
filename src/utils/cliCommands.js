@@ -46,7 +46,8 @@ export const CLI_COMMANDS = [
     'open',
     'compile',
     'deploy',
-    'sign'
+    'sign',
+    'sdk'
 ];
 
 /**
@@ -61,7 +62,8 @@ export const CLI_ONLY_COMMANDS = [
     '-V',
     'compile',
     'deploy',
-    'sign'
+    'sign',
+    'sdk'
 ];
 
 /**

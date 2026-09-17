@@ -111,6 +111,24 @@ describe("ManagePluginsDialog capability UX", () => {
                             granted: ["system.process.exec"],
                             missingDeclared: ["system.process.scope.docker-cli"],
                             undeclaredGranted: [],
+                            summaryText: "Missing 1 declared capability for plugin privileged actions.",
+                            remediations: [
+                                'Grant "system.process.scope.docker-cli" in Manage Plugins -> Capabilities.',
+                            ],
+                            missingDiagnostics: [
+                                {
+                                    capability: "system.process.scope.docker-cli",
+                                    action: "plugin privileged actions",
+                                    category: "process-scope",
+                                    label: "Process scope docker-cli",
+                                    description: "Allows scoped Docker CLI execution.",
+                                    remediation: 'Grant "system.process.scope.docker-cli" in Manage Plugins -> Capabilities.',
+                                    requiredCapabilities: ["system.process.scope.docker-cli"],
+                                    missingPrerequisites: ["system.process.scope.docker-cli"],
+                                    grantedPrerequisites: [],
+                                },
+                            ],
+                            undeclaredGrantedDetails: [],
                         },
                         capabilityIntentSummary: {
                             title: "Declared capability gaps",
@@ -228,6 +246,10 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(screen.getByText(/Allowed commands: \/usr\/local\/bin\/htop/)).toBeInTheDocument();
         expect(screen.getByText("Declared capability gaps")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", {name: "Show details"}));
+        expect(screen.getByText("Host Capability Preflight")).toBeInTheDocument();
+        expect(screen.getByText("Recommended next steps")).toBeInTheDocument();
+        expect(screen.getAllByText(/Missing 1 declared capability for plugin privileged actions/).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Grant "system\.process\.scope\.docker-cli" in Manage Plugins -> Capabilities\./).length).toBeGreaterThan(0);
         expect(screen.getByText("Missing for full feature set")).toBeInTheDocument();
         expect(screen.getAllByText(/system\.process\.scope\.docker-cli/).length).toBeGreaterThan(0);
         expect(screen.getByText("Privileged host actions")).toBeInTheDocument();

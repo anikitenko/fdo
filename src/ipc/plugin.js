@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, ipcMain} from "electron";
+import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
 import {rmSync, chmodSync, existsSync, statSync} from "node:fs";
 import {readFile, readdir, stat} from 'node:fs/promises';
@@ -27,6 +27,7 @@ import {extractMetadata} from "../utils/extractMetadata";
 import {normalizeAndValidatePluginMetadata} from "../utils/pluginMetadataContract";
 import {runPluginWorkspaceTests} from "../utils/pluginTestRunner";
 import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/pluginRuntimeSecurity";
+import {HANDSHAKE_API_INCOMPATIBLE} from "../utils/pluginHandshakeCompatibility";
 import {
     executeHostPrivilegedAction,
     HOST_PRIVILEGED_HANDLER,
@@ -68,6 +69,23 @@ import {
     STORAGE_CAPABILITY,
     STORAGE_JSON_CAPABILITY
 } from "../utils/pluginCapabilities";
+import {
+    FDO_AI_LIST_ASSISTANTS_HANDLER_ID,
+    FDO_AI_REQUEST_HANDLER_ID,
+    handleHostAiAssistantsListRequest,
+    handleHostAiRequest,
+} from "../utils/pluginHostAi";
+import {
+    FDO_AUTH_LOGOUT_HANDLER_ID,
+    FDO_AUTH_REFRESH_HANDLER_ID,
+    FDO_AUTH_START_HANDLER_ID,
+    FDO_SESSION_REQUEST_HANDLER_ID,
+    handleHostAuthBrokerLogoutRequest,
+    handleHostAuthBrokerRefreshRequest,
+    handleHostAuthBrokerStartRequest,
+    handleHostSessionRequest,
+} from "../utils/pluginHostAuth";
+import {FDO_BROWSER_OPEN_HANDLER_ID, handleHostBrowserOpenRequest} from "../utils/pluginHostBrowser";
 
 function buildHostPluginMessage(message, content = undefined) {
     const envelope = { message };
@@ -869,14 +887,14 @@ export function registerPluginHandlers() {
         const usedEnvelopeFallback = source === "result.request" || source === "content.request" || source === "data.request";
 
         if (usedEnvelopeFallback) {
-            const warningText = `[DEPRECATION][plugin=${pluginId}][corr=${correlationId}] requestPrivilegedAction received envelope shape; auto-unwrapped to request (${source}). Migrate to envelope.result.request before next major.`;
+            const warningText = `[DEPRECATION][plugin=${pluginId}][corr=${correlationId}] requestPrivilegedAction received envelope shape; auto-unwrapped to request (${source}). Migrate plugin code to requestPrivilegedActionFromEnvelope(...) or pass the extracted request object directly before next major.`;
             console.warn(warningText);
             const dedupeKey = `${pluginId}:${source}`;
             if (!privilegedEnvelopeDeprecationShown.has(dedupeKey)) {
                 privilegedEnvelopeDeprecationShown.add(dedupeKey);
                 NotificationCenter.addNotification({
                     title: "Deprecated privileged request shape",
-                    message: "Plugin should pass request object (envelope.result.request), not full envelope. Compatibility fallback is temporary.",
+                    message: "Plugin should use requestPrivilegedActionFromEnvelope(...) or pass the extracted request object directly. Compatibility auto-unwrapping is temporary.",
                     type: "warning",
                 });
             }
@@ -1848,6 +1866,9 @@ export function registerPluginHandlers() {
                     : null;
                 const currentGrantedCapabilities = loadedPluginCapabilities ?? persistedCapabilities;
                 const capabilityIntent = extractCapabilityDeclarationComparison(diagnostics, currentGrantedCapabilities);
+                const handshakeCompatibility = diagnostics?.handshakeCompatibility && typeof diagnostics.handshakeCompatibility === "object"
+                    ? diagnostics.handshakeCompatibility
+                    : null;
                 return {
                     id,
                     loading: !!PluginManager.loadingPlugins?.[id] && !PluginManager.getLoadedPluginReady(id) && !PluginManager.getLoadedPluginInited(id),
@@ -1868,6 +1889,8 @@ export function registerPluginHandlers() {
                     diagnosticsSummary: typeof PluginManager.getPrivilegedAuditTrail === "function"
                         ? summarizePrivilegedRuntime(PluginManager.getPrivilegedAuditTrail(id, {limit: 80}))
                         : summarizePrivilegedRuntime([]),
+                    handshake: diagnostics?.handshake || null,
+                    handshakeCompatibility,
                     capabilityIntent,
                     capabilityIntentSummary: buildCapabilityDeclarationSummary(capabilityIntent || {}),
                 };
@@ -1958,6 +1981,31 @@ export function registerPluginHandlers() {
         if (!plugin.ready) {
             return {success: false, error: `Plugin "${id}" is not ready`};
         }
+        const diagnostics = typeof PluginManager.getPluginDiagnostics === "function"
+            ? await PluginManager.getPluginDiagnostics(id, {refreshIfMissing: true, timeoutMs: 1800})
+            : null;
+        const handshakeCompatibility = diagnostics?.handshakeCompatibility && typeof diagnostics.handshakeCompatibility === "object"
+            ? diagnostics.handshakeCompatibility
+            : null;
+        if (handshakeCompatibility?.status === "incompatible") {
+            const primaryFinding = Array.isArray(handshakeCompatibility?.findings)
+                ? handshakeCompatibility.findings.find((finding) => String(finding?.code || "").trim() === HANDSHAKE_API_INCOMPATIBLE)
+                    || handshakeCompatibility.findings[0]
+                : null;
+            return {
+                success: false,
+                code: HANDSHAKE_API_INCOMPATIBLE,
+                error: String(
+                    primaryFinding?.message
+                    || handshakeCompatibility?.summary
+                    || `Plugin "${id}" is incompatible with the current host handshake contract.`
+                ),
+                details: {
+                    handshake: diagnostics?.handshake || null,
+                    handshakeCompatibility,
+                },
+            };
+        }
         // Idempotent init: avoid duplicate init/render cascades when multiple
         // renderer paths request init during startup reconciliation.
         if (plugin.inited) {
@@ -1968,8 +2016,18 @@ export function registerPluginHandlers() {
         }
         plugin.initRequested = true;
         try {
+            const initPayload = buildPluginInitPayload(
+                plugin.grantedCapabilities || resolveHostGrantedCapabilities()
+            );
+            console.info("[PLUGIN_INIT_CAPABILITIES]", JSON.stringify({
+                pluginId: id,
+                sessionId: getPluginRuntimeSessionId(id, plugin),
+                apiVersion: initPayload?.apiVersion || "",
+                capabilities: Array.isArray(initPayload?.capabilities) ? initPayload.capabilities : [],
+                capabilityCount: Array.isArray(initPayload?.capabilities) ? initPayload.capabilities.length : 0,
+            }));
             plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_INIT", {
-                ...buildPluginInitPayload(plugin.grantedCapabilities || resolveHostGrantedCapabilities()),
+                ...initPayload,
             }))
             return {success: true};
         } catch (error) {
@@ -2017,6 +2075,98 @@ export function registerPluginHandlers() {
             sessionId,
             handler: String(content?.handler || "").trim(),
         }));
+        const diagnostics = typeof PluginManager.getPluginDiagnostics === "function"
+            ? await PluginManager.getPluginDiagnostics(id, {refreshIfMissing: true, timeoutMs: 1800})
+            : null;
+        const declaredCapabilities = Array.isArray(diagnostics?.capabilities?.declaration?.declared)
+            ? diagnostics.capabilities.declaration.declared
+            : [];
+        if (content?.handler === FDO_AI_LIST_ASSISTANTS_HANDLER_ID) {
+            return await handleHostAiAssistantsListRequest(content?.content || {}, {
+                pluginId: id,
+                grantedCapabilities: plugin?.grantedCapabilities || [],
+            });
+        }
+        if (content?.handler === FDO_AI_REQUEST_HANDLER_ID) {
+            return await handleHostAiRequest(content?.content || {}, {
+                pluginId: id,
+                grantedCapabilities: plugin?.grantedCapabilities || [],
+            });
+        }
+        if (content?.handler === FDO_AUTH_START_HANDLER_ID) {
+            const response = await handleHostAuthBrokerStartRequest(content?.content || {}, {
+                pluginId: id,
+                sessionId,
+                grantedCapabilities: plugin?.grantedCapabilities || [],
+                declaredCapabilities,
+            });
+            console.info("[PLUGIN_AUTH_BROKER_RESULT]", JSON.stringify({
+                pluginId: id,
+                sessionId,
+                handler: FDO_AUTH_START_HANDLER_ID,
+                ok: response?.ok === true,
+                code: String(response?.code || ""),
+                correlationId: String(response?.correlationId || ""),
+            }));
+            return response;
+        }
+        if (content?.handler === FDO_AUTH_REFRESH_HANDLER_ID) {
+            const response = await handleHostAuthBrokerRefreshRequest(content?.content || {}, {
+                pluginId: id,
+                sessionId,
+                grantedCapabilities: plugin?.grantedCapabilities || [],
+                declaredCapabilities,
+            });
+            console.info("[PLUGIN_AUTH_BROKER_RESULT]", JSON.stringify({
+                pluginId: id,
+                sessionId,
+                handler: FDO_AUTH_REFRESH_HANDLER_ID,
+                ok: response?.ok === true,
+                code: String(response?.code || ""),
+                correlationId: String(response?.correlationId || ""),
+            }));
+            return response;
+        }
+        if (content?.handler === FDO_AUTH_LOGOUT_HANDLER_ID) {
+            const response = await handleHostAuthBrokerLogoutRequest(content?.content || {}, {
+                pluginId: id,
+                sessionId,
+                grantedCapabilities: plugin?.grantedCapabilities || [],
+                declaredCapabilities,
+            });
+            console.info("[PLUGIN_AUTH_BROKER_RESULT]", JSON.stringify({
+                pluginId: id,
+                sessionId,
+                handler: FDO_AUTH_LOGOUT_HANDLER_ID,
+                ok: response?.ok === true,
+                code: String(response?.code || ""),
+                correlationId: String(response?.correlationId || ""),
+            }));
+            return response;
+        }
+        if (content?.handler === FDO_SESSION_REQUEST_HANDLER_ID) {
+            const response = await handleHostSessionRequest(content?.content || {}, {
+                pluginId: id,
+                sessionId,
+                grantedCapabilities: plugin?.grantedCapabilities || [],
+                declaredCapabilities,
+            });
+            console.info("[PLUGIN_SESSION_REQUEST_RESULT]", JSON.stringify({
+                pluginId: id,
+                sessionId,
+                ok: response?.ok === true,
+                code: String(response?.code || ""),
+                correlationId: String(response?.correlationId || ""),
+                status: Number.isFinite(response?.status) ? Number(response.status) : undefined,
+            }));
+            return response;
+        }
+        if (content?.handler === FDO_BROWSER_OPEN_HANDLER_ID) {
+            return await handleHostBrowserOpenRequest(content?.content || {}, {
+                pluginId: id,
+                openExternal: (url) => shell.openExternal(url),
+            });
+        }
         if (content?.handler === HOST_PRIVILEGED_HANDLER || content?.handler === SDK_PRIVILEGED_ACTION_HANDLER) {
             try {
                 const response = await handlePrivilegedAction(id, plugin, content?.content || {});

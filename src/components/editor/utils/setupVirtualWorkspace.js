@@ -5,9 +5,21 @@ import virtualFS from "./VirtualFS";
 import {buildWorkspaceMonacoCompilerOptions} from "./workspaceMonacoCompilerOptions";
 import darkTheme from "../monaco/EditorDarkTheme"
 
-async function scaffoldFreshWorkspace(name, template) {
-    createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, name, template)
-    createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, name, template)
+const SUPPORTED_TEMPLATES = new Set(["blank", "horDivided", "verDivided"]);
+
+function resolveWorkspaceTemplate(template) {
+    const normalized = String(template || "").trim();
+    if (!normalized) {
+        return "blank";
+    }
+    return SUPPORTED_TEMPLATES.has(normalized) ? normalized : "blank";
+}
+
+async function scaffoldFreshWorkspace(name, displayName, template) {
+    const resolvedTemplate = resolveWorkspaceTemplate(template);
+    const templateDisplayName = String(displayName || name || "").trim() || name;
+    createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, templateDisplayName, resolvedTemplate)
+    createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, templateDisplayName, resolvedTemplate)
     createVirtualFile("/package.json", packageJsonContent(name))
     await virtualFS.fs.setupNodeModules()
 }
@@ -15,21 +27,28 @@ async function scaffoldFreshWorkspace(name, template) {
 export async function setupVirtualWorkspace(name, displayName, template, dir) {
     monaco.editor.defineTheme('editor-dark', darkTheme);
 
-    monaco.typescript.typescriptDefaults.setCompilerOptions(
-        buildWorkspaceMonacoCompilerOptions(monaco.typescript)
-    )
-    monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
-        noSemanticValidation: false,
-        noSyntaxValidation: false,
-        noSuggestionDiagnostics: false
-    })
-    monaco.typescript.typescriptDefaults.setEagerModelSync(true);
-    monaco.typescript.javascriptDefaults.setDiagnosticsOptions({
-        noSemanticValidation: true,
-        noSyntaxValidation: true,
-        noSuggestionDiagnostics: true
-    })
-    monaco.typescript.javascriptDefaults.setEagerModelSync(true);
+    const monacoTs = monaco?.typescript || monaco?.default?.typescript;
+    const tsDefaults = monacoTs?.typescriptDefaults;
+    const jsDefaults = monacoTs?.javascriptDefaults;
+    if (tsDefaults && jsDefaults) {
+        tsDefaults.setCompilerOptions(
+            buildWorkspaceMonacoCompilerOptions(monacoTs)
+        )
+        tsDefaults.setDiagnosticsOptions({
+            noSemanticValidation: false,
+            noSyntaxValidation: false,
+            noSuggestionDiagnostics: false
+        })
+        tsDefaults.setEagerModelSync(true);
+        jsDefaults.setDiagnosticsOptions({
+            noSemanticValidation: true,
+            noSyntaxValidation: true,
+            noSuggestionDiagnostics: true
+        })
+        jsDefaults.setEagerModelSync(true);
+    } else {
+        console.warn("[Editor] Monaco TypeScript defaults are unavailable; continuing with reduced IntelliSense.");
+    }
     if (!virtualFS.isInitWorkspace()) {
         const sandboxName = "sandbox_" + name
         const normalizedDir = String(dir || "");
@@ -42,7 +61,7 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
             virtualFS.restoreSandbox(sandbox)
             await virtualFS.fs.setupNodeModules()
         } else if (isSandboxWorkspace) {
-            await scaffoldFreshWorkspace(name, template)
+            await scaffoldFreshWorkspace(name, displayName, template)
         } else {
             const data = await window.electron.plugin.getData(dir).catch((error) => ({
                 success: false,
@@ -60,7 +79,7 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
                 }
                 await virtualFS.fs.setupNodeModules()
             } else {
-                await scaffoldFreshWorkspace(name, template)
+                await scaffoldFreshWorkspace(name, displayName, template)
             }
         }
     }

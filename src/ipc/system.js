@@ -113,6 +113,222 @@ function getCachedFdoSdkKnowledgeIndex() {
     return index;
 }
 
+function getOptionalFdoSdkEditorModule() {
+    try {
+        if (typeof __non_webpack_require__ === "function") {
+            return __non_webpack_require__("@anikitenko/fdo-sdk");
+        }
+    } catch (_) {
+        return null;
+    }
+    return null;
+}
+
+function createSafeSdkEditorSupportManifest() {
+    return {
+        name: "@anikitenko/fdo-sdk",
+        private: true,
+        types: "./index.d.ts",
+        exports: {
+            ".": {
+                types: "./index.d.ts",
+                default: "./dist/fdo-sdk.bundle.js",
+            },
+        },
+    };
+}
+
+function normalizeSdkEditorModuleId(sdkModule) {
+    return (
+        typeof sdkModule?.SDK_EDITOR_MODULE_ID === "string" && sdkModule.SDK_EDITOR_MODULE_ID.trim()
+            ? sdkModule.SDK_EDITOR_MODULE_ID.trim()
+            : "@anikitenko/fdo-sdk"
+    );
+}
+
+function createDefaultEditorVirtualPath(moduleId = "@anikitenko/fdo-sdk", suffix = "index.d.ts") {
+    const normalizedModuleId = String(moduleId || "@anikitenko/fdo-sdk")
+        .replace(/^\/+/, "")
+        .replace(/^node_modules\//, "")
+        .trim();
+    const normalizedSuffix = String(suffix || "index.d.ts").replace(/^\/+/, "").trim();
+    return `/node_modules/${normalizedModuleId}/${normalizedSuffix}`;
+}
+
+function normalizeEditorVirtualPath(pathValue = "", fallback = "") {
+    const normalized = String(pathValue || "").trim();
+    if (!normalized) {
+        return fallback;
+    }
+    return normalized.startsWith("/") ? normalized : `/${normalized.replace(/^\/+/, "")}`;
+}
+
+function getFdoSdkEditorSupportPayload() {
+    const sdkModule = getOptionalFdoSdkEditorModule();
+    const fallbackManifest = createSafeSdkEditorSupportManifest();
+    const fallbackPackageJson = JSON.stringify(fallbackManifest, null, 2);
+    const moduleId = normalizeSdkEditorModuleId(sdkModule);
+    const fallbackIndexTypesVirtualPath = createDefaultEditorVirtualPath(moduleId, "index.d.ts");
+    const fallbackPackageJsonVirtualPath = createDefaultEditorVirtualPath(moduleId, "package.json");
+    const indexTypesVirtualPath = normalizeEditorVirtualPath(
+        sdkModule?.SDK_EDITOR_INDEX_TYPES_VIRTUAL_PATH,
+        fallbackIndexTypesVirtualPath
+    );
+    const packageJsonVirtualPath = normalizeEditorVirtualPath(
+        sdkModule?.SDK_EDITOR_PACKAGE_JSON_VIRTUAL_PATH,
+        fallbackPackageJsonVirtualPath
+    );
+
+    if (typeof sdkModule?.getEditorSupportBundle === "function") {
+        try {
+            const bundle = sdkModule.getEditorSupportBundle();
+            if (bundle && typeof bundle === "object") {
+                const packageManifest = (
+                    bundle.packageManifest && typeof bundle.packageManifest === "object"
+                        ? bundle.packageManifest
+                        : fallbackManifest
+                );
+                const packageJson = (
+                    typeof bundle.packageJson === "string" && bundle.packageJson.trim()
+                        ? bundle.packageJson
+                        : JSON.stringify(packageManifest, null, 2)
+                );
+                return {
+                    success: true,
+                    bundle: {
+                        ...bundle,
+                        moduleId,
+                        indexTypesVirtualPath,
+                        packageJsonVirtualPath,
+                        packageManifest,
+                        packageJson,
+                    },
+                };
+            }
+        } catch (_) {
+            // Continue with the compatibility helper path below.
+        }
+    }
+
+    let packageManifest = null;
+    let packageJson = null;
+
+    try {
+        if (typeof sdkModule?.getEditorSupportPackageManifest === "function") {
+            const manifest = sdkModule.getEditorSupportPackageManifest();
+            if (manifest && typeof manifest === "object") {
+                packageManifest = manifest;
+            }
+        }
+    } catch (_) {
+        packageManifest = null;
+    }
+
+    try {
+        if (typeof sdkModule?.getEditorSupportPackageJson === "function") {
+            const content = sdkModule.getEditorSupportPackageJson();
+            if (typeof content === "string" && content.trim()) {
+                packageJson = content;
+            }
+        }
+    } catch (_) {
+        packageJson = null;
+    }
+
+    return {
+        success: true,
+        bundle: {
+            moduleId,
+            indexTypesVirtualPath,
+            packageJsonVirtualPath,
+            packageManifest: packageManifest || fallbackManifest,
+            packageJson: packageJson || fallbackPackageJson,
+            renderOnLoadTypeDefinitions: null,
+            renderOnLoadHints: null,
+        },
+    };
+}
+
+function getFdoSdkEditorMonacoPolicyPayload(options = {}) {
+    const sdkModule = getOptionalFdoSdkEditorModule();
+    if (typeof sdkModule?.getEditorSupportMonacoPolicy !== "function") {
+        return {success: true, policy: null};
+    }
+
+    const hasSdkIndex = options?.hasSdkIndex === true;
+    const namespaceFallbackTypeDefinitions = typeof options?.namespaceFallbackTypeDefinitions === "string"
+        ? options.namespaceFallbackTypeDefinitions
+        : "";
+
+    try {
+        const policy = sdkModule.getEditorSupportMonacoPolicy({
+            hasSdkIndex,
+            namespaceFallbackTypeDefinitions,
+        });
+        return {
+            success: true,
+            policy: policy && typeof policy === "object" ? policy : null,
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: error?.message || String(error),
+            policy: null,
+        };
+    }
+}
+
+function normalizeRenderOnLoadTemplate(template = {}) {
+    const id = String(template?.id || "").trim();
+    if (!id) {
+        return null;
+    }
+    const context = template?.context === "runtime-source" ? "runtime-source" : "plugin-method";
+    const language = String(template?.language || "").trim().toLowerCase() === "javascript" ? "javascript" : "typescript";
+    const source = typeof template?.source === "string" ? template.source : "";
+    return {
+        id,
+        context,
+        language,
+        source,
+        label: typeof template?.label === "string" ? template.label : id,
+        description: typeof template?.description === "string" ? template.description : "",
+    };
+}
+
+function getFdoSdkRenderOnLoadTemplatesPayload() {
+    const sdkModule = getOptionalFdoSdkEditorModule();
+    if (typeof sdkModule?.listRenderOnLoadTemplates !== "function") {
+        return {success: true, templates: []};
+    }
+    try {
+        const templates = sdkModule.listRenderOnLoadTemplates();
+        const normalized = Array.isArray(templates)
+            ? templates.map(normalizeRenderOnLoadTemplate).filter(Boolean)
+            : [];
+        return {success: true, templates: normalized};
+    } catch (error) {
+        return {success: false, error: error?.message || String(error), templates: []};
+    }
+}
+
+function getFdoSdkRenderOnLoadTemplatePayload(templateId) {
+    const sdkModule = getOptionalFdoSdkEditorModule();
+    const normalizedTemplateId = String(templateId || "").trim();
+    if (!normalizedTemplateId) {
+        return {success: false, error: "Template id is required.", template: null};
+    }
+    if (typeof sdkModule?.getRenderOnLoadTemplate !== "function") {
+        return {success: true, template: null};
+    }
+    try {
+        const template = sdkModule.getRenderOnLoadTemplate(normalizedTemplateId);
+        return {success: true, template: normalizeRenderOnLoadTemplate(template)};
+    } catch (error) {
+        return {success: false, error: error?.message || String(error), template: null};
+    }
+}
+
 async function fetchExternalReferenceKnowledge(query = "", limit = 3) {
     const urls = extractReferenceUrls(query).slice(0, limit);
     const results = [];
@@ -337,6 +553,38 @@ export function registerSystemHandlers() {
             return {success: true, files: [], warning: "No SDK type files found in dist."};
         } catch (error) {
             return {success: false, error: error.message, files: []};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_FDO_SDK_EDITOR_SUPPORT, async () => {
+        try {
+            return getFdoSdkEditorSupportPayload();
+        } catch (error) {
+            return {success: false, error: error.message, bundle: null};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_FDO_SDK_EDITOR_MONACO_POLICY, async (_event, options = {}) => {
+        try {
+            return getFdoSdkEditorMonacoPolicyPayload(options);
+        } catch (error) {
+            return {success: false, error: error.message, policy: null};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_FDO_SDK_RENDER_ON_LOAD_TEMPLATES, async () => {
+        try {
+            return getFdoSdkRenderOnLoadTemplatesPayload();
+        } catch (error) {
+            return {success: false, error: error.message, templates: []};
+        }
+    })
+
+    ipcMain.handle(SystemChannels.GET_FDO_SDK_RENDER_ON_LOAD_TEMPLATE, async (_event, templateId) => {
+        try {
+            return getFdoSdkRenderOnLoadTemplatePayload(templateId);
+        } catch (error) {
+            return {success: false, error: error.message, template: null};
         }
     })
 
