@@ -167,6 +167,10 @@ export function decideAiSingleFileApplyStrategy({
 }) {
     const extracted = extractAiCodeToApply(content);
     const codeToApply = extracted.code;
+    if (/^\s*\/\/\s*FILE:\s*\S+/im.test(codeToApply)) {
+        return {...extracted, safe: false, mode: "workspace-files-required",
+            reason: "File-labelled output must be applied to its named workspace files, not the active editor file."};
+    }
     const fileText = String(currentFileText || "");
     const selectionText = String(selectedText || "");
     const codeLikePayload = looksLikeCodePayload(codeToApply, extracted.source);

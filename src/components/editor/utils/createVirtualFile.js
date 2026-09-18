@@ -10,7 +10,7 @@ import getLanguage from "./getLanguage";
 export function createVirtualFile(filePath, content, template = undefined, ignoreModel  = false, plaintext = false, displayName = undefined, options = undefined) {
     const uri = monaco.Uri.file(`${filePath}`);
 
-    const fileContent = template ? getTemplateContent(filePath, template, displayName) : content;
+    const fileContent = template ? getTemplateContent(filePath, template, displayName || content) : content;
 
     let model = {};
     if (!ignoreModel) {

@@ -510,8 +510,7 @@ test.describe('AI Coding Agent Tab', () => {
       window.electron.aiCodingAgent.explainCode = async (payload = {}) => delayed(payload, "explainCode", "UNEXPECTED_EXPLAIN_ROUTE");
     });
 
-    const autoApplyToggle = editorWindow.getByLabel("Auto-apply generated changes to the editor or virtual workspace (creates snapshot first)");
-    await autoApplyToggle.check();
+    await editorWindow.getByLabel("Changes", {exact: true}).selectOption("apply");
 
     const baseline = await editorWindow.evaluate(() => {
       window.__editorTestApi.createFile("/index.ts", "export const stable = 'DO_NOT_CHANGE';\n", "typescript");
@@ -710,11 +709,7 @@ test.describe('AI Coding Agent Tab', () => {
       );
     });
 
-    const autoApply = editorWindow.getByRole('checkbox', { name: /Auto-apply generated changes/i });
-    const autoApplyChecked = await autoApply.isChecked();
-    if (!autoApplyChecked) {
-      await autoApply.click();
-    }
+    await editorWindow.getByLabel("Changes", {exact: true}).selectOption("apply");
 
     await promptInput().fill("please change plugin's name to something more creative");
     await submitButton().click();

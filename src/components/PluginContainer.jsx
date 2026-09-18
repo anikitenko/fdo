@@ -193,10 +193,14 @@ export const PluginContainer = ({
     const [iframeHello, setIframeHello] = useState(false);
     const [iframeLayoutReady, setIframeLayoutReady] = useState(false);
     const [iframeMounted, setIframeMounted] = useState(false);
-    const normalizedCapabilities = useMemo(
-        () => (Array.isArray(capabilities) ? capabilities.filter((value) => typeof value === "string" && value.trim()) : []),
-        [capabilities]
-    );
+    // Runtime polling can supply a new array with the same permissions.
+    // Only a change to the permission set should reset the frame.
+    const capabilitiesKey = JSON.stringify([...new Set(
+        (Array.isArray(capabilities) ? capabilities : [])
+            .filter((value) => typeof value === "string" && value.trim())
+            .map((value) => value.trim())
+    )].sort());
+    const normalizedCapabilities = useMemo(() => JSON.parse(capabilitiesKey), [capabilitiesKey]);
 
     const showPluginStageDebug = (
         localStorage.getItem("fdo:plugin-stage-debug-ui") === "1"

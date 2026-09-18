@@ -100,6 +100,26 @@ function groupActionsBySection(actions) {
     return grouped;
 }
 
+function orderActions(actions = []) {
+    return [...actions].sort((actionA, actionB) => {
+        const sectionA = actionA.section || "Other";
+        const sectionB = actionB.section || "Other";
+        const priorityA = SECTION_PRIORITY[normalizeSectionName(actionA.sectionPriorityKey || sectionA)] ?? Infinity;
+        const priorityB = SECTION_PRIORITY[normalizeSectionName(actionB.sectionPriorityKey || sectionB)] ?? Infinity;
+
+        if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+        }
+
+        const sectionComparison = sectionA.localeCompare(sectionB);
+        if (sectionComparison !== 0) {
+            return sectionComparison;
+        }
+
+        return actionA.name.localeCompare(actionB.name);
+    });
+}
+
 function itemListRenderer({
                               items,
                               query,
@@ -190,6 +210,7 @@ export const CommandBar = ({show, actions, setShow}) => {
     const [query, setQuery] = useState("");
 
     const debouncedSetQuery = useMemo(() => debounce(setQuery, 150), [setQuery]);
+    const orderedActions = useMemo(() => orderActions(actions), [actions]);
 
     useEffect(() => {
         return () => {
@@ -201,7 +222,7 @@ export const CommandBar = ({show, actions, setShow}) => {
         <Omnibar
             className={classNames(styles["commandBarOmnibar"], "bp6-dark")}
             isOpen={show}
-            items={actions}
+            items={orderedActions}
             itemRenderer={renderAction}
             itemListRenderer={itemListRenderer}
             onItemSelect={(item) => {
@@ -210,7 +231,7 @@ export const CommandBar = ({show, actions, setShow}) => {
             }}
             onClose={() => setShow(false)}
             resetOnSelect
-            initialContent={renderGroupedInitialContent(actions, (action) => {
+            initialContent={renderGroupedInitialContent(orderedActions, (action) => {
                 action.perform();
                 setShow(false);
             })}

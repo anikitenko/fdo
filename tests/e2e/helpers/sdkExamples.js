@@ -325,10 +325,10 @@ async function waitForPluginUiRendered(window, pluginName, timeout = 15000) {
       return false;
     }
 
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
-    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
+    // This is an assertion about one plugin. Falling back to another active
+    // iframe can make a broken target look healthy during multi-plugin runs.
+    const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+      .find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true")
       || null;
     const doc = iframe?.contentDocument;
     const body = doc?.body;

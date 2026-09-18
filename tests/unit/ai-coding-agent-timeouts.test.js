@@ -7,8 +7,8 @@ describe("ai coding agent idle timeout policy", () => {
     });
 
     test("uses the default idle timeout for non-Codex providers", () => {
-        expect(getAiCodingAgentIdleTimeoutMs("openai")).toBe(60000);
-        expect(getAiCodingAgentIdleTimeoutMs("anthropic")).toBe(60000);
-        expect(getAiCodingAgentIdleTimeoutMs("")).toBe(60000);
+        expect(getAiCodingAgentIdleTimeoutMs("openai")).toBe(180000);
+        expect(getAiCodingAgentIdleTimeoutMs("anthropic")).toBe(180000);
+        expect(getAiCodingAgentIdleTimeoutMs("")).toBe(180000);
     });
 });

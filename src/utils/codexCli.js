@@ -118,9 +118,10 @@ function getBundledNativeRuntime(rootPackagePath = "") {
     try {
         const triples = fs.readdirSync(vendorRoot);
         for (const triple of triples) {
-            const binary = path.join(vendorRoot, triple, "codex", process.platform === "win32" ? "codex.exe" : "codex");
+            const executable = process.platform === "win32" ? "codex.exe" : "codex";
+            const binary = ["bin", "codex"].map(dir => path.join(vendorRoot, triple, dir, executable)).find(candidate => fs.existsSync(candidate));
             const pathDir = path.join(vendorRoot, triple, "path");
-            if (fs.existsSync(binary)) {
+            if (binary) {
                 return { binary, pathDir: fs.existsSync(pathDir) ? pathDir : "" };
             }
         }

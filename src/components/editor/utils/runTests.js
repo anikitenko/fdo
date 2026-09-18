@@ -37,7 +37,7 @@ const runTests = async () => {
         window.electron.notifications.add("Tests failed", error.message, "danger");
         return {success: false, error: error.message, output: ""};
     } finally {
-        setTimeout(() => virtualFS.build.stopProgress(), 500);
+        virtualFS.build.stopProgress();
     }
 };
 

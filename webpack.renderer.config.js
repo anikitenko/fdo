@@ -166,6 +166,14 @@ module.exports = {
         new CopyWebpackPlugin({
             patterns: [
                 {
+                    from: path.resolve(__dirname, "node_modules/@types/node"),
+                    to: "assets/vendor/@types/node",
+                },
+                {
+                    from: path.resolve(__dirname, "node_modules/undici-types"),
+                    to: "assets/vendor/undici-types",
+                },
+                {
                     from: path.resolve(__dirname, "src/assets"),
                     to: "assets",
                 },

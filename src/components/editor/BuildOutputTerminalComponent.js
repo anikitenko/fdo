@@ -1,5 +1,6 @@
 import {Callout, Classes, Divider, Intent, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
 import React from "react";
+import {AnsiOutput} from "./AnsiOutput";
 import {useEffect, useRef, useState} from 'react';
 import virtualFS from "./utils/VirtualFS";
 import {PropTypes} from 'prop-types';
@@ -213,7 +214,7 @@ const OutputPanel = ({intent, entries, emptyMessage}) => {
                                     <span>{formatHistoryTimestamp(m.ts)}</span>
                                     <span style={{marginLeft: "8px"}}>{m.kind === "test" ? "TEST" : "BUILD"}</span>
                                 </div>
-                                <span style={{color: m.error ? "red" : "white", whiteSpace: "pre-wrap"}}>{m.message}</span>
+                                <span style={{color: m.error ? "red" : "white", whiteSpace: "pre-wrap"}}>{m.kind === "test" ? <AnsiOutput text={m.message}/> : m.message}</span>
                             </div>
                         )
                     })}

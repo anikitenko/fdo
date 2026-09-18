@@ -53,6 +53,27 @@ export function isConfirmationLikeAiCodingPrompt(prompt = "") {
     ].some((signal) => normalizedPrompt.includes(signal));
 }
 
+export function isNewPluginCreationRequest(prompt = "") {
+    const normalizedPrompt = normalizeText(prompt);
+    if (!normalizedPrompt) return false;
+
+    const mentionsPlugin = /\bplugin\b|плагін/iu.test(normalizedPrompt);
+    const creationIntent = /\b(?:create|build|generate|implement|write)\s+(?:(?:a|an|the|new)\s+)?(?:[\w-]+\s+){0,4}plugin\b|\bmake\s+(?:a|an|the|new)\s+(?:[\w-]+\s+){0,4}plugin\b|\b(?:i want|i need|want)\s+(?:a|an|new|this)\s+plugin\b|(?:хочу\s+(?:(?:такий|новий|цей)\s+)?плагін|створи(?:ти)?|зроби(?:ти)?|згенеруй|побудуй|напиши)/iu.test(normalizedPrompt);
+    // A creation brief often says "this plugin" later when describing its UI.
+    // Treat that phrase as existing-workspace context only when the prompt did
+    // not already establish that it is creating a plugin.
+    const existingPluginIntent = /\b(?:current|existing|my)\s+plugin\b|(?:мій|поточний)\s+плагін/iu.test(normalizedPrompt)
+        || (!creationIntent && /\bthis\s+plugin\b|цей\s+плагін/iu.test(normalizedPrompt));
+    const troubleshootingIntent = /\b(?:fix|debug|diagnos(?:e|is)|troubleshoot|repair)\b|(?:виправ|діагност)/iu.test(normalizedPrompt);
+    const explicitScaffoldIntent = /\b(?:plugin scaffold|scaffold plugin|new plugin scaffold)\b/iu.test(normalizedPrompt);
+    const metadataEditIntent = /\b(?:metadata|name|description|version|icon|author)\b/iu.test(normalizedPrompt);
+    // A complete creation brief commonly defines metadata too. Treat metadata
+    // as an edit-only signal only when the prompt did not ask to create a plugin.
+    const metadataOnlyEditIntent = metadataEditIntent && !creationIntent;
+
+    return mentionsPlugin && creationIntent && !existingPluginIntent && !troubleshootingIntent && !explicitScaffoldIntent && !metadataOnlyEditIntent;
+}
+
 export function shouldUseAiRoutingJudge({
     requestedAction = "smart",
     prompt = "",
@@ -245,6 +266,7 @@ export function resolveAiCodingAgentAction({
     const hasSelectedCode = !!(selectedCode && selectedCode.trim());
     const pragmaticIntent = detectAiCodingPragmaticIntent({ prompt, previousResponse });
     const crossesHostAppBoundary = hasHostAppFileReference([prompt, previousResponse].filter(Boolean).join("\n"), workspaceFiles);
+    const newPluginCreation = isNewPluginCreationRequest(prompt);
     const isAdvisoryTestQuestion =
         /\bhow\b.*\btests?\b.*\b(work|working|run|running)\b/.test(normalizedPrompt)
         || /\bhow do\b.*\btests?\b/.test(normalizedPrompt)
@@ -344,6 +366,13 @@ export function resolveAiCodingAgentAction({
     ];
 
     const generationSignals = ["build", "create", "implement", "scaffold", "generate"];
+
+    // A creation prompt can contain words such as "error" while describing UI
+    // states. It must not become a selected-code Fix request just because the
+    // editor happens to have a cursor selection.
+    if (newPluginCreation && !crossesHostAppBoundary) {
+        return "smart";
+    }
 
     if (hasSelectedCode) {
         if (pragmaticIntent.verificationOnly) {

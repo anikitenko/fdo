@@ -58,7 +58,7 @@ const SidebarSection = ({ id, title, defaultCollapsed = false, sticky = null, ch
     if (!content) return;
     const h = content.scrollHeight;
     setMaxHeight(collapsed ? 0 : h);
-  }, [collapsed, children]);
+  }, [collapsed, children, sticky]);
 
   // Recalculate on window resize
   useEffect(() => {

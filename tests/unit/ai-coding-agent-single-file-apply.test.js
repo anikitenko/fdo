@@ -5,6 +5,13 @@ import {
 } from "../../src/components/editor/utils/aiCodingAgentSingleFileApply.js";
 
 describe("ai coding agent single-file apply", () => {
+    test("refuses file-labelled output even when it resembles a complete source file", () => {
+        const result = decideAiSingleFileApplyStrategy({action: "generate",
+            content: '```ts\n// SOLUTION READY TO APPLY\n// FILE: /index.ts\nexport class MyPlugin {}\n// FILE: /render.tsx\nexport const Render = () => "hello";\n```',
+            currentFileText: "export const Render = () => '';"});
+        expect(result.safe).toBe(false);
+        expect(result.mode).toBe("workspace-files-required");
+    });
     test("extracts SOLUTION-marked code blocks first", () => {
         const result = extractAiCodeToApply(`
 before

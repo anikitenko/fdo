@@ -13,7 +13,7 @@ describe("virtual templates", () => {
   test("blank template render includes action target elements", () => {
     const content = BLANK_TEMPLATE_RENDER("Template Test");
 
-    expect(content).toContain("DOMButton");
+    expect(content).toContain('createElement("button"');
     expect(content).toContain("\"data-role\": \"refresh-status\"");
     expect(content).toContain("\"data-role\": \"status\"");
   });

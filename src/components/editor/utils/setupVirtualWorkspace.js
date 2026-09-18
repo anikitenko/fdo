@@ -1,4 +1,6 @@
+import {resolveMonacoTypeScriptApi} from "./monacoTypeScriptApi";
 import {createVirtualFile} from "./createVirtualFile";
+import {BLANK_TEMPLATE_TEST} from "./virtualTemplates";
 import {packageJsonContent} from "./packageJsonContent";
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
@@ -20,6 +22,9 @@ async function scaffoldFreshWorkspace(name, displayName, template) {
     const templateDisplayName = String(displayName || name || "").trim() || name;
     createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, templateDisplayName, resolvedTemplate)
     createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, templateDisplayName, resolvedTemplate)
+    if (resolvedTemplate === "blank") {
+        createVirtualFile("/render.test.ts", BLANK_TEMPLATE_TEST());
+    }
     createVirtualFile("/package.json", packageJsonContent(name))
     await virtualFS.fs.setupNodeModules()
 }
@@ -27,7 +32,7 @@ async function scaffoldFreshWorkspace(name, displayName, template) {
 export async function setupVirtualWorkspace(name, displayName, template, dir) {
     monaco.editor.defineTheme('editor-dark', darkTheme);
 
-    const monacoTs = monaco?.typescript || monaco?.default?.typescript;
+    const monacoTs = resolveMonacoTypeScriptApi(monaco);
     const tsDefaults = monacoTs?.typescriptDefaults;
     const jsDefaults = monacoTs?.javascriptDefaults;
     if (tsDefaults && jsDefaults) {

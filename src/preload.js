@@ -5,6 +5,7 @@ const pluginListenerWrappers = {
     unloaded: new WeakMap(),
     ready: new WeakMap(),
     deployFromEditor: new WeakMap(),
+    deployProgress: new WeakMap(),
     init: new WeakMap(),
     render: new WeakMap(),
     uiMessage: new WeakMap(),
@@ -13,6 +14,7 @@ const pluginListenerRegistry = {
     unloaded: new Set(),
     ready: new Set(),
     deployFromEditor: new Set(),
+    deployProgress: new Set(),
     init: new Set(),
     render: new Set(),
     uiMessage: new Set(),
@@ -230,6 +232,8 @@ contextBridge.exposeInMainWorld('electron', {
                 addPluginListener("unloaded", PluginChannels.on_off.UNLOADED, callback),
             ready: (callback) =>
                 addPluginListener("ready", PluginChannels.on_off.READY, callback),
+            deployProgress: (callback) =>
+                addPluginListener("deployProgress", PluginChannels.on_off.DEPLOY_PROGRESS, callback),
             deployFromEditor: (callback) =>
                 addPluginListener("deployFromEditor", PluginChannels.on_off.DEPLOY_FROM_EDITOR, callback),
             init: (callback) =>
@@ -244,6 +248,8 @@ contextBridge.exposeInMainWorld('electron', {
                 removePluginListener("unloaded", PluginChannels.on_off.UNLOADED, callback),
             ready: (callback) =>
                 removePluginListener("ready", PluginChannels.on_off.READY, callback),
+            deployProgress: (callback) =>
+                removePluginListener("deployProgress", PluginChannels.on_off.DEPLOY_PROGRESS, callback),
             deployFromEditor: (callback) =>
                 removePluginListener("deployFromEditor", PluginChannels.on_off.DEPLOY_FROM_EDITOR, callback),
             init: (callback) =>

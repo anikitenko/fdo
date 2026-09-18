@@ -15,8 +15,10 @@ import {
     getSdkEditorSupportMonacoPolicyWithFallback,
 } from "./renderOnLoadMonacoSupport";
 
+import {resolveMonacoTypeScriptApi} from "./monacoTypeScriptApi";
+
 function getMonacoTypeScriptApi() {
-    return monaco?.typescript || monaco?.default?.typescript;
+    return resolveMonacoTypeScriptApi(monaco);
 }
 
 function getMonacoTypeScriptDefaults() {
@@ -618,6 +620,10 @@ const virtualFS = {
             return { version: latest, date: date, prev: prevVersion, error: persistError };
         },
         set(version) {
+            this.snapshotSwitchRevision = (this.snapshotSwitchRevision || 0) + 1;
+            this.parent.notifications.addToQueue("snapshotSwitched", {
+                from: this.version_current, to: version, revision: this.snapshotSwitchRevision,
+            });
             const tsDefaults = getMonacoTypeScriptDefaults();
             this.setRestoreLoading()
             this.setRestorePhase("clearing-models")
@@ -804,6 +810,7 @@ const virtualFS = {
                     }
 
                     tsDefaults?.addExtraLib(file.content, `/node_modules/${file.path}`);
+                    jsDefaults?.addExtraLib(file.content, `/node_modules/${file.path}`);
 
                     if (file.path.endsWith('.bundle.js') || file.path.endsWith('.js.map') || file.path.endsWith('.min.js')) {
                         plaintext = true;
@@ -1390,7 +1397,7 @@ const virtualFS = {
 
     __refreshMonacoProjectGraph() {
         try {
-            const tsDefaults = monaco?.typescript?.typescriptDefaults;
+            const tsDefaults = getMonacoTypeScriptDefaults();
             if (tsDefaults?.setCompilerOptions) {
                 tsDefaults.setCompilerOptions({
                     ...(tsDefaults.getCompilerOptions?.() || {}),
@@ -1400,7 +1407,7 @@ const virtualFS = {
             // Best-effort sync only.
         }
         try {
-            const jsDefaults = monaco?.typescript?.javascriptDefaults;
+            const jsDefaults = getMonacoJavaScriptDefaults();
             if (jsDefaults?.setCompilerOptions) {
                 jsDefaults.setCompilerOptions({
                     ...(jsDefaults.getCompilerOptions?.() || {}),

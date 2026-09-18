@@ -113,7 +113,9 @@ describe("plugin IPC deploy from editor", () => {
         registerPluginHandlers();
 
         const deployHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.DEPLOY_FROM_EDITOR)[1];
-        const result = await deployHandler({}, {
+        const send = jest.fn();
+        const result = await deployHandler({sender: {send, isDestroyed: () => false}}, {
+            requestId: "deploy-test",
             name: "plugin-a",
             sandbox: "sandbox-1",
             entrypoint: "dist/index.cjs",
@@ -123,6 +125,9 @@ describe("plugin IPC deploy from editor", () => {
         });
 
         expect(result).toEqual({success: true});
+        expect(send.mock.calls.map(([channel, payload]) => [channel, payload.requestId, payload.progress])).toEqual(
+            [60, 70, 80, 90, 100].map(progress => [PluginChannels.on_off.DEPLOY_PROGRESS, "deploy-test", progress])
+        );
         expect(mockUnloadPlugin).toHaveBeenCalledWith("plugin-a", {force: true});
         expect(mockLoadPlugin).toHaveBeenCalledWith("plugin-a");
         expect(mockAddPlugin).toHaveBeenCalled();

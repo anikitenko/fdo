@@ -66,6 +66,7 @@ async function launchElectronApp(electron, options = {}) {
           FDO_E2E: '1',
           FDO_E2E_MULTI_INSTANCE: '1',
           FDO_E2E_USER_DATA_DIR: userDataDir,
+          ...(options.env || {}),
         },
       });
       break;
@@ -235,11 +236,15 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
     try {
       window.localStorage.removeItem(sandboxName);
     } catch (_) {}
-    window.electron.system.getModuleFiles = () => Promise.resolve({ files: [] });
-    window.electron.system.getFdoSdkTypes = () => Promise.resolve({ files: [] });
+    if (!useRealAssistants) {
+      window.electron.system.getModuleFiles = () => Promise.resolve({ files: [] });
+      window.electron.system.getFdoSdkTypes = () => Promise.resolve({ files: [] });
+    }
     window.electron.settings = window.electron.settings || {};
     window.electron.settings.certificates = window.electron.settings.certificates || {};
-    window.electron.settings.certificates.getRoot = async () => [];
+    if (!useRealAssistants) {
+      window.electron.settings.certificates.getRoot = async () => [];
+    }
     window.electron.settings.ai = window.electron.settings.ai || {};
     if (!useRealAssistants) {
       window.electron.settings.ai.getAssistants = async () => ([

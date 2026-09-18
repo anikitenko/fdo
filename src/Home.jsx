@@ -545,7 +545,35 @@ function extractDeniedProcessArgument({
 }
 
 export const Home = () => {
-    const [searchActions, setSearchActions] = useState([])
+    const [searchActions, setSearchActions] = useState(() => [
+        {
+            id: "system-settings",
+            name: "Settings",
+            subtitle: "Configure FDO",
+            keywords: ["preferences", "configuration", "options"],
+            icon: "settings",
+            section: "FDO",
+            perform: () => setShowSettingsDialog(true),
+        },
+        {
+            id: "system-notifications",
+            name: "Notifications",
+            subtitle: "View system notifications",
+            keywords: ["alerts", "messages"],
+            icon: "notifications",
+            section: "FDO",
+            perform: () => setNotificationsShow(true),
+        },
+        {
+            id: "system-ai-chat",
+            name: "Chat with AI Assistant",
+            subtitle: "Open the AI assistant",
+            keywords: ["ai", "chat", "assistant"],
+            icon: "chat",
+            section: "FDO",
+            perform: () => setShowAiChatDialog(true),
+        },
+    ])
     const [state, setState] = useState({
         plugins: [],
         activePlugins: [],
@@ -2559,7 +2587,7 @@ export const Home = () => {
                     />
                 )}
                 <Navbar fixedToTop={true}>
-                    <NavbarGroup className={styles["nav-center"]}>
+                    <NavbarGroup className={styles["nav-center"]} data-testid="header-plugin-navigation">
                         <NavigationPluginsButton active={state.activePlugins} all={state.plugins}
                                                  buttonMenuRef={buttonMenuRef}
                                                  selectPlugin={selectPlugin} deselectPlugin={deselectPlugin}
@@ -2574,7 +2602,10 @@ export const Home = () => {
                     </NavbarGroup>
                     <NavbarGroup align={Alignment.END}>
                         <InputGroup
+                            data-testid="header-command-search"
+                            className={styles["header-search-wrapper"]}
                             leftIcon={"search"} placeholder={"Search..."} inputClassName={styles["header-search"]}
+                            aria-label={"Open command search"}
                             rightElement={<Tag minimal={true} className={"bp6-monospace-text"}
                                                style={{fontSize: "0.6rem", background: "black"}}>Cmd+K</Tag>}
                             onClick={() => setShowCommandSearch(true)}

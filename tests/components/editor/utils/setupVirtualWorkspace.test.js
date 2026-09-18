@@ -71,6 +71,7 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         expect(window.electron.plugin.getData).not.toHaveBeenCalled();
         expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "sdgdsfdsfhsdh", "blank");
         expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "sdgdsfdsfhsdh", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.test.ts", expect.stringContaining('from "node:test"'));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
 

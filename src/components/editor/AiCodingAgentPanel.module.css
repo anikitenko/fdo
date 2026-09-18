@@ -2,6 +2,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
     background-color: transparent;
     padding: 8px;
 }
@@ -12,6 +14,18 @@
     justify-content: space-between;
     margin-bottom: 12px;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.panel-header > button {
+    flex-shrink: 0;
+}
+
+.conversation-history {
+    flex: 0 0 auto;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .panel-header h3 {
