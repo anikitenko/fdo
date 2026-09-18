@@ -82,21 +82,25 @@
     line-height: 1.45;
 }
 
+.header-search-wrapper {
+    width: clamp(10rem, 16vw, 20rem);
+    min-width: 0;
+}
+
 .header-search {
     background: #2e2e2e !important;
     border: none;
+    box-sizing: border-box;
     padding: 6px 10px;
     border-radius: 4px;
     outline: none;
-    width: 160px !important;
+    width: 100% !important;
     cursor: pointer;
 }
 
-@media (max-width: 850px) {
+@media (max-width: 1200px) {
     .nav-center {
-        position: static;
-        transform: none;
-        margin: 0 auto;
+        max-width: calc(100vw - 300px);
     }
 
     .selected-plugin-shell {

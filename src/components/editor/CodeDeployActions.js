@@ -1,4 +1,4 @@
-import {Alert, Button, ButtonGroup, Dialog, Divider, HTMLSelect, Switch} from "@blueprintjs/core";
+import {Alert, Button, ButtonGroup, Dialog, Divider, HTMLSelect, Switch, ProgressBar} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 import SidebarSection from "../common/SidebarSection.jsx";
 
@@ -47,6 +47,41 @@ const CodeDeployActions = ({
     const [showRootCertificateDialog, setShowRootCertificateDialog] = useState(false)
     const [rememberedRootCertificate, setRememberedRootCertificate] = useState(null);
     const [showRenderOnLoadGuide, setShowRenderOnLoadGuide] = useState(false);
+
+    const [deployStatus, setDeployStatus] = useState(null);
+    const deployRequestRef = useRef(null);
+    useEffect(() => {
+        const onProgress = (status) => {
+            if (deployRequestRef.current && status.requestId === deployRequestRef.current) {
+                setDeployStatus({...status, intent: "primary"});
+            }
+        };
+        window.electron.plugin.on?.deployProgress?.(onProgress);
+        return () => window.electron.plugin.off?.deployProgress?.(onProgress);
+    }, []);
+
+    // Keep deployment feedback visible even when the action sidebar is clipped or collapsed.
+    useEffect(() => {
+        if (!deployStatus) return;
+        let cancelled = false;
+        Promise.resolve(AppToaster).then(toaster => {
+            if (cancelled) return;
+            toaster.show({
+                icon: deployStatus.intent === "danger" ? "error" : "upload",
+                intent: deployStatus.intent,
+                message: <div style={{minWidth: "240px"}}>
+                    <div role="status" aria-live="polite" style={{marginBottom: "8px"}}>{deployStatus.message}</div>
+                    <ProgressBar value={deployStatus.progress / 100} intent={deployStatus.intent}
+                                 animate={deployInProgress} stripes={deployInProgress}/>
+                </div>,
+                timeout: deployInProgress ? 0 : 5000,
+            }, "plugin-deployment");
+        });
+        return () => { cancelled = true; };
+    }, [deployStatus, deployInProgress]);
+    useEffect(() => () => {
+        Promise.resolve(AppToaster).then(toaster => toaster.dismiss?.("plugin-deployment"));
+    }, []);
 
     const rememberChoiceRef = useRef(false);
     const versionText = (name, date, prev, pretty = false) => {
@@ -145,8 +180,11 @@ const CodeDeployActions = ({
         if (currentSelectedTabId !== "ai-agent") {
             setSelectedTabId("output")
         }
-        await build()
-        setBuildInProgress(false)
+        try {
+            return await build();
+        } finally {
+            setBuildInProgress(false);
+        }
     }
 
     const triggerRunTests = async () => {
@@ -154,46 +192,53 @@ const CodeDeployActions = ({
         if (currentSelectedTabId !== "ai-agent") {
             setSelectedTabId("tests")
         }
-        await runTests()
-        setTestsInProgress(false)
+        try {
+            return await runTests();
+        } finally {
+            setTestsInProgress(false);
+        }
     }
 
     const triggerDeploy = async () => {
-        setDeployInProgress(true)
-        const name = virtualFS.treeObject[0].label
+        if (deployRequestRef.current) return;
+        const requestId = `deploy-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        deployRequestRef.current = requestId;
+        setDeployInProgress(true);
+        setDeployStatus({progress: 5, message: "Running plugin tests…", intent: "primary"});
         try {
-            await triggerBuild()
-        } catch (e) {
-            setDeployInProgress(false)
-            (await AppToaster).show({message: `Build failed: ${e.message}`, intent: "danger"});
-            return
+            const tested = await triggerRunTests();
+            if (!tested?.success) throw new Error(tested?.error || "Plugin tests failed");
+            setDeployStatus({progress: 25, message: tested.skipped
+                ? "No tests found. Compiling plugin…" : "Tests passed. Compiling plugin…", intent: "primary"});
+            const compiled = await triggerBuild();
+            if (compiled?.success === false) throw new Error(compiled.error || "Compilation failed");
+            setDeployStatus({progress: 45, message: "Selecting signing certificate…", intent: "primary"});
+            const selectedLabel = await handleRootCertificateSelection();
+            if (!selectedLabel) {
+                setDeployStatus({progress: 45, message: "Deployment cancelled", intent: "warning"});
+                return;
+            }
+            setDeployStatus({progress: 50, message: "Preparing deployment…", intent: "primary"});
+            const metadata = await virtualFS.build.getMetadata();
+            if (!metadata) throw new Error("No metadata found.");
+            const result = await window.electron.plugin.deployToMainFromEditor({
+                requestId,
+                name: virtualFS.treeObject[0].label,
+                sandbox: virtualFS.sandboxName,
+                entrypoint: virtualFS.build.getEntrypoint(),
+                metadata,
+                content: virtualFS.build.getContent(),
+                rootCert: selectedLabel,
+            });
+            if (!result.success) throw new Error(result.error || "Deployment failed");
+            setDeployStatus({progress: 100, message: "Deployment complete", intent: "success"});
+        } catch (error) {
+            setDeployStatus((previous) => ({...previous, message: `Deployment failed: ${error.message}`, intent: "danger"}));
+            (await AppToaster).show({message: `Deployment failed: ${error.message}`, intent: "danger"});
+        } finally {
+            deployRequestRef.current = null;
+            setDeployInProgress(false);
         }
-
-        let selectedLabel = await handleRootCertificateSelection()
-
-        if (!selectedLabel) {
-            setDeployInProgress(false)
-            return
-        }
-
-        const metadata = await virtualFS.build.getMetadata()
-        if (!metadata) {
-            (await AppToaster).show({message: `No metadata found.`, intent: "danger"});
-            return
-        }
-
-        const result = await window.electron.plugin.deployToMainFromEditor({
-            name,
-            sandbox: virtualFS.sandboxName,
-            entrypoint: virtualFS.build.getEntrypoint(),
-            metadata,
-            content: virtualFS.build.getContent(),
-            rootCert: selectedLabel
-        })
-        if (!result.success) {
-            (await AppToaster).show({message: `${result.error}`, intent: "danger"});
-        }
-        setDeployInProgress(false)
     }
 
     const triggerSaveAndClose = async () => {
@@ -416,16 +461,23 @@ const CodeDeployActions = ({
               title="Actions"
               defaultCollapsed={false}
               sticky={(
+                <div>
                 <ButtonGroup fill={true} vertical={true}>
-                  <Button text="Run Tests" intent="warning" icon="endorsed" loading={testsInProgress}
+                  <Button text="Run Tests" intent="warning" icon="endorsed" loading={testsInProgress} disabled={deployInProgress || buildInProgress || saveAndCloseInProgress}
                           onClick={async () => await triggerRunTests()} />
-                  <Button text="Compile" intent="primary" icon="build" loading={buildInProgress}
+                  <Button text="Compile" intent="primary" icon="build" loading={buildInProgress} disabled={deployInProgress || testsInProgress || saveAndCloseInProgress}
                           onClick={async () => await triggerBuild()} />
-                  <Button text="Deploy" intent="success" icon="share" loading={deployInProgress}
+                  <Button text="Deploy" intent="success" icon="share" loading={deployInProgress} disabled={buildInProgress || testsInProgress || saveAndCloseInProgress}
                           onClick={async () => await triggerDeploy()} />
-                  <Button text="Save & Close" icon="cross" loading={saveAndCloseInProgress}
+                  <Button text="Save & Close" icon="cross" loading={saveAndCloseInProgress} disabled={deployInProgress || buildInProgress || testsInProgress}
                           onClick={async () => await triggerSaveAndClose()} />
                 </ButtonGroup>
+                {deployStatus && <div role="status" aria-live="polite" style={{padding: "10px 0"}}>
+                    <div style={{fontSize: "12px", marginBottom: "6px"}}>{deployStatus.message}</div>
+                    <ProgressBar value={deployStatus.progress / 100} intent={deployStatus.intent}
+                                 animate={deployInProgress} stripes={deployInProgress}/>
+                </div>}
+                </div>
               )}
             >
             </SidebarSection>

@@ -63,6 +63,28 @@ describe("PluginContainer message hardening", () => {
         window.electron.system.openExternal = jest.fn();
     });
 
+    test("preserves the frame for equivalent permissions and resets for changed permissions", async () => {
+        const {container, rerender} = render(<PluginContainer plugin="example-plugin" capabilities={[]} />);
+        await waitFor(() => expect(container.querySelector("iframe").srcdoc).toContain("plugin_host.test.js"));
+        const iframe = container.querySelector("iframe");
+        const hostDocument = iframe.srcdoc;
+
+        for (let i = 0; i < 3; i += 1) {
+            rerender(<PluginContainer plugin="example-plugin" capabilities={[]} />);
+            await act(async () => {});
+        }
+        expect(window.fetch).toHaveBeenCalledTimes(1);
+        expect(container.querySelector("iframe")).toBe(iframe);
+        expect(iframe.srcdoc).toBe(hostDocument);
+
+        rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network", "system.network.https"]} />);
+        await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(iframe.srcdoc).toContain("system.network.https"));
+        rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network.https", "system.network", "system.network"]} />);
+        await act(async () => {});
+        expect(window.fetch).toHaveBeenCalledTimes(2);
+    });
+
     test("accepts external-link requests only from the mounted plugin iframe and only for http(s) URLs", async () => {
         const { container } = render(<PluginContainer plugin="example-plugin" />);
         const iframe = container.querySelector("iframe");

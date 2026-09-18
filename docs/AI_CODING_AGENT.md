@@ -171,8 +171,31 @@ The AI Coding Agent has built-in knowledge of the FDO SDK, including:
 ### Plugin Structure
 - Base class: `FDO_SDK`
 - Interface: `FDOInterface`
-- Required metadata: name, version, author, description, icon
+- Class declaration: `export default class MyPlugin extends FDO_SDK implements FDOInterface`
+- Required metadata: name, version, author, description, icon (stored as `private readonly _metadata` with a `get metadata()` getter)
 - Lifecycle hooks: `init()`, `render()`
+- Optional lifecycle hooks: `renderOnLoad()`, `declareCapabilities()`
+- Plugin instantiation: every entry file must end with `new MyPlugin();`
+
+### Backend Handler Registration
+- Use `PluginRegistry.registerHandler(handlerId, callback)` in `init()` to register backend handlers
+- Use static `HANDLERS` constants for handler IDs (e.g., `private static readonly HANDLERS = { ... } as const;`)
+- Handlers are invoked from the iframe UI via `window.createBackendReq("UI_MESSAGE", { handler, content })`
+
+### Error Handling
+- Use the `@handleError` decorator from `@anikitenko/fdo-sdk` for error-safe lifecycle methods
+- For `render()`, use `@handleError({ returnErrorUI: true, errorUIRenderer: (error) => "..." })` to provide fallback UI
+- For `init()`, use `@handleError({ errorMessage: "Init failed" })` to catch initialization errors
+
+### Capabilities
+- Use `declareCapabilities()` to declare plugin capabilities (e.g., `storage`, `storage.json`, `system.process.exec`)
+- Use `createOperatorToolCapabilityPreset(toolName)` for known DevOps/SRE tool families
+- Use `createProcessCapabilityBundle(...)` for custom tool capabilities
+
+### Structured Logging
+- Use `this.info(message, metadata)` instead of `this.log(message)` for structured logging with context
+- Available logging methods: `this.info()`, `this.warn()`, `this.debug()`, `this.verbose()`, `this.error()`, `this.silly()`, `this.event()`
+- Always pass structured metadata objects: `this.info("Plugin initialized", { plugin: this.metadata.name, version: this.metadata.version })`
 
 ### DOM Element Classes
 - **DOMTable**: Tables with full structure support
@@ -185,9 +208,15 @@ The AI Coding Agent has built-in knowledge of the FDO SDK, including:
 - **DOMLink**: Anchor elements
 - **DOMMisc**: Misc elements
 
-### Example SDK Usage
+### renderOnLoad() Best Practice
+- Use `defineRenderOnLoadActions(...)` for typed handlers plus selector/event bindings
+- Use `strict: true` so selector mismatches become visible diagnostics
+- Use `language: "typescript"` for TypeScript plugins
+- Avoid manually wiring `querySelector` / `addEventListener` in generated plugins
 
-The AI can help you generate plugins like this:
+### Canonical Minimal Plugin Example
+
+The AI should generate plugins following this canonical pattern from the SDK fixtures:
 
 ```typescript
 import { FDO_SDK, FDOInterface, PluginMetadata } from "@anikitenko/fdo-sdk";
@@ -198,7 +227,7 @@ export default class MyPlugin extends FDO_SDK implements FDOInterface {
         version: "1.0.0",
         author: "Your Name",
         description: "Plugin description",
-        icon: "COG"
+        icon: "cog",
     };
 
     get metadata(): PluginMetadata {
@@ -206,13 +235,124 @@ export default class MyPlugin extends FDO_SDK implements FDOInterface {
     }
 
     init(): void {
-        this.log("Plugin initialized!");
+        this.info("Plugin initialized", {
+            plugin: this.metadata.name,
+            version: this.metadata.version,
+        });
     }
 
     render(): string {
-        return "<div>Hello World</div>";
+        return `
+            <div style="padding: 16px;">
+                <h1>${this.metadata.name}</h1>
+                <p>${this.metadata.description}</p>
+            </div>
+        `;
     }
 }
+
+new MyPlugin();
+```
+
+### Canonical Plugin with Backend Handlers and Error Handling
+
+```typescript
+import {
+    defineRenderOnLoadActions,
+    FDO_SDK,
+    FDOInterface,
+    handleError,
+    PluginMetadata,
+    PluginRegistry,
+} from "@anikitenko/fdo-sdk";
+
+export default class MyPlugin extends FDO_SDK implements FDOInterface {
+    private static readonly HANDLERS = {
+        REFRESH_STATUS: "myPlugin.v1.refreshStatus",
+    } as const;
+
+    private readonly _metadata: PluginMetadata = {
+        name: "My Plugin",
+        version: "1.0.0",
+        author: "Your Name",
+        description: "A plugin with backend handlers",
+        icon: "cog",
+    };
+
+    get metadata(): PluginMetadata {
+        return this._metadata;
+    }
+
+    @handleError({ errorMessage: "Plugin init failed" })
+    init(): void {
+        this.info("Plugin initialized", {
+            plugin: this.metadata.name,
+            version: this.metadata.version,
+        });
+
+        PluginRegistry.registerHandler(
+            MyPlugin.HANDLERS.REFRESH_STATUS,
+            (data: unknown) => ({
+                ok: true,
+                message: "Status refreshed",
+                data,
+            })
+        );
+    }
+
+    @handleError({
+        returnErrorUI: true,
+        errorUIRenderer: (error: Error) => `
+            <div style="padding: 16px; border: 1px solid #d33; color: #a11;">
+                <h2>Plugin Error</h2>
+                <p>${error.message}</p>
+            </div>
+        `,
+    })
+    render(): string {
+        return `
+            <div style="padding: 16px;">
+                <h1>${this.metadata.name}</h1>
+                <p>${this.metadata.description}</p>
+                <button data-role="refresh-status" class="pure-button pure-button-primary" type="button">Refresh Status</button>
+                <p data-role="status">Click the button to fetch plugin status.</p>
+            </div>
+        `;
+    }
+
+    renderOnLoad() {
+        return defineRenderOnLoadActions({
+            handlers: {
+                refreshStatus: async ({ element }) => {
+                    const response = await window.createBackendReq("UI_MESSAGE", {
+                        handler: "${MyPlugin.HANDLERS.REFRESH_STATUS}",
+                        content: { source: "renderOnLoad-actions" },
+                    });
+                    const target = document.querySelector('[data-role="status"]');
+                    if (target) {
+                        target.textContent = String(response?.message || "Updated");
+                    }
+                    if (element instanceof HTMLElement) {
+                        element.dataset.state = "ready";
+                    }
+                },
+            },
+            bindings: [
+                {
+                    selector: '[data-role="refresh-status"]',
+                    event: "click",
+                    handler: "refreshStatus",
+                    preventDefault: true,
+                    required: true,
+                },
+            ],
+            strict: true,
+            language: "typescript",
+        });
+    }
+}
+
+new MyPlugin();
 ```
 
 ## Architecture
@@ -689,3 +829,11 @@ When adding new features to the AI Coding Agent, consider:
 - FDO SDK Repository: https://github.com/anikitenko/fdo-sdk
 - FDO Main Repository: https://github.com/anikitenko/fdo
 - LLM.js Documentation: https://github.com/themaximalist/llm.js
+
+### Plugin conversation history
+
+The Editor saves the conversation on this device, separately for each plugin workspace. Reopening the workspace restores the latest reply and prior messages. Continue typing a follow-up in the same prompt; the recent conversation accompanies the current workspace context. Current files remain authoritative, and Review first still prevents automatic application.
+
+Clear conversation removes the saved conversation for this plugin without changing its files. History retains up to 60 messages, capped at 20,000 characters each. Requests include up to 12 recent messages with a total content budget of 24,000 characters; entries rejected by the plugin-scope check are excluded. Storage failures leave the conversation available for the session and show a warning.
+
+Snapshot restores add an event to the conversation. Messages identify their source snapshot; applied replies also identify the snapshot saved after the change. Each new request includes the current snapshot ID and current files. Restoring clears the previous response's apply controls and attempts to cancel any active request. A synchronous restore revision guard prevents stale edits even if cancellation arrives late, including switching away and back to the same snapshot. Creating the assistant's own restore points does not invalidate its request.

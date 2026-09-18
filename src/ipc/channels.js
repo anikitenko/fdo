@@ -166,6 +166,7 @@ export const PluginChannels = withPrefix('plugin', {
         UNLOADED: 'unloaded',
         READY: 'ready',
         DEPLOY_FROM_EDITOR: 'deploy-from-editor',
+        DEPLOY_PROGRESS: 'plugin-deploy-progress',
         INIT: 'init',
         RENDER: 'render',
         UI_MESSAGE: 'ui-message',

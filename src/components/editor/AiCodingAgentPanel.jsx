@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
+import {historyStorageKey, normalizeHistory, readHistory, writeHistory, buildHistoryContext} from "./utils/aiCodingAgentHistory";
 import {
     Button,
     Callout,
@@ -10,7 +11,6 @@ import {
     MenuItem,
     NonIdealState,
     Spinner,
-    Switch,
     Tag,
     TextArea,
     useHotkeys,
@@ -33,6 +33,7 @@ import {buildAiCodingAgentStatusMessage} from "./utils/aiCodingAgentStatus.js";
 import { upsertAiCodingRequestStatus } from "../../utils/aiCodingAgentProgress.js";
 import {
     isQuestionLikeAiCodingPrompt,
+    isNewPluginCreationRequest,
     mergeAiCodingRouteDecision,
     resolveAiCodingAgentAction,
     shouldUseAiRoutingJudge,
@@ -41,9 +42,9 @@ import {buildProjectFilePlanPrompt, extractProjectFileTargets, shouldCreateProje
 import {extractWorkspaceFileReferences, formatWorkspaceReferenceContext, resolveWorkspaceFileReferences} from "./utils/aiCodingAgentWorkspaceRefs.js";
 import {buildAiCodingAgentRequestContexts} from "./utils/aiCodingAgentRequestContext.js";
 import {buildWorkspaceExecutionPlanPrompt, shouldExecuteWorkspacePlan} from "./utils/aiCodingAgentExecutionIntent.js";
-import {validateGeneratedPluginFiles} from "./utils/validateGeneratedPluginFiles.js";
+import {normalizeReservedHostBindingMarkers, validateGeneratedPluginFiles} from "./utils/validateGeneratedPluginFiles.js";
 import {parseAiWorkspacePlanResponse, shouldApplyAiResponseToWorkspace} from "./utils/aiCodingAgentPlanResponse.js";
-import {buildExecutablePlanRetryPrompt, buildValidationRepairPlanPrompt} from "./utils/aiCodingAgentPlanRepair.js";
+import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt} from "./utils/aiCodingAgentPlanRepair.js";
 import {buildAiCodingProblemsContext} from "./utils/aiCodingAgentProblems.js";
 import {buildAiCodingBuildOutputContext} from "./utils/aiCodingAgentBuildOutput.js";
 import {applyAiMetadataBlockResponse, decideAiSingleFileApplyStrategy} from "./utils/aiCodingAgentSingleFileApply.js";
@@ -79,6 +80,10 @@ const AI_ACTIONS = [
     { label: "Fix Code", value: "fix" },
     { label: "Plan Code (Plugin Scaffold)", value: "plan" },
 ];
+
+export function isAiCodingOutputLimitError(value = "") {
+    return /(?:response\.incomplete:\s*)?max_output_tokens\b/i.test(String(value || ""));
+}
 
 function shouldRunTestsBeforeAiRequest(prompt = "") {
     const normalizedPrompt = String(prompt || "").trim().toLowerCase();
@@ -344,7 +349,7 @@ export function shouldAutoApplySingleFileResponse({
 
     // Smart mode should only auto-apply when the prompt explicitly asks for changes.
     // Merely having selected code or a derived target file is not enough.
-    return hasExplicitChangeIntent || hasScaffoldIntent;
+    return hasExplicitChangeIntent || hasScaffoldIntent || /(?:хочу\s+(?:(?:такий|новий|цей)\s+)?плагін|створи|створити|зроби|додай|виправ|зміни|онови)/iu.test(normalizedPrompt);
 }
 
 export function buildSelectionGuidance({
@@ -362,6 +367,7 @@ export function buildSelectionGuidance({
     const hasSelection = !!String(selectedCode || "").trim();
     const questionLike = isQuestionLikeAiCodingPrompt(normalizedPrompt) || isInformationalOnlyPrompt(normalizedPrompt);
     const followUpLike = composerMode === "refine" || (!!hasResponse && questionLike);
+    const newPluginCreation = isNewPluginCreationRequest(normalizedPrompt);
 
     if (createProjectFiles || resolvedAction === "plan") {
         return {
@@ -372,6 +378,22 @@ export function buildSelectionGuidance({
                 ? "This request works from your prompt and workspace targets. The current selection is optional context, not the primary edit target."
                 : "Describe the plugin or workspace files to create. No code selection is required for planning or scaffold requests.",
         };
+    }
+
+    if (newPluginCreation) {
+        return hasSelection
+            ? {
+                intent: "primary",
+                icon: "cube-add",
+                title: "Plugin workspace creation",
+                message: "Creating a new plugin starts from the plugin workspace. The current selection is optional context and will not limit the generated plugin.",
+            }
+            : {
+                intent: "success",
+                icon: "cube-add",
+                title: "Selection not required",
+                message: "Creating a new plugin starts from the plugin workspace. Describe the plugin you want; no code selection is needed.",
+            };
     }
 
     if (resolvedAction === "edit") {
@@ -390,7 +412,7 @@ export function buildSelectionGuidance({
             };
     }
 
-    if (resolvedAction === "fix") {
+    if (resolvedAction === "fix" && requestedAction !== "smart") {
         return hasSelection
             ? {
                 intent: "success",
@@ -486,8 +508,11 @@ export function buildSmartModeGuidance({
     const hasSelection = !!String(selectedCode || "").trim();
     const questionLike = isQuestionLikeAiCodingPrompt(normalizedPrompt) || isInformationalOnlyPrompt(normalizedPrompt);
     const followUpLike = composerMode === "refine" || (!!hasResponse && normalizedPrompt.length > 0);
+    const newPluginCreation = isNewPluginCreationRequest(normalizedPrompt);
 
-    const predictedIntent = createProjectFiles || resolvedAction === "plan"
+    const predictedIntent = newPluginCreation
+        ? "Create a plugin from the workspace"
+        : createProjectFiles || resolvedAction === "plan"
         ? "Create or update workspace files"
         : resolvedAction === "edit"
         ? "Edit selected code"
@@ -499,7 +524,11 @@ export function buildSmartModeGuidance({
         ? "Answer or explain"
         : "Analyze first, then choose the safest path";
 
-    const selectionMode = createProjectFiles || resolvedAction === "plan"
+    const selectionMode = newPluginCreation
+        ? hasSelection
+            ? "The current selection is optional context; it will not limit the new plugin."
+            : "No selection is required. Smart Mode starts from the plugin workspace."
+        : createProjectFiles || resolvedAction === "plan"
         ? "Selection is optional; workspace targets matter more."
         : resolvedAction === "edit"
         ? hasSelection
@@ -513,7 +542,9 @@ export function buildSmartModeGuidance({
         ? "Current selection will be treated as high-priority context."
         : "No selection is required, but selecting code narrows the result to a specific block.";
 
-    const expectedResult = createProjectFiles || resolvedAction === "plan"
+    const expectedResult = newPluginCreation
+        ? "Expect complete plugin workspace files that can be reviewed or applied."
+        : createProjectFiles || resolvedAction === "plan"
         ? "Expect a plan or workspace-file response rather than a direct single-file patch."
         : resolvedAction === "edit"
         ? "Expect a targeted code change if the selection is clear."
@@ -536,11 +567,56 @@ export function buildSmartModeGuidance({
 }
 
 export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange }) {
+    const historyKey = historyStorageKey(virtualFS.sandboxName);
+    const [conversation, setConversation] = useState(() => readHistory(localStorage, historyKey));
+    const conversationRef = useRef(conversation);
+    const requestSnapshotRef = useRef(null);
+    const appliedSnapshotRef = useRef(null);
+    const assertSnapshotUnchanged = () => {
+        const started = requestSnapshotRef.current;
+        if (started && (started.revision !== (virtualFS.fs.snapshotSwitchRevision || 0) || started.workspace !== virtualFS.sandboxName)) {
+            throw new Error("Snapshot changed during this request. No further AI edits were applied. Send a new request using the restored files.");
+        }
+    };
+    const [historyWarning, setHistoryWarning] = useState("");
+    const saveConversation = (messages) => {
+        const normalized = normalizeHistory(messages);
+        conversationRef.current = normalized;
+        setConversation(normalized);
+        try { writeHistory(localStorage, historyKey, normalized); setHistoryWarning(""); }
+        catch { setHistoryWarning("Conversation is available for this session, but could not be saved on this device."); }
+    };
+    useEffect(() => {
+        const restored = readHistory(localStorage, historyKey);
+        setConversation(restored);
+        conversationRef.current = restored;
+        const last = restored[restored.length - 1];
+        const currentSnapshot = String(virtualFS.fs.version()?.version ?? "");
+        const latest = last?.role === "assistant" && (last.snapshot != null && String(last.appliedSnapshot ?? last.snapshot) === currentSnapshot) ? last.content : "";
+        responseRef.current = latest;
+        if (!submitInFlightRef.current) requestSnapshotRef.current = {revision: virtualFS.fs.snapshotSwitchRevision || 0, workspace: virtualFS.sandboxName};
+        setResponse(latest);
+    }, [historyKey]);
+    useEffect(() => virtualFS.notifications?.subscribe?.("snapshotSwitched", ({from, to}) => {
+        saveConversation([...conversationRef.current, {role: "snapshot", snapshot: to,
+            content: `Switched from snapshot ${from} to ${to}. Earlier edits may have been rolled back; use the restored files for the next request.`}]);
+        setResponse("");
+        responseRef.current = "";
+        setOperationSummary(null);
+        if (submitInFlightRef.current) {
+            setError("Snapshot switched. The previous request cannot apply further edits; send a new request after it stops.");
+            const id = streamingRequestIdRef.current;
+            if (id) {
+                cancelledRequestIdsRef.current.add(id);
+                Promise.resolve(window.electron.aiCodingAgent.cancelRequest?.({requestId: id})).catch(() => {});
+            }
+        }
+    }), [historyKey]);
     const [action, setAction] = useState("smart");
     const [prompt, setPrompt] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [autoApply, setAutoApply] = useState(false);
+    const [autoApply, setAutoApply] = useState(true);
     const [assistants, setAssistants] = useState([]);
     const [selectedAssistant, setSelectedAssistant] = useState(null);
     const [loadingAssistants, setLoadingAssistants] = useState(true);
@@ -550,11 +626,14 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const [operationSummary, setOperationSummary] = useState(null);
     const [requestStatusEntries, setRequestStatusEntries] = useState([]);
     const responseRef = useRef("");
+    const streamContentBufferRef = useRef("");
+    const streamContentFlushTimerRef = useRef(null);
     const timeoutRef = useRef(null);
     const streamingRequestIdRef = useRef(null);
     const autoApplyRef = useRef(autoApply);
     const fileInputRef = useRef(null);
     const pendingAutoFileCreateRef = useRef(false);
+    const submitInFlightRef = useRef(false);
     const expectWorkspaceApplyRef = useRef(false);
     const planRetryInFlightRef = useRef(false);
     const applyActionRef = useRef("");
@@ -565,6 +644,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const panelRef = useRef(null);
     const panelContentRef = useRef(null);
     const cancelledRequestIdsRef = useRef(new Set());
+    const timedOutRequestIdsRef = useRef(new Set());
     const promptInputRef = useRef(null);
     const promptBlurTimeoutRef = useRef(null);
     const [mentionState, setMentionState] = useState(null);
@@ -575,6 +655,26 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             clearTimeout(timeoutRef.current);
             timeoutRef.current = null;
         }
+    };
+
+    // Providers can split one response into hundreds of tiny deltas. Rendering
+    // every delta makes the editor janky and can starve other UI work. Preserve
+    // the complete response in the ref, but paint it at most every 50ms.
+    const flushStreamContent = () => {
+        if (streamContentFlushTimerRef.current) {
+            clearTimeout(streamContentFlushTimerRef.current);
+            streamContentFlushTimerRef.current = null;
+        }
+        const buffered = streamContentBufferRef.current;
+        streamContentBufferRef.current = "";
+        if (!buffered) return;
+        responseRef.current += buffered;
+        setResponse(responseRef.current);
+    };
+
+    const scheduleStreamContentFlush = () => {
+        if (streamContentFlushTimerRef.current) return;
+        streamContentFlushTimerRef.current = setTimeout(flushStreamContent, 50);
     };
 
     const clearPromptBlurTimeout = () => {
@@ -615,10 +715,15 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         const timeoutMs = getAiCodingAgentIdleTimeoutMs(provider);
         timeoutRef.current = setTimeout(() => {
             console.error(`[AI Coding Agent] Request timeout after ${Math.round(timeoutMs / 1000)}s of inactivity`);
+            const activeRequestId = streamingRequestIdRef.current;
+            if (activeRequestId) {
+                timedOutRequestIdsRef.current.add(activeRequestId);
+                cancelledRequestIdsRef.current.add(activeRequestId);
+                Promise.resolve(window.electron.aiCodingAgent.cancelRequest?.({requestId: activeRequestId})).catch(() => {});
+            }
             setError("Request timed out. The AI service may be unavailable. Please try again.");
             setIsLoading(false);
             streamingRequestIdRef.current = null;
-            cancelledRequestIdsRef.current.clear();
             timeoutRef.current = null;
         }, timeoutMs);
     };
@@ -687,6 +792,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         listenersRegistered.current = true;
         // Create handler functions
         const handleStreamDelta = (data) => {
+            if (requestSnapshotRef.current?.revision !== (virtualFS.fs.snapshotSwitchRevision || 0)) return;
             if (cancelledRequestIdsRef.current.has(data.requestId)) {
                 return;
             }
@@ -718,25 +824,28 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 data.content.length > 0 &&
                 /\S/.test(data.content)) {  // Must contain at least one non-whitespace character
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
-                responseRef.current += data.content;
-                setResponse(responseRef.current);
-                console.log('[AI Coding Agent] Response updated', { totalLength: responseRef.current.length });
+                streamContentBufferRef.current += data.content;
+                scheduleStreamContentFlush();
             }
         };
 
         const handleStreamDone = (data) => {
+            if (requestSnapshotRef.current?.revision !== (virtualFS.fs.snapshotSwitchRevision || 0)) return;
             if (cancelledRequestIdsRef.current.has(data.requestId)) {
                 clearRequestTimeout();
-                cancelledRequestIdsRef.current.delete(data.requestId);
+                // Keep this marker until the original IPC promise returns.
+                // A late stream completion must never make a stopped request
+                // eligible to apply workspace edits.
                 return;
             }
-            const match = !streamingRequestIdRef.current || data.requestId === streamingRequestIdRef.current;
+            const match = data.requestId === streamingRequestIdRef.current;
             if (!match) {
                 console.warn("[AI Coding Agent] Stream done mismatch", data.requestId);
                 return;
             }
             // ALWAYS clear timeout FIRST (critical to prevent timeout errors)
             clearRequestTimeout();
+            flushStreamContent();
             console.log('[AI Coding Agent] Timeout cleared');
             console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
 
@@ -744,15 +853,18 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             setRequestStatusEntries([]);
             responseRef.current = data.fullContent;
             setResponse(data.fullContent);
-            setIsLoading(false);
+            // Stream completion precedes IPC completion and workspace application.
+            if (!submitInFlightRef.current) setIsLoading(false);
 
         };
 
         const handleStreamError = (data) => {
             console.error('[AI Coding Agent] Stream error', data);
+            // Keep a useful partial reply visible when the provider reports an
+            // error such as max_output_tokens immediately after a delta.
+            flushStreamContent();
             if (cancelledRequestIdsRef.current.has(data.requestId)) {
                 clearRequestTimeout();
-                cancelledRequestIdsRef.current.delete(data.requestId);
                 return;
             }
             if (data.requestId === streamingRequestIdRef.current) {
@@ -767,22 +879,27 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         };
 
         const handleStreamCancelled = (data) => {
-            if (!cancelledRequestIdsRef.current.has(data.requestId) && data.requestId !== streamingRequestIdRef.current) {
+            const timedOut = timedOutRequestIdsRef.current.has(data.requestId);
+            if (!timedOut && !cancelledRequestIdsRef.current.has(data.requestId) && data.requestId !== streamingRequestIdRef.current) {
                 return;
             }
+            timedOutRequestIdsRef.current.delete(data.requestId);
             clearRequestTimeout();
-            cancelledRequestIdsRef.current.delete(data.requestId);
             if (data.requestId === streamingRequestIdRef.current) {
                 streamingRequestIdRef.current = null;
             }
             setIsLoading(false);
             setRequestStatusEntries([]);
-            setOperationSummary({
+            setOperationSummary(timedOut ? {
+                intent: "warning",
+                title: "AI Request Timed Out",
+                message: "The provider did not make progress in time. The request was stopped; retry when the provider is available.",
+            } : {
                 intent: "warning",
                 title: "AI Request Stopped",
                 message: data.message || "The AI request was stopped before any changes were applied.",
             });
-            setError(null);
+            setError(timedOut ? "Request timed out. The AI service may be unavailable. Please try again." : null);
             expectWorkspaceApplyRef.current = false;
             pendingAutoFileCreateRef.current = false;
             planRetryInFlightRef.current = false;
@@ -808,6 +925,11 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         console.log('[AI Coding Agent] Event handlers registered');
 
         return () => {
+            if (streamContentFlushTimerRef.current) {
+                clearTimeout(streamContentFlushTimerRef.current);
+                streamContentFlushTimerRef.current = null;
+            }
+            streamContentBufferRef.current = "";
             // Use stored refs for cleanup to ensure we remove the exact same handlers
             if (handlersRef.current.delta) {
                 window.electron.aiCodingAgent.off.streamDelta(handlersRef.current.delta);
@@ -955,6 +1077,16 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             );
         }
 
+        if (isAiCodingOutputLimitError(message)) {
+            return (
+                <Callout intent="warning" icon="time">
+                    <strong>The assistant reached its response limit.</strong>
+                    <p>The partial reply is kept for reference, but incomplete code was not applied.</p>
+                    <p>Retry as a complete response to receive one self-contained set of plugin workspace files.</p>
+                </Callout>
+            );
+        }
+
         return (
             <Callout intent="danger" icon="warning-sign">
                 {message}
@@ -977,15 +1109,30 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         });
     };
 
-    const getProblemsContext = () => {
+    const getProblemsContext = ({errorsOnly = false} = {}) => {
         try {
-            const currentModel = codeEditor?.getModel?.() || null;
-            const models = currentModel ? [currentModel] : virtualFS.listModels();
-            return buildAiCodingProblemsContext(models);
+            // The Problems panel aggregates workspace diagnostics, so a repair
+            // request must see every plugin file rather than only the tab that
+            // happened to be focused when the user pressed Send.
+            const models = virtualFS.listModels?.() || [];
+            return buildAiCodingProblemsContext(models, {errorsOnly});
         } catch (err) {
             console.error('[AI Coding Agent] Error getting problems context', err);
             return "";
         }
+    };
+
+    const waitForProblemsContext = async ({errorsOnly = true, timeoutMs = 1500} = {}) => {
+        const startedAt = Date.now();
+        // Monaco diagnostics arrive asynchronously after a workspace file is
+        // replaced. Give the Problems panel a short, bounded chance to catch
+        // up before deciding that a generated plan is clean.
+        while (Date.now() - startedAt < timeoutMs) {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            const context = getProblemsContext({errorsOnly});
+            if (context) return context;
+        }
+        return getProblemsContext({errorsOnly});
     };
 
     const getBuildOutputContext = (workspaceFiles = []) => {
@@ -1375,6 +1522,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     };
 
     const createSnapshotBeforeApply = () => {
+        assertSnapshotUnchanged();
         try {
             const currentVersion = virtualFS.fs.version();
             const tabs = virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => ({id: t.id, active: t.active}));
@@ -1388,9 +1536,21 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     };
 
     const persistSnapshotAfterApply = (previousVersion = "") => {
+        assertSnapshotUnchanged();
         try {
             const tabs = virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => ({ id: t.id, active: t.active }));
             const created = virtualFS.fs.create(previousVersion, tabs, { quiet: true });
+            if (!created.error) {
+                appliedSnapshotRef.current = created.version;
+                if (!submitInFlightRef.current) {
+                    const messages = [...conversationRef.current];
+                    const last = messages.length - 1;
+                    if (messages[last]?.role === "assistant") {
+                        messages[last] = {...messages[last], appliedSnapshot: String(created.version)};
+                        saveConversation(messages);
+                    }
+                }
+            }
             console.log(`Persisted snapshot ${created.version} after AI code application`);
             return created;
         } catch (err) {
@@ -1875,6 +2035,7 @@ Rules:
     };
 
     const autoInsertCodeIntoEditor = async (contentOverride = "") => {
+        assertSnapshotUnchanged();
         const contentToApply = contentOverride || responseRef.current || response;
         if (!contentToApply) {
             setError("No AI response available to apply.");
@@ -2053,6 +2214,21 @@ Rules:
         });
     };
 
+    const handleRetryTruncatedResponse = () => {
+        if (!response) return;
+        const draftPrompt = "Restart the interrupted answer as a compact, complete, self-contained response. Include every required plugin workspace file section, including files that were complete before interruption. Do not rely on or refer to the partial response.";
+        setComposerMode("refine");
+        setPrompt(draftPrompt);
+        setError(null);
+        clearPromptBlurTimeout();
+        requestAnimationFrame(() => {
+            const input = promptInputRef.current;
+            if (!input) return;
+            input.focus();
+            input.setSelectionRange?.(0, input.value.length);
+        });
+    };
+
     const handleImageUpload = (event) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -2151,7 +2327,7 @@ Rules:
         },
         {
             combo: shortcutCombos.autoApply,
-            label: "Toggle auto-apply",
+            label: "Toggle Make changes / Review first",
             allowInInput: true,
             preventDefault: true,
             onKeyDown: () => {
@@ -2178,7 +2354,7 @@ Rules:
             preventDefault: true,
             onKeyDown: () => {
                 if (!isLoading && response && !autoApply && action !== "plan") {
-                    insertCodeIntoEditor();
+                    handleApplyResponse();
                 }
             },
         },
@@ -2266,6 +2442,8 @@ Rules:
                 allowValidationRetry: true,
             });
             if (execution.successCount > 0) {
+                const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
+                if (!persisted || persisted.error) throw new Error("Files changed, but the resulting snapshot could not be saved.");
                 const message = `Created ${execution.successCount} file(s) in the virtual workspace${execution.errorCount > 0 ? `, ${execution.errorCount} issue(s)` : ''}.`;
                 setOperationSummary({
                     intent: execution.errorCount > 0 ? "warning" : "success",
@@ -2292,6 +2470,7 @@ Rules:
         {
             createSnapshot = true,
             allowValidationRetry = true,
+            allowProblemsRetry = true,
         } = {},
     ) => {
         if (!planResponse) return { successCount: 0, errorCount: 0, errorDetails: ["Empty response"] };
@@ -2303,13 +2482,21 @@ Rules:
             }
         }
 
-        const { files, invalidPaths } = parseAiWorkspacePlanResponse(planResponse);
+        const parsedPlan = parseAiWorkspacePlanResponse(planResponse);
+        const {files, normalizedPaths} = normalizeReservedHostBindingMarkers(parsedPlan.files);
+        const {invalidPaths} = parsedPlan;
         const pluginValidation = validateGeneratedPluginFiles(files);
         if (files.length === 0) {
             const invalidDetail = invalidPaths.length > 0
                 ? ` Invalid paths: ${invalidPaths.join(', ')}`
                 : "";
             throw new Error(`No valid workspace files found in the AI response. The response must contain workspace file sections.${invalidDetail}`);
+        }
+        if (normalizedPaths.length > 0) {
+            pushRequestStatus(
+                `Corrected the host-reserved listener marker in ${normalizedPaths.join(", ")} before validating the generated workspace.`,
+                {phase: "reserved-binding-marker-repair", paths: normalizedPaths},
+            );
         }
         if (pluginValidation.errors.length > 0) {
             if (allowValidationRetry && selectedAssistant?.id) {
@@ -2345,6 +2532,7 @@ Rules:
         }
 
         const folders = new Set();
+        assertSnapshotUnchanged();
         files.forEach(file => {
             const parts = file.path.split('/').filter(Boolean);
             for (let i = 1; i < parts.length; i++) {
@@ -2367,6 +2555,7 @@ Rules:
         const errorDetails = [];
 
         for (const file of files) {
+            assertSnapshotUnchanged();
             try {
                 createVirtualFile(file.path, file.content);
                 successCount++;
@@ -2384,10 +2573,49 @@ Rules:
             errorDetails.push(...pluginValidation.warnings);
         }
 
+        const problemsContext = await waitForProblemsContext({errorsOnly: true});
+        if (problemsContext) {
+            if (allowProblemsRetry && selectedAssistant?.id) {
+                const retryPrompt = buildProblemsRepairPlanPrompt({
+                    originalPrompt: currentRequestRef.current?.prompt || prompt || "",
+                    previousResponse: planResponse,
+                    problemsContext,
+                });
+                const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                streamingRequestIdRef.current = retryRequestId;
+                responseRef.current = "";
+                setResponse("");
+                setIsLoading(true);
+                scheduleRequestTimeout(selectedAssistant?.provider || "");
+                pushRequestStatus(
+                    "Problems panel found generated-code errors. Requesting one plugin-local correction.",
+                    {phase: "plan-retry-problems"},
+                );
+                const retryResult = await window.electron.aiCodingAgent.planCode({
+                    requestId: retryRequestId,
+                    prompt: retryPrompt,
+                    image: uploadedImage,
+                    context: currentRequestRef.current?.context || "",
+                    assistantId: selectedAssistant.id,
+                });
+                if (retryResult?.success && retryResult?.content) {
+                    return await executePlanResponse(retryResult.content, {
+                        createSnapshot: false,
+                        allowValidationRetry: false,
+                        allowProblemsRetry: false,
+                    });
+                }
+                throw new Error(retryResult?.error || "The Problems-panel correction request did not return workspace files.");
+            }
+            errorCount += 1;
+            errorDetails.push(`Problems panel still reports generated-code errors: ${problemsContext.replace(/\s+/g, " ").slice(0, 500)}`);
+        }
+
         return { successCount, errorCount, errorDetails };
     };
     
     const handleSubmit = async () => {
+        if (submitInFlightRef.current) return;
         if (!prompt.trim()) return;
         
         // Validate assistant is selected
@@ -2416,6 +2644,12 @@ Rules:
             console.log('[AI Coding Agent] Submitting follow-up with prior response context', { composerMode });
         }
 
+        submitInFlightRef.current = true;
+        const priorConversation = conversationRef.current;
+        requestSnapshotRef.current = {revision: virtualFS.fs.snapshotSwitchRevision || 0, workspace: virtualFS.sandboxName};
+        appliedSnapshotRef.current = null;
+        const userMessage = {role: "user", content: prompt.trim(), snapshot: virtualFS.fs.version()?.version ?? ""};
+        saveConversation([...priorConversation, userMessage]);
         setIsLoading(true);
         setError(null);
         setResponse("");
@@ -2548,13 +2782,13 @@ Rules:
             const effectiveAction = isInformationalOnlyPrompt(finalPrompt) && routingDecision.action !== "plan"
                 ? "smart"
                 : routingDecision.action;
-            pendingAutoFileCreateRef.current = createProjectFiles || executeWorkspacePlan || effectiveAction === "plan";
+            pendingAutoFileCreateRef.current = autoApplyRef.current && (createProjectFiles || executeWorkspacePlan || effectiveAction === "plan");
             expectWorkspaceApplyRef.current = effectiveAction === "plan";
             applyActionRef.current = effectiveAction;
 
             if (shouldRunTestsBeforeAiRequest(finalPrompt) && !autoApplyRef.current) {
                 pushRequestStatus(
-                    "Auto-apply is off. Tests will be diagnosed, but fixes will not be applied and rerun automatically.",
+                    "Review first is selected. Tests will be diagnosed; proposed fixes wait for your review.",
                     { phase: "tests" },
                 );
             }
@@ -2686,6 +2920,10 @@ Rules:
                     ? "focused"
                     : (fastLocalEdit ? "targeted" : "full"),
             });
+            const conversationContext = `Current plugin snapshot: ${userMessage.snapshot}.\n` + buildHistoryContext(priorConversation, content =>
+                validateAiCodingPluginScopeResponse({text: content, workspaceFiles: refreshedProjectFiles}).ok);
+            requestContexts.projectContext = conversationContext + requestContexts.projectContext;
+            requestContexts.referenceContext = conversationContext + requestContexts.referenceContext;
             const enhancedContext = requestContexts.projectContext;
             const diagnosisContext = includeIssueDiagnosis && issueScope.summary
                 ? `${issueScope.summary}\nTreat this as a ${issueScope.kind} issue unless the provided code or diagnostics prove otherwise.\n\n`
@@ -3029,6 +3267,8 @@ Rules:
                     try {
                         const execution = await executePlanResponse(result.content || responseRef.current);
                         if (execution.successCount > 0) {
+                            const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
+                            if (!persisted || persisted.error) throw new Error("Files changed, but the resulting snapshot could not be saved.");
                             const message = `Created ${execution.successCount} file(s) in the virtual workspace${execution.errorCount > 0 ? `, ${execution.errorCount} failed` : ''}.`;
                             setOperationSummary({
                                 intent: execution.errorCount > 0 ? "warning" : "success",
@@ -3076,6 +3316,17 @@ Rules:
             multiFileRetryInFlightRef.current = false;
             scopeRetryInFlightRef.current = false;
         }
+        finally {
+            if (responseRef.current.trim()) {
+                const stale = requestSnapshotRef.current?.revision !== (virtualFS.fs.snapshotSwitchRevision || 0)
+                    || requestSnapshotRef.current?.workspace !== virtualFS.sandboxName;
+                if (!stale) saveConversation([...conversationRef.current, {role: "assistant", content: responseRef.current,
+                    snapshot: userMessage.snapshot, ...(appliedSnapshotRef.current != null ? {appliedSnapshot: appliedSnapshotRef.current} : {})}]);
+                setPrompt("");
+            }
+            submitInFlightRef.current = false;
+            setIsLoading(false);
+        }
     };
 
     const handlePromptChange = (event) => {
@@ -3091,7 +3342,15 @@ Rules:
         updateMentionSuggestions(nextValue, selectionStart);
     };
 
+    const handleApplyResponse = async () => {
+        setIsLoading(true);
+        try { await autoInsertCodeIntoEditor(); }
+        catch (err) { setError(err.message); }
+        finally { setIsLoading(false); }
+    };
+
     const insertCodeIntoEditor = (contentOverride = "") => {
+        assertSnapshotUnchanged();
         const contentToApply = contentOverride || responseRef.current || response;
         if (!codeEditor || !contentToApply) {
             console.log('[AI Coding Agent] Cannot insert - no editor or response');
@@ -3454,6 +3713,14 @@ Rules:
         >
             <div className={styles["panel-header"]}>
                 <h3>AI Coding Agent</h3>
+                <Button small disabled={isLoading} onClick={() => {
+                    saveConversation([]);
+                    setResponse("");
+                    responseRef.current = "";
+                    setPrompt("");
+                    setError(null);
+                    setOperationSummary(null);
+                }}>Clear conversation</Button>
                 <div className={styles["panel-header-tags"]}>
                     <Tag minimal intent="success">
                         Plugin Scope Only
@@ -3465,6 +3732,19 @@ Rules:
             </div>
 
             <div className={styles["panel-content"]} ref={panelContentRef}>
+            <section aria-label="Conversation history" data-testid="ai-conversation-history" className={styles["conversation-history"]}>
+
+                <p>Saved on this device for this plugin. Your recent conversation is included in follow-up requests.</p>
+                {historyWarning && <Callout intent="warning">{historyWarning}</Callout>}
+                {conversation.map((message, index) => message.role === "assistant" && index === conversation.length - 1 && message.content === response ? null : (
+                    <details key={index} open={message.role === "user"}>
+                        <summary>{message.role === "snapshot" ? "Snapshot switch" : message.role === "user" ? "You" : "Assistant"}: {message.content.replace(/\s+/g, " ").slice(0, 90)}</summary>
+                        {message.snapshot != null && <small>Snapshot: {message.snapshot}{message.appliedSnapshot != null ? ` → Applied: ${message.appliedSnapshot}` : ""}</small>}
+                        <Markdown options={{disableParsingRawHTML: true}}>{message.content}</Markdown>
+                    </details>
+                ))}
+            </section>
+
                 <FormGroup label="AI Assistant" labelFor="assistant-select">
                     <HTMLSelect
                         id="assistant-select"
@@ -3645,18 +3925,18 @@ Rules:
                     </Callout>
                 )}
 
-                <FormGroup>
-                    <Switch
-                        checked={autoApply}
-                        label="Auto-apply generated changes to the editor or virtual workspace (keeps a restore point and saves the result)"
-                        onChange={(e) => setAutoApply(e.target.checked)}
-                        disabled={isLoading}
-                    />
-                    {autoApply && !mentionMenuVisible && (
-                        <Callout intent="primary" style={{ marginTop: '8px', fontSize: '12px' }}>
-                            Single-file responses will be inserted into the current editor selection. Multi-file plan responses will be applied to the virtual workspace. FDO keeps a restore point before each apply and saves the updated workspace as the new current state.
-                        </Callout>
-                    )}
+                <FormGroup label="Changes" labelFor="ai-change-mode">
+                    <HTMLSelect id="ai-change-mode" value={autoApply ? "apply" : "review"}
+                        onChange={(event) => setAutoApply(event.target.value === "apply")} disabled={isLoading}
+                        options={[
+                            {label: "Make changes", value: "apply"},
+                            {label: "Review first", value: "review"},
+                        ]}/>
+                    {!mentionMenuVisible && <div style={{marginTop: "8px", fontSize: "12px"}}>
+                        {autoApply
+                            ? "Requested edits are applied and saved with a restore point. Questions leave your files unchanged."
+                            : "Review proposed edits before applying them. Your workspace stays unchanged until you apply."}
+                    </div>}
                 </FormGroup>
 
                 {!mentionMenuVisible && (
@@ -3664,7 +3944,7 @@ Rules:
                     <div className={styles["shortcut-list"]}>
                         <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.submit} /> submit</span>
                         <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.stop} /> stop</span>
-                        <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.autoApply} /> auto-apply</span>
+                        <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.autoApply} /> change mode</span>
                         <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.refine} /> refine</span>
                         <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.insert} /> insert</span>
                         <span className={styles["shortcut-item"]}><KeyComboTag combo={shortcutCombos.execute} /> execute plan</span>
@@ -3692,7 +3972,7 @@ Rules:
                             title={shortcutCombos.stop}
                         />
                     )}
-                    {response && action === "plan" && (
+                    {response && (action === "plan" || expectWorkspaceApplyRef.current) && (
                         <>
                             <Button
                                 text="Copy Plan"
@@ -3701,7 +3981,7 @@ Rules:
                                 disabled={isLoading}
                             />
                             <Button
-                                text="Execute Plan"
+                                text="Apply proposed changes"
                                 icon="play"
                                 onClick={handleExecutePlan}
                                 disabled={isLoading}
@@ -3709,11 +3989,11 @@ Rules:
                             />
                         </>
                     )}
-                    {response && !autoApply && action !== "plan" && (
+                    {response && !autoApply && action !== "plan" && !expectWorkspaceApplyRef.current && (
                         <Button
-                            text="Insert into Editor"
+                            text="Apply proposed changes"
                             icon="insert"
-                            onClick={insertCodeIntoEditor}
+                            onClick={handleApplyResponse}
                             disabled={isLoading}
                             title={shortcutCombos.insert}
                         />
@@ -3739,8 +4019,17 @@ Rules:
                 </div>
 
                 {error && (
-                    <div className={styles["error-message"]}>
+                    <div data-testid="ai-coding-error" role="alert" className={styles["error-message"]}>
                         {renderErrorContent(error)}
+                        {isAiCodingOutputLimitError(error) && response && (
+                            <Button
+                                small
+                                icon="refresh"
+                                text="Retry as complete response"
+                                onClick={handleRetryTruncatedResponse}
+                                disabled={isLoading}
+                            />
+                        )}
                     </div>
                 )}
 
@@ -3782,6 +4071,7 @@ Rules:
                 {response && (
                     <div className={styles["response-container"]}>
                         <h4>Response:</h4>
+                        {conversation[conversation.length - 1]?.appliedSnapshot != null && <p>Applied as snapshot {conversation[conversation.length - 1].appliedSnapshot}</p>}
                         {isLoading && requestStatusEntries.length > 0 && (
                             <div className={styles["loading-indicator"]} style={{ marginBottom: '12px' }}>
                                 <Callout intent="primary" icon={<Spinner size={16} />}>
@@ -3795,7 +4085,7 @@ Rules:
                                 </Callout>
                             </div>
                         )}
-                        <Card className={styles["response-card"]}>
+                        <Card data-testid="ai-coding-response" className={styles["response-card"]}>
                             <Markdown
                                 children={response}
                                 options={{

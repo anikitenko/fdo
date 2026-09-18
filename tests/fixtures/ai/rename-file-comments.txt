@@ -1,0 +1,111 @@
+// FILE: /index.ts
+import {defineRenderOnLoadActions, FDO_SDK, FDOInterface, PluginMetadata, PluginRegistry} from '@anikitenko/fdo-sdk';
+import {Render} from "./render"
+
+export default class MyPlugin extends FDO_SDK implements FDOInterface {
+
+    private readonly _metadata: PluginMetadata = {
+        name: "Quasar Quill",
+        version: "1.0.0",
+        author: "AleXvWaN",
+        description: "A sample FDO plugin",
+        icon: "cog",
+    };
+
+    get metadata(): PluginMetadata {
+        return this._metadata;
+    }
+    
+    init(): void {
+        PluginRegistry.registerHandler("refreshStatus", () => ({
+            success: true,
+            message: this.metadata.name + " is running (v" + this.metadata.version + ").",
+        }));
+        this.info(this.metadata.name + " initialized!", {
+            plugin: this.metadata.name,
+            version: this.metadata.version,
+        });
+    }
+    
+    render(): string {
+        const metadata = this.metadata;
+        return (Render({
+            version: metadata.version,
+            author: metadata.author,
+            description: metadata.description
+        }))
+    }
+    
+    renderOnLoad() {
+        return defineRenderOnLoadActions({
+            handlers: {
+                refreshStatus: async ({ element }) => {
+                    const response = await window.createBackendReq("UI_MESSAGE", {
+                        handler: "refreshStatus",
+                        content: {
+                            plugin: "Quasar Quill",
+                        },
+                    });
+                    const target = document.querySelector("[data-role=\"status\"]");
+                    if (target) {
+                        target.textContent = String(response?.message || "Status updated");
+                    }
+                    if (element instanceof HTMLElement) {
+                        element.dataset.state = "ready";
+                    }
+                },
+            },
+            bindings: [
+                {
+                    selector: "[data-role=\"refresh-status\"]",
+                    event: "click",
+                    handler: "refreshStatus",
+                    preventDefault: true,
+                    required: true,
+                },
+            ],
+            // strict: true surfaces selector mismatch diagnostics early during plugin authoring.
+            strict: true,
+            language: "typescript",
+        });
+    }
+    
+}
+
+new MyPlugin();
+
+// FILE: /render.tsx
+import {DOM, DOMNested, DOMText} from '@anikitenko/fdo-sdk';
+
+type RenderProps = {
+    version: string;
+    author: string;
+    description: string
+}
+
+export const Render = ({ version, author, description }: RenderProps): string => {
+    const text = new DOMText();
+    const myPlugin = text.createHText(1, `Quasar Quill`);
+    const pVersion = text.createPText(`Version: ${version}`);
+    const pAuthor = text.createPText(`Author: ${author}`);
+    const pDescription = text.createPText(`Description: ${description}`);
+    const refreshButton = new DOM().createElement("button", {
+        "data-role": "refresh-status",
+        type: "button",
+        class: "pure-button",
+    }, "Refresh status");
+    const status = new DOM().createElement("p", {
+        "data-role": "status",
+    }, "Click the button to fetch plugin UI status.");
+    const nested = new DOMNested().createBlockDiv([
+        myPlugin,
+        pVersion,
+        pAuthor,
+        pDescription,
+        refreshButton,
+        status
+    ]);
+    return (
+        new DOM().renderHTML(nested)
+    )
+}

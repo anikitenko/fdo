@@ -1,3 +1,5 @@
+import {reserveLiveAiTestRequest} from "../utils/liveAiTestBudget";
+import {refreshCodexRuntime} from "../utils/refreshCodexRuntime";
 import {ipcMain, utilityProcess, BrowserWindow} from "electron";
 import {SettingsChannels} from "./channels";
 import {settings} from "../utils/store";
@@ -450,10 +452,12 @@ export function registerSettingsHandlers() {
         const chat   = settings.get('ai.chat',   []) || [];
         const coding = settings.get('ai.coding', []) || [];
 
-        // If you need types, *don't* write back to settings here
+        const currentCoding = await Promise.all(coding.map(assistant =>
+            refreshCodexRuntime(assistant, resolveCodexCliInvocation)
+        ));
         return [
             ...chat.map(a => ({...a, purpose: 'chat'})),
-            ...coding.map(a => ({...a, purpose: 'coding'})),
+            ...currentCoding.map(a => ({...a, purpose: 'coding'})),
         ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
     });
 
@@ -568,6 +572,7 @@ export function registerSettingsHandlers() {
                 apiKey: data.apiKey,
                 model: data.model,
             });
+            reserveLiveAiTestRequest();
             const isConnected = await llm.verifyConnection();
             if (!isConnected) {
                 throw new Error(`API Key verification failed for ${data.provider} and model ${data.model}. Please check your API key and model.`);

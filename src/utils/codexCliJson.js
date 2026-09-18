@@ -34,7 +34,7 @@ function extractAssistantItemText(parsed) {
     if (type === "item.completed" || type === "item.delta") {
         const item = parsed.item;
         if (!isObject(item)) return "";
-        const itemType = String(item.type || "").toLowerCase();
+        const itemType = String(item.type || "").toLowerCase().replace(/_/g, "");
         if (itemType === "agentmessage" || itemType === "assistantmessage") {
             return collectText(item.text || item.content || item.delta).join("\n").trim();
         }
@@ -82,7 +82,7 @@ export function extractCodexJsonProgress(line = "") {
         }
         if (type === "item.started" || type === "item.completed") {
             const item = parsed?.item;
-            const itemType = String(item?.type || "").toLowerCase();
+            const itemType = String(item?.type || "").toLowerCase().replace(/_/g, "");
             if (itemType === "commandexecution") {
                 const summary = summarizeCommand(item?.command || "");
                 return type === "item.started"
@@ -121,4 +121,21 @@ export function isLikelyCodexJsonEventStream(text = "") {
     if (lines.length === 0) return false;
     const jsonLikeCount = lines.filter((line) => line.startsWith("{") && line.endsWith("}")).length;
     return jsonLikeCount >= Math.max(2, Math.ceil(lines.length / 2));
+}
+
+export function extractCodexFailure(stdout = "", stderr = "") {
+    const failures = [];
+    for (const line of String(stdout).split(/\r?\n/)) {
+        try {
+            const event = JSON.parse(line);
+            if (event.type === "turn.failed" || event.type === "error") {
+                const message = typeof event.error === "string" ? event.error : event.error?.message || event.message;
+                if (typeof message === "string" && message.trim()) failures.push(message.trim());
+            }
+        } catch (_) { /* Non-JSON output is handled as stderr below. */ }
+    }
+    if (failures.length) return failures[failures.length - 1];
+    return stripAnsi(stderr).split(/\r?\n/)
+        .filter(line => !/^Reading (?:additional input|prompt) from stdin\.{3}\s*$/i.test(line.trim()))
+        .join("\n").trim();
 }

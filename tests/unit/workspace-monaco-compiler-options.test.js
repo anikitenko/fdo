@@ -9,6 +9,8 @@ describe("workspace monaco compiler options", () => {
             JsxEmit: { React: 2, ReactJSX: 4 },
         });
 
+        expect(options.typeRoots).toContain("/node_modules/@types");
+        expect(options.types).toContain("node");
         expect(options.target).toBe(9);
         expect(options.moduleResolution).toBe(100);
         expect(options.module).toBe(99);

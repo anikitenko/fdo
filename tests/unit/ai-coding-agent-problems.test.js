@@ -5,7 +5,7 @@ jest.mock("monaco-editor", () => ({
 }));
 
 import * as monaco from "monaco-editor";
-import {buildAiCodingProblemsContext} from "../../src/components/editor/utils/aiCodingAgentProblems.js";
+import {buildAiCodingProblemsContext, collectAiCodingProblems} from "../../src/components/editor/utils/aiCodingAgentProblems.js";
 
 describe("ai coding agent problems context", () => {
     test("formats current problems into context text", () => {
@@ -35,5 +35,15 @@ describe("ai coding agent problems context", () => {
         monaco.editor.getModelMarkers.mockReturnValue([]);
         expect(buildAiCodingProblemsContext([{ uri: { toString: () => "file:///index.ts" } }])).toBe("");
     });
-});
 
+    test("can limit the repair context to error-severity markers", () => {
+        monaco.editor.getModelMarkers.mockReturnValue([
+            {startLineNumber: 1, startColumn: 1, severity: 4, message: "Style warning"},
+            {startLineNumber: 2, startColumn: 3, severity: 8, message: "Type error"},
+        ]);
+        const models = [{uri: {toString: () => "file:///render.tsx"}}];
+        expect(collectAiCodingProblems(models, {errorsOnly: true})).toHaveLength(1);
+        expect(buildAiCodingProblemsContext(models, {errorsOnly: true})).toContain("Type error");
+        expect(buildAiCodingProblemsContext(models, {errorsOnly: true})).not.toContain("Style warning");
+    });
+});

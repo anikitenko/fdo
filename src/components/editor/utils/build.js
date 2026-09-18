@@ -20,6 +20,7 @@ const build = async () => {
             virtualFS.build.addMessage("Build failed: " + result.error, true, "build")
             setTimeout(() => virtualFS.build.stopProgress(), 500)
             window.electron.notifications.add("Build failed", result.error, "danger")
+            return {success: false, error: result.error};
         } else {
             virtualFS.build.addProgress(90)
             virtualFS.build.addMessage("Build complete, writing output...", false, "build")
@@ -31,10 +32,12 @@ const build = async () => {
             virtualFS.build.addProgress(100)
             virtualFS.build.addMessage("Compilation successful!", false, "build")
             window.electron.notifications.add("Build success", "", "success")
+            return {success: true};
         }
     } catch (error) {
         virtualFS.build.addMessage("Compilation failed: " + error.message,  true, "build")
         console.error("Compilation failed:", error);
+        return {success: false, error: error.message};
     } finally {
         setTimeout(() => virtualFS.build.stopProgress(), 500);
     }

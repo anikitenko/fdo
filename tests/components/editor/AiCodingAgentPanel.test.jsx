@@ -1,12 +1,15 @@
 import React from "react";
-import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {HotkeysProvider} from "@blueprintjs/core";
 import AiCodingAgentPanel, {
     buildSmartModeGuidance,
     buildSelectionGuidance,
+    isAiCodingOutputLimitError,
     isInformationalOnlyPrompt,
     shouldAutoApplySingleFileResponse,
 } from "../../../src/components/editor/AiCodingAgentPanel.jsx";
+import {isNewPluginCreationRequest, resolveAiCodingAgentAction} from "../../../src/components/editor/utils/aiCodingAgentRouting.js";
+import {selectPluginAuthoringScenario} from "../../../src/utils/pluginAuthoringScenarioCatalog.js";
 import virtualFS from "../../../src/components/editor/utils/VirtualFS";
 import runPluginTests from "../../../src/components/editor/utils/runTests.js";
 
@@ -53,7 +56,129 @@ function TestHarness({ codeEditor }) {
 
 let streamHandlers;
 
+test.each([undefined, "another-snapshot"])("keeps historical replies browseable without apply controls for snapshot %s", async (snapshot) => {
+    virtualFS.sandboxName = "old-history";
+    localStorage.setItem("fdo:plugin-ai-history:v1:old-history", JSON.stringify([
+        {role: "assistant", content: "Historical plugin changes", ...(snapshot ? {snapshot} : {})},
+    ]));
+    render(<TestHarness />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    expect(screen.getByTestId("ai-conversation-history").textContent).toContain("Historical plugin changes");
+    expect(screen.queryByTestId("ai-coding-response")).toBeNull();
+    expect(screen.queryByRole("button", {name: /Apply proposed changes/i})).toBeNull();
+});
+
+test.each([false, true])("snapshot restore blocks a delayed edit, including switch-back=%s", async (switchBack) => {
+    virtualFS.sandboxName = "snapshot-chat";
+    let onSwitch;
+    virtualFS.notifications = {subscribe: jest.fn((_event, handler) => { onSwitch = handler; return () => {}; })};
+    let finish;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const reply = async ({requestId}) => {
+        await pending;
+        const content = '```typescript\n// SOLUTION READY TO APPLY\nexport const name = "Stale edit";\n```';
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    };
+    window.electron.aiCodingAgent.generateCode.mockImplementation(reply);
+    const model = {getLanguageId: () => "typescript", getValue: () => 'export const name = "Original";',
+        getValueInRange: () => "", pushEditOperations: jest.fn()};
+    render(<TestHarness codeEditor={{getSelection: () => null, getModel: () => model}} />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Action/i, {selector: "select"}), {target: {value: "generate"}});
+    fireEvent.change(document.querySelector("#prompt-input"), {target: {value: "Update the name in /index.ts to Stale edit"}});
+    fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+    await waitFor(() => expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalled());
+    await act(async () => {
+        virtualFS.fs.snapshotSwitchRevision = 1;
+        onSwitch({from: "original", to: "restored"});
+        if (switchBack) {
+            virtualFS.fs.snapshotSwitchRevision = 2;
+            onSwitch({from: "restored", to: "original"});
+        }
+        finish();
+    });
+    await waitFor(() => expect(screen.queryByRole("button", {name: /Stop/i})).toBeNull());
+    expect(model.pushEditOperations).not.toHaveBeenCalled();
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+    expect(virtualFS.fs.create).not.toHaveBeenCalled();
+    const history = JSON.parse(localStorage.getItem("fdo:plugin-ai-history:v1:snapshot-chat"));
+    expect(history.filter(message => message.role === "snapshot")).toHaveLength(switchBack ? 2 : 1);
+    expect(history.some(message => message.role === "assistant")).toBe(false);
+});
+
+test("restores plugin conversation and includes it in a follow-up, then clears it", async () => {
+    virtualFS.sandboxName = "history-plugin";
+    const codeEditor = {getSelection: () => null, getModel: () => ({
+        getValue: () => "export const name = 'Quasar Quill';", getLanguageId: () => "typescript",
+        getValueInRange: () => "",
+    })};
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId}) => {
+        const content = "We chose Quasar Quill for the display name.";
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    const first = render(<TestHarness codeEditor={codeEditor} />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "review"}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: "Explain the display name Quasar Quill. Do not modify code."}});
+    fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("fdo:plugin-ai-history:v1:history-plugin"))).toHaveLength(2));
+    first.unmount();
+    render(<TestHarness codeEditor={codeEditor} />);
+    await waitFor(() => expect(screen.getByTestId("ai-coding-response").textContent).toContain("We chose Quasar Quill"));
+    fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "review"}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: "What name did we choose earlier? Do not modify code."}});
+    fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+    await waitFor(() => expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2));
+    expect(JSON.stringify(window.electron.aiCodingAgent.smartMode.mock.calls[1][0])).toContain("Previous conversation in this plugin workspace");
+    expect(JSON.stringify(window.electron.aiCodingAgent.smartMode.mock.calls[1][0])).toContain("We chose Quasar Quill");
+    await waitFor(() => expect(screen.queryByRole("button", {name: /Stop/i})).toBeNull());
+    fireEvent.click(screen.getByRole("button", {name: "Clear conversation"}));
+    expect(JSON.parse(localStorage.getItem("fdo:plugin-ai-history:v1:history-plugin"))).toEqual([]);
+});
+
+test.each(["raw", "solution"])("applies the recorded live FILE-comment response to its named files (%s)", async (format) => {
+    const recorded = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../fixtures/ai/rename-file-comments.txt"), "utf8");
+    const content = format === "solution" ? `\`\`\`typescript\n// SOLUTION READY TO APPLY\n${recorded}\n\`\`\`` : recorded;
+    const {BLANK_TEMPLATE_MAIN, BLANK_TEMPLATE_RENDER} = require("../../../src/components/editor/utils/virtualTemplates");
+    const model = {
+        getLanguageId: () => "typescript",
+        getValue: () => BLANK_TEMPLATE_RENDER("Aurora Anvil"),
+        getValueInRange: () => "",
+        pushEditOperations: jest.fn(),
+    };
+    virtualFS.getFileName.mockReturnValue("/render.tsx");
+    virtualFS.getLatestContent.mockReturnValue({
+        "/index.ts": BLANK_TEMPLATE_MAIN("Aurora Anvil"),
+        "/render.tsx": model.getValue(),
+    });
+    const reply = async ({requestId}) => {
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    };
+    window.electron.aiCodingAgent.smartMode.mockImplementation(reply);
+    window.electron.aiCodingAgent.generateCode.mockImplementation(reply);
+    window.electron.aiCodingAgent.planCode.mockImplementation(reply);
+    render(<TestHarness codeEditor={{getModel: () => model, getSelection: () => null}} />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value:
+        "Please rename this plugin to Quasar Quill. Update the plugin metadata name in /index.ts and make /render.tsx show the same visible heading. Apply the changes in the current plugin workspace only. If you change multiple files, return executable workspace file sections."}});
+    fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+    await waitFor(() => expect(virtualFS.createFile).toHaveBeenCalledWith("/index.ts", expect.anything(), undefined));
+    const updates = Object.fromEntries(virtualFS.createFile.mock.calls.map(([path, fileModel]) => [path, fileModel.getValue()]));
+    expect(updates["/index.ts"]).toContain('name: "Quasar Quill"');
+    expect(updates["/render.tsx"]).toContain('`Quasar Quill`');
+    expect(updates["/render.tsx"]).not.toContain("class MyPlugin");
+    expect(model.pushEditOperations).not.toHaveBeenCalled();
+    expect(await screen.findByText("Applied as snapshot snapshot-1")).toBeTruthy();
+});
+
 beforeEach(() => {
+    virtualFS.sandboxName = "";
+    virtualFS.fs.snapshotSwitchRevision = 0;
+    delete virtualFS.notifications;
+    localStorage.clear();
     jest.clearAllMocks();
     window.location.hash = "";
     mockAppToasterShow.mockReset();
@@ -174,7 +299,7 @@ beforeEach(() => {
 });
 
 describe("AiCodingAgentPanel auto-apply patch flow", () => {
-    test("auto-apply patches only the selected code for fix requests", async () => {
+    test.each(["apply", "review"])("%s mode applies the selected-code fix only after authorization", async (mode) => {
         const selection = {
             startLineNumber: 2,
             startColumn: 1,
@@ -228,7 +353,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         virtualFS.fs.create.mockClear();
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: mode}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "please fix current problems in code" },
@@ -238,6 +363,14 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         await waitFor(() => {
             expect(window.electron.aiCodingAgent.fixCode).toHaveBeenCalled();
         });
+
+        if (mode === "review") {
+            const applyButton = await screen.findByRole("button", {name: "Apply proposed changes"});
+            expect(currentValue).toBe(initialSource);
+            expect(model.pushEditOperations).not.toHaveBeenCalled();
+            expect(virtualFS.fs.create).not.toHaveBeenCalled();
+            return;
+        }
 
         await waitFor(() => {
             expect(currentValue).toContain("const brokenValue = safeThing();");
@@ -375,7 +508,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "I need you to run tests and fix them.. I also see blank screen when open plugin's page" },
@@ -447,7 +580,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "tests are still failing" },
@@ -534,7 +667,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "please fix current problems in code" },
@@ -614,7 +747,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "generate" } });
         fireEvent.change(screen.getByRole("textbox"), {
             target: { value: "can you please make name of plugin from undefined to a better name?" },
@@ -687,7 +820,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please change plugin's name in metadata from undefined to something more useful and meaningful" },
         });
@@ -773,7 +906,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         virtualFS.fs.create.mockClear();
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "can you please rename plugin's name in metadata from undefined to something more usefull or meaningful?" },
         });
@@ -794,6 +927,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
     });
 
     test("auto-retries as executable workspace files when AI claims multiple file changes", async () => {
+        let finishPlan;
+        const planCompletion = new Promise(resolve => { finishPlan = resolve; });
         let currentValue = [
             "export default class Test6 extends FDO_SDK {",
             "    public get metadata(): PluginMetadata {",
@@ -901,6 +1036,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
                     fullContent: responseText,
                 });
             });
+            await planCompletion;
             return {
                 success: true,
                 requestId,
@@ -914,11 +1050,20 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please change plugin's name to something more creative" },
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
+
+        await waitFor(() => {
+            expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+        });
+        expect(screen.getByRole("button", {name: /Stop/i})).toBeTruthy();
+        expect(window.electron.plugin.getRuntimeStatus).not.toHaveBeenCalled();
+        expect(window.electron.plugin.init).not.toHaveBeenCalled();
+        expect(window.electron.plugin.render).not.toHaveBeenCalled();
+        finishPlan();
 
         await waitFor(() => {
             expect(currentValue).toContain('name: "Quasar Quill"');
@@ -958,10 +1103,12 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        expect(screen.getByLabelText(/Auto-apply generated changes to the editor or virtual workspace/i)).toBeTruthy();
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes to the editor or virtual workspace/i }));
+        expect(screen.getByLabelText("Changes").value).toBe("apply");
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
 
-        expect(screen.getByText(/FDO keeps a restore point before each apply and saves the updated workspace as the new current state/i)).toBeTruthy();
+        expect(screen.getByText(/applied and saved with a restore point/i)).toBeTruthy();
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "review"}});
+        expect(screen.getByText(/workspace stays unchanged until you apply/i)).toBeTruthy();
     });
 
     test("routes metadata rename smart prompts to /index.ts as the target file", async () => {
@@ -1036,7 +1183,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "can you please rename plugin's name in metadata from undefined to something more usefull or meaningful?" },
         });
@@ -1124,7 +1271,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "please fix tests issue" },
@@ -1198,7 +1345,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "please fix tests issue" },
@@ -1294,7 +1441,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please run tests and investigate errors" },
@@ -1431,7 +1578,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please run tests and fix errors if any exists" },
@@ -1533,7 +1680,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please run tests and fix errors if any exists" },
@@ -1607,7 +1754,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "please fix tests issue" },
@@ -1668,7 +1815,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         fireEvent.keyDown(promptInput, isMacPlatform
             ? { key: "A", metaKey: true, shiftKey: true }
             : { key: "a", altKey: true });
-        expect(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i })).toBeChecked();
+        expect(screen.getByLabelText("Changes").value).toBe("review");
 
         fireEvent.keyDown(promptInput, isMacPlatform
             ? { key: "Enter", metaKey: true }
@@ -1821,6 +1968,53 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(document.activeElement).toBe(promptInput);
         });
         expect(screen.getByLabelText(/Continue or refine the current AI coding thread/i)).toBe(promptInput);
+    });
+
+    test("keeps a truncated reply and prepares a complete retry instead of applying partial code", async () => {
+        const codeEditor = {
+            getSelection: jest.fn(() => null),
+            getModel: jest.fn(() => ({
+                getLanguageId: jest.fn(() => "typescript"),
+                getValue: jest.fn(() => "export {};"),
+                getValueInRange: jest.fn(() => ""),
+            })),
+        };
+        const providerError = "Assistant stream response.incomplete: max_output_tokens";
+
+        window.electron.aiCodingAgent.smartMode.mockImplementationOnce(async ({requestId}) => {
+            Promise.resolve().then(() => {
+                streamHandlers.delta?.({requestId, content: "File: /index.ts\nexport default class JsonInspector"});
+                streamHandlers.error?.({requestId, error: providerError});
+            });
+            return {success: false, requestId, error: providerError};
+        });
+
+        render(<TestHarness codeEditor={codeEditor} />);
+        await waitFor(() => {
+            expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
+        });
+
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: {value: "Build a JSON Inspector plugin"},
+        });
+        fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+
+        expect(await screen.findByText(/assistant reached its response limit/i)).toBeTruthy();
+        expect(screen.getByTestId("ai-coding-response")).toHaveTextContent("JsonInspector");
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole("button", {name: /Retry as complete response/i}));
+        const promptInput = screen.getByLabelText(/Continue or refine the current AI coding thread/i);
+        await waitFor(() => {
+            expect(promptInput.value).toContain("complete, self-contained response");
+            expect(document.activeElement).toBe(promptInput);
+        });
+        expect(promptInput.value).toContain("Include every required plugin workspace file section");
+    });
+
+    test("recognizes the provider output-limit signal", () => {
+        expect(isAiCodingOutputLimitError("Assistant stream response.incomplete: max_output_tokens")).toBe(true);
+        expect(isAiCodingOutputLimitError("network timeout")).toBe(false);
     });
 
     test("refine response prefills an inferred plugin-local next step when available", async () => {
@@ -2146,10 +2340,11 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         };
 
         let pendingRequestId = null;
+        let resolveLateResponse = null;
         window.electron.aiCodingAgent.fixCode.mockImplementation(async ({ requestId }) => {
             pendingRequestId = requestId;
             return new Promise((resolve) => {
-                setTimeout(() => {
+                resolveLateResponse = () => {
                     const patchResponse = [
                         "```patch",
                         "<<<<<<< SEARCH",
@@ -2164,7 +2359,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
                         fullContent: patchResponse,
                     });
                     resolve({ success: true, requestId, content: patchResponse });
-                }, 20);
+                };
             });
         });
 
@@ -2174,7 +2369,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error/i), {
             target: { value: "please fix current problems in code" },
@@ -2191,6 +2386,10 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         await waitFor(() => {
             expect(window.electron.aiCodingAgent.cancelRequest).toHaveBeenCalledWith({ requestId: pendingRequestId });
         });
+        // Deliver the provider result only after Stop. This proves a late
+        // response cannot mutate the workspace and avoids timing-dependent
+        // assumptions about a real event loop.
+        resolveLateResponse?.();
 
         await waitFor(() => {
             expect(screen.getByText(/AI Request Stopped/i)).toBeTruthy();
@@ -2199,6 +2398,41 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(currentValue).toContain("const brokenValue = oldThing();");
         expect(currentValue).not.toContain("const brokenValue = safeThing();");
         expect(model.pushEditOperations).not.toHaveBeenCalled();
+    });
+
+    test("aborts an idle provider request instead of leaving the Editor busy", async () => {
+        jest.useFakeTimers();
+        try {
+            const neverCompletes = new Promise(() => {});
+            let pendingRequestId = "";
+            window.electron.aiCodingAgent.generateCode.mockImplementation(({requestId}) => {
+                pendingRequestId = requestId;
+                return neverCompletes;
+            });
+            const model = {
+                getLanguageId: () => "typescript",
+                getValue: () => "export const ready = true;",
+                getValueInRange: () => "",
+            };
+
+            render(<TestHarness codeEditor={{getSelection: () => null, getModel: () => model}} />);
+            await act(async () => { await Promise.resolve(); });
+            fireEvent.change(screen.getByLabelText(/Action/i, {selector: "select"}), {target: {value: "generate"}});
+            fireEvent.change(document.querySelector("#prompt-input"), {target: {value: "Generate a status card"}});
+            fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+            await act(async () => { await Promise.resolve(); });
+            expect(pendingRequestId).toBeTruthy();
+
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(180001);
+            });
+
+            expect(window.electron.aiCodingAgent.cancelRequest).toHaveBeenCalledWith({requestId: pendingRequestId});
+            expect(screen.getByText("Request timed out. The AI service may be unavailable. Please try again.")).toBeTruthy();
+            expect(screen.queryByRole("button", {name: /Stop/i})).toBeNull();
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     test("routes scaffold-style smart prompts to /index.ts even when /render.tsx is active", async () => {
@@ -2247,7 +2481,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "I want a plugin like https://switchhosts.app with dry-run, tests, and clear error toasts." },
@@ -2304,7 +2538,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "What is the difference between system.hosts.write and system.fs.scope.<scope-id> capabilities in latest SDK?" },
@@ -2359,7 +2593,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.click(screen.getByRole("checkbox", { name: /Auto-apply generated changes/i }));
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
         fireEvent.change(screen.getByLabelText(/Describe the error|Describe what you want to do/i), {
             target: { value: "but can you please checkout plugin logs to confirm?" },
@@ -2512,6 +2746,32 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
 });
 
 describe("AiCodingAgentPanel selection guidance", () => {
+    test("does not recommend selecting code while creating a new plugin", () => {
+        expect(buildSelectionGuidance({
+            action: "smart",
+            effectiveAction: "smart",
+            prompt: "Create a JSON Inspector plugin with a styled interface and tests",
+            selectedCode: "",
+        })).toMatchObject({
+            intent: "success",
+            title: "Selection not required",
+            message: expect.stringContaining("plugin workspace"),
+        });
+        expect(isNewPluginCreationRequest("я хочу такий плагін для моніторингу")).toBe(true);
+    });
+
+    test("recognizes the complete JSON Inspector authoring scenario as a new plugin request", () => {
+        const prompt = selectPluginAuthoringScenario("json-inspector-v1").prompt;
+        expect(isNewPluginCreationRequest(prompt)).toBe(true);
+        expect(resolveAiCodingAgentAction({requestedAction: "smart", prompt})).toBe("smart");
+        expect(buildSelectionGuidance({
+            action: "smart",
+            effectiveAction: "smart",
+            prompt,
+            selectedCode: "",
+        })).toMatchObject({title: "Selection not required"});
+    });
+
     test("warns that edit requests need a selection", () => {
         expect(buildSelectionGuidance({
             action: "edit",
@@ -2532,6 +2792,17 @@ describe("AiCodingAgentPanel selection guidance", () => {
             selectedCode: "",
         })).toMatchObject({
             intent: "success",
+            title: "Selection not required",
+        });
+    });
+
+    test("does not recommend a selection when Smart Mode internally chooses diagnostics", () => {
+        expect(buildSelectionGuidance({
+            action: "smart",
+            effectiveAction: "fix",
+            prompt: "Create a JSON Inspector plugin with an invalid JSON error state",
+            selectedCode: "",
+        })).toMatchObject({
             title: "Selection not required",
         });
     });
@@ -2584,6 +2855,41 @@ describe("AiCodingAgentPanel selection guidance", () => {
 });
 
 describe("AiCodingAgentPanel smart mode guidance", () => {
+    test("uses workspace-first guidance for a new plugin request", () => {
+        expect(buildSmartModeGuidance({
+            prompt: "Create a JSON Inspector plugin with a styled interface and tests",
+            effectiveAction: "smart",
+            selectedCode: "",
+        })).toMatchObject({
+            predictedIntent: "Create a plugin from the workspace",
+            selectionMode: "No selection is required. Smart Mode starts from the plugin workspace.",
+        });
+    });
+
+    test("renders workspace-first guidance while drafting a new plugin", async () => {
+        const codeEditor = {
+            getSelection: jest.fn(() => null),
+            getModel: jest.fn(() => ({
+                getLanguageId: jest.fn(() => "typescript"),
+                getValue: jest.fn(() => "export default class Plugin {}"),
+                getValueInRange: jest.fn(() => ""),
+            })),
+        };
+
+        render(<TestHarness codeEditor={codeEditor} />);
+        await waitFor(() => {
+            expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
+        });
+
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: {value: "Create a JSON Inspector plugin with a styled interface and tests"},
+        });
+
+        expect(screen.getByText("Create a plugin from the workspace")).toBeTruthy();
+        expect(screen.getByText("No selection is required. Smart Mode starts from the plugin workspace.")).toBeTruthy();
+        expect(screen.queryByText(/select code if you want smart mode/i)).toBeNull();
+    });
+
     test("explains that smart mode questions do not require a selection", () => {
         expect(buildSmartModeGuidance({
             prompt: "can you explain why the plugin ui is not visible?",
@@ -3067,6 +3373,10 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
 });
 
 describe("shouldAutoApplySingleFileResponse", () => {
+    test("recognizes the Ukrainian plugin creation request", () => {
+        expect(shouldAutoApplySingleFileResponse({action: "smart", prompt: "я хочу такий плагін для моніторингу Azure через az cli"})).toBe(true);
+    });
+
     test("does not auto-apply smart mode for informational confirmation prompts", () => {
         const shouldApply = shouldAutoApplySingleFileResponse({
             action: "smart",

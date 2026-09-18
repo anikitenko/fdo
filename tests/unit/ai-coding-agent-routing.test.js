@@ -30,6 +30,14 @@ describe("ai coding agent routing", () => {
         })).toBe("smart");
     });
 
+    test("keeps a new-plugin request in smart mode despite incidental selected code and error-state wording", () => {
+        expect(resolveAiCodingAgentAction({
+            requestedAction: "smart",
+            prompt: "Create a JSON Inspector plugin that displays a concise error for invalid JSON.",
+            selectedCode: "const unrelated = true;",
+        })).toBe("smart");
+    });
+
     test("routes explicit scaffold requests from smart mode to plan mode", () => {
         expect(resolveAiCodingAgentAction({
             requestedAction: "smart",

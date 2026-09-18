@@ -73,6 +73,37 @@ export const NavigationPluginsButton = ({
         setShowManageDialog(true);
     }, [capabilityFocusRequest?.requestId, capabilityFocusRequest?.pluginId]);
 
+    useEffect(() => {
+        setSearchActions?.((previousActions) => {
+            const actionsWithoutPluginManagement = previousActions.filter((action) => ![
+                "create-plugin",
+                "manage-plugins",
+            ].includes(action.id));
+
+            return [
+                ...actionsWithoutPluginManagement,
+                {
+                    id: "create-plugin",
+                    name: "Create Plugin",
+                    subtitle: "Start a new FDO plugin",
+                    keywords: ["new plugin", "scaffold", "plugin"],
+                    icon: "add",
+                    section: "Plugins",
+                    perform: () => setShowCreateDialog(true),
+                },
+                {
+                    id: "manage-plugins",
+                    name: "Manage Plugins",
+                    subtitle: "View installed plugins and permissions",
+                    keywords: ["plugin settings", "capabilities", "permissions"],
+                    icon: "applications",
+                    section: "Plugins",
+                    perform: () => setShowManageDialog(true),
+                },
+            ];
+        });
+    }, [setSearchActions]);
+
     return (
         <div>
             <Popover

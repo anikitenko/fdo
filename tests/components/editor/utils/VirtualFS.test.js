@@ -65,13 +65,16 @@ describe('VirtualFS snapshots', () => {
   });
 
   test('set(version) restores files and returns tabs', () => {
+    const revision = virtualFS.fs.snapshotSwitchRevision || 0;
     createModel('/a.ts', 'A');
     const v1 = virtualFS.fs.create('', [{ id: '/a.ts', active: true }]);
     // change model content and create v2
     virtualFS.setFileContent('/a.ts', 'B');
     virtualFS.fs.create(v1.version, [{ id: '/a.ts', active: true }]);
+    expect(virtualFS.fs.snapshotSwitchRevision || 0).toBe(revision);
 
     const data = virtualFS.fs.set(v1.version);
+    expect(virtualFS.fs.snapshotSwitchRevision).toBe(revision + 1);
     expect(data.tabs).toEqual([{ id: '/a.ts', active: true }]);
     expect(virtualFS.getFileContent('/a.ts')).toBe('A');
     expect(virtualFS.fs.version_current).toBe(v1.version);

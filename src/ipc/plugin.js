@@ -2223,6 +2223,13 @@ export function registerPluginHandlers() {
     });
 
     ipcMain.handle(PluginChannels.DEPLOY_FROM_EDITOR, async (event, data) => {
+        const reportProgress = (progress, message) => {
+            if (!event.sender?.isDestroyed?.()) {
+                event.sender?.send?.(PluginChannels.on_off.DEPLOY_PROGRESS, {
+                    requestId: data.requestId, progress, message,
+                });
+            }
+        };
         try {
             const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
             const userORM = new UserORM(USER_CONFIG_FILE);
@@ -2234,15 +2241,19 @@ export function registerPluginHandlers() {
             const pathToPlugin = path.join(pathToDir, data.entrypoint)
             const metadata = normalizeAndValidatePluginMetadata(data.metadata)
 
+            reportProgress(60, "Writing plugin files…");
             await ensureAndWrite(pathToPlugin, data.content)
+            reportProgress(70, "Signing plugin…");
             const signResult = Certs.signPlugin(pathToDir, data.rootCert)
             if (!signResult.success) {
                 return signResult
             }
             const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : (plugin?.capabilities || []);
+            reportProgress(80, "Registering plugin…");
             pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true, capabilities)
             const shouldReload = !!PluginManager.getLoadedPlugin(data.name) || userORM.getActivatedPlugins().includes(data.name);
             if (shouldReload) {
+                reportProgress(90, "Restarting plugin…");
                 PluginManager.unLoadPlugin(data.name, {force: true});
                 const reloadResult = await PluginManager.loadPlugin(data.name);
                 if (!reloadResult?.success) {
@@ -2254,7 +2265,8 @@ export function registerPluginHandlers() {
             if (mainWindow) {
                 mainWindow.focus()
             }
-            mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
+            mainWindow?.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
+            reportProgress(100, "Deployment complete");
             return {success: true}
         } catch (error) {
             return {success: false, error: error.message};

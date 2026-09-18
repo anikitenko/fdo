@@ -1,6 +1,11 @@
-import {ipcMain} from "electron";
+import {reserveLiveAiTestRequest} from "../utils/liveAiTestBudget";
+import {createPluginAssistantIsolation} from "../utils/pluginAssistantIsolation";
+import {extractCodexFailure} from "../utils/codexCliJson";
+import {app, ipcMain} from "electron";
 import {AiCodingAgentChannels} from "./channels.js";
 import LLM from "@themaximalist/llm.js";
+import {sendCodingLlmRequest} from "../utils/codingLlmRequest";
+import {buildPluginAuthoringGuide, buildPluginCodingPrompt} from "../utils/pluginAuthoringGuide";
 import {settings} from "../utils/store.js";
 import {spawn} from "node:child_process";
 import { resolveCodexCliInvocation } from "../utils/codexCli.js";
@@ -22,15 +27,34 @@ import {
 } from "../utils/aiCodingAgentProgress.js";
 
 const activeCodingRequests = new Map();
+// Plugin workspaces commonly need several complete files in one response.
+// Keep this high enough for a compact implementation, its stylesheet, and tests.
+const CODING_MAX_OUTPUT_TOKENS = 8192;
+// A streaming provider should acknowledge a request promptly. This protects
+// the Editor from an indefinitely pending fetch while still allowing a long
+// generation once the provider has started sending content.
+const CODING_FIRST_CONTENT_TIMEOUT_MS = 90_000;
 const PLUGIN_WORKSPACE_ONLY_PROMPT = `
 PLUGIN WORKSPACE BOUNDARY:
 - AI Coding Assistant is restricted to the current plugin workspace only.
-- Treat FDO host application files as out of scope, including src/Home.jsx, src/components/*, src/ipc/*, src/utils/*, src/main.js, src/preload.js, webpack configs, and host application tests, unless those exact files are explicitly present in the provided plugin workspace context.
-- Never suggest editing or auditing FDO host application files from AI Coding Assistant.
-- If the likely root cause is in the FDO host application rather than the plugin workspace, say that the issue appears host-side and is outside AI Coding Assistant scope, then ask the user to switch to AI Chat or host-development tooling.
+- Product-host source, settings, credentials, internal logs, and application architecture are outside your scope. Never inspect or request them.
+- Never suggest editing or auditing product-host files from AI Coding Assistant.
+- If the likely root cause is outside the plugin workspace, say it appears outside this workspace and is outside AI Coding Assistant scope.
 - Only reference plugin workspace paths that are present in the provided context or selected code.
 - Never invent host-side file paths as a proposed fix for a plugin-scoped request.
 `.trim();
+
+function recordE2ECodingLifecycle(event, requestId, details = {}) {
+    if (process.env.FDO_E2E !== "1") return;
+    const records = globalThis.__FDO_E2E_CODING_LIFECYCLE__ || [];
+    records.push({
+        event,
+        requestId,
+        at: new Date().toISOString(),
+        ...details,
+    });
+    globalThis.__FDO_E2E_CODING_LIFECYCLE__ = records.slice(-80);
+}
 
 function registerActiveCodingRequest(requestId, controls = {}) {
     if (!requestId) return;
@@ -160,140 +184,22 @@ async function createCodingLlm(assistantInfo, stream = false) {
         model: assistantInfo.model,
         stream: stream,
         extended: true,
-        max_tokens: 4096,
+        max_tokens: CODING_MAX_OUTPUT_TOKENS,
     });
 
+    // This is deliberately limited to the public plugin contract. The coding
+    // assistant must never receive product-host implementation details.
     llm.system(`
-You are an expert coding assistant integrated into the FDO (FlexDevOps) code editor.
+You are a coding assistant for a plugin workspace. Work only with the supplied
+plugin files, diagnostics, and public plugin SDK declarations. Do not request,
+infer, or describe product-host source, settings, credentials, internal logs,
+or application architecture.
 
-Your role is to help developers with:
-- Code generation based on natural language descriptions
-- Code editing and refactoring
-- Code explanation and documentation
-- Bug fixing and error resolution
-
-### FDO Plugin Development Context
-
-When working with FDO plugins, be aware of:
-
-**FDO SDK (@anikitenko/fdo-sdk)**
-- Plugins extend the FDO_SDK base class and implement FDOInterface
-- Required metadata: name, version, author, description, icon
-- Lifecycle hooks: init() for initialization, render() for UI rendering, and renderOnLoad() only when the installed SDK/workspace convention uses it
-- Communication: IPC message-based communication with main application
-- Storage: Multiple backends (in-memory, JSON file-based)
-- Logging: Built-in this.log() method
-- Use only the documented/exported SDK surface; do NOT import package-internal paths like @anikitenko/fdo-sdk/dist/... unless the current FDO host tooling explicitly provides that data through context
-- If you add plugin tests, prefer node:test and node:assert/strict so FDO can run them before build without external installs or plugin-local dependency setup
-- Keep plugin tests self-contained: rely on Node built-ins, local plugin source, and the bundled FDO SDK/runtime only. Do NOT assume extra third-party test packages are available on a clean machine unless the host already bundles them.
-- In plugin tests, do NOT use bare Jest/Vitest globals. Import describe/test/it/hooks from node:test and use node:assert/strict instead of expect().
-- In plugin tests, target local plugin files and exported SDK APIs only. Do NOT write tests that import FDO host/editor implementation files such as components/editor/*, components/plugin/*, ipc/*, VirtualFS.js, PluginContainer.jsx, PluginPage.jsx, pluginTestRunner.js, or validateGeneratedPluginFiles.js.
-- Do NOT mimic or recreate FDO's own internal test files such as validate-generated-plugin-files.test.js inside a plugin workspace. Plugin tests should target the plugin's own code and behavior, not FDO host/editor internals.
-- If tests are failing and the user asks to fix them, prefer repairing the current plugin code/tests from the provided workspace, Problems, build output, and test output. Do NOT scaffold a new plugin unless the user explicitly asks for a new scaffold.
-- Do NOT invent host-app structures inside a plugin workspace fix, such as PluginManager, ipc/channels, preload bridges, registry wiring, or other FDO application internals, unless those exact files are already present in the provided workspace context.
-- For operator-style plugins, treat the SDK fixture set as the primary authoring entry point and prefer fixture-oriented snippets over legacy/generic examples
-- For privileged/operator plugins, recommend implementing optional declareCapabilities(): PluginCapability[] as an early intent manifest for host preflight and diagnostics
-- Phase 1 operator authoring priority:
-  1. Suggest the closest fixture under examples/fixtures/
-  2. For known operator tool families, prefer createOperatorToolCapabilityPreset(...), createOperatorToolActionRequest(...), and requestOperatorTool(...)
-  3. For host-specific/internal tools not covered by curated presets, prefer createProcessCapabilityBundle(...), createProcessScopeCapability(...), and requestScopedProcessExec(...)
-     Treat generic scopes such as system-observe, network-diagnostics, service-management, archive-tools, package-management, source-control, build-tooling, task-runners, and platform-specific aliases like homebrew as host-specific fallback scopes, not as equal first-choice production scaffolds
-  4. For envelope-compatible privileged flows, prefer requestPrivilegedActionFromEnvelope(...) over manual envelope unwrapping and direct window.createBackendReq("requestPrivilegedAction", ...)
-  5. Only suggest createProcessExecActionRequest(...) and requestPrivilegedAction(...) when the user explicitly needs transport-level control, debugging, or a non-curated action family
-- Use SDK terminology consistently: operator fixture, curated helper, scoped capability, broad capability plus narrow scope
-- Explain operator capabilities as a pair: broad capability system.process.exec plus narrow scope system.process.scope.<scope-id>
-- Treat declareCapabilities() as additive diagnostics/preflight UX only. It does not grant authority and does not replace runtime capability checks or host enforcement.
-- If capability access is denied, explain which broad capability or narrow scope is missing and whether the user should request a curated tool-family grant or a host-specific scope
-- When the host provides both declared and granted capabilities, prefer runCapabilityPreflight(...) to surface summary, missing items, remediations, and extra grants before deeper privileged execution failures
-- When a generic host scope could fit, still prefer operator fixtures/presets/workflows first and describe the generic scope as a fallback only when no curated operator family fits
-- For multi-step host-mediated process orchestration, prefer createScopedWorkflowRequest(...) and requestScopedWorkflow(...) instead of chaining multiple raw process requests inside the plugin
-- Recommend the workflow primitive for preview/apply and inspect/act flows when multiple host-mediated steps are involved, but keep single-action fixtures and helpers for single-step cases
-- Do not introduce a separate workflow capability in guidance unless the trust model actually changes; first-slice workflows still use system.process.exec plus system.process.scope.<scope-id>
-- For clipboard access, prefer host-mediated SDK helpers requestClipboardRead(...) and requestClipboardWrite(...) (or the matching typed request builders) over direct iframe/electron clipboard snippets
-- Keep clipboard permissions explicit and separate in guidance: system.clipboard.read and system.clipboard.write are independently grantable, and read is more sensitive
-- Do NOT recommend generic shell execution, unrestricted process spawning, root/admin-style plugin permissions, removed legacy scaffolds, ad hoc legacy copies, or numbered learning examples as the default production path
-
-**Plugin Icon Constraint**
-- metadata.icon must be a BlueprintJS v6 icon name string
-- Use values such as "cog", "settings", "database", "globe", "desktop", or other BlueprintJS v6 icon identifiers
-- Do NOT generate icon assets like icon.png, logo.svg, favicon.ico, or other custom image-based plugin icons unless the user explicitly asks for a separate non-metadata asset
-- Do NOT describe metadata.icon as a file path or bundled image asset
-
-**Plugin Entry Constraint**
-- The plugin entry file should end with explicit plugin instantiation, for example:
-  export default MyPlugin;
-  new MyPlugin();
-- Do NOT leave the plugin class uninstantiated
-- Prefer this explicit pattern over inventing alternative bootstrap code unless the existing workspace already uses a different pattern
-
-**UI Boundary Constraint**
-- Direct access to host APIs on window.* belongs only in UI-facing code paths
-- Use window.* calls from rendered UI event handlers, UI helper modules, or scripts that run in the plugin host page
-- Do NOT put window.* side effects directly in metadata, class field initializers, constructors, or broad non-UI bootstrap logic unless the user explicitly asks for that pattern
-
-**Plugin Host Runtime Constraint**
-- FDO plugin UI runs inside a sandboxed iframe host
-- The host injects supported window helpers such as window.createBackendReq, window.executeInjectedScript, window.waitForElement, window.addGlobalEventListener, window.removeGlobalEventListener, and window.applyClassToSelector
-- Treat those helpers as UI-runtime APIs, not general-purpose bootstrap APIs
-- If you need host interaction, prefer using those injected helpers from rendered UI behavior instead of assuming unrestricted browser or Electron access
-- Injected UI-only libraries and helpers exist only inside that iframe runtime
-- Do NOT suggest using goober or other injected UI libraries in backend/bootstrap/error-fallback code paths unless the current workspace already proves they exist there
-
-**Render Pipeline Constraint**
-- The plugin UI is mounted through the React-based iframe host pipeline used by PluginContainer and PluginPage
-- Prefer the existing workspace's render convention and preserve React-hosted JSX patterns when they already exist
-- Do NOT downgrade a React-hosted render path into simplistic raw HTML string examples unless the current plugin code already uses that exact pattern
-
-**DOM Element Generation**
-The SDK provides specialized classes for generating plugin UI structures inside the iframe-hosted render pipeline:
-- DOMTable: Tables with thead, tbody, tfoot, tr, th, td, caption
-- DOMMedia: Images with accessibility support
-- DOMSemantic: article, section, nav, header, footer, aside, main
-- DOMNested: Ordered lists (ol), definition lists (dl, dt, dd)
-- DOMInput: Form inputs, select dropdowns with options
-- DOMText: Headings, paragraphs, spans
-- DOMButton: Buttons with event handlers
-- DOMLink: Anchor elements
-- DOMMisc: Horizontal rules and other elements
-
-All DOM classes support:
-- Custom CSS styling via goober CSS-in-JS when used in the iframe UI runtime where that helper is actually injected
-- Custom classes and inline styles
-- HTML attributes
-- Event handlers
-- Accessibility attributes
-
-**Plugin Structure Guidance:**
-- Extend the SDK base class and implement the required plugin interface for the installed SDK version
-- Preserve the current workspace's render/runtime conventions instead of inventing a simplified render signature
-- End the entry file with explicit plugin instantiation such as:
-  export default MyPlugin;
-  new MyPlugin();
-
-### Guidelines:
-1. Provide clean, production-ready code that follows best practices
-2. When generating FDO plugins, use SDK DOM helper classes only when they match the installed SDK and the current workspace convention
-3. When generating code, match the style and patterns of the surrounding code
-4. When editing code, make minimal changes to achieve the desired result
-5. When explaining code, be concise but thorough
-6. When fixing bugs, explain what was wrong and how you fixed it
-7. Always consider the context of the file being edited (language, framework, etc.)
-8. Format your responses appropriately:
-   - For code generation/editing: return ONLY the code without explanations unless asked
-   - For explanations: provide clear, structured explanations
-   - For fixes: include both the fix and a brief explanation
-9. When generating FDO plugins, metadata.icon must use a BlueprintJS v6 icon name string, not a custom icon file
-10. For FDO plugin entry files, end with explicit instantiation such as new MyPlugin();
-11. Keep window.* access inside UI/event code paths instead of broad plugin bootstrap logic
-12. If you add tests for an FDO plugin, make them runnable by FDO's bundled pre-build test flow and do not assume Jest, Vitest, npm install, pnpm install, or network dependency download inside the plugin workspace
-13. If no tests exist yet, say that clearly and either create self-contained node:test files or explain that Run Tests will skip until tests are added
-14. Do NOT say that the workspace is read-only, that the sandbox blocked you, that you cannot edit files here, or that the user must provide a writable workspace. In FDO, reason from the provided code, Problems, build output, and test output instead.
-15. Do NOT describe environmental Codex CLI limitations unless the current request explicitly asks about the Codex environment itself
-
-Remember: You are working within a code editor, so precision and correctness are paramount.
+${buildPluginAuthoringGuide()}
 `);
-
     return llm;
+
+
 }
 
 async function resolveCodexExecutable(assistantInfo) {
@@ -360,20 +266,24 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
         if (jsonMode && invocation.execCapabilities?.supportsJson) {
             execArgs.push("--json");
         }
-        execArgs.push(prompt);
+        // This integration generates proposals from supplied context; it does not need local tools.
+        for (const feature of ["shell_tool", "unified_exec", "apps", "multi_agent"]) {
+            execArgs.push("-c", `features.${feature}=false`);
+        }
+        execArgs.push("-c", 'web_search="disabled"');
+        execArgs.push("-");
         return execArgs;
     };
 
     const runAttempt = async ({ jsonMode = false, retrying = false } = {}) => {
+        const isolation = await createPluginAssistantIsolation(invocation, "codex-cli", [app.getAppPath(), app.getPath("userData"), process.resourcesPath, process.execPath]);
+        try {
         return await new Promise((resolve, reject) => {
             const execArgs = buildExecArgs(jsonMode);
             const heartbeatIntervalMs = 10000;
             const startedAt = Date.now();
             let firstContentAt = null;
-            const child = spawn(invocation.command, execArgs, {
-                env: { ...process.env, ...(invocation.env || {}) },
-                stdio: ["ignore", "pipe", "pipe"],
-            });
+            const child = spawn(isolation.command, [...isolation.args, ...execArgs], isolation.options);
             updateActiveCodingRequest(requestId, {
                 cancel: () => {
                     if (!child.killed) {
@@ -495,6 +405,16 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
                 reject(error);
             });
 
+            child.stdin.on("error", (error) => {
+                // An early CLI exit can close stdin; use its exit diagnostics in that case.
+                if (error.code !== "EPIPE") {
+                    clearInterval(heartbeat);
+                    child.kill();
+                    reject(error);
+                }
+            });
+            child.stdin.end(prompt);
+
             child.on("close", (code) => {
                 clearInterval(heartbeat);
                 if (isActiveCodingRequestCancelled(requestId)) {
@@ -549,7 +469,7 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
                 }
 
                 if (code !== 0) {
-                    const message = classifyCodexCliError(stderr) || `Codex CLI exited with code ${code}`;
+                    const message = classifyCodexCliError(extractCodexFailure(rawStdout, stderr)) || `Codex CLI exited with code ${code} without reporting a reason. Check the configured runtime and authentication, then retry.`;
                     reject(new Error(message));
                     return;
                 }
@@ -563,6 +483,7 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
                 });
             });
         });
+        } finally { await isolation.cleanup(); }
     };
 
     try {
@@ -658,6 +579,8 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
         configuredPath: assistantInfo?.executablePath,
     });
 
+    const isolation = await createPluginAssistantIsolation(invocation, "gemini-cli", [app.getAppPath(), app.getPath("userData"), process.resourcesPath, process.execPath]);
+    try {
     return await new Promise((resolve, reject) => {
         const baseArgs = [...(invocation.args || [])];
         if (assistantInfo?.model) {
@@ -709,10 +632,7 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
                 { phase: "waiting-for-first-content", provider: assistantInfo?.provider || "" },
             );
 
-            const child = spawn(invocation.command, attemptArgs, {
-                env: { ...process.env, ...(invocation.env || {}) },
-                stdio: ["pipe", "pipe", "pipe"],
-            });
+            const child = spawn(isolation.command, [...isolation.args, ...attemptArgs], isolation.options);
             updateActiveCodingRequest(requestId, {
                 cancel: () => {
                     if (!child.killed) {
@@ -829,13 +749,21 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
         });
         throw error;
     });
+    } finally { await isolation.cleanup(); }
 }
 
 async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null } = {}) {
     registerActiveCodingRequest(requestId);
+    recordE2ECodingLifecycle("request-started", requestId, {provider: assistantInfo?.provider || ""});
     let waitingHeartbeat = null;
+    let clearFirstContentDeadline = () => {};
     try {
-        const scopedPrompt = `${PLUGIN_WORKSPACE_ONLY_PROMPT}\n\n${prompt}`;
+        // CLI providers do not receive the API assistant's system prompt. API
+        // providers receive the guide from createCodingLlm(), while CLI
+        // providers receive the exact same public guide in their prompt.
+        const isCliProvider = assistantInfo.provider === "codex-cli" || assistantInfo.provider === "gemini-cli";
+        const providerPrompt = isCliProvider ? buildPluginCodingPrompt(prompt) : prompt;
+        const scopedPrompt = `${PLUGIN_WORKSPACE_ONLY_PROMPT}\n\n${providerPrompt}`;
         if (assistantInfo.provider === "codex-cli") {
             if (image) {
                 throw new Error("Codex CLI does not support image mockups in this integration yet.");
@@ -849,9 +777,35 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             return await runGeminiCliStream(event, requestId, assistantInfo, scopedPrompt);
         }
 
+        reserveLiveAiTestRequest();
         const llm = await createCodingLlm(assistantInfo, true);
+        recordE2ECodingLifecycle("provider-created", requestId, {provider: assistantInfo?.provider || ""});
+        // API-backed assistants expose AbortController cancellation through
+        // the LLM instance. Without this, the Editor's Stop action could only
+        // update UI state while the underlying fetch continued indefinitely.
+        updateActiveCodingRequest(requestId, {
+            cancel: () => llm.abort?.(),
+        });
+        // A Stop click can race provider initialization. Do not begin a
+        // network request after the user has already cancelled it.
+        if (isActiveCodingRequestCancelled(requestId)) {
+            throw new AiCodingRequestCancelledError();
+        }
         const startedAt = Date.now();
         let firstContentAt = null;
+        let firstContentTimeout = null;
+        const firstContentDeadline = new Promise((_, reject) => {
+            firstContentTimeout = setTimeout(() => {
+                llm.abort?.();
+                reject(new Error(`The assistant did not start responding within ${Math.round(CODING_FIRST_CONTENT_TIMEOUT_MS / 1000)} seconds. Check the selected model and provider connection, then retry.`));
+            }, CODING_FIRST_CONTENT_TIMEOUT_MS);
+        });
+        clearFirstContentDeadline = () => {
+            if (firstContentTimeout) {
+                clearTimeout(firstContentTimeout);
+                firstContentTimeout = null;
+            }
+        };
         sendBackendStatus(
             event,
             requestId,
@@ -864,25 +818,6 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             buildAiCodingWaitingStatus({ elapsedMs: 0, retrying: false }),
             { phase: "waiting-for-first-content", provider: assistantInfo?.provider || "" },
         );
-        let resp;
-
-        if (image) {
-            const messages = [{
-                role: "user",
-                content: [
-                    { type: "text", text: scopedPrompt },
-                    {
-                        type: "image_url",
-                        image_url: { url: image }
-                    }
-                ]
-            }];
-            resp = await llm.chat({ messages, stream: true });
-        } else {
-            llm.user(scopedPrompt);
-            resp = await llm.chat({ stream: true });
-        }
-
         let fullContent = "";
         waitingHeartbeat = setInterval(() => {
             if (firstContentAt || isActiveCodingRequestCancelled(requestId)) {
@@ -896,35 +831,51 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             );
         }, 10000);
 
-        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
-            try {
-                for await (const chunk of resp.stream) {
-                    if (isActiveCodingRequestCancelled(requestId)) {
-                        throw new AiCodingRequestCancelledError();
-                    }
-                    if (!chunk) continue;
-                    const { type, content: piece } = chunk;
+        // Establishing a streaming connection may itself take a while. Start
+        // the heartbeat before awaiting it so the Editor keeps the request
+        // alive and gives the author honest waiting feedback during that gap.
+        recordE2ECodingLifecycle("provider-request-dispatched", requestId);
+        const resp = await Promise.race([
+            sendCodingLlmRequest(llm, scopedPrompt, image),
+            firstContentDeadline,
+        ]);
 
-                    if (type === "content" && piece && typeof piece === "string") {
-                        if (!firstContentAt) {
-                            firstContentAt = Date.now();
-                            sendBackendStatus(
-                                event,
-                                requestId,
-                                buildAiCodingFirstResponseStatus(firstContentAt - startedAt),
-                                { phase: "first-content", elapsedMs: firstContentAt - startedAt },
-                            );
+        if (resp && typeof resp === "object" && "stream" in resp && typeof resp.complete === "function") {
+            recordE2ECodingLifecycle("provider-stream-opened", requestId);
+            try {
+                const consumeStream = async () => {
+                    for await (const chunk of resp.stream) {
+                        if (isActiveCodingRequestCancelled(requestId)) {
+                            throw new AiCodingRequestCancelledError();
                         }
-                        fullContent += piece;
-                        event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
-                            requestId,
-                            type: "content",
-                            content: piece,
-                        });
+                        if (!chunk) continue;
+                        const { type, content: piece } = chunk;
+
+                        if (type === "content" && piece && typeof piece === "string") {
+                            if (!firstContentAt) {
+                                firstContentAt = Date.now();
+                                recordE2ECodingLifecycle("first-content", requestId, {elapsedMs: firstContentAt - startedAt});
+                                clearFirstContentDeadline();
+                                sendBackendStatus(
+                                    event,
+                                    requestId,
+                                    buildAiCodingFirstResponseStatus(firstContentAt - startedAt),
+                                    { phase: "first-content", elapsedMs: firstContentAt - startedAt },
+                                );
+                            }
+                            fullContent += piece;
+                            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                                requestId,
+                                type: "content",
+                                content: piece,
+                            });
+                        }
                     }
-                }
+                };
+                await Promise.race([consumeStream(), firstContentDeadline]);
             } finally {
                 clearInterval(waitingHeartbeat);
+                clearFirstContentDeadline();
             }
 
             if (isActiveCodingRequestCancelled(requestId)) {
@@ -932,18 +883,27 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             }
 
             await resp.complete();
+            if (!fullContent.trim()) {
+                throw new Error("The assistant returned no text. Check the selected model, provider access and output-token limit.");
+            }
             sendBackendStatus(
                 event,
                 requestId,
                 buildAiCodingDoneStatus(Date.now() - startedAt),
                 { phase: "done", elapsedMs: Date.now() - startedAt },
             );
+            recordE2ECodingLifecycle("request-completed", requestId, {elapsedMs: Date.now() - startedAt, contentLength: fullContent.length});
             event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
             return { success: true, requestId, content: fullContent };
         }
 
         throw new Error("Invalid response from assistant backend");
     } catch (error) {
+        recordE2ECodingLifecycle("request-failed", requestId, {
+            name: error?.name || "Error",
+            cancelled: error instanceof AiCodingRequestCancelledError || isActiveCodingRequestCancelled(requestId),
+        });
+        clearFirstContentDeadline();
         if (waitingHeartbeat) {
             clearInterval(waitingHeartbeat);
         }
@@ -960,6 +920,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
         });
         throw error;
     } finally {
+        recordE2ECodingLifecycle("request-finished", requestId);
         unregisterActiveCodingRequest(requestId);
     }
 }
@@ -970,127 +931,36 @@ export function buildPlanCodePrompt({
     context = "",
     executionMode = false,
 } = {}) {
+    const workspaceContext = context ? `Workspace context:\n${context}\n` : "";
     if (executionMode) {
-        return `Implement the requested workspace changes based on the user's task description and the provided workspace context.
+        return `Implement the requested plugin workspace changes using the task and supplied workspace context.
 
+USER REQUEST
 ${prompt}
 
-${context ? `Workspace context:\n${context}\n` : ''}
-
+${workspaceContext}
 SOURCE-OF-TRUTH RULES:
-- Use the provided workspace context as the source of truth.
-- Do NOT invent repository files or architecture that are not present in the provided context.
-- Keep the response focused on the requested implementation work, not a broad scaffold or product proposal.
-- If you update plugin metadata, metadata.icon must stay a BlueprintJS v6 icon name string and must not become a file path or custom image asset.
-- If you update the plugin entry file, keep explicit plugin instantiation at the end of the file, such as new MyPlugin();.
-- Keep direct window.* access inside UI/event code paths rather than broad plugin bootstrap logic.
-
-Return ONLY executable file sections in this format:
+- The supplied plugin workspace context is authoritative. Do not invent files, APIs, or architecture outside it.
+- Preserve existing plugin conventions unless the request explicitly changes them.
+- Return only complete executable workspace file sections in this format:
 
 ### File: /path/to/file
 \`\`\`typescript
 ...complete file content...
 \`\`\`
 
-If /TODO.md or another task-tracking file is part of the context, update it accurately to reflect completed work.
-Never output host-machine or repository absolute paths such as /Users/... , /tmp/... , /var/... or Windows drive paths. Use only virtual workspace paths like /index.ts or /src/view.ts.
-Do not return prose-only guidance.`;
+Use virtual workspace paths only. Do not output machine paths or prose-only guidance.`;
     }
 
-    return `Create a detailed implementation plan for an FDO plugin based on the following description:
+    return `Create a detailed implementation plan for the requested plugin using only the supplied plugin workspace context and public plugin contract.
 
+USER REQUEST
 ${prompt}
 
-${image ? '\n[Note: An image mockup has been provided - analyze it and incorporate the UI design into the plan]\n' : ''}
+${image ? "An image mockup is supplied; use it as a visual reference.\n" : ""}
+${workspaceContext}
+State the plugin's purpose, user flow, files to change, and complete file sections needed for the work. Preserve the current workspace convention. Use only virtual plugin workspace paths. Do not invent product-host files or APIs.`;
 
-${context ? `Relevant bundled FDO SDK knowledge:\n${context}\n` : ''}
-
-SOURCE-OF-TRUTH RULES:
-- Do NOT claim you inspected or analyzed specific repository files unless those files are explicitly included in the provided context.
-- If the request is architectural or product-oriented, stay focused on the plugin design and file plan, not on auditing the host FDO application.
-
-Generate a comprehensive plan that includes:
-
-1. **Project Structure**: List all files and folders needed
-2. **File Contents**: Provide the complete code for each file
-
-Format your response as a structured plan using the following format:
-
-## Plan Overview
-Brief description of what the plugin does and its main features.
-
-## File Structure
-\`\`\`
-/package.json
-/tsconfig.json
-/index.ts
-/styles.ts (optional - only if the current UI runtime actually uses injected iframe styling helpers)
-\`\`\`
-
-## Implementation
-
-### File: /package.json
-\`\`\`json
-{
-  "name": "plugin-name",
-  "version": "1.0.0",
-  ...complete file content...
-}
-\`\`\`
-
-### File: /index.ts
-\`\`\`typescript
-// complete plugin entry file content
-\`\`\`
-
-Continue this pattern for ALL files mentioned in the structure.
-
-IMPORTANT CONSTRAINTS:
-- FDO plugin UI targets a React-hosted JSX pipeline inside the sandboxed iframe host.
-- Plugin render output is not inserted as raw HTML directly. The host sanitizes it, wraps it in a fragment, Babel-transforms it, sends it into PluginPage, turns it into an ES module, and renders it through React in the iframe.
-- Do NOT describe FDO plugin UI as “plain HTML strings” as the main abstraction.
-- SDK DOM helper classes are still valid when they match the installed SDK and current workspace conventions, because they can generate UI content for that iframe-hosted render pipeline.
-- Preserve the current workspace's render convention instead of forcing a different abstraction.
-- Use only exported/documented SDK imports. Do NOT import package-internal paths such as @anikitenko/fdo-sdk/dist/... from plugin code.
-- If you add plugin tests, prefer node:test plus node:assert/strict so the tests run inside FDO's bundled pre-build test flow without extra plugin dependencies.
-- Keep plugin tests self-contained so they run on a clean machine with only FDO installed. Do NOT assume extra test frameworks or plugin-local installs unless the current host bundle explicitly provides them.
-- Do NOT generate Jest/Vitest-style tests with bare describe/it/test globals or expect(). Import the test API from node:test and assertions from node:assert/strict.
-- In plugin tests, target only local plugin files and exported SDK APIs. Do NOT generate tests that import FDO host/editor implementation files such as components/editor/*, components/plugin/*, ipc/*, VirtualFS.js, PluginContainer.jsx, PluginPage.jsx, pluginTestRunner.js, or validateGeneratedPluginFiles.js.
-- Do NOT mimic or recreate FDO's own internal test files such as validate-generated-plugin-files.test.js inside a plugin workspace. Plugin tests must target the plugin's own code and behavior, not FDO host/editor internals.
-- If the user says tests/build/problems are failing, fix the current workspace first. Do NOT turn that into a fresh plugin scaffold unless the user explicitly asks for a new plugin.
-- Do NOT invent host-app structures inside a plugin workspace fix, such as PluginManager, ipc/channels, preload bridges, registry wiring, or other FDO application internals, unless those exact files are already present in the provided workspace context.
-- Do NOT say that the workspace is read-only, that the sandbox blocked the change, or that the user must provide a writable workspace. Use the provided workspace/build/test context and return executable file sections.
-- metadata.icon must be a BlueprintJS v6 icon name string such as "cog", "settings", "database", "globe", or "desktop"
-- Do NOT create custom plugin icon assets like icon.png, logo.svg, favicon.ico, or any other image file for metadata.icon unless the user explicitly asks for a separate asset outside plugin metadata
-- End the plugin entry file with explicit plugin instantiation such as new MyPlugin();
-- Keep direct window.* access inside UI/event code paths such as rendered UI handlers, not broad constructor/init/bootstrap logic unless the user explicitly asks for it
-- The plugin UI runs in a sandboxed iframe host, so do not assume direct Electron, Node.js, or unrestricted browser APIs
-- Use only the injected FDO host helpers for host interaction from UI code paths
-- The iframe host may preload UI-only libraries such as goober, ace, highlight.js, notyf, FontAwesome, and Split Grid
-- Those injected UI libraries are available only inside the iframe UI runtime, not in plugin backend/bootstrap/error-fallback paths unless the current workspace explicitly proves otherwise
-- Plugins have access to these global functions in the plugin host environment:
-  * window.createBackendReq(type, data) - low-level IPC bridge available in the host, but deprecated as the default privileged-action authoring path when requestPrivilegedActionFromEnvelope(...) or other SDK helpers fit
-  * window.executeInjectedScript(scriptContent) - to execute dynamic scripts
-  * window.waitForElement(selector, callback, timeout) - to wait for DOM elements
-  * window.addGlobalEventListener(eventType, callback) - to add event listeners
-  * window.removeGlobalEventListener(eventType, callback) - to remove event listeners
-  * window.applyClassToSelector(className, selector) - to apply CSS classes
-
-PLUGIN STRUCTURE REQUIREMENTS:
-- Extend the installed SDK base class and implement the required plugin interface for that SDK version
-- Required metadata: name, version, author, description, icon
-- Lifecycle: init() handles initialization and render() provides UI for the iframe-hosted plugin pipeline according to the installed SDK/workspace convention
-- Use SDK DOM helper classes only when they match the installed SDK and current workspace pattern
-- Use TypeScript for .ts files
-- Follow the exact format shown above for each file
-- Each file section should start with "### File: /path/to/file"
-- Use only virtual workspace paths like /index.ts or /src/view.ts, never host-machine absolute paths such as /Users/... or /tmp/...
-- Code blocks must specify the language (json, typescript, css, etc.)
-
-EXAMPLE render() GUIDANCE:
-- If the current workspace uses SDK DOM helpers, keep that style.
-- If the current workspace already uses JSX-like render content for the iframe host, preserve that style.
-- Do NOT introduce backend-only goober usage or error-fallback styling that assumes injected iframe libraries exist outside the UI runtime.`;
 }
 
 // Handle code generation
@@ -1290,70 +1160,14 @@ async function handleFixCode(event, data) {
 }
 
 export function buildSmartModePrompt({ prompt, code, language, context } = {}) {
-    let fullPrompt = `User's request: ${prompt}\n\n`;
+    const selectedCode = code
+        ? `Selected code in ${language || "current file"}:\n\`\`\`${language || ""}\n${code}\n\`\`\`\n\n`
+        : "";
+    const additionalContext = context ? `Additional plugin context:\n${context}\n\n` : "";
+    return `USER REQUEST\n${prompt}\n\n${selectedCode}${additionalContext}
+Respond using only the supplied plugin workspace context and public plugin contract. Do not claim you inspected files, ran commands, or received diagnostics that are absent from the context. Do not request or describe product-host source, settings, credentials, internal logs, or application architecture.
 
-    if (code) {
-        fullPrompt += `Selected code in ${language || 'current file'}:\n\`\`\`${language || ''}\n${code}\n\`\`\`\n\n`;
-    }
-
-    if (context) {
-        fullPrompt += `Additional context:\n${context}\n\n`;
-    }
-
-    fullPrompt += `Provide the appropriate response based on the request.
-
-SOURCE-OF-TRUTH RULES:
-- Do NOT claim you inspected or analyzed specific repository files unless those files are explicitly included in the provided context or selected code.
-- If the request is about designing or improving a plugin concept, do NOT turn it into a repo audit of the host FDO application.
-- When you rely only on bundled FDO SDK knowledge and external references, speak in terms of plugin architecture and capabilities, not specific host-app source files.
-- If context includes a "Plugin runtime action report", treat it as the authoritative host-observed runtime/log evidence.
-- Do NOT say that the workspace is read-only, that the sandbox blocked you, that you cannot edit or test here, or that the user must provide a writable workspace. In FDO, reason from the provided code, Problems, build output, and test output instead.
-- Do NOT claim you ran repo-level commands such as npm test, webpack, or direct Jest runs unless those exact command results are already present in the provided context.
-
-FDO PLUGIN ICON RULE:
-- If you generate or modify FDO plugin metadata, metadata.icon must be a BlueprintJS v6 icon name string.
-- Do NOT invent icon.png, icon.svg, logo.svg, favicon.ico, or any other custom plugin icon file unless the user explicitly asks for a separate asset outside metadata.icon.
-
-FDO PLUGIN ENTRY RULE:
-- For plugin entry files, end with explicit plugin instantiation such as new MyPlugin();.
-- Do NOT leave the plugin class uninstantiated.
-
-FDO UI BOUNDARY RULE:
-- Keep direct window.* access inside UI/event code paths.
-- Do NOT move host-window calls into broad non-UI bootstrap logic unless the user explicitly asks for it.
-
-FDO PLUGIN HOST RULE:
-- The plugin UI runs inside a sandboxed iframe host managed by FDO.
-- Use only the injected host helpers that are part of the FDO plugin runtime contract.
-- Do NOT assume direct Electron, Node.js, or unrestricted browser access from plugin UI code unless the provided context explicitly shows that capability.
-- When working inside a plugin workspace, do NOT invent host-app structures such as PluginManager, ipc/channels, preload bridges, registry wiring, or other FDO application internals unless those exact files are explicitly present in the provided context.
-
-IMPORTANT: When providing code (for generation, editing, or fixing):
-
-- Wrap the **actual code to insert** with a SOLUTION marker, like this:
-
-\`\`\`${language || 'code'}
-// SOLUTION READY TO APPLY
-your code here
-\`\`\`
-
-💡 You may include other code blocks for examples, references, or explanations if helpful,
-but **ONLY** the block marked with "// SOLUTION READY TO APPLY" will be inserted into the editor.
-
-- Make sure there is a blank line between the opening code fence and the SOLUTION marker
-  (or the first line of code in general).
-- Clearly explain what you changed and why.
-- When applicable, list each modification with before/after comparison.
-
-Return the code or explanation directly — do **not** include meta-commentary about which action you chose.
-
-When the user asks to confirm/check/verify behavior from logs:
-- First state what was checked (runtime trace, stdout/stderr tail, log files).
-- If evidence is missing, say "Not confirmed from available logs" and why in one line.
-- Then give one concrete next verification step with exact signal to look for.
-- Do not present missing logs as a confirmed code failure.
-`;
-    return fullPrompt;
+For implementation requests, return complete workspace file sections that use virtual paths only. For review requests, explain concrete plugin issues and keep the workspace unchanged. Do not include meta-commentary about action selection.`;
 }
 
 // Handle smart mode - AI determines the action
@@ -1441,6 +1255,7 @@ async function handleRouteJudge(_event, data = {}) {
             temperature: 0,
         });
 
+        reserveLiveAiTestRequest();
         const resp = await routerLlm.chat(routerPrompt);
         const raw = typeof resp === "string" ? resp : (resp?.content || "");
         const jsonText = extractJsonObject(raw);

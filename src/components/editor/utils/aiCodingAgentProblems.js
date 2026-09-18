@@ -1,17 +1,21 @@
 import * as monaco from "monaco-editor";
 
-export function buildAiCodingProblemsContext(models = []) {
+export function collectAiCodingProblems(models = [], {errorsOnly = false} = {}) {
     const relevantModels = Array.isArray(models) ? models.filter(Boolean) : [];
     if (relevantModels.length === 0) {
-        return "";
+        return [];
     }
 
-    const markers = relevantModels.flatMap((model) => (
+    return relevantModels.flatMap((model) => (
         monaco.editor.getModelMarkers({ resource: model.uri }).map((marker) => ({
             path: model.uri.toString(true).replace("file://", ""),
             marker,
         }))
-    ));
+    )).filter(({marker}) => !errorsOnly || Number(marker?.severity) >= 8);
+}
+
+export function buildAiCodingProblemsContext(models = [], options = {}) {
+    const markers = collectAiCodingProblems(models, options);
 
     if (markers.length === 0) {
         return "";
@@ -23,4 +27,3 @@ export function buildAiCodingProblemsContext(models = []) {
 
     return `Current editor problems:\n${lines.join("\n")}\n\n`;
 }
-

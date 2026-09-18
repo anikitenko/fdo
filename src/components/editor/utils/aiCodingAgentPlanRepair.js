@@ -69,3 +69,33 @@ Hard requirements:
 - Use virtual workspace paths only.
 - Do not return prose, bullets, explanations, or partial snippets.`;
 }
+
+export function buildProblemsRepairPlanPrompt({
+    originalPrompt = "",
+    previousResponse = "",
+    problemsContext = "",
+} = {}) {
+    const response = String(previousResponse || "").trim();
+    const responsePreview = response.length > 5000 ? `${response.slice(0, 5000)}\n...[truncated]` : response;
+    const diagnostics = String(problemsContext || "").trim() || "Current editor problems were reported without diagnostic text.";
+
+    return `${originalPrompt}
+
+IMPORTANT REPAIR INSTRUCTION:
+The workspace files from your previous response were applied, and the Editor Problems panel now reports errors. Correct every listed error while preserving the requested plugin behavior.
+
+Problems panel diagnostics:
+${diagnostics}
+
+Previous workspace response:
+${responsePreview}
+
+Return ONLY complete executable workspace file sections for every file you change:
+
+### File: /path/to/file
+\`\`\`typescript
+...complete file content...
+\`\`\`
+
+Do not return prose, partial snippets, host/editor imports, Jest/Vitest globals, or external dependencies. Plugin tests must use node:test and node:assert/strict.`;
+}

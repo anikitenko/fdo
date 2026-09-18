@@ -157,6 +157,28 @@ let SIGNAL_FILE;
 let FAIL_FILE;
 let isAppShuttingDown = false;
 
+// Live E2E failures used to report only that Playwright had lost the page.
+// Keep a small, test-only lifecycle trail in the main process so a closed
+// window can be distinguished from a renderer crash or an application quit.
+// It is intentionally unavailable in normal builds and never records prompt
+// or provider data.
+function recordE2EWindowLifecycle(event, details = {}) {
+    if (process.env.FDO_E2E !== "1") return;
+    const records = globalThis.__FDO_E2E_WINDOW_LIFECYCLE__ || [];
+    records.push({
+        event,
+        at: new Date().toISOString(),
+        isAppShuttingDown,
+        windows: BrowserWindow.getAllWindows().map((window) => ({
+            id: window.id,
+            destroyed: window.isDestroyed(),
+            visible: !window.isDestroyed() && window.isVisible(),
+        })),
+        ...details,
+    });
+    globalThis.__FDO_E2E_WINDOW_LIFECYCLE__ = records.slice(-40);
+}
+
 // Initialize paths once app is ready
 function initializePaths() {
     const rootPath = getUserDataRoot();
@@ -557,6 +579,7 @@ const createWindow = async () => {
             spellcheck: false,
         },
     });
+    recordE2EWindowLifecycle("window-created", {windowId: mainWindow.id});
 
     if (isDev) {
         // In dev, force fresh loads from dist output to avoid stale renderer bundles.
@@ -565,6 +588,7 @@ const createWindow = async () => {
 
     if (process.env.FDO_E2E === "1") {
         mainWindow.on("close", (event) => {
+            recordE2EWindowLifecycle("window-close-requested", {windowId: mainWindow.id});
             if (isAppShuttingDown) {
                 return;
             }
@@ -573,6 +597,40 @@ const createWindow = async () => {
             // the app is actually shutting down.
             event.preventDefault();
             debugLog("[MAIN] Ignored unexpected window close in E2E mode.");
+        });
+        mainWindow.on("closed", () => {
+            recordE2EWindowLifecycle("window-closed", {windowId: mainWindow.id});
+        });
+        mainWindow.webContents.on("render-process-gone", (_event, details) => {
+            recordE2EWindowLifecycle("renderer-process-gone", {
+                windowId: mainWindow.id,
+                reason: details?.reason || "",
+                exitCode: details?.exitCode ?? null,
+            });
+        });
+        mainWindow.webContents.on("destroyed", () => {
+            recordE2EWindowLifecycle("web-contents-destroyed", {windowId: mainWindow.id});
+        });
+        mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
+            if (isMainFrame) {
+                recordE2EWindowLifecycle("navigation-started", {
+                    windowId: mainWindow.id,
+                    url: String(url || ""),
+                    inPlace: !!isInPlace,
+                });
+            }
+        });
+        mainWindow.webContents.on("did-navigate", (_event, url) => {
+            recordE2EWindowLifecycle("navigation-finished", {
+                windowId: mainWindow.id,
+                url: String(url || ""),
+            });
+        });
+        mainWindow.webContents.on("unresponsive", () => {
+            recordE2EWindowLifecycle("renderer-unresponsive", {windowId: mainWindow.id});
+        });
+        mainWindow.webContents.on("responsive", () => {
+            recordE2EWindowLifecycle("renderer-responsive", {windowId: mainWindow.id});
         });
     }
 
@@ -924,6 +982,7 @@ app.whenReady().then(async () => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+    recordE2EWindowLifecycle("window-all-closed");
     if (process.platform !== 'darwin') {
         app.quit();
     }
@@ -931,5 +990,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
     isAppShuttingDown = true;
+    recordE2EWindowLifecycle("app-before-quit");
     interruptAllCodexAuthProcesses();
+});
+
+app.on("will-quit", () => {
+    recordE2EWindowLifecycle("app-will-quit");
 });

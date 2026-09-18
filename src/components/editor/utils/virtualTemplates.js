@@ -1,27 +1,36 @@
 export const BLANK_TEMPLATE_MAIN = (name) => {
-    const data_class_header = `import {defineRenderOnLoadActions, FDO_SDK, FDOInterface, PluginMetadata} from '@anikitenko/fdo-sdk';
+    const data_class_header = `import {defineRenderOnLoadActions, FDO_SDK, FDOInterface, PluginMetadata, PluginRegistry} from '@anikitenko/fdo-sdk';
 import {Render} from "./render"
 
-class MyPlugin extends FDO_SDK implements FDOInterface {
+export default class MyPlugin extends FDO_SDK implements FDOInterface {
 `
     const data_metadata = `
-    public get metadata(): PluginMetadata {
-        return {
-            name: "${name}",
-            version: "1.0.0",
-            author: "AleXvWaN",
-            description: "A sample FDO plugin",
-            icon: "cog",
-        };
+    private readonly _metadata: PluginMetadata = {
+        name: "${name}",
+        version: "1.0.0",
+        author: "AleXvWaN",
+        description: "A sample FDO plugin",
+        icon: "cog",
+    };
+
+    get metadata(): PluginMetadata {
+        return this._metadata;
     }
     `
     const data_init = `
-    public init(): void {
-        this.log(this.metadata.name + " initialized!");
+    init(): void {
+        PluginRegistry.registerHandler("refreshStatus", () => ({
+            success: true,
+            message: this.metadata.name + " is running (v" + this.metadata.version + ").",
+        }));
+        this.info(this.metadata.name + " initialized!", {
+            plugin: this.metadata.name,
+            version: this.metadata.version,
+        });
     }
     `
     const data_render = `
-    public render(): string {
+    render(): string {
         const metadata = this.metadata;
         return (Render({
             version: metadata.version,
@@ -31,7 +40,7 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
     }
     `
     const data_render_on_load = `
-    public renderOnLoad() {
+    renderOnLoad() {
         return defineRenderOnLoadActions({
             handlers: {
                 refreshStatus: async ({ element }) => {
@@ -67,7 +76,6 @@ class MyPlugin extends FDO_SDK implements FDOInterface {
     `
     const data_class_footer = `
 }
-export default MyPlugin;
 
 new MyPlugin();
 `
@@ -75,7 +83,7 @@ new MyPlugin();
 }
 
 export const BLANK_TEMPLATE_RENDER = (name) => {
-    const dataImports = "import {DOM, DOMButton, DOMNested, DOMText} from '@anikitenko/fdo-sdk';\n"
+    const dataImports = "import {DOM, DOMNested, DOMText} from '@anikitenko/fdo-sdk';\n"
     const dataType = "type RenderProps = {\n" +
         "    version: string;\n" +
         "    author: string;\n" +
@@ -89,17 +97,14 @@ export const BLANK_TEMPLATE_RENDER = (name) => {
         "    const pVersion = text.createPText(`Version: ${version}`);\n" +
         "    const pAuthor = text.createPText(`Author: ${author}`);\n" +
         "    const pDescription = text.createPText(`Description: ${description}`);\n" +
-        "    const refreshButton = new DOMButton().createButton(\"Refresh status\", {\n" +
-        "        attrs: {\n" +
-        "            \"data-role\": \"refresh-status\",\n" +
-        "            type: \"button\",\n" +
-        "        },\n" +
-        "    });\n" +
-        "    const status = text.createPText(\"Click the button to fetch plugin UI status.\", {\n" +
-        "        attrs: {\n" +
-        "            \"data-role\": \"status\",\n" +
-        "        },\n" +
-        "    });\n" +
+        "    const refreshButton = new DOM().createElement(\"button\", {\n" +
+        "        \"data-role\": \"refresh-status\",\n" +
+        "        type: \"button\",\n" +
+        "        class: \"pure-button\",\n" +
+        "    }, \"Refresh status\");\n" +
+        "    const status = new DOM().createElement(\"p\", {\n" +
+        "        \"data-role\": \"status\",\n" +
+        "    }, \"Click the button to fetch plugin UI status.\");\n" +
         "    const nested = new DOMNested().createBlockDiv([\n" +
         "        myPlugin,\n" +
         "        pVersion,\n" +
@@ -114,6 +119,30 @@ export const BLANK_TEMPLATE_RENDER = (name) => {
         "}"
     return dataImports+ dataType + dataRender
 }
+
+export const BLANK_TEMPLATE_TEST = () => `import {test} from "node:test";
+import assert from "node:assert/strict";
+import {Render} from "./render";
+
+// Run these examples with the editor's Run Tests action.
+const props = {version: "2.3.4", author: "Example Author", description: "Example plugin"};
+
+test("renders the plugin details", () => {
+    const html = Render(props);
+    assert.ok(html.includes("My Plugin"));
+    assert.ok(html.includes("Version: 2.3.4"));
+    assert.ok(html.includes("Author: Example Author"));
+    assert.ok(html.includes("Description: Example plugin"));
+});
+
+test("provides the targets used by the refresh action", () => {
+    const html = Render(props);
+    assert.match(html, /data-role="refresh-status"/);
+    assert.match(html, /type="button"/);
+    assert.match(html, /data-role="status"/);
+    assert.ok(html.includes("Click the button to fetch plugin UI status."));
+});
+`;
 
 export const HORIZONTAL_DIVIDED_TEMPLATE = (name) => {
     return ``

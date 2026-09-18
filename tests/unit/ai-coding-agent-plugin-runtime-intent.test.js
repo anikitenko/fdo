@@ -1,6 +1,20 @@
 import {detectAiPluginRuntimeIntent} from "../../src/components/editor/utils/aiCodingAgentPluginRuntimeIntent.js";
 
 describe("detectAiPluginRuntimeIntent", () => {
+    test.each([
+        "Please rename this plugin to Quasar Quill. Update the plugin metadata name in /index.ts and make /render.tsx show the same visible heading. Apply the changes in the current plugin workspace only. If you change multiple files, return executable workspace file sections.",
+        "Read the plugin source and explain its metadata.",
+        "Update the plugin view to show a subscription selector.",
+    ])("does not run runtime actions for source/UI requests: %s", (prompt) => {
+        const result = detectAiPluginRuntimeIntent(prompt);
+        expect(result.shouldProbe).toBe(false);
+        expect(result.wantsLogs).toBe(false);
+    });
+
+    test.each(["show plugin logs", "read plugin stdout", "view plugin stderr"])("still recognizes log requests: %s", (prompt) => {
+        expect(detectAiPluginRuntimeIntent(prompt).shouldProbe).toBe(true);
+    });
+
     test("returns probe=false for generic coding prompts", () => {
         const result = detectAiPluginRuntimeIntent("please refactor index.ts");
         expect(result.shouldProbe).toBe(false);

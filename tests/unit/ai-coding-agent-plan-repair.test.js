@@ -1,4 +1,4 @@
-import {buildExecutablePlanRetryPrompt, buildValidationRepairPlanPrompt} from "../../src/components/editor/utils/aiCodingAgentPlanRepair.js";
+import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt} from "../../src/components/editor/utils/aiCodingAgentPlanRepair.js";
 
 describe("ai coding agent plan repair prompt", () => {
     test("forces executable workspace file sections after a prose-only plan", () => {
@@ -33,4 +33,16 @@ describe("ai coding agent validation repair prompt", () => {
         expect(prompt).toContain("Do not use Jest/Vitest globals or expect().");
         expect(prompt).toContain("### File: /path/to/file");
     });
+});
+
+test("builds a complete-file repair request from Problems panel diagnostics", () => {
+    const prompt = buildProblemsRepairPlanPrompt({
+        originalPrompt: "Create a JSON Inspector",
+        previousResponse: "### File: /render.tsx\n```typescript\nbroken\n```",
+        problemsContext: "Current editor problems:\n/render.tsx:14:10 [8] Expected > but found className",
+    });
+    expect(prompt).toContain("Problems panel now reports errors");
+    expect(prompt).toContain("Expected > but found className");
+    expect(prompt).toContain("Return ONLY complete executable workspace file sections");
+    expect(prompt).toContain("node:assert/strict");
 });
