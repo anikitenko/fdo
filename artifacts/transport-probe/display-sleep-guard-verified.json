@@ -1,0 +1,39 @@
+{
+  "runner": "v22.22.1",
+  "playwright": "1.63.0",
+  "durationMs": 240000,
+  "waitMs": 0,
+  "contentMode": "code",
+  "events": [
+    {
+      "event": "stream-completed",
+      "at": "2026-09-21T08:45:57.220Z"
+    },
+    {
+      "event": "cleanup-started",
+      "at": "2026-09-21T08:45:57.220Z"
+    },
+    {
+      "event": "editor-page-close",
+      "at": "2026-09-21T08:45:57.227Z"
+    },
+    {
+      "event": "electron-process-exit",
+      "at": "2026-09-21T08:45:57.273Z",
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "status": "passed",
+  "passed": true,
+  "runtime": {
+    "electron": "44.4.1",
+    "chromium": "152.0.7977.78",
+    "node": "24.21.0"
+  },
+  "preventDisplaySleep": true,
+  "chunks": 2373,
+  "heartbeats": 0,
+  "reset": true,
+  "completed": true
+}

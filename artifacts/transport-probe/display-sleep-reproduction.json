@@ -1,0 +1,44 @@
+{
+  "runner": "v22.22.1",
+  "playwright": "1.63.0",
+  "durationMs": 180000,
+  "waitMs": 0,
+  "contentMode": "code",
+  "events": [
+    {
+      "event": "editor-page-close",
+      "at": "2026-09-21T08:27:32.281Z"
+    },
+    {
+      "event": "playwright-context-close",
+      "at": "2026-09-21T08:27:32.281Z"
+    },
+    {
+      "event": "cleanup-started",
+      "at": "2026-09-21T08:27:32.294Z"
+    },
+    {
+      "event": "electron-process-exit",
+      "at": "2026-09-21T08:27:37.307Z",
+      "exitCode": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "status": "failed",
+  "passed": false,
+  "runtime": {
+    "electron": "44.4.1",
+    "chromium": "152.0.7977.78",
+    "node": "24.21.0"
+  },
+  "error": "page.waitForFunction: Target page, context or browser has been closed\nBrowser logs:\n\n<launching> /Users/alexvwan/dev/fdo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron -r /Users/alexvwan/dev/fdo/node_modules/playwright-core/lib/server/electron/loader.js --inspect=0 --remote-debugging-port=0 .\n<launched> pid=8104\n[pid=8104][err] Debugger listening on ws://127.0.0.1:54162/b2aaccf4-7ba4-413c-92f0-8e0833053eb5\n[pid=8104][err] For help, see: https://nodejs.org/learn/getting-started/debugging\n[pid=8104][err] Debugger attached.\n[pid=8104][out] [STARTUP] process-start: 0ms (Δ0ms) [MEM: 217.7 MB, CPU: 0.0%] { note: 'Metrics initialized' }\n[pid=8104][err] \n[pid=8104][err] DevTools listening on ws://127.0.0.1:54166/devtools/browser/798836b0-6370-4596-800a-4c4484ddf121\n[pid=8104][out] [STARTUP] app-ready: 79ms (Δ79ms) [MEM: 251.8 MB, CPU: 76.2%] {}\n[pid=8104][err] [8104:0921/112515.379683:WARNING:content/browser/btm/btm_database.cc:128] Failed to initialize the DIPS SQLite database.\n[pid=8104][out] [STARTUP] window-created: 163ms (Δ85ms) [MEM: 270.6 MB, CPU: 85.6%] {}\n[pid=8104][out] [STARTUP] window-visible: 311ms (Δ148ms) [MEM: 278.9 MB, CPU: 38.3%] {}\n[pid=8104][out] [STARTUP] react-mount-start: 384ms (Δ73ms) [MEM: 282.1 MB, CPU: 39.6%] {}\n[pid=8104][out] [STARTUP] renderer-process-start: 385ms (Δ0ms) [MEM: 282.1 MB, CPU: 47.5%] {}\n[pid=8104][out] [STARTUP] renderer-loaded: 385ms (Δ0ms) [MEM: 282.2 MB, CPU: 0.0%] {}\n[pid=8104][out] [STARTUP] react-mount-complete: 4153ms (Δ3768ms) [MEM: 288.5 MB, CPU: 3.7%] {}\n[pid=8104][out] [STARTUP] app-interactive: 4153ms (Δ0ms) [MEM: 288.5 MB, CPU: 0.0%] {}\n[pid=8104][err] [8104:0921/112519.396486:INFO:CONSOLE:2] \"%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n[pid=8104][err]   Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n[pid=8104][err]   this app to unnecessary security risks.\n[pid=8104][err] \n[pid=8104][err] For more information and help, consult\n[pid=8104][err] https://electronjs.org/docs/tutorial/security.\n[pid=8104][err] This warning will not show up\n[pid=8104][err] once the app is packaged.\", source: node:electron/js2c/sandbox_bundle (2)\n[pid=8104][err] [8104:0921/112519.811150:INFO:CONSOLE:1] \"[AI Coding Agent] Event handlers registered\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)\n[pid=8104][err] [8104:0921/112520.002545:INFO:CONSOLE:1] \"[AI Coding Agent] Submit started [object Object]\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)\n[pid=8104][err] [8104:0921/112520.016411:INFO:CONSOLE:1] \"[AI Coding Agent] Preparing request [object Object]\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)\n[pid=8104][err] [8104:0921/112520.016496:INFO:CONSOLE:1] \"[AI Coding Agent] Request ID set 1789979120016-b7rq9wo30\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)",
+  "mainProcess": {
+    "windows": [
+      {
+        "id": 1,
+        "destroyed": false,
+        "webContentsDestroyed": false
+      }
+    ]
+  }
+}
