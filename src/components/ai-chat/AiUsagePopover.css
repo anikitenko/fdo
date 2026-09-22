@@ -1,0 +1,12 @@
+.bp6-popover.ai-usage-overlay .bp6-popover-content { max-width: min(540px, calc(100vw - 32px)); }
+.ai-usage-popover { box-sizing: border-box; width: min(540px, calc(100vw - 32px)); max-height: min(640px, 80vh); overflow: auto; padding: 18px; font-size: 13px; }
+.ai-usage-popover h4 { margin: 0 0 8px; }
+.ai-usage-popover p { line-height: 1.5; }
+.ai-usage-popover table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.ai-usage-popover td, .ai-usage-popover th { padding: 8px 6px; text-align: left; border-bottom: 1px solid rgba(128,128,128,.3); vertical-align: top; overflow-wrap: anywhere; }
+.ai-usage-popover small, .ai-usage-details small { display: block; line-height: 1.5; }
+.ai-usage-note { opacity: .8; }
+.ai-usage-rate-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ai-usage-request { margin: 10px 0; padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,.3); overflow-wrap: anywhere; }
+.ai-usage-details { max-width: 340px; line-height: 1.6; }
+@media (max-width: 480px) { .ai-usage-rate-fields { grid-template-columns: 1fr; } }

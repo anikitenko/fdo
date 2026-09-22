@@ -5,6 +5,7 @@ import { app } from "electron";
 import { STATIC_MODEL_CAPABILITIES } from "./static_map.js";
 import { fetchOpenAICapabilities } from "./fetchers/openai_fetcher.js";
 import { fetchAnthropicCapabilities } from "./fetchers/anthropic_fetcher.js";
+import {inspectGeminiModel} from "../../../utils/geminiProvider.cjs";
 
 const CACHE_FILE = path.join(app.getPath("userData"), "ai_model_cache.json");
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h
@@ -34,15 +35,15 @@ export async function getModelCapabilities(modelName, assistantInfo) {
     await readCache();
     const now = Date.now();
     const stale = now - lastUpdated > MAX_CACHE_AGE_MS;
-    if (stale) {
+    if (stale || (["gemini", "anthropic"].includes(assistantInfo?.provider) && !cache[modelName])) {
         console.log("[capabilities] Cache stale — refreshing…");
         await refreshCapabilities(assistantInfo);
     }
 
     const merged = { ...STATIC_MODEL_CAPABILITIES, ...cache };
-    const key = Object.keys(merged).find(k =>
-        modelName.toLowerCase().includes(k.toLowerCase())
-    );
+    const key = Object.keys(merged).filter(k => (!assistantInfo?.provider || merged[k].provider === assistantInfo.provider)
+        && (modelName.toLowerCase() === k.toLowerCase() || modelName.toLowerCase().startsWith(`${k.toLowerCase()}-`)))
+        .sort((a, b) => b.length - a.length)[0];
     return (
         merged[key] || {
             provider: "unknown",
@@ -78,13 +79,19 @@ async function readCache() {
 }
 
 async function refreshCapabilities(assistantInfo) {
-    const all = { ...STATIC_MODEL_CAPABILITIES };
+    const all = { ...STATIC_MODEL_CAPABILITIES, ...cache };
 
     try {
         if (assistantInfo?.provider === "openai" && assistantInfo.apiKey) {
             console.log("[capabilities] Refreshing OpenAI capabilities for assistant", summarizeAssistantForLogs(assistantInfo));
             const models = await fetchOpenAICapabilities(assistantInfo.apiKey);
             for (const m of models) all[m.id] = m;
+        }
+        if (assistantInfo?.provider === "gemini" && assistantInfo.apiKey) {
+            const model = await inspectGeminiModel(assistantInfo);
+            all[assistantInfo.model] = {id: assistantInfo.model, provider: "gemini", api: "interactions", streaming: true, tools: true,
+                supportsThinking: true, supportsTemperature: false, maxTokens: model.inputTokenLimit || 32768,
+                maxOutputTokens: model.outputTokenLimit || 8192};
         }
         if (assistantInfo?.provider === "anthropic" && assistantInfo.apiKey) {
             console.log("[capabilities] Refreshing Anthropic capabilities for assistant", summarizeAssistantForLogs(assistantInfo));

@@ -588,11 +588,200 @@
     padding: 8px;
 }
 
+/* Decorative activity, not a percentage: stays mounted across AI stages. */
+.ai-activity-glow {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+    user-select: none;
+}
+
+.ai-activity-glow::before,
+.ai-activity-glow::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 60%;
+    animation: ai-aurora-drift 5s ease-in-out infinite alternate;
+}
+
+.ai-activity-glow::before {
+    height: 40px;
+    background: radial-gradient(ellipse at 35% 0%, rgba(70, 210, 235, .18), transparent 65%),
+        radial-gradient(ellipse at 70% 0%, rgba(166, 133, 255, .2), transparent 65%);
+}
+
+.ai-activity-glow::after {
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #46d2eb 30%, #b3a1ff 65%, transparent);
+    filter: drop-shadow(0 1px 3px rgba(138, 187, 255, .65));
+}
+
+@keyframes ai-aurora-drift {
+    from { transform: translateX(-55%); opacity: .55; }
+    to { transform: translateX(120%); opacity: 1; }
+}
+
+.ai-activity-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 18px;
+    pointer-events: none;
+}
+
+.ai-activity-dots > span {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: ai-activity-dot-hop 900ms ease-in-out infinite;
+}
+
+.ai-activity-dots > span:nth-child(2) { animation-delay: 120ms; }
+.ai-activity-dots > span:nth-child(3) { animation-delay: 240ms; }
+
+.ai-agent-tab-title {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    gap: 6px;
+}
+
+.ai-agent-status-trigger {
+    appearance: none;
+    box-sizing: border-box;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #8abbff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 32px;
+    padding: 0;
+    vertical-align: middle;
+    transition: background-color 120ms ease;
+}
+
+.ai-agent-status-trigger:hover,
+.ai-agent-status-trigger[aria-expanded="true"] {
+    background: rgba(138, 187, 255, .16);
+}
+
+.ai-agent-status-trigger-with-time {
+    width: auto;
+    gap: 6px;
+    padding: 0 6px;
+}
+
+.ai-agent-overall-elapsed {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ai-agent-status-trigger:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+.ai-agent-status-popover-surface:global(.bp6-popover) {
+    max-width: min(340px, calc(100vw - 32px));
+}
+
+.ai-agent-status-popover {
+    box-sizing: border-box;
+    color: var(--bp6-light-gray-5, #f6f7f9);
+    min-width: 250px;
+    padding: 10px 12px;
+    max-height: min(320px, 60vh);
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+}
+
+.ai-agent-status-popover-heading {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.ai-agent-status-popover-heading strong {
+    color: inherit;
+    font-size: 12px;
+}
+
+.ai-agent-status-popover-heading time {
+    flex-shrink: 0;
+    color: var(--bp6-gray-3, #abb3bf);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ai-agent-status-popover p {
+    color: var(--bp6-gray-3, #abb3bf);
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 6px 0 0;
+    white-space: pre-wrap;
+}
+
+.ai-agent-activity-summary {
+    cursor: pointer;
+    outline: none;
+}
+
+.ai-agent-activity-summary:focus-visible :global(.bp6-callout) {
+    outline: 2px solid var(--bp6-intent-primary, #2d72d2);
+    outline-offset: 2px;
+}
+
+@keyframes ai-activity-dot-hop {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ai-activity-glow::before,
+    .ai-activity-glow::after {
+        animation: none;
+        width: 100%;
+        opacity: .65;
+        transform: none;
+    }
+    .ai-activity-dots > span { animation: none; transform: none; }
+    .ai-agent-status-trigger { transition: none; }
+}
+
+@media (forced-colors: active) {
+    .ai-activity-glow { display: none; }
+}
+
 .build-output-panel {
     flex-grow: 1; /* Expands dynamically */
     overflow-y: auto; /* Scrolls only when needed */
     min-height: 0; /* Prevents layout issues */
     padding: 8px;
+}
+
+.ai-agent-panel-host {
+    display: flex;
+    overflow: hidden;
+    padding: 0;
+}
+
+.ai-agent-panel-host > * {
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .file-dialog-component {

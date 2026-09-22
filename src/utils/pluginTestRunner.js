@@ -73,6 +73,12 @@ async function transpilePluginTests(workspaceDir, compiledDir, testFiles) {
         sourcemap: "inline",
         target: "es2022",
         external: ["@anikitenko/fdo-sdk"],
+        define: {
+            "import.meta.url": "__fdoImportMetaUrl",
+        },
+        banner: {
+            js: 'const __fdoImportMetaUrl = require("node:url").pathToFileURL(__filename).href;',
+        },
         logLevel: "silent",
         tsconfigRaw: {
             compilerOptions: {
@@ -95,6 +101,18 @@ async function transpilePluginTests(workspaceDir, compiledDir, testFiles) {
         }),
         nodeModulesPath,
     };
+}
+
+async function copyWorkspaceRuntimeFiles(workspaceDir, compiledDir, files, testFiles) {
+    const testFileSet = new Set(testFiles.map((filePath) => filePath.replace(/^\/+/, "")));
+    await Promise.all(files
+        .filter((file) => !testFileSet.has(file.path.replace(/^\/+/, "")))
+        .map(async (file) => {
+            const sourcePath = toWorkspacePath(workspaceDir, file.path);
+            const compiledPath = toWorkspacePath(compiledDir, file.path);
+            await fs.mkdir(path.dirname(compiledPath), {recursive: true});
+            await fs.copyFile(sourcePath, compiledPath);
+        }));
 }
 
 function formatSpawnError(error) {
@@ -169,6 +187,7 @@ export async function runPluginWorkspaceTests(latestContent = {}) {
     try {
         await materializeWorkspace(workspaceDir, files);
         const {compiledTestFiles, nodeModulesPath} = await transpilePluginTests(workspaceDir, compiledDir, testFiles);
+        await copyWorkspaceRuntimeFiles(workspaceDir, compiledDir, files, testFiles);
         const result = await executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath);
         return {
             ...result,

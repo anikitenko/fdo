@@ -165,7 +165,7 @@ describe("ai coding agent routing", () => {
         })).toBe(true);
     });
 
-    test("uses route judge for verification prompts even when code is selected", () => {
+    test("does not make a second routing request for an explicit action", () => {
         expect(shouldUseAiRoutingJudge({
             requestedAction: "fix",
             prompt: "but can you please checkout plugin logs to confirm?",
@@ -173,7 +173,7 @@ describe("ai coding agent routing", () => {
             deterministicAction: "smart",
             createProjectFiles: false,
             executeWorkspacePlan: false,
-        })).toBe(true);
+        })).toBe(false);
     });
 
     test("skips route judge for explicit mutating smart prompts", () => {

@@ -1,4 +1,4 @@
-import LLM from "@themaximalist/llm.js";
+import LLM from "./aiProviderClient";
 import {settings} from "./store";
 import {
     hasCapability,
@@ -343,6 +343,9 @@ export async function handleHostAiRequest(payload = {}, options = {}) {
     try {
         const llm = new LLM({
             service: fullRecord.provider,
+            accountId: fullRecord.accountId,
+            baseUrl: fullRecord.baseUrl,
+            options: fullRecord.contextLength ? {num_ctx: fullRecord.contextLength} : undefined,
             apiKey: fullRecord.apiKey,
             model: fullRecord.model,
             stream: false,

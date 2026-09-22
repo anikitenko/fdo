@@ -1,5 +1,5 @@
 import React from "react";
-import {act, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {PluginContainer} from "../../../src/components/PluginContainer.jsx";
 
 jest.mock("../../../src/components/plugin/utils/useBabelWorker", () => ({
@@ -292,6 +292,34 @@ describe("PluginContainer message hardening", () => {
         expect(heading.getAttribute("style")).toContain("color: rgb(31, 41, 51)");
         expect(screen.getByText(/Invalid plugin render payload/i).getAttribute("style"))
             .toContain("color: rgb(57, 75, 89)");
+    });
+
+    test("contains rejected render sources in the plugin recovery panel", async () => {
+        const {container} = render(<PluginContainer plugin="example-plugin" />);
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledWith("example-plugin"));
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {configurable: true, value: iframeWindow});
+        fireEvent.load(iframe);
+        act(() => {
+            window.dispatchEvent(new MessageEvent("message", {
+                source: iframeWindow, data: {type: "PLUGIN_HELLO"},
+            }));
+            window.dispatchEvent(new MessageEvent("message", {
+                source: iframeWindow, data: {type: "PLUGIN_LAYOUT_READY", layout: {
+                    docElRect: {width: 800, height: 600}, bodyRect: {width: 800, height: 600},
+                    rootRect: {width: 800, height: 600},
+                }},
+            }));
+            renderHandler({id: "example-plugin", content: {
+                render: JSON.stringify("<div>Tool</div>"), onLoad: JSON.stringify("process.exit(1)"),
+            }});
+        });
+        expect(await screen.findByText("Plugin UI failed to load")).toBeInTheDocument();
+        expect(screen.getByText(/blocked Node process access/)).toBeInTheDocument();
+        expect(screen.getByRole("button", {name: "Reload plugin frame"})).toBeInTheDocument();
+        expect(container.querySelector("iframe")).toBe(iframe);
+        expect(iframeWindow.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({type: "PLUGIN_RENDER"}), "*");
     });
 
     test("does not route non-privileged backend handler failures into capability-denied flow", async () => {

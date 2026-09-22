@@ -3,9 +3,15 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
     box-sizing: border-box;
     background-color: transparent;
     padding: 8px;
+    width: 100%;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
 }
 
 .panel-header {
@@ -46,12 +52,10 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    overscroll-behavior: contain;
-    padding-right: 4px;
+    flex: 0 0 auto;
+    min-height: auto;
+    width: 100%;
+    padding-right: 0;
 }
 
 .action-buttons {
@@ -299,9 +303,78 @@
     font-size: 11px;
 }
 
-.loading-indicator {
+.request-progress {
     margin-top: 12px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--bp6-intent-primary, #2d72d2) 42%, var(--bp6-dark-gray-3));
+    border-radius: 6px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--bp6-intent-primary, #2d72d2) 12%, var(--bp6-dark-gray-5)), var(--bp6-dark-gray-5));
+    box-shadow: inset 3px 0 0 var(--bp6-intent-primary, #2d72d2);
     flex-shrink: 0;
+}
+
+.request-progress-header,
+.request-progress-heading {
+    display: flex;
+    align-items: center;
+}
+
+.request-progress-header {
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.request-progress-heading {
+    min-width: 0;
+    gap: 8px;
+}
+
+.request-progress-heading > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.request-progress-heading strong {
+    font-size: 13px;
+}
+
+.request-progress-heading span,
+.request-progress-activity,
+.request-progress-details {
+    color: var(--bp6-gray-3);
+    font-size: 12px;
+}
+
+.request-elapsed-time {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.request-progress-bar {
+    margin: 10px 0 8px;
+}
+
+.request-progress-activity {
+    margin: 0;
+    line-height: 1.45;
+    white-space: pre-line;
+}
+
+.request-progress-details {
+    margin-top: 8px;
+}
+
+.request-progress-details summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--bp6-light-gray-5);
+}
+
+.request-progress-details .request-status-list {
+    padding-left: 10px;
+    border-left: 1px solid var(--bp6-dark-gray-3);
 }
 
 .request-status-list {
@@ -346,6 +419,13 @@
 .response-card code {
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
     font-size: 12px;
+}
+
+.response-card .streaming-response {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--monospace-font, monospace);
+    line-height: 1.6;
 }
 
 .response-card p {

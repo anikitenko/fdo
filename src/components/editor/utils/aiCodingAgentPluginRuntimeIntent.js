@@ -7,18 +7,32 @@ function hasQuotedPluginReference(prompt = "") {
     return /"[^"]+"\s+plugin\b/i.test(raw) || /'[^']+'\s+plugin\b/i.test(raw);
 }
 
+function emptyRuntimeIntent() {
+    return {
+        shouldProbe: false,
+        wantsLogs: false,
+        wantsActivate: false,
+        wantsDeactivate: false,
+        wantsInit: false,
+        wantsRender: false,
+        wantsRestart: false,
+    };
+}
+
 export function detectAiPluginRuntimeIntent(prompt = "") {
     const normalized = normalizePrompt(prompt);
     if (!normalized) {
-        return {
-            shouldProbe: false,
-            wantsLogs: false,
-            wantsActivate: false,
-            wantsDeactivate: false,
-            wantsInit: false,
-            wantsRender: false,
-            wantsRestart: false,
-        };
+        return emptyRuntimeIntent();
+    }
+
+    // A creation request may naturally describe the UI to render, a verified
+    // SDK icon, or an eventual open sidebar. Those are implementation details,
+    // not a request to run lifecycle actions against the currently open plugin.
+    // Probing here can fail before the new workspace even exists and pollute the
+    // provider context with an unrelated runtime error.
+    const isPluginCreationRequest = /\b(?:create|build|generate|scaffold|implement|make)\b[\s\S]{0,100}\bplugin\b/.test(normalized);
+    if (isPluginCreationRequest) {
+        return emptyRuntimeIntent();
     }
 
     const mentionsPlugin = /\bplugin\b/.test(normalized) || hasQuotedPluginReference(prompt);

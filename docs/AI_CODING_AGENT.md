@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AI Coding Agent is a new feature integrated into the FDO built-in code editor. It provides AI-powered coding assistance directly within the editor, leveraging the existing LLM infrastructure (`@themaximalist/llm.js`) and coding assistant configuration.
+The AI Coding Agent is a new feature integrated into the FDO built-in code editor. It provides AI-powered coding assistance directly within the editor, using the official OpenAI, Anthropic, Google Gemini, Cloudflare and Ollama clients through FDO’s provider adapters and coding assistant configuration.
 
 The AI assistant is **FDO SDK-aware** and can help with plugin development using the `@anikitenko/fdo-sdk`.
 
@@ -828,7 +828,7 @@ When adding new features to the AI Coding Agent, consider:
 
 - FDO SDK Repository: https://github.com/anikitenko/fdo-sdk
 - FDO Main Repository: https://github.com/anikitenko/fdo
-- LLM.js Documentation: https://github.com/themaximalist/llm.js
+- Native provider architecture and validation: [AI Coding Agent reliability](AI_CODING_RELIABILITY.md)
 
 ### Plugin conversation history
 

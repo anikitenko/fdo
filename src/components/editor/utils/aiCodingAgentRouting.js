@@ -87,15 +87,17 @@ export function shouldUseAiRoutingJudge({
     const pragmaticIntent = detectAiCodingPragmaticIntent({ prompt });
     const questionLike = isQuestionLikeAiCodingPrompt(prompt);
     const confirmationLike = isConfirmationLikeAiCodingPrompt(prompt);
-    const explicitMutation = normalizedRequested !== "smart" && isMutatingAiCodingAction(normalizedRequested);
     const mutatingRisk = isMutatingAiCodingAction(normalizedDeterministic) || createProjectFiles || executeWorkspacePlan;
     const hasSelectedCode = !!String(selectedCode || "").trim();
 
-    if (hasSelectedCode && !questionLike && !confirmationLike) {
+    // An explicit mode is already a developer decision. Running a second model
+    // only to reconsider it adds latency, cost, and a confusing duplicate
+    // request without improving the outcome.
+    if (normalizedRequested !== "smart") {
         return false;
     }
 
-    if (normalizedRequested !== "smart" && !explicitMutation) {
+    if (hasSelectedCode && !questionLike && !confirmationLike) {
         return false;
     }
 
@@ -107,7 +109,7 @@ export function shouldUseAiRoutingJudge({
         return false;
     }
 
-    return confirmationLike || questionLike || explicitMutation || mutatingRisk;
+    return confirmationLike || questionLike || mutatingRisk;
 }
 
 function normalizeJudgeIntent(intent = {}) {

@@ -14,8 +14,11 @@ import * as styles from "../../css/SettingsDialog.module.css";
 import {AppToaster} from "../../AppToaster";
 
 const PROVIDERS = [
+    {label: "Gemini API (Google)", value: "gemini"},
+    {label: "Cloudflare Workers AI", value: "cloudflare"},
     { label: "OpenAI", value: "openai" },
     { label: "Anthropic", value: "anthropic" },
+    { label: "Ollama (local)", value: "ollama" },
     { label: "Codex CLI (ChatGPT)", value: "codex-cli" },
     { label: "Gemini CLI (Google)", value: "gemini-cli" },
 ]
@@ -54,8 +57,12 @@ export default function AIAssistantsPanel() {
         model: "",
         purpose: "chat",
         apiKey: "",
+        baseUrl: "http://127.0.0.1:11434",
+        contextLength: 32768,
+        accountId: "",
         executablePath: "",
         defaultThinkingMode: "auto",
+        firstResponseTimeoutMs: "",
     });
 
     const filteredModels = providerModels;
@@ -104,7 +111,7 @@ export default function AIAssistantsPanel() {
         }
 
         const apiKey = form.apiKey.trim();
-        if (!apiKey) {
+        if ((!apiKey && form.provider !== "ollama") || (form.provider === "cloudflare" && !/^[a-f0-9]{32}$/i.test(form.accountId.trim()))) {
             setProviderModels([]);
             setIsLoadingModels(false);
             setModelsError("");
@@ -120,7 +127,8 @@ export default function AIAssistantsPanel() {
             try {
                 setIsLoadingModels(true);
                 setModelsError("");
-                const models = await window.electron.settings.ai.getAvailableModels(form.provider, apiKey);
+                const models = await window.electron.settings.ai.getAvailableModels(form.provider, apiKey, form.baseUrl,
+                    ...(form.provider === "cloudflare" ? [form.accountId.trim()] : []));
                 if (cancelled) return;
 
                 setProviderModels(models);
@@ -146,7 +154,7 @@ export default function AIAssistantsPanel() {
         return () => {
             cancelled = true;
         };
-    }, [form.apiKey, form.provider, isDialogOpen]);
+    }, [form.apiKey, form.provider, form.baseUrl, form.accountId, isDialogOpen]);
 
     useEffect(() => {
         (async () => {
@@ -201,18 +209,23 @@ export default function AIAssistantsPanel() {
     const handleAdd = async () => {
         try {
             if (!form.name.trim()) throw new Error("Assistant name is required.");
-            if (!["codex-cli", "gemini-cli"].includes(form.provider) && !form.apiKey.trim()) throw new Error("API key is required.");
+            if (!["codex-cli", "gemini-cli", "ollama"].includes(form.provider) && !form.apiKey.trim()) throw new Error("API key is required.");
             setIsLoading(true);
+            const {baseUrl, contextLength, accountId, firstResponseTimeoutMs, executablePath, ...assistantForm} = form;
             const nextForm = {
-                ...form,
+                ...assistantForm,
+                ...(["codex-cli", "gemini-cli"].includes(form.provider) ? {executablePath} : {}),
+                ...(form.provider === "ollama" ? {baseUrl, contextLength} : {}),
+                ...(form.provider === "cloudflare" ? {accountId: accountId.trim()} : {}),
+                ...(form.purpose === "coding" && firstResponseTimeoutMs !== "" ? {firstResponseTimeoutMs} : {}),
                 default: true,
-                apiKey: ["codex-cli", "gemini-cli"].includes(form.provider) ? "" : form.apiKey,
+                apiKey: ["codex-cli", "gemini-cli", "ollama"].includes(form.provider) ? "" : form.apiKey,
                 model: form.provider === "codex-cli"
                     ? (form.model || "gpt-5")
                     : form.provider === "gemini-cli"
                         ? (form.model || "gemini-2.5-pro")
                         : form.model,
-                purpose: ["codex-cli", "gemini-cli"].includes(form.provider) ? "coding" : form.purpose,
+                purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare"].includes(form.provider) ? "coding" : form.purpose,
                 defaultThinkingMode: form.defaultThinkingMode || "auto",
             };
             await window.electron.settings.ai.addAssistant(nextForm);
@@ -220,7 +233,7 @@ export default function AIAssistantsPanel() {
             const addedAssistant = updated.find((item) =>
                 item.name === form.name &&
                 item.provider === form.provider &&
-                item.purpose === (["codex-cli", "gemini-cli"].includes(form.provider) ? "coding" : form.purpose)
+                item.purpose === (["codex-cli", "gemini-cli", "ollama"].includes(form.provider) ? "coding" : form.purpose)
             );
 
             if (["codex-cli", "gemini-cli"].includes(form.provider) && addedAssistant) {
@@ -253,8 +266,12 @@ export default function AIAssistantsPanel() {
                 model: "",
                 purpose: "chat",
                 apiKey: "",
+                baseUrl: "http://127.0.0.1:11434",
+                contextLength: 32768,
+                accountId: "",
                 executablePath: "",
                 defaultThinkingMode: "auto",
+                firstResponseTimeoutMs: "",
             });
         } catch (err) {
             AppToaster.show({ message: err.message, intent: "danger" });
@@ -558,11 +575,21 @@ export default function AIAssistantsPanel() {
                                 setForm({
                                     ...form,
                                     provider,
+                                    purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare"].includes(provider) ? "coding" : form.purpose,
                                     model: "",
+                                    firstResponseTimeoutMs: "",
                                 });
                             }}
                         />
                     </FormGroup>
+
+                    {form.provider === "cloudflare" ? (
+                        <FormGroup label="Cloudflare account ID" labelFor="ai-cloudflare-account"
+                            helperText="Use an account-scoped Workers AI API token below. Screenshot requests need a vision model.">
+                            <InputGroup id="ai-cloudflare-account" value={form.accountId} placeholder="32-character account ID"
+                                onChange={e => setForm({...form, accountId: e.target.value})} />
+                        </FormGroup>
+                    ) : null}
 
                     <FormGroup label={form.provider === "codex-cli" ? "Codex Model" : form.provider === "gemini-cli" ? "Gemini Model" : "Model"} labelFor="ai-model">
                         <HTMLSelect
@@ -576,7 +603,7 @@ export default function AIAssistantsPanel() {
                                             ? "No Codex models available"
                                             : form.provider === "gemini-cli"
                                                 ? "No Gemini models available"
-                                                : (form.apiKey.trim() ? `No ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models available` : `Enter API key to load ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models`), value: "" }]
+                                                : ((form.apiKey.trim() || form.provider === "ollama") ? `No ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models available` : `Enter API key to load ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models`), value: "" }]
                             }
                             value={form.model}
                             disabled={isLoadingModels || filteredModels.length === 0}
@@ -605,10 +632,20 @@ export default function AIAssistantsPanel() {
                             id="ai-purpose"
                             options={PURPOSES}
                             value={form.purpose}
-                            disabled={["codex-cli", "gemini-cli"].includes(form.provider)}
+                            disabled={["codex-cli", "gemini-cli", "ollama", "cloudflare"].includes(form.provider)}
                             onChange={(e) => setForm({ ...form, purpose: e.target.value })}
                         />
                     </FormGroup>
+
+                    {form.purpose === "coding" && !["codex-cli", "gemini-cli"].includes(form.provider) ? (
+                        <FormGroup label="First answer timeout (seconds)" labelFor="ai-first-response-timeout"
+                            helperText="Maximum wait for answer text, including reasoning. Blank uses the provider default; 10–600 seconds. Stop remains available.">
+                            <InputGroup id="ai-first-response-timeout" type="number" min="10" max="600" step="1"
+                                placeholder={["cloudflare", "ollama"].includes(form.provider) ? "300" : "90"}
+                                value={form.firstResponseTimeoutMs === "" ? "" : Number(form.firstResponseTimeoutMs) / 1000}
+                                onChange={e => setForm({...form, firstResponseTimeoutMs: e.target.value === "" ? "" : Number(e.target.value) * 1000})} />
+                        </FormGroup>
+                    ) : null}
 
                     <FormGroup label="Default Thinking Mode" labelFor="ai-thinking-default">
                         <HTMLSelect
@@ -650,14 +687,27 @@ export default function AIAssistantsPanel() {
                                 Uses your local Gemini CLI runtime. This provider is intended for Coding Assistant workflows.
                             </div>
                         </>
+                    ) : form.provider === "ollama" ? (
+                        <>
+                            <FormGroup label="Ollama server URL" labelFor="ai-ollama-url">
+                                <InputGroup id="ai-ollama-url" value={form.baseUrl}
+                                    onChange={e => setForm({...form, baseUrl: e.target.value})} />
+                            </FormGroup>
+                            <FormGroup label="Context length (tokens)" labelFor="ai-ollama-context"
+                                helperText="Larger contexts need more memory. Screenshot requests require a model with vision support.">
+                                <InputGroup id="ai-ollama-context" type="number" min="4096" max="262144" value={form.contextLength}
+                                    onChange={e => setForm({...form, contextLength: e.target.value})} />
+                            </FormGroup>
+                            <p>Uses downloaded models on your Ollama server. No API key is needed.</p>
+                        </>
                     ) : (
                         <FormGroup
-                            label="API Key"
+                            label={form.provider === "cloudflare" ? "API Token" : "API Key"}
                             labelFor={"ai-key"}
                         >
                             <InputGroup
                                 id="ai-key"
-                                placeholder="sk-..."
+                                placeholder={form.provider === "cloudflare" ? "Cloudflare API token" : form.provider === "gemini" ? "Google AI Studio API key" : "sk-..."}
                                 type="password"
                                 value={form.apiKey}
                                 onChange={(e) => {

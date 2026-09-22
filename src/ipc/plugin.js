@@ -26,6 +26,7 @@ import archiver from "archiver"
 import {extractMetadata} from "../utils/extractMetadata";
 import {normalizeAndValidatePluginMetadata} from "../utils/pluginMetadataContract";
 import {runPluginWorkspaceTests} from "../utils/pluginTestRunner";
+import {validatePluginWorkspaceSdkContract} from "../utils/pluginWorkspaceSdkContract";
 import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/pluginRuntimeSecurity";
 import {HANDSHAKE_API_INCOMPATIBLE} from "../utils/pluginHandshakeCompatibility";
 import {
@@ -638,6 +639,29 @@ export async function buildUsingEsbuild(virtualData) {
     // Ensure esbuild uses the correct binary
     process.env.ESBUILD_BINARY_PATH = esbuildBinary;
     process.env.NODE_PATH = nodePath;
+
+    // Plugins keep the SDK external, so esbuild cannot detect a named export that
+    // is absent at runtime. Resolve the exact SDK package the plugin process uses
+    // and validate value imports before producing a deployable bundle.
+    let runtimeSdk;
+    try {
+        const requireRuntimeSdk = Module.createRequire(path.join(nodePath, "fdo-plugin-sdk-contract.cjs"));
+        runtimeSdk = requireRuntimeSdk("@anikitenko/fdo-sdk");
+    } catch (error) {
+        throw new Error(`Unable to load the plugin SDK runtime for contract validation: ${error?.message || String(error)}`);
+    }
+    const sdkContractErrors = validatePluginWorkspaceSdkContract(virtualData, {
+        createActionSource: runtimeSdk.createRenderOnLoadActionsSource,
+        runtimeExports: [
+            ...Object.getOwnPropertyNames(Object(runtimeSdk)),
+            // esbuild's CommonJS interop exposes the module itself as a default
+            // import when the SDK is authored as CommonJS.
+            "default",
+        ],
+    });
+    if (sdkContractErrors.length > 0) {
+        throw new Error(`Plugin SDK contract validation failed:\n${sdkContractErrors.join("\n")}`);
+    }
     
     const srcJson = JSON.parse(virtualData["/package.json"])
     const pluginEntrypoint = srcJson.source || "index.ts"
@@ -2205,7 +2229,8 @@ export function registerPluginHandlers() {
 
     ipcMain.handle(PluginChannels.BUILD, async (event, data) => {
         try {
-            const result = await buildUsingEsbuild(data.latestContent)
+            const latestContent = data?.latestContent || {};
+            const result = await buildUsingEsbuild(latestContent)
             return {success: true, files: result}
         } catch (error) {
             NotificationCenter.addNotification({title: `Build error`, message: error.toString(), type: "danger"});

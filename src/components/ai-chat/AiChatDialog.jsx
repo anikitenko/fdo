@@ -1,3 +1,4 @@
+import AiUsagePopover, {MessageUsage} from "./AiUsagePopover";
 import * as styles from "../css/AiChatDialog.module.css";
 import {
     Button,
@@ -29,25 +30,7 @@ import {
     normalizeAiChatUiLanguage,
 } from "../../utils/aiChatI18n.js";
 
-const costUsageTooltip = (
-    t, inputTokens, outputTokens, local, totalTokens, inputCost, outputCost, totalCost
-) => {
-    const formatCost = (value) => `$${value.toFixed(5)}`;
-    const formatTokens = (num) =>
-        num >= 1000 ? `${(num / 1000).toFixed(1)}K` : num.toString();
-    if (!inputTokens && !outputTokens && !local && !totalTokens && !inputCost && !outputCost && !totalCost) return null
-    return (
-        <div>
-            <div>{t("inputTokens")}: {formatTokens(inputCost)}</div>
-            <div>{t("outputTokens")}: {formatTokens(outputCost)}</div>
-            <div>{t("local")}: {local ? t("yes") : t("no")}</div>
-            <div>{t("totalTokens")}: {formatTokens(totalTokens)}</div>
-            <div>{t("inputCost")}: {formatCost(inputCost)}</div>
-            <div>{t("outputCost")}: {formatCost(outputCost)}</div>
-            <div>{t("totalCost")}: {formatCost(totalCost)}</div>
-        </div>
-    )
-}
+const costUsageTooltip = (t, message) => <MessageUsage t={t} {...message} />;
 
 export function cleanFullMessage(text) {
     if (!text) return text;
@@ -1599,7 +1582,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             onOpened={onDialogOpened}
             title={<><Icon icon={"chat"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span
                 className={"bp6-heading"}
-                style={{fontSize: "1.2rem"}}>{t("chatTitle")}</span></>}
+                style={{fontSize: "1.2rem"}}>{t("chatTitle")}</span><AiUsagePopover surface="chat" sessionId={session?.id}/></>}
             style={{
                 minWidth: 900,
                 paddingBottom: 0,
@@ -1756,7 +1739,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         ) : (
                                             isAssistant ? <>
                                                 <Tooltip content={costUsageTooltip(
-                                                    t, m.inputTokens, m.outputTokens, m.local, m.totalTokens, m.inputCost, m.outputCost, m.totalCost
+                                                    t, m
                                                 )}>
                                                     <MarkdownRenderer text={m.content} skeleton={m.skeleton} role={m.role}/>
                                                 </Tooltip>

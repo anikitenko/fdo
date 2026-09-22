@@ -1,57 +1,29 @@
-import LLM from '@themaximalist/llm.js';
-import {ReadableStream} from 'node:stream/web';
-import {TextEncoder} from 'node:util';
+/** @jest-environment node */
+import AiProviderClient from '../../src/utils/aiProviderClient';
 import {sendCodingLlmRequest} from '../../src/utils/codingLlmRequest';
+import {openaiEvents, anthropicEvents, responseFor, consume, text} from '../helpers/aiProviderWire';
+import {withCodingTransientRecovery} from '../../src/utils/aiCodingTransientRecovery';
 
-const frame = event => `event: ${event.type}\r\ndata: ${JSON.stringify(event)}\r\n\r\n`;
-const text = 'Quasar Quill — привіт 👋';
-const delta = {type: 'response.output_text.delta', delta: text};
-const done = {type: 'response.completed', response: {}};
-const bytes = value => new TextEncoder().encode(value);
-function body(parts) {
-    return new ReadableStream({start(controller) {
-        for (const part of parts) controller.enqueue(part);
-        controller.close();
-    }});
-}
-async function consume(parts, patched = true, service = 'openai') {
-    global.fetch = jest.fn(async () => ({ok: true, body: body(parts)}));
-    const llm = new LLM({service, apiKey: 'test-only', stream: true, extended: true});
-    const response = patched ? await sendCodingLlmRequest(llm, 'Rename plugin') : await llm.chat('Rename plugin');
-    let content = '';
-    for await (const chunk of response.stream) if (chunk.type === 'content') content += chunk.content;
-    await response.complete();
-    return content;
-}
-const originalFetch = global.fetch;
-afterEach(() => { global.fetch = originalFetch; });
-
-test('reproduces content loss in the installed decoder on split JSON', async () => {
-    const encoded = bytes(frame(delta));
-    expect(await consume([encoded.slice(0, 75), encoded.slice(75), bytes(frame(done))], false)).toBe('');
+const providers = [['openai', openaiEvents], ['anthropic', anthropicEvents]];
+test.each(providers)('%s SDK preserves fragmented UTF8 and SSE framing', async (service, events) => {
+    const client = new AiProviderClient({service, model: 'test-model', modelMetadata: {}, apiKey: 'test-key', fetchImpl: async () => responseFor(events(), service, true)});
+    expect((await consume(await sendCodingLlmRequest(client, 'Build'))).complete.content).toBe(text);
 });
-
-test('preserves content at every byte split, including UTF-8 and CRLF boundaries', async () => {
-    const encoded = bytes(frame(delta) + frame(done));
-    for (let split = 1; split < encoded.length; split++) {
-        expect(await consume([encoded.slice(0, split), encoded.slice(split)])).toBe(text);
-    }
+test.each(providers)('%s SDK never accepts partial content without terminal completion', async (service, events) => {
+    const client = new AiProviderClient({service, model: 'test-model', modelMetadata: {}, apiKey: 'test-key', fetchImpl: async () => responseFor(events().slice(0, 3), service)});
+    const response = await sendCodingLlmRequest(client, 'Build');
+    await expect(consume(response)).rejects.toThrow(/without successful completion/);
+    await expect(response.complete()).rejects.toThrow('not completed');
 });
-
-test.each([
-    [{type: 'response.failed', response: {error: {message: 'Model access denied'}}}, 'Model access denied'],
-    [{type: 'response.incomplete', response: {incomplete_details: {reason: 'max_output_tokens'}}}, 'max_output_tokens'],
-    [{type: 'error', error: {message: 'Quota exceeded'}}, 'Quota exceeded'],
-])('surfaces terminal failure even after partial content: %j', async (event, message) => {
-    await expect(consume([bytes(frame(delta) + frame(event))])).rejects.toThrow(message);
+test.each(providers)('%s output token limit remains a recoverable incomplete response', async (service, events) => {
+    const client = new AiProviderClient({service, model: 'test-model', modelMetadata: {}, apiKey: 'test-key', fetchImpl: async () => responseFor(events(text, 'max_tokens'), service)});
+    await expect(consume(await sendCodingLlmRequest(client, 'Build'))).rejects.toThrow('max_tokens');
 });
-
-test('rejects a disconnected stream instead of applying partial code', async () => {
-    await expect(consume([bytes(frame(delta))])).rejects.toThrow('before response.completed');
-});
-
-test('keeps Anthropic content decoding with fragmented events', async () => {
-    const events = frame({type: 'content_block_delta', delta: {type: 'text_delta', text}}) + frame({type: 'message_stop'});
-    const encoded = bytes(events);
-    expect(await consume(Array.from(encoded, byte => Uint8Array.of(byte)), true, 'anthropic')).toBe(text);
+test.each(providers)('%s HTTP overload preserves FDO retry budget and accepts only the replacement', async (service, events) => {
+    const fetchImpl = jest.fn().mockResolvedValueOnce(new Response(JSON.stringify({error: {type: 'overloaded_error', message: 'Temporarily unavailable'}}), {status: 503}))
+        .mockImplementation(async () => responseFor(events('complete replacement'), service));
+    const run = async () => consume(await sendCodingLlmRequest(new AiProviderClient({service, model: 'test-model', modelMetadata: {}, apiKey: 'test-key', fetchImpl}), 'Build'));
+    const result = await withCodingTransientRecovery({run, onRetry: jest.fn(), wait: async () => {}});
+    expect(result.complete.content).toBe('complete replacement');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
 });

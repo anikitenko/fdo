@@ -1,4 +1,4 @@
-import {Callout, Classes, Divider, Intent, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
+import {Callout, Classes, Divider, Intent, Popover, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
 import React from "react";
 import {AnsiOutput} from "./AnsiOutput";
 import {useEffect, useRef, useState} from 'react';
@@ -32,6 +32,85 @@ function withToaster(callback) {
         .catch(() => {});
 }
 
+const ActivityDots = ({testId}) => (
+    <span className={styles["ai-activity-dots"]} data-testid={testId} aria-hidden="true">
+        <span/><span/><span/>
+    </span>
+);
+
+function formatAiActivityElapsed(elapsedMs = 0) {
+    const totalSeconds = Math.max(0, Math.floor(Number(elapsedMs || 0) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return minutes > 0 ? `${minutes}m ${seconds}s` : `${totalSeconds}s`;
+}
+
+const ActivityStatusPopover = ({activity, label, testId, stageTiming = false}) => (
+    <div className={styles["ai-agent-status-popover"]} data-testid={testId} role="dialog" aria-label={`${label} status`}>
+        <div className={styles["ai-agent-status-popover-heading"]}>
+            <strong>{activity.error ? `${label} Error` : (activity.isLoading ? activity.stage || "Working on your request" : activity.stage || "Finished")}</strong>
+            {(stageTiming || !activity.error) && <time>{stageTiming ? "Stage: " : ""}{formatAiActivityElapsed(stageTiming ? activity.stageElapsedMs : activity.elapsedMs)} elapsed</time>}
+        </div>
+        <p role="status" aria-live="polite" aria-atomic="true">{activity.error || activity.latestStatus || (activity.isLoading ? "Processing your request…" : "No work is running.")}</p>
+    </div>
+);
+
+const ActivityTabTitle = ({activity, label, id}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const lastRunningActivity = useRef(activity);
+    if (activity.isLoading) lastRunningActivity.current = activity;
+    const displayedActivity = activity.isLoading ? activity : {...activity, elapsedMs: lastRunningActivity.current.elapsedMs,
+        stageElapsedMs: activity.stageElapsedMs ?? lastRunningActivity.current.stageElapsedMs};
+    return (
+    <span className={styles["ai-agent-tab-title"]}>
+        <span>{label}</span>
+        {(activity.isLoading || isOpen) && (
+            <span
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+                }}
+                onKeyPress={(event) => {
+                    // Tabs treats keypress as tab selection. Leave the button's
+                    // native activation intact without selecting its parent tab.
+                    if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+                }}
+            >
+                <Popover
+                    content={<ActivityStatusPopover activity={displayedActivity} label={label} testId={`${id}-status-popover`} stageTiming={id === "ai-agent"}/>}
+                    isOpen={isOpen}
+                    onInteraction={setIsOpen}
+                    interactionKind="click"
+                    placement="bottom"
+                    popupKind="dialog"
+                    canEscapeKeyClose={true}
+                    // Native buttons already synthesize clicks for Enter/Space.
+                    targetProps={{onKeyDown: undefined}}
+                    popoverClassName={styles["ai-agent-status-popover-surface"]}
+                    usePortal={true}
+                >
+                    <button
+                        type="button"
+                        aria-label={`Show ${label} status`}
+                        className={`${styles["ai-agent-status-trigger"]} ${id === "ai-agent" ? styles["ai-agent-status-trigger-with-time"] : ""}`}
+                        aria-describedby={id === "ai-agent" ? `${id}-overall-elapsed` : undefined}
+                        data-testid={`${id}-status-trigger`}
+                    >
+                        {activity.isLoading ? <ActivityDots testId={`${id}-working-dots`}/> : <span aria-hidden="true">•</span>}
+                        {id === "ai-agent" && (
+                            <time id={`${id}-overall-elapsed`} className={styles["ai-agent-overall-elapsed"]}>
+                                Overall: {formatAiActivityElapsed(displayedActivity.elapsedMs)}
+                            </time>
+                        )}
+                    </button>
+                </Popover>
+            </span>
+        )}
+    </span>
+    );
+};
+
 const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor}) => {
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers());
     const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status());
@@ -45,10 +124,30 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
         hasResponse: false,
         error: "",
         latestStatus: "",
+        stage: "",
+        elapsedMs: 0,
     });
     const totalMarkers = markers.reduce((acc, marker) => {
         return acc + marker.markers.length
     }, 0)
+    const isTestRunning = buildOutputStatus?.inProgress && buildOutputStatus?.message?.kind === "test";
+    const isBuildRunning = buildOutputStatus?.inProgress && !isTestRunning;
+
+    const operationKind = isTestRunning ? "test" : isBuildRunning ? "build" : "";
+    const [operationElapsedMs, setOperationElapsedMs] = useState(0);
+    useEffect(() => {
+        setOperationElapsedMs(0);
+        if (!operationKind) return undefined;
+        const startedAt = Date.now();
+        const timer = setInterval(() => setOperationElapsedMs(Date.now() - startedAt), 1000);
+        return () => clearInterval(timer);
+    }, [operationKind]);
+    const operationActivity = {
+        isLoading: !!operationKind,
+        stage: isTestRunning ? "Running plugin tests" : "Building plugin",
+        latestStatus: buildOutputStatus?.message?.message || "",
+        elapsedMs: operationElapsedMs,
+    };
 
     useEffect( () => {
         if (buildOutputStatus) {
@@ -93,6 +192,7 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
     return (
         <div className={styles["build-output-container"]}>
             <div className={styles["build-output-tabs-container"]}>
+                {aiActivity.isLoading && <div className={styles["ai-activity-glow"]} aria-hidden="true"/>}
                 <Tabs
                     animate={true}
                     id="CodeEditorTabs"
@@ -107,34 +207,52 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
                             intent: (totalMarkers > 0 ? "danger" : "success")
                         }
                     }/>
-                    <Tab id="output" title="Build"/>
-                    <Tab id="tests" title="Tests"/>
+                    <Tab
+                        id="output"
+                        title={<ActivityTabTitle label="Build" id="build" activity={{...operationActivity, isLoading: isBuildRunning, ...(!isBuildRunning ? {stage: "Build finished", latestStatus: ""} : {})}}/>}
+                    />
+                    <Tab
+                        id="tests"
+                        title={<ActivityTabTitle label="Test" id="test" activity={{...operationActivity, isLoading: isTestRunning, ...(!isTestRunning ? {stage: "Tests finished", latestStatus: ""} : {})}}/>}
+                    />
                     <Tab
                         id="ai-agent"
-                        title="AI Coding Agent"
-                        tagContent={aiActivity.isLoading ? "..." : undefined}
-                        tagProps={aiActivity.isLoading ? { intent: "primary" } : undefined}
+                        title={<ActivityTabTitle label="AI Coding Agent" id="ai-agent" activity={aiActivity}/>}
                     />
                 </Tabs>
                 <Divider/>
             </div>
-            {selectedTabId !== "ai-agent" && (aiActivity.isLoading || aiActivity.error) && (
-                <Callout
-                    style={{margin: "10px", borderRadius: "5px"}}
-                    intent={aiActivity.error ? "danger" : "primary"}
-                    icon={aiActivity.error ? "error" : "time"}
+            {selectedTabId !== "ai-agent" && aiActivity.error && (
+                <div
+                    className={styles["ai-agent-activity-summary"]}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedTabId("ai-agent")}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedTabId("ai-agent");
+                        }
+                    }}
+                    title="Open AI Coding Agent"
                 >
+                    <Callout
+                        style={{margin: "10px", borderRadius: "5px"}}
+                        intent="danger"
+                        icon="error"
+                    >
                     <div className={Classes.HEADING}>
-                        {aiActivity.error ? "AI Coding Agent Error" : "AI Coding Agent Running"}
+                        AI Coding Agent Error
                     </div>
-                    <div>{aiActivity.error || aiActivity.latestStatus || "Processing your request..."}</div>
-                </Callout>
+                    <div>{aiActivity.error}</div>
+                    </Callout>
+                </div>
             )}
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
             {selectedTabId === "output" && (<OutputPanel intent={buildOutputIntent} entries={buildOutput} emptyMessage="Build output will be here..." />)}
             {selectedTabId === "tests" && (<OutputPanel intent={testOutputIntent} entries={testOutput} emptyMessage="Test output will be here..." />)}
             <div
-                className={styles["build-output-panel"]}
+                className={`${styles["build-output-panel"]} ${styles["ai-agent-panel-host"]}`}
                 style={{ display: selectedTabId === "ai-agent" ? "block" : "none" }}
                 aria-hidden={selectedTabId === "ai-agent" ? "false" : "true"}
             >
@@ -214,7 +332,7 @@ const OutputPanel = ({intent, entries, emptyMessage}) => {
                                     <span>{formatHistoryTimestamp(m.ts)}</span>
                                     <span style={{marginLeft: "8px"}}>{m.kind === "test" ? "TEST" : "BUILD"}</span>
                                 </div>
-                                <span style={{color: m.error ? "red" : "white", whiteSpace: "pre-wrap"}}>{m.kind === "test" ? <AnsiOutput text={m.message}/> : m.message}</span>
+                                <span style={{color: m.error ? "red" : "white", whiteSpace: "pre-wrap"}}><AnsiOutput text={m.message}/></span>
                             </div>
                         )
                     })}

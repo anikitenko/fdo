@@ -74,21 +74,26 @@ export function buildProblemsRepairPlanPrompt({
     originalPrompt = "",
     previousResponse = "",
     problemsContext = "",
+    workspaceFiles,
 } = {}) {
     const response = String(previousResponse || "").trim();
-    const responsePreview = response.length > 5000 ? `${response.slice(0, 5000)}\n...[truncated]` : response;
     const diagnostics = String(problemsContext || "").trim() || "Current editor problems were reported without diagnostic text.";
 
-    return `${originalPrompt}
+    const currentSource = Array.isArray(workspaceFiles) ? JSON.stringify(workspaceFiles) : response;
+    return `EXECUTION MODE: WORKSPACE TASK IMPLEMENTATION
 
 IMPORTANT REPAIR INSTRUCTION:
 The workspace files from your previous response were applied, and the Editor Problems panel now reports errors. Correct every listed error while preserving the requested plugin behavior.
+This is a focused repair of the existing workspace, not a new scaffold. Return only files that must change to resolve the diagnostics, including directly affected dependencies. Keep unaffected files and their public interfaces unchanged. Do not regenerate the entire workspace or add a new feature-module architecture. Complete any missing implementations required by the diagnostics; do not replace them with stubs.
 
 Problems panel diagnostics:
 ${diagnostics}
 
-Previous workspace response:
-${responsePreview}
+Complete previously applied workspace response (retain unchanged files; this is the latest source for these paths and supersedes older context):
+${currentSource}
+
+Original acceptance requirements (reference only, NOT a request to rebuild the workspace):
+${originalPrompt}
 
 Return ONLY complete executable workspace file sections for every file you change:
 

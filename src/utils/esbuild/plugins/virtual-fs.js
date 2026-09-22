@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import {extractCssStyles} from "../../../components/editor/utils/extractCssStyles";
-import {resolveCssImports} from "../../../components/editor/utils/resolveCssImports";
+import {resolveCssImports, mergeCssStyleMaps} from "../../../components/editor/utils/resolveCssImports";
 
 export function EsbuildVirtualFsPlugin(latestContent) {
     const normalizeVirtualPath = (targetPath = "", {preserveRelative = false} = {}) => {
@@ -174,7 +174,7 @@ export function EsbuildVirtualFsPlugin(latestContent) {
             build.onLoad({filter: /\.css$/}, async (args) => {
                 const classMap = extractCssStyles(latestContent[args.path])
                 const importsResolved = await resolveCssImports(classMap, args.path, latestContent, extractCssStyles)
-                const merged = {...importsResolved, ...classMap}
+                const merged = mergeCssStyleMaps(importsResolved, classMap)
                 return {
                     contents: `export default ${JSON.stringify(merged)};`,
                     loader: "js",

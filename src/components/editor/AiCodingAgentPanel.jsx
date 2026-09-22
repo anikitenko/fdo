@@ -1,15 +1,19 @@
+import AiUsagePopover from "../ai-chat/AiUsagePopover";
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import {historyStorageKey, normalizeHistory, readHistory, writeHistory, buildHistoryContext} from "./utils/aiCodingAgentHistory";
 import {
     Button,
     Callout,
     Card,
+    Alert,
+    Dialog,
     FormGroup,
     HTMLSelect,
     KeyComboTag,
     Menu,
     MenuItem,
     NonIdealState,
+    ProgressBar,
     Spinner,
     Tag,
     TextArea,
@@ -30,7 +34,14 @@ import {
     shouldTreatAsAiCodingFollowUp,
 } from "./utils/aiCodingAgentFollowup.js";
 import {buildAiCodingAgentStatusMessage} from "./utils/aiCodingAgentStatus.js";
-import { upsertAiCodingRequestStatus } from "../../utils/aiCodingAgentProgress.js";
+import {
+    buildAiCodingWaitingStatus,
+    buildAiCodingStreamStatus,
+    createAiCodingStreamProgress,
+    recordAiCodingStreamText,
+    formatAiCodingElapsedShort,
+    upsertAiCodingRequestStatus,
+} from "../../utils/aiCodingAgentProgress.js";
 import {
     isQuestionLikeAiCodingPrompt,
     isNewPluginCreationRequest,
@@ -60,6 +71,7 @@ import {
     validateAiCodingPluginScopeResponse,
 } from "./utils/aiCodingAgentPluginScope.js";
 import {isAiCodingFastLocalEditPrompt} from "./utils/aiCodingAgentFastPath.js";
+import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT} from "./utils/aiCodingAgentReview.js";
 import runPluginTests from "./utils/runTests.js";
 
 import hljs from "../../assets/js/hljs/highlight.min"
@@ -67,6 +79,8 @@ import "../../assets/css/hljs/xt256.min.css"
 
 import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
+import {isAiCodingOutputLimitError} from "../../utils/aiCodingOutputRecovery";
+export {isAiCodingOutputLimitError} from "../../utils/aiCodingOutputRecovery";
 
 if (typeof hljs?.configure === "function") {
     hljs.configure({ ignoreUnescapedHTML: true });
@@ -81,8 +95,76 @@ const AI_ACTIONS = [
     { label: "Plan Code (Plugin Scaffold)", value: "plan" },
 ];
 
-export function isAiCodingOutputLimitError(value = "") {
-    return /(?:response\.incomplete:\s*)?max_output_tokens\b/i.test(String(value || ""));
+export function getRequestProgressStage(phase = "", hasResponse = false, attempt = 1, workspaceStage = "") {
+    // The orchestrator knows whether this file is being generated, repaired or
+    // split. A prior provider retry is not an attempt to correct every later file.
+    if (workspaceStage) return workspaceStage;
+    let stage;
+    switch (String(phase || "").trim()) {
+        case "tests": stage = "Running plugin tests"; break;
+        case "routing-safety": stage = "Checking request safety"; break;
+        case "retrieval":
+        case "reference": stage = "Gathering workspace context"; break;
+        case "plugin-runtime": stage = "Checking plugin runtime"; break;
+        case "plan-retry":
+        case "plan-retry-validation":
+        case "plan-retry-problems":
+        case "multi-file-retry":
+        case "single-file-retry": stage = "Correcting generated code"; break;
+        case "output-limit-retry": stage = "Restarting a complete response"; break;
+        case "provider-retry": stage = "Retrying the provider"; break;
+        case "scope-retry": stage = "Keeping changes in the plugin workspace"; break;
+        case "retry-launch":
+        case "early-retry-without-json":
+        case "retry-without-json": stage = "Retrying response connection"; break;
+        default:
+            stage = attempt > 1 ? "Correcting generated code"
+                : hasResponse ? "Drafting the response"
+                : phase === "generation" ? "Generating plugin code"
+                : "Understanding your request";
+    }
+    return attempt > 1 ? `${stage} · attempt ${attempt}` : stage;
+}
+
+function AiCodingRequestProgress({elapsedMs, entries, hasResponse, attempt, streamStatus, workspaceStage}) {
+    const latest = entries[entries.length - 1];
+    const stage = getRequestProgressStage(latest?.metadata?.phase, hasResponse, attempt, workspaceStage);
+    const activity = streamStatus || latest?.message || buildAiCodingWaitingStatus({elapsedMs});
+
+    return (
+        <section
+            className={styles["request-progress"]}
+            data-testid="ai-coding-request-progress"
+            role="status"
+            aria-live="polite"
+            aria-label={`${stage}, overall ${formatAiCodingElapsedShort(elapsedMs)} elapsed`}
+        >
+            <div className={styles["request-progress-header"]}>
+                <div className={styles["request-progress-heading"]}>
+                    <Spinner size={16} />
+                    <div>
+                        <strong>{stage}</strong>
+                        <span>Live work status</span>
+                    </div>
+                </div>
+                <Tag minimal intent="primary" className={styles["request-elapsed-time"]}>
+                    Overall: {formatAiCodingElapsedShort(elapsedMs)} elapsed
+                </Tag>
+            </div>
+            <ProgressBar className={styles["request-progress-bar"]} intent="primary" animate stripes />
+            <p className={styles["request-progress-activity"]}>{activity}</p>
+            {entries.length > 1 && (
+                <details className={styles["request-progress-details"]}>
+                    <summary>{entries.length} completed work steps</summary>
+                    <div className={styles["request-status-list"]}>
+                        {entries.slice(0, -1).map((entry) => (
+                            <p key={entry.id} className={styles["request-status-item"]}>{entry.message}</p>
+                        ))}
+                    </div>
+                </details>
+            )}
+        </section>
+    );
 }
 
 function shouldRunTestsBeforeAiRequest(prompt = "") {
@@ -579,6 +661,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         }
     };
     const [historyWarning, setHistoryWarning] = useState("");
+    const [isResetConversationOpen, setIsResetConversationOpen] = useState(false);
     const saveConversation = (messages) => {
         const normalized = normalizeHistory(messages);
         conversationRef.current = normalized;
@@ -612,9 +695,25 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             }
         }
     }), [historyKey]);
+    const requestConversationSnapshot = (versionId) => {
+        const target = String(versionId || "").trim();
+        if (!target) return;
+        if (typeof window.__requestSnapshotSwitch === "function") {
+            window.__requestSnapshotSwitch(target);
+            return;
+        }
+        // The toolbar owns the switch confirmation flow. If it has not mounted
+        // yet, still take the developer to the snapshot surface rather than
+        // attempting an unsafe direct virtual-FS restore here.
+        window.__openSnapshotsPanel?.();
+    };
     const [action, setAction] = useState("smart");
     const [prompt, setPrompt] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
+    const [isPhaseLoading, setIsLoading] = useState(false);
+    // One user operation can include several requests, repairs and apply steps.
+    // Phase completion must not reset its clock or remove its status trigger.
+    const [isOperationActive, setIsOperationActive] = useState(false);
+    const isLoading = isPhaseLoading || isOperationActive;
     const [error, setError] = useState(null);
     const [autoApply, setAutoApply] = useState(true);
     const [assistants, setAssistants] = useState([]);
@@ -623,10 +722,18 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const [composerMode, setComposerMode] = useState(null);
     const [uploadedImage, setUploadedImage] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
+    const [imageName, setImageName] = useState("");
+    const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
     const [operationSummary, setOperationSummary] = useState(null);
     const [requestStatusEntries, setRequestStatusEntries] = useState([]);
+    const [requestElapsedMs, setRequestElapsedMs] = useState(0);
+    const [stageElapsedMs, setStageElapsedMs] = useState(0);
+    const [requestAttempt, setRequestAttempt] = useState(0);
+    const requestAttemptRef = useRef(0);
     const responseRef = useRef("");
     const streamContentBufferRef = useRef("");
+    const streamProgressRef = useRef(createAiCodingStreamProgress());
+    const [workspaceStage, setWorkspaceStage] = useState("");
     const streamContentFlushTimerRef = useRef(null);
     const timeoutRef = useRef(null);
     const streamingRequestIdRef = useRef(null);
@@ -641,7 +748,6 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const singleFileRetryInFlightRef = useRef(false);
     const multiFileRetryInFlightRef = useRef(false);
     const scopeRetryInFlightRef = useRef(false);
-    const panelRef = useRef(null);
     const panelContentRef = useRef(null);
     const cancelledRequestIdsRef = useRef(new Set());
     const timedOutRequestIdsRef = useRef(new Set());
@@ -649,6 +755,14 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const promptBlurTimeoutRef = useRef(null);
     const [mentionState, setMentionState] = useState(null);
     const lastPluginTraceToastRef = useRef({key: "", at: 0});
+
+    const beginStreamingRequest = (requestId) => {
+        streamingRequestIdRef.current = requestId;
+        streamProgressRef.current = createAiCodingStreamProgress();
+        setWorkspaceStage("");
+        requestAttemptRef.current += 1;
+        setRequestAttempt(requestAttemptRef.current);
+    };
 
     const clearRequestTimeout = () => {
         if (timeoutRef.current) {
@@ -659,7 +773,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
 
     // Providers can split one response into hundreds of tiny deltas. Rendering
     // every delta makes the editor janky and can starve other UI work. Preserve
-    // the complete response in the ref, but paint it at most every 50ms.
+    // the complete response in the ref, but paint it at most four times a second.
     const flushStreamContent = () => {
         if (streamContentFlushTimerRef.current) {
             clearTimeout(streamContentFlushTimerRef.current);
@@ -674,7 +788,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
 
     const scheduleStreamContentFlush = () => {
         if (streamContentFlushTimerRef.current) return;
-        streamContentFlushTimerRef.current = setTimeout(flushStreamContent, 50);
+        streamContentFlushTimerRef.current = setTimeout(flushStreamContent, 250);
     };
 
     const clearPromptBlurTimeout = () => {
@@ -722,6 +836,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 Promise.resolve(window.electron.aiCodingAgent.cancelRequest?.({requestId: activeRequestId})).catch(() => {});
             }
             setError("Request timed out. The AI service may be unavailable. Please try again.");
+            setIsOperationActive(false);
             setIsLoading(false);
             streamingRequestIdRef.current = null;
             timeoutRef.current = null;
@@ -765,19 +880,55 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         scrollPanelToBottomIfNearEnd();
     }, [response, requestStatusEntries, isLoading, error, operationSummary]);
 
+    // AI providers cannot give us a meaningful percentage while generating.
+    // A live duration and real request phases make the wait understandable
+    // without presenting a misleading completion estimate.
+    useEffect(() => {
+        if (!isLoading) return undefined;
+
+        const startedAt = Date.now();
+        const updateElapsed = () => setRequestElapsedMs(Math.max(0, Date.now() - startedAt));
+        updateElapsed();
+        const timer = setInterval(updateElapsed, 1000);
+        return () => clearInterval(timer);
+    }, [isLoading]);
+
+    const hasResponse = !!response;
+    const latestProgressPhase = requestStatusEntries[requestStatusEntries.length - 1]?.metadata?.phase;
+    const progressStage = getRequestProgressStage(latestProgressPhase, hasResponse, requestAttempt, workspaceStage);
+    // Reset for a new visible work stage, not for heartbeat text, token counts,
+    // or opening the popover. The operation clock above keeps running.
+    useEffect(() => {
+        if (!isLoading) return undefined;
+        const startedAt = Date.now();
+        const updateElapsed = () => setStageElapsedMs(Math.max(0, Date.now() - startedAt));
+        updateElapsed();
+        const timer = setInterval(updateElapsed, 1000);
+        return () => clearInterval(timer);
+    }, [isLoading, progressStage]);
+    const measuredStreamStatus = isLoading && [undefined, "first-content", "generation"].includes(latestProgressPhase)
+        ? buildAiCodingStreamStatus(streamProgressRef.current) : "";
+    const streamStatus = isLoading && workspaceStage
+        ? measuredStreamStatus || requestStatusEntries.at(-1)?.message || 'Preparing the request.'
+        : measuredStreamStatus;
+
     useEffect(() => {
         if (typeof onActivityChange !== "function") {
             return;
         }
 
-        const latestStatus = requestStatusEntries[requestStatusEntries.length - 1]?.message || "";
+        const latestEntry = requestStatusEntries[requestStatusEntries.length - 1];
+        const latestStatus = streamStatus || latestEntry?.message || "";
         onActivityChange({
             isLoading,
-            hasResponse: !!response,
+            hasResponse,
             error: error || "",
-            latestStatus,
+            latestStatus: isLoading ? latestStatus : operationSummary?.message || "",
+            stage: isLoading ? progressStage : operationSummary?.title || "Request finished",
+            elapsedMs: requestElapsedMs,
+            stageElapsedMs,
         });
-    }, [onActivityChange, isLoading, requestStatusEntries, response, error]);
+    }, [onActivityChange, isLoading, requestStatusEntries, hasResponse, streamStatus, error, requestElapsedMs, stageElapsedMs, progressStage, operationSummary]);
 
     // Store handlers in refs to ensure proper cleanup and prevent duplicates
     const handlersRef = useRef({
@@ -805,6 +956,36 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 return;
             }
 
+            if (data.type === "stage") {
+                if (streamContentFlushTimerRef.current) clearTimeout(streamContentFlushTimerRef.current);
+                streamContentFlushTimerRef.current = null;
+                streamContentBufferRef.current = "";
+                streamProgressRef.current = createAiCodingStreamProgress();
+                setWorkspaceStage(data.label || "Generating workspace files");
+                // These are pending files, not applied edits. STREAM_DONE is
+                // emitted only after every file completed successfully.
+                responseRef.current = data.content ? `${data.content}\n\n` : "";
+                setResponse(responseRef.current);
+                setRequestStatusEntries([]);
+                scheduleRequestTimeout(selectedAssistant?.provider || "");
+                return;
+            }
+
+            if (data.type === "reset") {
+                if (streamContentFlushTimerRef.current) {
+                    clearTimeout(streamContentFlushTimerRef.current);
+                    streamContentFlushTimerRef.current = null;
+                }
+                streamContentBufferRef.current = "";
+                streamProgressRef.current = createAiCodingStreamProgress();
+                responseRef.current = "";
+                setResponse("");
+                requestAttemptRef.current += 1;
+                setRequestAttempt(requestAttemptRef.current);
+                scheduleRequestTimeout(selectedAssistant?.provider || "");
+                return;
+            }
+
             if (data.type === "status") {
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
                 if (typeof data.message === "string" && data.message.trim()) {
@@ -813,16 +994,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 return;
             }
 
-            console.log('[AI Coding Agent] Stream content received', {
-                requestId: data.requestId,
-                contentLength: data.content ? data.content.length : 0,
-            });
-
             // Robust validation: only process if requestId matches AND content is valid
             if (data.content && 
                 typeof data.content === 'string' &&
-                data.content.length > 0 &&
-                /\S/.test(data.content)) {  // Must contain at least one non-whitespace character
+                data.content.length > 0) {
+                // Whitespace-only chunks can contain significant code indentation.
+                recordAiCodingStreamText(streamProgressRef.current, data.content);
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
                 streamContentBufferRef.current += data.content;
                 scheduleStreamContentFlush();
@@ -846,6 +1023,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             // ALWAYS clear timeout FIRST (critical to prevent timeout errors)
             clearRequestTimeout();
             flushStreamContent();
+            streamProgressRef.current = createAiCodingStreamProgress();
+            setWorkspaceStage("");
             console.log('[AI Coding Agent] Timeout cleared');
             console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
 
@@ -869,6 +1048,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             }
             if (data.requestId === streamingRequestIdRef.current) {
                 setError(data.error);
+                setIsOperationActive(false);
                 setIsLoading(false);
                 setRequestStatusEntries([]);
                 streamingRequestIdRef.current = null;
@@ -888,6 +1068,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             if (data.requestId === streamingRequestIdRef.current) {
                 streamingRequestIdRef.current = null;
             }
+            setIsOperationActive(false);
             setIsLoading(false);
             setRequestStatusEntries([]);
             setOperationSummary(timedOut ? {
@@ -1584,7 +1765,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             hasSelection: !!requestMeta.hasSelection,
         });
         const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        streamingRequestIdRef.current = retryRequestId;
+        beginStreamingRequest(retryRequestId);
         responseRef.current = "";
         setResponse("");
         setIsLoading(true);
@@ -1662,7 +1843,7 @@ Rules:
 - Do not return prose, summaries, or partial snippets.`;
 
         const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        streamingRequestIdRef.current = retryRequestId;
+        beginStreamingRequest(retryRequestId);
         responseRef.current = "";
         setResponse("");
         setIsLoading(true);
@@ -1673,6 +1854,7 @@ Rules:
         );
 
         return await window.electron.aiCodingAgent.planCode({
+            workspaceFiles: getAllProjectFiles(),
             requestId: retryRequestId,
             prompt: retryPrompt,
             image: uploadedImage,
@@ -1707,7 +1889,7 @@ Rules:
             invalidResponse,
         ].filter(Boolean).join("\n");
         const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        streamingRequestIdRef.current = retryRequestId;
+        beginStreamingRequest(retryRequestId);
         responseRef.current = "";
         setResponse("");
         setIsLoading(true);
@@ -1768,6 +1950,7 @@ Rules:
                 });
             case "plan":
                 return await window.electron.aiCodingAgent.planCode({
+                    workspaceFiles: getAllProjectFiles(),
                     requestId: retryRequestId,
                     prompt: scopedRetryPrompt,
                     image,
@@ -1815,20 +1998,25 @@ Rules:
         basePrompt = "",
         language = "",
         assistantId = "",
+        continueWhenTestsPass = false,
     } = {}) => {
         let testRunResult = await runPluginTests();
         if (testRunResult?.success) {
             const summary = testRunResult.skipped
                 ? "No plugin tests were found, so there were no failures to investigate."
                 : "Plugin tests passed. There were no failing tests to investigate.";
-            setResponse(summary);
-            setOperationSummary({
-                intent: testRunResult.skipped ? "warning" : "success",
-                title: testRunResult.skipped ? "No Tests Found" : "Tests Passed",
-                message: summary,
-            });
-            setIsLoading(false);
-            return true;
+            if (!continueWhenTestsPass) {
+                setResponse(summary);
+                setOperationSummary({
+                    intent: testRunResult.skipped ? "warning" : "success",
+                    title: testRunResult.skipped ? "No Tests Found" : "Tests Passed",
+                    message: summary,
+                });
+                setIsLoading(false);
+                return true;
+            }
+            pushRequestStatus("Plugin tests passed. Continuing with the requested workspace quality review.", { phase: "tests" });
+            return false;
         }
 
         let refreshedProjectFiles = getAllProjectFiles();
@@ -1848,7 +2036,7 @@ Rules:
 
             if (!derivedFailingFile?.content) {
                 const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                streamingRequestIdRef.current = requestId;
+                beginStreamingRequest(requestId);
                 currentRequestRef.current = {
                     action: "smart",
                     prompt: basePrompt,
@@ -1940,7 +2128,7 @@ Rules:
                 prompt: effectivePrompt,
                 action: "fix",
             }) && issueScope.summary
-                ? `${issueScope.summary}\nTreat this as a ${issueScope.kind} issue unless the provided code or diagnostics prove otherwise.\n\n`
+                ? `${issueScope.summary}\nThis is a preliminary ${issueScope.kind} classification, not a confirmed root cause. Verify the specific diagnostic and its relevance to the current workspace before proposing changes.\n\n`
                 : "";
             const finalEnhancedContext = `${diagnosisContext}${requestContexts.projectContext}`;
             const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1957,7 +2145,7 @@ Rules:
             };
             applyActionRef.current = "fix";
 
-            streamingRequestIdRef.current = requestId;
+            beginStreamingRequest(requestId);
             scheduleRequestTimeout(selectedAssistant?.provider || "");
             pushRequestStatus(
                 `Repair attempt ${attempt} of ${maxRepairAttempts}: requesting a concrete fix for ${targetFilePath}.`,
@@ -2010,16 +2198,26 @@ Rules:
 
             if (testRunResult?.success) {
                 const attemptsLabel = attempt === 1 ? "attempt" : "attempts";
-                setOperationSummary({
-                    intent: "success",
-                    title: "Tests Passed",
-                    message: `Plugin tests passed after ${attempt} repair ${attemptsLabel}.`,
-                });
+                if (!continueWhenTestsPass) {
+                    setOperationSummary({
+                        intent: "success",
+                        title: "Tests Passed",
+                        message: `Plugin tests passed after ${attempt} repair ${attemptsLabel}.`,
+                    });
+                    setError(null);
+                    setIsLoading(false);
+                    streamingRequestIdRef.current = null;
+                    clearRequestTimeout();
+                    return true;
+                }
+                pushRequestStatus(
+                    `Plugin tests passed after ${attempt} repair ${attemptsLabel}. Continuing with the requested workspace quality review.`,
+                    { phase: "tests", attempt },
+                );
                 setError(null);
-                setIsLoading(false);
                 streamingRequestIdRef.current = null;
                 clearRequestTimeout();
-                return true;
+                return false;
             }
         }
 
@@ -2243,6 +2441,7 @@ Rules:
             const base64Image = e.target.result;
             setUploadedImage(base64Image);
             setImagePreview(URL.createObjectURL(file));
+            setImageName(file.name || "UI mockup");
             console.log('[AI Coding Agent] Image uploaded', { size: file.size, type: file.type });
         };
         reader.onerror = () => {
@@ -2257,6 +2456,8 @@ Rules:
             URL.revokeObjectURL(imagePreview);
         }
         setImagePreview(null);
+        setImageName("");
+        setIsImagePreviewOpen(false);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -2398,6 +2599,7 @@ Rules:
         }
 
         cancelledRequestIdsRef.current.add(activeRequestId);
+        setIsOperationActive(false);
         setIsLoading(false);
         clearRequestTimeout();
         streamingRequestIdRef.current = null;
@@ -2432,6 +2634,10 @@ Rules:
         if (!response) return;
 
         console.log('[AI Coding Agent] Executing plan...');
+        setIsOperationActive(true);
+        requestAttemptRef.current = 0;
+        setRequestAttempt(0);
+        setRequestStatusEntries([]);
         setIsLoading(true);
         setError(null);
         setOperationSummary(null);
@@ -2461,6 +2667,7 @@ Rules:
             console.error('[AI Coding Agent] Error executing plan:', err);
             setError(`Failed to execute plan: ${err.message}`);
         } finally {
+            setIsOperationActive(false);
             setIsLoading(false);
         }
     };
@@ -2506,7 +2713,7 @@ Rules:
                     validationErrors: pluginValidation.errors,
                 });
                 const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                streamingRequestIdRef.current = retryRequestId;
+                beginStreamingRequest(retryRequestId);
                 responseRef.current = "";
                 setResponse("");
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
@@ -2515,6 +2722,7 @@ Rules:
                     { phase: "plan-retry-validation" },
                 );
                 const retryResult = await window.electron.aiCodingAgent.planCode({
+                    workspaceFiles: getAllProjectFiles(),
                     requestId: retryRequestId,
                     prompt: retryPrompt,
                     image: uploadedImage,
@@ -2580,9 +2788,10 @@ Rules:
                     originalPrompt: currentRequestRef.current?.prompt || prompt || "",
                     previousResponse: planResponse,
                     problemsContext,
+                    workspaceFiles: getAllProjectFiles(),
                 });
                 const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                streamingRequestIdRef.current = retryRequestId;
+                beginStreamingRequest(retryRequestId);
                 responseRef.current = "";
                 setResponse("");
                 setIsLoading(true);
@@ -2592,10 +2801,11 @@ Rules:
                     {phase: "plan-retry-problems"},
                 );
                 const retryResult = await window.electron.aiCodingAgent.planCode({
+                    workspaceFiles: getAllProjectFiles(),
                     requestId: retryRequestId,
                     prompt: retryPrompt,
                     image: uploadedImage,
-                    context: currentRequestRef.current?.context || "",
+                    context: "",
                     assistantId: selectedAssistant.id,
                 });
                 if (retryResult?.success && retryResult?.content) {
@@ -2614,9 +2824,12 @@ Rules:
         return { successCount, errorCount, errorDetails };
     };
     
-    const handleSubmit = async () => {
+    const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride} = {}) => {
         if (submitInFlightRef.current) return;
-        if (!prompt.trim()) return;
+        const requestPrompt = String(promptOverride ?? prompt).trim();
+        const requestAction = actionOverride ?? action;
+        const requestAutoApply = typeof autoApplyOverride === "boolean" ? autoApplyOverride : autoApplyRef.current;
+        if (!requestPrompt) return;
         
         // Validate assistant is selected
         if (!selectedAssistant) {
@@ -2626,17 +2839,17 @@ Rules:
 
         const projectFiles = getAllProjectFiles();
         const followUpMode = shouldTreatAsAiCodingFollowUp({
-            prompt,
+            prompt: requestPrompt,
             previousResponse: response,
             forceFollowUp: composerMode === "refine",
         });
         const createProjectFilesCandidate = shouldCreateProjectFiles({
-            prompt,
+            prompt: requestPrompt,
             previousResponse: response,
             workspaceFiles: projectFiles,
         });
         const executeWorkspacePlanCandidate = shouldExecuteWorkspacePlan({
-            prompt,
+            prompt: requestPrompt,
             previousResponse: response,
             workspaceFiles: projectFiles,
         });
@@ -2645,10 +2858,13 @@ Rules:
         }
 
         submitInFlightRef.current = true;
+        setIsOperationActive(true);
+        requestAttemptRef.current = 0;
+        setRequestAttempt(0);
         const priorConversation = conversationRef.current;
         requestSnapshotRef.current = {revision: virtualFS.fs.snapshotSwitchRevision || 0, workspace: virtualFS.sandboxName};
         appliedSnapshotRef.current = null;
-        const userMessage = {role: "user", content: prompt.trim(), snapshot: virtualFS.fs.version()?.version ?? ""};
+        const userMessage = {role: "user", content: requestPrompt, snapshot: virtualFS.fs.version()?.version ?? ""};
         saveConversation([...priorConversation, userMessage]);
         setIsLoading(true);
         setError(null);
@@ -2667,7 +2883,7 @@ Rules:
                 ? (
                     findLikelyFailingWorkspaceFile(refreshedProjectFiles)
                     || (
-                        /tests?\s+(?:are|is)\s+failing|failing tests?|tests?\s+issue|run tests?.*investigate|investigate.*tests?/i.test(prompt)
+                        /tests?\s+(?:are|is)\s+failing|failing tests?|tests?\s+issue|run tests?.*investigate|investigate.*tests?/i.test(requestPrompt)
                             ? (refreshedProjectFiles.find((file) => /(?:^|\/)__tests__\/.+\.[cm]?[jt]sx?$|\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(file.path)) || null)
                             : null
                     )
@@ -2687,7 +2903,7 @@ Rules:
                 ? response
                 : "";
             const pluginScopeValidation = validateAiCodingPluginScopeRequest({
-                prompt,
+                prompt: requestPrompt,
                 previousResponse: safePreviousResponse,
                 workspaceFiles: refreshedProjectFiles,
             });
@@ -2701,8 +2917,8 @@ Rules:
                 return;
             }
             const resolvedAction = resolveAiCodingAgentAction({
-                requestedAction: (createProjectFilesCandidate || executeWorkspacePlanCandidate) ? "plan" : action,
-                prompt,
+                requestedAction: (createProjectFilesCandidate || executeWorkspacePlanCandidate) ? "plan" : requestAction,
+                prompt: requestPrompt,
                 selectedCode: effectiveSelectedCode,
                 previousResponse: safePreviousResponse,
                 workspaceFiles: refreshedProjectFiles,
@@ -2717,8 +2933,8 @@ Rules:
             };
             if (
                 shouldUseAiRoutingJudge({
-                    requestedAction: action,
-                    prompt,
+                    requestedAction: requestAction,
+                    prompt: requestPrompt,
                     selectedCode: effectiveSelectedCode,
                     deterministicAction: resolvedAction,
                     createProjectFiles: createProjectFilesCandidate,
@@ -2730,17 +2946,17 @@ Rules:
                 try {
                     const routeJudgeResult = await window.electron.aiCodingAgent.routeJudge({
                         assistantId: selectedAssistant.id,
-                        prompt,
+                        prompt: requestPrompt,
                         previousResponse: safePreviousResponse,
                         selectedCode: effectiveSelectedCode,
-                        requestedAction: action,
+                        requestedAction: requestAction,
                         deterministicAction: resolvedAction,
                         createProjectFiles: createProjectFilesCandidate,
                         executeWorkspacePlan: executeWorkspacePlanCandidate,
                     });
                     routingDecision = mergeAiCodingRouteDecision({
-                        requestedAction: action,
-                        prompt,
+                        requestedAction: requestAction,
+                        prompt: requestPrompt,
                         deterministicAction: resolvedAction,
                         judge: routeJudgeResult?.judge || routeJudgeResult || null,
                         createProjectFiles: createProjectFilesCandidate,
@@ -2761,64 +2977,72 @@ Rules:
             const createProjectFiles = routingDecision.createProjectFiles && routingDecision.action === "plan";
             const executeWorkspacePlan = routingDecision.executeWorkspacePlan && routingDecision.action === "plan";
             let finalPrompt = buildAiCodingFollowUpPrompt({
-                prompt,
+                prompt: requestPrompt,
                 previousResponse: safePreviousResponse,
                 forceFollowUp: composerMode === "refine",
             });
             if (createProjectFiles) {
                 finalPrompt = buildProjectFilePlanPrompt({
-                    prompt,
+                    prompt: requestPrompt,
                     previousResponse: safePreviousResponse,
                     workspaceFiles: projectFiles,
                 });
             } else if (executeWorkspacePlan) {
                 finalPrompt = buildWorkspaceExecutionPlanPrompt({
-                    prompt,
+                    prompt: requestPrompt,
                     previousResponse: safePreviousResponse,
                 });
             }
 
             const runtimeIntentForAction = detectAiPluginRuntimeIntent(finalPrompt);
+            const workspaceQualityReview = isWorkspaceQualityReviewPrompt(finalPrompt);
             const effectiveAction = isInformationalOnlyPrompt(finalPrompt) && routingDecision.action !== "plan"
                 ? "smart"
                 : routingDecision.action;
-            pendingAutoFileCreateRef.current = autoApplyRef.current && (createProjectFiles || executeWorkspacePlan || effectiveAction === "plan");
+            pendingAutoFileCreateRef.current = requestAutoApply && (createProjectFiles || executeWorkspacePlan || effectiveAction === "plan");
             expectWorkspaceApplyRef.current = effectiveAction === "plan";
             applyActionRef.current = effectiveAction;
+            let testsAlreadyRun = false;
 
-            if (shouldRunTestsBeforeAiRequest(finalPrompt) && !autoApplyRef.current) {
+            if (shouldRunTestsBeforeAiRequest(finalPrompt) && !requestAutoApply) {
                 pushRequestStatus(
                     "Review first is selected. Tests will be diagnosed; proposed fixes wait for your review.",
                     { phase: "tests" },
                 );
             }
 
-            if (shouldRunTestsBeforeAiRequest(finalPrompt) && autoApplyRef.current && !createProjectFiles && !executeWorkspacePlan) {
+            if (shouldRunTestsBeforeAiRequest(finalPrompt) && requestAutoApply && !createProjectFiles && !executeWorkspacePlan) {
                 pushRequestStatus("Running plugin tests before diagnosing errors.", { phase: "tests" });
-                await runIterativeTestRepairFlow({
+                const testRepairComplete = await runIterativeTestRepairFlow({
                     basePrompt: finalPrompt,
                     language: getLanguage(),
                     assistantId: selectedAssistant.id,
+                    continueWhenTestsPass: workspaceQualityReview,
                 });
-                return;
+                testsAlreadyRun = true;
+                if (testRepairComplete) return;
             }
 
-            if (shouldRunTestsBeforeAiRequest(finalPrompt)) {
+            if (shouldRunTestsBeforeAiRequest(finalPrompt) && !testsAlreadyRun) {
                 pushRequestStatus("Running plugin tests before diagnosing errors.", { phase: "tests" });
                 const testRunResult = await runPluginTests();
                 if (testRunResult?.success) {
+                    if (workspaceQualityReview) {
+                        pushRequestStatus("Plugin tests passed. Continuing with the requested workspace quality review.", { phase: "tests" });
+                    } else {
                     const summary = testRunResult.skipped
                         ? "No plugin tests were found, so there were no test failures to investigate."
                         : "Plugin tests passed. There were no failing tests to investigate.";
                     setResponse(summary);
                     setIsLoading(false);
                     return;
+                    }
                 }
                 pushRequestStatus("Plugin tests failed. Reviewing the failing output and related workspace files.", { phase: "tests" });
             }
 
             console.log('[AI Coding Agent] Submit started', {
-                action,
+                action: requestAction,
                 effectiveAction,
                 prompt: finalPrompt.substring(0, 50),
                 composerMode,
@@ -2847,13 +3071,13 @@ Rules:
             const issueScope = classifyAiCodingIssueScope({
                 prompt: finalPrompt,
                 selectedCode: effectiveSelectedCode,
-                problemsContext: `${problemsContext}${buildOutputContext}`,
+                problemsContext: `${problemsContext}${buildOutputContext}${pluginRuntimeActionContext}${pluginLogsContext}`,
             });
             const sdkKnowledgeEnabled = shouldUseFdoSdkKnowledge({
                 action: effectiveAction,
                 prompt: finalPrompt,
                 code: effectiveSelectedCode,
-                error: action === "fix" ? prompt : "",
+                error: requestAction === "fix" ? requestPrompt : "",
                 context: `${problemsContext}${buildOutputContext}${currentFileContext?.slice(0, 800)}`,
             });
             const externalReferenceEnabled = shouldUseExternalReferenceKnowledge({
@@ -2871,7 +3095,7 @@ Rules:
             ].filter(Boolean).join("\n");
             const referencedWorkspaceFiles = resolveWorkspaceFileReferences(
                 refreshedProjectFiles,
-                extractWorkspaceFileReferences(prompt, refreshedProjectFiles),
+                extractWorkspaceFileReferences(requestPrompt, refreshedProjectFiles),
             );
             const workspaceReferenceContext = formatWorkspaceReferenceContext(referencedWorkspaceFiles);
             const includeIssueDiagnosis = shouldIncludeIssueDiagnosis({
@@ -2926,7 +3150,7 @@ Rules:
             requestContexts.referenceContext = conversationContext + requestContexts.referenceContext;
             const enhancedContext = requestContexts.projectContext;
             const diagnosisContext = includeIssueDiagnosis && issueScope.summary
-                ? `${issueScope.summary}\nTreat this as a ${issueScope.kind} issue unless the provided code or diagnostics prove otherwise.\n\n`
+                ? `${issueScope.summary}\nThis is a preliminary ${issueScope.kind} classification, not a confirmed root cause. Verify the specific diagnostic and its relevance to the current workspace before proposing changes.\n\n`
                 : "";
             const pluginRuntimeVerificationContext = buildPluginRuntimeVerificationContext({
                 prompt: finalPrompt,
@@ -2979,7 +3203,7 @@ Rules:
 
             // Generate requestId upfront so we can track streaming events
             const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            streamingRequestIdRef.current = requestId;
+            beginStreamingRequest(requestId);
             console.log('[AI Coding Agent] Request ID set', requestId);
             // Start the inactivity timeout only when the actual AI request begins.
             scheduleRequestTimeout(selectedAssistant?.provider || "");
@@ -2989,7 +3213,7 @@ Rules:
                 sdkKnowledgeEnabled,
                 includeProjectContext,
                 issueDiagnosis: includeIssueDiagnosis ? issueScope.summary : "",
-            }) + (effectiveAction !== action
+            }) + (effectiveAction !== requestAction
                 ? `\nMode: ${effectiveAction === "plan" ? "Plan Code" : effectiveAction}.`
                 : ""), { phase: "generation" });
 
@@ -3076,7 +3300,7 @@ Rules:
                     result = await window.electron.aiCodingAgent.fixCode({
                         requestId,
                         code: effectiveSelectedCode,
-                        error: prompt,
+                        error: requestPrompt,
                         language,
                         context: requestContexts.referenceContext,
                         assistantId: selectedAssistant.id,
@@ -3085,6 +3309,7 @@ Rules:
                     break;
                 case "plan":
                     result = await window.electron.aiCodingAgent.planCode({
+                        workspaceFiles: getAllProjectFiles(),
                         requestId,
                         prompt: finalPrompt,
                         image: uploadedImage, // base64 image if uploaded
@@ -3102,7 +3327,7 @@ Rules:
                     invalidResponse: priorContent,
                 });
                 const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                streamingRequestIdRef.current = retryRequestId;
+                beginStreamingRequest(retryRequestId);
                 responseRef.current = "";
                 setResponse("");
                 setIsLoading(true);
@@ -3112,6 +3337,7 @@ Rules:
                     { phase: "plan-retry" },
                 );
                 return await window.electron.aiCodingAgent.planCode({
+                    workspaceFiles: getAllProjectFiles(),
                     requestId: retryRequestId,
                     prompt: retryPrompt,
                     image: uploadedImage,
@@ -3238,7 +3464,7 @@ Rules:
                 }
 
                 if (
-                    autoApplyRef.current &&
+                    requestAutoApply &&
                     !pendingAutoFileCreateRef.current &&
                     effectiveAction !== "plan" &&
                     !currentRequestRef.current?.diagnosticFallback
@@ -3276,6 +3502,17 @@ Rules:
                                 message,
                             });
                             setError(null);
+                            if (workspaceQualityReview) {
+                                pushRequestStatus("Workspace review changes were applied. Running plugin tests to verify the final workspace.", { phase: "tests" });
+                                const verification = await runPluginTests();
+                                setOperationSummary({
+                                    intent: verification?.success ? "success" : "warning",
+                                    title: verification?.success ? "Workspace Review Complete" : "Workspace Review Needs Attention",
+                                    message: verification?.success
+                                        ? "Confirmed workspace changes were applied and plugin tests passed."
+                                        : "Confirmed workspace changes were applied, but plugin tests still report failures. Review the latest Tests output before continuing.",
+                                });
+                            }
                         } else {
                             setError(`Failed to create files. Errors: ${execution.errorDetails.join('; ')}`);
                         }
@@ -3325,8 +3562,24 @@ Rules:
                 setPrompt("");
             }
             submitInFlightRef.current = false;
+            setIsOperationActive(false);
             setIsLoading(false);
         }
+    };
+
+    const handleWorkspaceReview = (repair = false) => {
+        const reviewPrompt = repair ? WORKSPACE_REPAIR_PROMPT : WORKSPACE_REVIEW_PROMPT;
+        setPrompt(reviewPrompt);
+        setAction(repair ? "plan" : "smart");
+        setAutoApply(repair);
+        // The ref is read by response handlers that can run before React has
+        // committed the state update triggered above.
+        autoApplyRef.current = repair;
+        handleSubmit({
+            prompt: reviewPrompt,
+            action: repair ? "plan" : "smart",
+            autoApply: repair,
+        });
     };
 
     const handlePromptChange = (event) => {
@@ -3343,10 +3596,11 @@ Rules:
     };
 
     const handleApplyResponse = async () => {
+        setIsOperationActive(true);
         setIsLoading(true);
         try { await autoInsertCodeIntoEditor(); }
         catch (err) { setError(err.message); }
-        finally { setIsLoading(false); }
+        finally { setIsOperationActive(false); setIsLoading(false); }
     };
 
     const insertCodeIntoEditor = (contentOverride = "") => {
@@ -3604,6 +3858,10 @@ Rules:
         selectedCode: liveSelectedCode,
         problemsContext: liveProblemsContext,
     });
+    const showLiveIssueDiagnosis = shouldIncludeIssueDiagnosis({
+        prompt,
+        action: liveEffectiveAction,
+    }) && !!liveIssueScope.summary && liveIssueScope.kind !== "plugin";
     const promptLabel = liveCreateProjectFiles
         ? `Create workspace file${liveFileTargets.length > 1 ? "s" : ""}`
         : composerMode === "refine"
@@ -3706,21 +3964,21 @@ Rules:
     return (
         <div
             className={styles["ai-coding-agent-panel"]}
-            ref={panelRef}
+            ref={panelContentRef}
             onKeyDown={handlePanelKeyDownWithHotkeys}
             onKeyUp={handleHotkeyKeyUp}
             tabIndex={0}
         >
             <div className={styles["panel-header"]}>
                 <h3>AI Coding Agent</h3>
-                <Button small disabled={isLoading} onClick={() => {
-                    saveConversation([]);
-                    setResponse("");
-                    responseRef.current = "";
-                    setPrompt("");
-                    setError(null);
-                    setOperationSummary(null);
-                }}>Clear conversation</Button>
+                <AiUsagePopover surface="coding" />
+                <Button
+                    small
+                    disabled={isLoading}
+                    onClick={() => setIsResetConversationOpen(true)}
+                >
+                    Reset workspace conversation
+                </Button>
                 <div className={styles["panel-header-tags"]}>
                     <Tag minimal intent="success">
                         Plugin Scope Only
@@ -3731,7 +3989,7 @@ Rules:
                 </div>
             </div>
 
-            <div className={styles["panel-content"]} ref={panelContentRef}>
+            <div className={styles["panel-content"]}>
             <section aria-label="Conversation history" data-testid="ai-conversation-history" className={styles["conversation-history"]}>
 
                 <p>Saved on this device for this plugin. Your recent conversation is included in follow-up requests.</p>
@@ -3739,7 +3997,20 @@ Rules:
                 {conversation.map((message, index) => message.role === "assistant" && index === conversation.length - 1 && message.content === response ? null : (
                     <details key={index} open={message.role === "user"}>
                         <summary>{message.role === "snapshot" ? "Snapshot switch" : message.role === "user" ? "You" : "Assistant"}: {message.content.replace(/\s+/g, " ").slice(0, 90)}</summary>
-                        {message.snapshot != null && <small>Snapshot: {message.snapshot}{message.appliedSnapshot != null ? ` → Applied: ${message.appliedSnapshot}` : ""}</small>}
+                        {message.snapshot != null && (
+                            <div>
+                                <Button
+                                    minimal
+                                    small
+                                    icon="history"
+                                    text={`Snapshot: ${message.snapshot}`}
+                                    title={`Switch to snapshot ${message.snapshot}`}
+                                    onClick={() => requestConversationSnapshot(message.snapshot)}
+                                    disabled={isLoading}
+                                />
+                                {message.appliedSnapshot != null && <small>{` → Applied: ${message.appliedSnapshot}`}</small>}
+                            </div>
+                        )}
                         <Markdown options={{disableParsingRawHTML: true}}>{message.content}</Markdown>
                     </details>
                 ))}
@@ -3816,24 +4087,42 @@ Rules:
                             />
                             {imagePreview && (
                                 <div style={{ flex: 1 }}>
-                                    <img 
-                                        src={imagePreview} 
-                                        alt="UI Mockup" 
-                                        style={{ 
-                                            maxWidth: '200px', 
-                                            maxHeight: '150px', 
-                                            borderRadius: '4px',
-                                            border: '1px solid #ccc'
-                                        }} 
-                                    />
                                     <Button
-                                        icon="cross"
-                                        variant={"minimal"}
-                                        size={"small"}
-                                        onClick={handleRemoveImage}
-                                        disabled={isLoading}
-                                        style={{ marginTop: '4px' }}
-                                    />
+                                        minimal
+                                        aria-label={`Open reference image: ${imageName || "UI Mockup"}`}
+                                        title={`Open ${imageName || "UI Mockup"}`}
+                                        onClick={() => setIsImagePreviewOpen(true)}
+                                        style={{padding: 0, display: "block"}}
+                                    >
+                                        <img
+                                            src={imagePreview}
+                                            alt="UI Mockup"
+                                            style={{
+                                                display: "block",
+                                                maxWidth: '200px',
+                                                maxHeight: '150px',
+                                                borderRadius: '4px',
+                                                border: '1px solid #ccc'
+                                            }}
+                                        />
+                                    </Button>
+                                    <div style={{display: "flex", alignItems: "center", gap: "4px", marginTop: "4px"}}>
+                                        <Button
+                                            minimal
+                                            small
+                                            text={imageName || "Open reference image"}
+                                            icon="zoom-in"
+                                            onClick={() => setIsImagePreviewOpen(true)}
+                                        />
+                                        <Button
+                                            icon="cross"
+                                            variant={"minimal"}
+                                            size={"small"}
+                                            aria-label="Remove UI mockup"
+                                            onClick={handleRemoveImage}
+                                            disabled={isLoading}
+                                        />
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -3919,7 +4208,7 @@ Rules:
                     </Callout>
                 )}
 
-                {liveIssueScope.summary && !mentionMenuVisible && (
+                {showLiveIssueDiagnosis && !mentionMenuVisible && (
                     <Callout intent="warning" icon="diagnosis" className={styles["intent-hint"]}>
                         {liveIssueScope.summary}
                     </Callout>
@@ -3936,6 +4225,29 @@ Rules:
                         {autoApply
                             ? "Requested edits are applied and saved with a restore point. Questions leave your files unchanged."
                             : "Review proposed edits before applying them. Your workspace stays unchanged until you apply."}
+                    </div>}
+                </FormGroup>
+
+                <FormGroup label="Workspace quality">
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                        <Button
+                            text="Review workspace"
+                            icon="endorsed"
+                            onClick={() => handleWorkspaceReview(false)}
+                            disabled={isLoading || !selectedAssistant}
+                            title="Run plugin tests and review the current workspace without changing files"
+                        />
+                        <Button
+                            text="Review & repair"
+                            icon="wrench"
+                            intent="primary"
+                            onClick={() => handleWorkspaceReview(true)}
+                            disabled={isLoading || !selectedAssistant}
+                            title="Run plugin tests, repair confirmed plugin-local issues, and verify the resulting workspace"
+                        />
+                    </div>
+                    {!mentionMenuVisible && <div style={{ marginTop: "8px", fontSize: "12px" }}>
+                        Review workspace keeps files unchanged. Review &amp; repair creates a restore point, applies confirmed plugin-local fixes, and verifies the resulting workspace with plugin tests.
                     </div>}
                 </FormGroup>
 
@@ -4042,60 +4354,23 @@ Rules:
                     </div>
                 )}
 
-                {isLoading && requestStatusEntries.length > 0 && !response && (
-                    <div className={styles["loading-indicator"]}>
-                        <Callout intent="primary" icon={<Spinner size={20} />}>
-                            <strong>Processing your request...</strong>
-                            <div className={styles["request-status-list"]}>
-                                {requestStatusEntries.map((entry) => (
-                                    <p key={entry.id} className={styles["request-status-item"]}>
-                                        {entry.message}
-                                    </p>
-                                ))}
-                            </div>
-                        </Callout>
-                    </div>
-                )}
-
-                {isLoading && requestStatusEntries.length === 0 && !response && (
-                    <div className={styles["loading-indicator"]}>
-                        <Callout intent="primary" icon={<Spinner size={20} />}>
-                            <strong>Processing your request...</strong>
-                            <p style={{ margin: '4px 0 0 0', fontSize: '12px' }}>
-                                The AI is analyzing your prompt and generating a response. This may take a few moments.
-                            </p>
-                        </Callout>
-                    </div>
+                {isLoading && !onActivityChange && (
+                    <AiCodingRequestProgress
+                        elapsedMs={requestElapsedMs}
+                        entries={requestStatusEntries}
+                        hasResponse={!!response}
+                        attempt={requestAttempt}
+                        streamStatus={streamStatus}
+                        workspaceStage={workspaceStage}
+                    />
                 )}
 
                 {response && (
                     <div className={styles["response-container"]}>
                         <h4>Response:</h4>
                         {conversation[conversation.length - 1]?.appliedSnapshot != null && <p>Applied as snapshot {conversation[conversation.length - 1].appliedSnapshot}</p>}
-                        {isLoading && requestStatusEntries.length > 0 && (
-                            <div className={styles["loading-indicator"]} style={{ marginBottom: '12px' }}>
-                                <Callout intent="primary" icon={<Spinner size={16} />}>
-                                    <div className={styles["request-status-list"]}>
-                                        {requestStatusEntries.map((entry) => (
-                                            <p key={entry.id} className={styles["request-status-item"]}>
-                                                {entry.message}
-                                            </p>
-                                        ))}
-                                    </div>
-                                </Callout>
-                            </div>
-                        )}
                         <Card data-testid="ai-coding-response" className={styles["response-card"]}>
-                            <Markdown
-                                children={response}
-                                options={{
-                                    disableParsingRawHTML: true,
-                                    overrides: {
-                                        code: SyntaxHighlightedCode,
-                                    },
-                                }}
-                                className={classnames(styles2["markdown-body"], "markdown-body")}
-                            />
+                            <AiCodingResponse content={response} streaming={isLoading} />
                         </Card>
                     </div>
                 )}
@@ -4108,9 +4383,51 @@ Rules:
                     />
                 )}
             </div>
+            <Alert
+                isOpen={isResetConversationOpen}
+                intent="warning"
+                icon="trash"
+                cancelButtonText="Cancel"
+                confirmButtonText="Reset conversation"
+                canEscapeKeyCancel
+                canOutsideClickCancel
+                onCancel={() => setIsResetConversationOpen(false)}
+                onConfirm={() => {
+                    saveConversation([]);
+                    setResponse("");
+                    responseRef.current = "";
+                    setPrompt("");
+                    setError(null);
+                    setOperationSummary(null);
+                    setIsResetConversationOpen(false);
+                }}
+            >
+                <p>
+                    This removes the saved AI conversation for the current plugin workspace from this device.
+                    It does not delete files, snapshots, or provider-side data.
+                </p>
+            </Alert>
+            <Dialog
+                isOpen={isImagePreviewOpen}
+                onClose={() => setIsImagePreviewOpen(false)}
+                title={imageName || "Reference image"}
+                style={{width: "min(960px, calc(100vw - 32px))"}}
+            >
+                <div className="bp6-dialog-body" style={{display: "flex", justifyContent: "center", padding: "12px"}}>
+                    {imagePreview && <img src={imagePreview} alt={imageName || "UI Mockup"} style={{maxWidth: "100%", maxHeight: "70vh", objectFit: "contain"}} />}
+                </div>
+            </Dialog>
         </div>
     );
 }
+
+// Avoid reparsing/highlighting a growing codebase on every chunk or timer tick.
+// Plain text is also safe while Markdown fences and HTML fragments are incomplete.
+const AiCodingResponse = React.memo(function AiCodingResponse({content, streaming}) {
+    if (streaming) return <pre className={styles["streaming-response"]}>{content}</pre>;
+    return <Markdown options={{disableParsingRawHTML: true, overrides: {code: SyntaxHighlightedCode}}}
+        className={classnames(styles2["markdown-body"], "markdown-body")}>{content}</Markdown>;
+});
 
 function SyntaxHighlightedCode(props) {
     const ref = React.useRef(null);

@@ -15,6 +15,17 @@ describe("ai coding agent plan repair prompt", () => {
     });
 });
 
+test('Problems repair uses the current snapshot and puts repair before the original build request', () => {
+    const workspaceFiles = [{path: '/index.ts', content: 'export const hello = "stub";'},
+        {path: '/render.tsx', content: 'export const render = () => "current";'}];
+    const prompt = buildProblemsRepairPlanPrompt({originalPrompt: 'Create all features', previousResponse: 'stale code',
+        problemsContext: '/render.tsx:1:1 [8] Missing export', workspaceFiles});
+    expect(prompt).toContain(JSON.stringify(workspaceFiles));
+    expect(prompt).not.toContain('stale code');
+    expect(prompt.indexOf('IMPORTANT REPAIR')).toBeLessThan(prompt.indexOf('Create all features'));
+    expect(prompt).toContain('NOT a request to rebuild');
+});
+
 describe("ai coding agent validation repair prompt", () => {
     test("includes concrete validation failures and FDO plugin test constraints", () => {
         const prompt = buildValidationRepairPlanPrompt({
@@ -45,4 +56,18 @@ test("builds a complete-file repair request from Problems panel diagnostics", ()
     expect(prompt).toContain("Expected > but found className");
     expect(prompt).toContain("Return ONLY complete executable workspace file sections");
     expect(prompt).toContain("node:assert/strict");
+});
+
+
+test('Problems repairs retain later modules and use focused workspace execution mode', () => {
+    const previousResponse = '### File: /styles.css\n```css\n' + '.shell {}\n'.repeat(600)
+        + '\n```\n### File: /ui/workspace.ts\n```ts\nexport const workspace = () => "complete view";\n```';
+    const prompt = buildProblemsRepairPlanPrompt({originalPrompt: 'Build the workbench', previousResponse,
+        problemsContext: '/render.tsx: missing export from /ui/workspace.ts'});
+    expect(prompt).toMatch(/^EXECUTION MODE: WORKSPACE TASK IMPLEMENTATION/);
+    expect(prompt).toContain(previousResponse);
+    expect(prompt).not.toContain('[truncated]');
+    expect(prompt).toContain('Return only files that must change');
+    expect(prompt).toContain('supersedes older context');
+    expect(prompt).toContain('/render.tsx: missing export');
 });

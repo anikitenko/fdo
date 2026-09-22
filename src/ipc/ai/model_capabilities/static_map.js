@@ -2,13 +2,13 @@
 export const STATIC_MODEL_CAPABILITIES = {
     // --- OpenAI ---
 
-    // 🧩 GPT-5 (deterministic, no temperature)
+    // GPT-5 reasoning family: omit sampling parameters by default.
     "gpt-5": {
         provider: "openai",
-        reasoning: false,
-        deterministic: true,
+        reasoning: true,
+        deterministic: false,
         supportsTemperature: false,
-        supportsThinking: false,
+        supportsThinking: true,
         api: "responses",
         maxField: "max_output_tokens",
         streaming: true,

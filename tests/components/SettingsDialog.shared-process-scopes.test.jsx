@@ -14,6 +14,11 @@ jest.mock("../../src/components/settings/panels/AIAssistantsPanel", () => ({
     default: () => <div>AI Assistants Panel</div>,
 }));
 
+jest.mock("../../src/components/settings/panels/AICodingInstructionsPanel", () => ({
+    __esModule: true,
+    default: () => <div>Coding Instructions Panel</div>,
+}));
+
 import {SettingsDialog} from "../../src/components/settings/SettingsDialog.jsx";
 
 describe("SettingsDialog shared process scopes", () => {

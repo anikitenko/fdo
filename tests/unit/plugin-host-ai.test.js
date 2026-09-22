@@ -6,7 +6,7 @@ jest.mock("../../src/utils/store", () => ({
 
 const mockChat = jest.fn(async () => ({content: "ok"}));
 
-jest.mock("@themaximalist/llm.js", () => {
+jest.mock("../../src/utils/aiProviderClient", () => {
     return jest.fn().mockImplementation(() => ({
         chat: mockChat,
     }));

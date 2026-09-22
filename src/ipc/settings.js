@@ -1,10 +1,15 @@
+import {listGeminiModels} from "../utils/geminiProvider.cjs";
+import {listAnthropicModels} from "../utils/aiProviders/catalog";
+import {codingFirstResponseTimeoutMs} from "../utils/codingRequestPolicy.cjs";
+import {listCloudflareModels, inspectCloudflareModel, cloudflareAccountId} from "../utils/cloudflareProvider.cjs";
+import {listOllamaModels, inspectOllamaModel, ollamaLlmOptions} from "../utils/ollamaProvider.cjs";
 import {reserveLiveAiTestRequest} from "../utils/liveAiTestBudget";
 import {refreshCodexRuntime} from "../utils/refreshCodexRuntime";
 import {ipcMain, utilityProcess, BrowserWindow} from "electron";
 import {SettingsChannels} from "./channels";
 import {settings} from "../utils/store";
 import {Certs} from "../utils/certs";
-import LLM from "@themaximalist/llm.js"
+import LLM from "../utils/aiProviderClient"
 import { fetchOpenAICapabilities } from "./ai/model_capabilities/fetchers/openai_fetcher";
 import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout, verifyCodexModelAccess } from "../utils/codexCli.js";
 import {
@@ -16,17 +21,7 @@ import {
     clearGeminiAuthProbeCache
 } from "../utils/geminiCli.js";
 import path from "node:path";
-
-const STATIC_ANTHROPIC_MODELS = [
-    "claude-haiku-4-5-20251001",
-    "claude-sonnet-4-5-20250929",
-    "claude-opus-4-1-20250805",
-    "claude-opus-4-20250514",
-    "claude-sonnet-4-20250514",
-    "claude-3-7-sonnet-20250219",
-    "claude-3-5-haiku-20241022",
-    "claude-3-haiku-20240307",
-];
+import {normalizeAiProviderInstructionMap} from "../utils/aiProviderInstructions";
 
 async function fetchCodexCliModels() {
     const response = await fetch("https://developers.openai.com/api/docs/models/all", {
@@ -461,16 +456,21 @@ export function registerSettingsHandlers() {
         ].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
     });
 
-    ipcMain.handle(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, async (_, provider, apiKey) => {
-        if (provider === "anthropic") {
-            return STATIC_ANTHROPIC_MODELS
-                .map((modelId) => ({
-                    label: modelId,
-                    value: modelId,
-                    provider: "anthropic",
-                }))
-                .sort((a, b) => a.label.localeCompare(b.label));
-        }
+    ipcMain.handle(SettingsChannels.ai_assistants.GET_PROVIDER_INSTRUCTIONS, async () => {
+        return normalizeAiProviderInstructionMap(settings.get("ai.providerInstructions", {}));
+    });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.SET_PROVIDER_INSTRUCTIONS, async (_, instructions) => {
+        const normalized = normalizeAiProviderInstructionMap(instructions);
+        settings.set("ai.providerInstructions", normalized);
+        return normalized;
+    });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, async (_, provider, apiKey, baseUrl, accountId) => {
+        if (provider === "cloudflare") return listCloudflareModels({accountId, apiKey});
+        if (provider === "ollama") return listOllamaModels(baseUrl);
+        if (provider === "gemini") return listGeminiModels(apiKey);
+        if (provider === "anthropic") return listAnthropicModels(apiKey);
 
         if (provider === "codex-cli") {
             return await fetchCodexCliModels();
@@ -502,12 +502,36 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.ADD, async (_, data) => {
+        // Local inference options must not leak from the shared Settings form
+        // into hosted/CLI assistant records (including Chat assistants).
+        if (data.provider !== "ollama") {
+            delete data.baseUrl;
+            delete data.contextLength;
+        }
+        if (data.provider !== "cloudflare") delete data.accountId;
+        if (data.purpose === "coding") {
+            data.firstResponseTimeoutMs = codingFirstResponseTimeoutMs(data);
+        } else {
+            delete data.firstResponseTimeoutMs;
+        }
         const normalizedThinkingMode = ["auto", "on", "off"].includes(String(data?.defaultThinkingMode || "").toLowerCase())
             ? String(data.defaultThinkingMode).toLowerCase()
             : "auto";
         data.defaultThinkingMode = normalizedThinkingMode;
         let resolvedInvocation = null;
-        if (data.provider === "codex-cli") {
+        if (data.provider === "cloudflare") {
+            if (data.purpose !== "coding") throw new Error("Cloudflare Workers AI is currently supported for Coding Assistant purpose.");
+            data.accountId = cloudflareAccountId(data.accountId);
+            data.apiKey = String(data.apiKey || "").trim();
+            await inspectCloudflareModel(data);
+        } else if (data.provider === "ollama") {
+            if (data.purpose !== "coding") throw new Error("Ollama is currently supported for Coding Assistant purpose.");
+            const options = ollamaLlmOptions(data);
+            await inspectOllamaModel(options.baseUrl, data.model);
+            data.baseUrl = options.baseUrl;
+            data.contextLength = options.options.num_ctx;
+            data.apiKey = "";
+        } else if (data.provider === "codex-cli") {
             if (data.purpose !== "coding") {
                 throw new Error("Codex CLI is supported only for Coding Assistant purpose.");
             }
@@ -614,6 +638,11 @@ export function registerSettingsHandlers() {
                 }
             }
             list[i] = { ...list[i], ...cleanData, updatedAt: now };
+            if (data.provider !== "cloudflare") delete list[i].accountId;
+            if (data.provider !== "ollama") {
+                delete list[i].baseUrl;
+                delete list[i].contextLength;
+            }
         } else {
             list.push({
                 id: crypto.randomUUID(),

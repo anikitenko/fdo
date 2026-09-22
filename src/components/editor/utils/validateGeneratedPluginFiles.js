@@ -1,4 +1,6 @@
 import {IconNames} from "@blueprintjs/icons";
+import {validateGeneratedFileSyntax} from "../../../utils/generatedFileSyntax";
+import {validateGeneratedWorkspaceImports} from "../../../utils/generatedWorkspaceImports";
 
 const BLUEPRINT_ICON_SET = new Set(
     Object.values(IconNames)
@@ -11,14 +13,9 @@ function normalizeLineEndings(value = "") {
 }
 
 function findPluginEntryFile(files = []) {
-    return files.find((file) => file?.path === "/index.ts")
-        || files.find((file) => file?.path?.endsWith("/index.ts"))
-        || files.find((file) => /\bclass\s+\w+\s+extends\s+FDO[_]?SDK\b/.test(file?.content || ""));
-}
-
-function extractPluginClassName(content = "") {
-    const match = String(content || "").match(/\bclass\s+([A-Za-z_]\w*)\s+extends\s+FDO[_]?SDK\b/);
-    return match?.[1] || null;
+    // Nested index modules and extracted SDK subclasses are dependencies, not
+    // entry points. They must not start an additional plugin instance.
+    return files.find((file) => /^\/index\.[cm]?[jt]sx?$/.test(file?.path || ''));
 }
 
 function extractMetadataIconLiteral(content = "") {
@@ -261,11 +258,13 @@ export function normalizeReservedHostBindingMarkers(files = []) {
     return {files: normalizedFiles, normalizedPaths};
 }
 
-export function validateGeneratedPluginFiles(files = []) {
+export function validateGeneratedPluginFiles(files = [], {partial = false} = {}) {
     const warnings = [];
-    const errors = [];
+    const errors = validateGeneratedWorkspaceImports(files, {sources: [], paths: files.map(file => file.path), checkMissing: false});
+    const pluginEntry = findPluginEntryFile(files);
 
     files.forEach((file) => {
+        errors.push(...validateGeneratedFileSyntax(file, {entry: file === pluginEntry}));
         const content = normalizeLineEndings(file?.content || "");
         const forbiddenImports = findForbiddenHostImports(content);
         forbiddenImports.forEach(({ line, path }) => {
@@ -287,36 +286,32 @@ export function validateGeneratedPluginFiles(files = []) {
         }
     });
 
-    const pluginEntry = findPluginEntryFile(files);
-    if (!pluginEntry) {
-        return { warnings, errors };
+    if (pluginEntry) {
+        const content = normalizeLineEndings(pluginEntry.content);
+        const metadataIcon = extractMetadataIconLiteral(content);
+
+        if (metadataIcon && looksLikeCustomIconAsset(metadataIcon)) {
+            errors.push(`/index.ts: metadata.icon must use a BlueprintJS v6 icon name string, not a custom asset path (${metadataIcon})`);
+        } else if (metadataIcon && !BLUEPRINT_ICON_SET.has(metadataIcon.trim().toLowerCase())) {
+            errors.push(`/index.ts: metadata.icon "${metadataIcon}" is not a valid BlueprintJS v6 icon name. Use a verified icon such as "data-search" or "cog".`);
+        }
+
+        const suspiciousWindowLines = containsNonUiWindowAccess(content);
+        if (suspiciousWindowLines.length > 0) {
+            warnings.push(`/index.ts: direct window.* access appears outside obvious UI/event code paths on line(s) ${suspiciousWindowLines.join(", ")}`);
+        }
     }
 
-    const content = normalizeLineEndings(pluginEntry.content);
-    const className = extractPluginClassName(content);
-    const metadataIcon = extractMetadataIconLiteral(content);
-
-    if (metadataIcon && looksLikeCustomIconAsset(metadataIcon)) {
-        errors.push(`/index.ts: metadata.icon must use a BlueprintJS v6 icon name string, not a custom asset path (${metadataIcon})`);
-    } else if (metadataIcon && !BLUEPRINT_ICON_SET.has(metadataIcon.trim().toLowerCase())) {
-        errors.push(`/index.ts: metadata.icon "${metadataIcon}" is not a valid BlueprintJS v6 icon name. Use a verified icon such as "data-search" or "cog".`);
-    }
-
-    if (className && !new RegExp(`\\bnew\\s+${className}\\s*\\(`).test(content)) {
-        errors.push(`/index.ts: plugin entry file must end with explicit instantiation like new ${className}();`);
-    }
-
-    const suspiciousWindowLines = containsNonUiWindowAccess(content);
-    if (suspiciousWindowLines.length > 0) {
-        warnings.push(`/index.ts: direct window.* access appears outside obvious UI/event code paths on line(s) ${suspiciousWindowLines.join(", ")}`);
-    }
-
-    validateInjectedUiFoundation(files, errors);
     validatePluginRenderingSyntax(files, errors);
     validatePluginDomHelperUsage(files, errors);
     validateReservedHostBindingMarkers(files, errors);
-    validateBackendFormSubmitBindings(files, errors);
-    validateUiMessageHandlerPayloadShape(files, errors);
+    // A leaf module can rely on wrappers, actions and handlers in pending files.
+    // Cross-file rules run only on a complete workspace in the editor.
+    if (!partial) {
+        validateInjectedUiFoundation(files, errors);
+        validateBackendFormSubmitBindings(files, errors);
+        validateUiMessageHandlerPayloadShape(files, errors);
+    }
 
     return { warnings, errors };
 }

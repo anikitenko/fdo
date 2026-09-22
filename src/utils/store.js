@@ -76,6 +76,8 @@ export const settings = new Store({
         ai: {
             type: "object",
             properties: {
+                usageLedger: {type: "array", maxItems: 5000, items: {type: "object"}, default: []},
+                usageRates: {type: "object", default: {}},
                 chat: {
                     type: "array",
                     items: {
@@ -149,6 +151,10 @@ export const settings = new Store({
                             provider: {type: "string"},
                             model: {type: "string"},
                             apiKey: {type: "string", nullable: true},
+                            firstResponseTimeoutMs: {type: "integer", minimum: 10000, maximum: 600000},
+                            accountId: {type: "string", pattern: "^[a-fA-F0-9]{32}$"},
+                            baseUrl: {type: "string"},
+                            contextLength: {type: "integer", minimum: 4096, maximum: 262144},
                             executablePath: {type: "string", nullable: true},
                             codexRuntime: {
                                 type: "object",
@@ -240,6 +246,10 @@ export const settings = new Store({
                                         inputCost: { type: "number", minimum: 0 },
                                         outputCost: { type: "number", minimum: 0 },
                                         totalCost: { type: "number", minimum: 0 },
+                                        knownCost: {type: "number", minimum: 0},
+                                        usageScope: {type: "string", enum: ["turn", "request"]},
+                                        usageRequests: {type: "integer", minimum: 0},
+                                        costStatus: {type: "string", enum: ["estimated", "partial", "unknown"]},
                                         clarification: { type: "boolean", default: false },
                                         grounded: { type: "boolean", default: false },
                                         noSourceMatches: { type: "boolean", default: false },

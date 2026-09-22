@@ -1,0 +1,89 @@
+// /features/text/logic.ts
+export type TextTransformKind = "upper" | "lower" | "title";
+
+export interface TextAnalysis {
+  chars: number;
+  words: number;
+  lines: number;
+}
+
+export interface TextTransformResult {
+  kind: TextTransformKind;
+  output: string;
+  analysis: TextAnalysis;
+}
+
+export const analyzeText = (text: string): TextAnalysis => {
+  const chars = [...text].length;
+  const words = text.trim().length === 0 ? 0 : text.trim().split(/\s+/).length;
+  const lines = text.length === 0 ? 0 : text.split(/\r?\n/).length;
+  return { chars, words, lines };
+};
+
+export const toTitleCase = (text: string): string => {
+  const words = text.trim().split(/\s+/);
+  if (words.length === 0) {
+    return "";
+  }
+  return words
+    .map((word) => {
+      if (word.length === 0) {
+        return "";
+      }
+      const lower = word.toLowerCase();
+      const head = lower.charAt(0).toUpperCase();
+      return head + lower.slice(1);
+    })
+    .join(" ");
+};
+
+export const transformText = (
+  text: string,
+  kind: TextTransformKind
+): TextTransformResult => {
+  const output =
+    kind === "upper"
+      ? text.toUpperCase()
+      : kind === "lower"
+        ? text.toLowerCase()
+        : toTitleCase(text);
+
+  return {
+    kind,
+    output,
+    analysis: analyzeText(output),
+  };
+};
+
+export const formatTextSummary = (
+  result: TextTransformResult,
+  source: string
+): string => {
+  const kindLabel =
+    result.kind === "upper"
+      ? "Uppercase"
+      : result.kind === "lower"
+        ? "Lowercase"
+        : "Title case";
+  const sourceAnalysis = analyzeText(source);
+
+  const lines: string[] = [
+    `Transformation: ${kindLabel}`,
+    ``,
+    `Transformed output:`,
+    ``,
+    result.output || "(empty)",
+    ``,
+    `Counts (source):`,
+    `  Characters: ${sourceAnalysis.chars}`,
+    `  Words: ${sourceAnalysis.words}`,
+    `  Lines: ${sourceAnalysis.lines}`,
+    ``,
+    `Counts (output):`,
+    `  Characters: ${result.analysis.chars}`,
+    `  Words: ${result.analysis.words}`,
+    `  Lines: ${result.analysis.lines}`,
+  ];
+
+  return lines.join("\n");
+};
