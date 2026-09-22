@@ -1,9 +1,15 @@
+const {readLiveAiConfig, findLiveCodingAssistant} = require("../../scripts/lib/live-ai-config.cjs");
 const { test, expect, _electron: electron } = require("@playwright/test");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const {observeLiveAiPage, describeLiveAiWaitFailure, readLiveAiMainProcess} = require("./helpers/liveAiLifecycle.cjs");
+const {waitForAssistantUiToSettle} = require("./helpers/assistantRequestWait.cjs");
 const {evaluatePluginCode} = require("./helpers/pluginBestPractices.cjs");
 const {pluginHeading} = require("./helpers/pluginHeading.cjs");
-const {evaluateJsonInspectorScenario} = require("./helpers/pluginScenarioRubric.cjs");
+const {evaluateJsonInspectorScenario, evaluateRoseCalculatorScenario, evaluateWebToolsWorkbenchScenario} = require("./helpers/pluginScenarioRubric.cjs");
+const {runJsonInspectorLiveScenario} = require("./live-ai-scenarios/json-inspector.cjs");
+const {runRoseCalculatorLiveScenario} = require("./live-ai-scenarios/rose-calculator.cjs");
+const {runWebToolsWorkbenchLiveScenario} = require("./live-ai-scenarios/web-tools-workbench.cjs");
 const {
   activatePlugin,
   removePlugin,
@@ -47,9 +53,11 @@ const LIVE_TIMEOUT_MS = Number(process.env.FDO_E2E_LIVE_AI_TIMEOUT_MS || 180000)
 // two-request flow midway through workspace application.
 const LIVE_SCENARIO_TIMEOUT_MS = Math.max(LIVE_TIMEOUT_MS, 600000);
 const LIVE_PROVIDER = process.env.FDO_TEST_AI_PROVIDER || "openai";
-const LIVE_API_KEY = process.env.FDO_TEST_AI_API_KEY || "";
+const LIVE_API_KEY = LIVE_PROVIDER === "ollama" ? "" : process.env.FDO_TEST_AI_API_KEY || "";
 const LIVE_MODEL = process.env.FDO_TEST_AI_MODEL || "";
 const LIVE_SCENARIO_SEED = process.env.FDO_E2E_PLUGIN_SCENARIO_SEED || "json-inspector-v1";
+const LIVE_ROSE_CALCULATOR_SEED = process.env.FDO_E2E_ROSE_CALCULATOR_SEED || "rose-calculator-v1";
+const LIVE_WEB_TOOLS_WORKBENCH_SEED = process.env.FDO_E2E_WEB_TOOLS_WORKBENCH_SEED || "web-tools-workbench-v1";
 const LIVE_ARTIFACT_DIR = path.resolve(
   process.cwd(),
   process.env.FDO_E2E_LIVE_AI_ARTIFACT_DIR || "artifacts/live-ai",
@@ -57,14 +65,18 @@ const LIVE_ARTIFACT_DIR = path.resolve(
 const JSON_FORMATTER_REFERENCE_IMAGE = path.resolve(
   "tests/fixtures/reference-designs/json-formatter-mobile-reference.jpg",
 );
-if (LIVE_ENABLED && (!LIVE_API_KEY || !LIVE_MODEL || !["openai", "anthropic"].includes(LIVE_PROVIDER))) {
-  throw new Error("Live Editor tests require FDO_TEST_AI_API_KEY, FDO_TEST_AI_MODEL and an openai or anthropic FDO_TEST_AI_PROVIDER. Personal credentials are never used as fallback.");
-}
+const WEB_TOOLS_WORKBENCH_REFERENCE_IMAGE = path.resolve(
+  "tests/fixtures/reference-designs/web-tools-workbench-dashboard-reference.png",
+);
+if (LIVE_ENABLED) readLiveAiConfig();
 const LIVE_ASSISTANT_NAME = process.env.FDO_E2E_LIVE_AI_NAME || "E2E Live Coding Assistant";
 
 let electronApp;
 let editorWindow;
 let liveLifecycleEvents = [];
+let stopObservingPage;
+let liveWaitFailure;
+let liveRequestConfiguration;
 
 function recordLiveLifecycle(event, details = {}) {
   liveLifecycleEvents.push({event, at: new Date().toISOString(), ...details});
@@ -143,6 +155,40 @@ async function persistJsonInspectorArtifactStatus(testInfo) {
     note: testInfo.status === "passed"
       ? "The latest screenshot belongs to this successful run."
       : "The screenshot may be from an earlier successful run; inspect this status before judging it.",
+  }, null, 2), "utf8");
+  console.log(`Live AI artifact: ${statusPath}`);
+}
+
+async function persistRoseCalculatorArtifactStatus(testInfo) {
+  await fs.mkdir(LIVE_ARTIFACT_DIR, {recursive: true});
+  const screenshotPath = path.join(LIVE_ARTIFACT_DIR, "rose-calculator-latest.png");
+  const screenshot = await fs.stat(screenshotPath).then((entry) => entry.mtime.toISOString()).catch(() => null);
+  const statusPath = path.join(LIVE_ARTIFACT_DIR, "rose-calculator-latest.status.json");
+  await fs.writeFile(statusPath, JSON.stringify({
+    test: testInfo.title,
+    status: testInfo.status,
+    completedAt: new Date().toISOString(),
+    screenshotCapturedAt: screenshot,
+    note: testInfo.status === "passed"
+      ? "The latest screenshot belongs to this successful run."
+      : "The screenshot may be from an earlier successful run; inspect this status before judging it.",
+  }, null, 2), "utf8");
+  console.log(`Live AI artifact: ${statusPath}`);
+}
+
+async function persistWebToolsWorkbenchArtifactStatus(testInfo) {
+  await fs.mkdir(LIVE_ARTIFACT_DIR, {recursive: true});
+  const screenshotPath = path.join(LIVE_ARTIFACT_DIR, "web-tools-workbench-latest.png");
+  const screenshot = await fs.stat(screenshotPath).then((entry) => entry.mtime.toISOString()).catch(() => null);
+  const statusPath = path.join(LIVE_ARTIFACT_DIR, "web-tools-workbench-latest.status.json");
+  await fs.writeFile(statusPath, JSON.stringify({
+    test: testInfo.title,
+    status: testInfo.status,
+    completedAt: new Date().toISOString(),
+    screenshotCapturedAt: screenshot,
+    note: testInfo.status === "passed"
+      ? "The latest screenshots belong to this successful run."
+      : "Screenshots may be from an earlier successful run; inspect this status before judging them.",
   }, null, 2), "utf8");
   console.log(`Live AI artifact: ${statusPath}`);
 }
@@ -245,11 +291,159 @@ async function waitForTargetPluginVisualState(window, pluginName, timeout = 3000
   return readState();
 }
 
-async function waitForAssistantRequestToSettle(timeout = LIVE_TIMEOUT_MS) {
-  const stopButton = editorWindow.locator('button:has-text("Stop")');
-  await expect(stopButton).toBeVisible({timeout: 30000});
+async function waitForRoseCalculatorVisualState(window, pluginName, timeout = 30000) {
+  const readState = async () => await window.evaluate(async (id) => {
+    const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+      .find((node) => node?.dataset?.pluginId === id && node.getAttribute('aria-hidden') !== 'true');
+    const doc = iframe?.contentDocument;
+    const styleText = Array.from(doc?.querySelectorAll('style') || []).map((node) => node.textContent || '').join('\n');
+    const shell = doc?.querySelector('[data-role="calculator-shell"]');
+    const display = doc?.querySelector('[data-role="calculator-display"]');
+    const quickActions = doc?.querySelector('[data-role="calculator-quick-actions"]');
+    const sidebar = doc?.querySelector('[data-role="calculator-sidebar"]');
+    const result = doc?.querySelector('[data-role="calculator-result"]');
+    const cat = doc?.querySelector('[data-role="calculator-cat"]');
+    const catPartRoles = [
+      "calculator-cat-head", "calculator-cat-ear-left", "calculator-cat-ear-right",
+      "calculator-cat-eye-left", "calculator-cat-eye-right", "calculator-cat-tail",
+    ];
+    const catParts = catPartRoles.map((role) => doc?.querySelector(`[data-role="${role}"]`));
+    const styleFor = (node) => node ? iframe?.contentWindow?.getComputedStyle(node) : null;
+    const shellStyle = styleFor(shell);
+    const catStyle = styleFor(cat);
+    const shellBox = shell?.getBoundingClientRect();
+    const catBox = cat?.getBoundingClientRect();
+    const displayBox = display?.getBoundingClientRect();
+    const sidebarBox = sidebar?.getBoundingClientRect();
+    const viewportWidth = Number(iframe?.contentWindow?.innerWidth || 0);
+    const viewportHeight = Number(iframe?.contentWindow?.innerHeight || 0);
+    const nonTransparent = (color) => Boolean(color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)');
+    const hasSurface = (style) => nonTransparent(style?.backgroundColor) || style?.backgroundImage !== 'none';
+    return {
+      iframePresent: !!iframe,
+      text: String(doc?.body?.innerText || '').trim(),
+      html: String(doc?.body?.innerHTML || '').trim().slice(0, 5000),
+      styleText,
+      styledElements: Array.from(doc?.querySelectorAll('[class]') || []).filter((node) => /\bgo\d+/.test(node.className || '')).length,
+      roles: {
+        shell: !!shell,
+        display: !!display,
+        result: !!result,
+        quickActions: !!quickActions,
+        sidebar: !!sidebar,
+        cat: !!cat,
+      },
+      catParts: Object.fromEntries(catPartRoles.map((role, index) => [role, !!catParts[index]])),
+      visual: {
+        shellHasSurface: hasSurface(shellStyle),
+        shellHasRoundedCorners: Number.parseFloat(shellStyle?.borderRadius || '0') > 0,
+        shellHasPadding: Number.parseFloat(shellStyle?.paddingTop || '0') >= 16,
+        shellHasShadowOrBorder: shellStyle?.boxShadow !== 'none' || Number.parseFloat(shellStyle?.borderTopWidth || '0') > 0,
+        displayIsUsable: Boolean(displayBox && displayBox.width >= Math.min(180, viewportWidth * 0.45) && displayBox.height >= 32),
+        sidebarPresentBesideMain: Boolean(shellBox && sidebarBox && viewportWidth >= 500 && sidebarBox.left > shellBox.left),
+        catIsFullBackgroundArtwork: Boolean(cat && catParts.every(Boolean) && !shell?.contains(cat)
+          && catStyle?.position === 'fixed' && [catStyle?.top, catStyle?.right, catStyle?.bottom, catStyle?.left].every((value) => value === '0px')
+          && catStyle?.pointerEvents === 'none' && Number.parseFloat(catStyle?.opacity || '0') >= .3
+          && Number.parseFloat(catStyle?.opacity || '1') <= .75 && catBox?.width >= viewportWidth * .9
+          && catBox?.height >= viewportHeight * .9),
+        catSize: {width: catBox?.width || 0, height: catBox?.height || 0, opacity: catStyle?.opacity || ''},
+      },
+    };
+  }, pluginName);
+
   try {
-    await expect(stopButton).toHaveCount(0, {timeout});
+    await window.waitForFunction((id) => {
+      const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+        .find((node) => node?.dataset?.pluginId === id && node.getAttribute('aria-hidden') !== 'true');
+      const body = iframe?.contentDocument?.body;
+      const html = String(body?.innerHTML || '');
+      const text = String(body?.innerText || '').trim();
+      return !html.includes('plugin-page-loader') && /Rose Calculator/i.test(text);
+    }, pluginName, {timeout});
+  } catch (error) {
+    const state = await readState();
+    throw new Error(`Target plugin iframe did not render the Rose Calculator UI. ${JSON.stringify(state)}`, {cause: error});
+  }
+
+  return readState();
+}
+
+async function waitForWebToolsWorkbenchVisualState(window, pluginName, timeout = 30000) {
+  const readState = async () => await window.evaluate(async (id) => {
+    const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+      .find((node) => node?.dataset?.pluginId === id && node.getAttribute('aria-hidden') !== 'true');
+    const doc = iframe?.contentDocument;
+    const styleText = Array.from(doc?.querySelectorAll('style') || []).map((node) => node.textContent || '').join('\n');
+    const shell = doc?.querySelector('[data-role="tool-workbench"]');
+    const dashboard = doc?.querySelector('[data-role="tool-dashboard"]');
+    const library = doc?.querySelector('[data-role="tool-library"]');
+    const workspace = doc?.querySelector('[data-role="tool-workspace"]');
+    const personalSpace = doc?.querySelector('[data-role="tool-space-dialog"]');
+    const dock = doc?.querySelector('footer') || doc?.querySelector('[data-role="tool-dock"]');
+    const styleFor = (node) => node ? iframe?.contentWindow?.getComputedStyle(node) : null;
+    const dashboardGridContainer = [dashboard, ...Array.from(dashboard?.querySelectorAll("*") || [])]
+      .find((node) => {
+        const style = styleFor(node);
+        return style?.display === "grid" && Number(node?.children?.length || 0) >= 2;
+      });
+    const shellStyle = styleFor(shell);
+    const dashboardGridStyle = styleFor(dashboardGridContainer);
+    const dockStyle = styleFor(dock);
+    const shellBox = shell?.getBoundingClientRect();
+    const viewportHeight = Number(iframe?.contentWindow?.innerHeight || 0);
+    const nonTransparent = (color) => Boolean(color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)');
+    return {
+      iframePresent: !!iframe,
+      text: String(doc?.body?.innerText || '').trim(),
+      html: String(doc?.body?.innerHTML || '').trim().slice(0, 6000),
+      styleText,
+      styledElements: Array.from(doc?.querySelectorAll('[class]') || []).filter((node) => /\bgo\d+/.test(node.className || '')).length,
+      roles: {
+        shell: !!shell,
+        dashboard: !!dashboard,
+        library: !!library,
+        workspace: !!workspace,
+        personalSpace: !!personalSpace,
+      },
+      visual: {
+        darkShell: (nonTransparent(shellStyle?.backgroundColor) || shellStyle?.backgroundImage !== 'none')
+          && /(?:rgb\(\s*(?:[0-7]?\d|8\d)|#(?:0|1|2|3)[0-9a-f]{2})/i.test(`${shellStyle?.backgroundColor || ''} ${shellStyle?.backgroundImage || ''}`),
+        dashboardGrid: dashboardGridStyle?.display === "grid"
+          && Number(dashboardGridContainer?.children?.length || 0) >= 2,
+        hasDock: !!dock && (dockStyle?.position === 'sticky' || dockStyle?.position === 'fixed'
+          || Number.parseFloat(dockStyle?.borderTopWidth || '0') > 0),
+        shellUsesViewport: Boolean(shellBox && shellBox.height >= Math.min(300, viewportHeight * .7)),
+      },
+    };
+  }, pluginName);
+
+  try {
+    await window.waitForFunction((id) => {
+      const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+        .find((node) => node?.dataset?.pluginId === id && node.getAttribute('aria-hidden') !== 'true');
+      const body = iframe?.contentDocument?.body;
+      const html = String(body?.innerHTML || '');
+      const text = String(body?.innerText || '').trim();
+      return !html.includes('plugin-page-loader') && /Web Tools Workbench/i.test(text)
+        && Boolean(iframe?.contentDocument?.querySelector('[data-role="tool-dashboard"]'));
+    }, pluginName, {timeout});
+  } catch (error) {
+    const state = await readState();
+    const host = await window.evaluate(async (id) => ({
+      url: window.location.href,
+      text: String(document.querySelector('#plugin-container')?.innerText || document.body?.innerText || '').slice(0, 2000),
+      runtime: await window.electron.plugin.getRuntimeStatus([id]).catch(() => null),
+    }), pluginName).catch(readError => ({readError: readError.message}));
+    throw new Error(`Target plugin iframe did not render the Web Tools Workbench UI. ${JSON.stringify({state, host})}`, {cause: error});
+  }
+
+  return readState();
+}
+
+async function waitForAssistantRequestToSettle(timeout = LIVE_TIMEOUT_MS) {
+  const testInfo = test.info();
+  try {
+    await waitForAssistantUiToSettle(editorWindow, timeout);
   } catch (error) {
     const state = await editorWindow.evaluate(() => ({
       response: document.querySelector('[data-testid="ai-coding-response"]')?.textContent || "",
@@ -257,29 +451,18 @@ async function waitForAssistantRequestToSettle(timeout = LIVE_TIMEOUT_MS) {
       streamResponses: window.__liveAiResponses || [],
       visibleText: String(document.body?.innerText || "").slice(-3000),
     })).catch((readError) => ({readError: String(readError?.message || readError)}));
-    const mainProcess = await electronApp?.evaluate(({app, BrowserWindow}) => ({
-      ready: app.isReady(),
-      lifecycle: globalThis.__FDO_E2E_WINDOW_LIFECYCLE__ || [],
-      codingLifecycle: globalThis.__FDO_E2E_CODING_LIFECYCLE__ || [],
-      windows: BrowserWindow.getAllWindows().map((window) => ({
-        id: window.id,
-        destroyed: window.isDestroyed(),
-        visible: !window.isDestroyed() && window.isVisible(),
-        webContentsDestroyed: window.webContents.isDestroyed(),
-        webContentsId: window.webContents.id,
-        url: window.webContents.getURL(),
-      })),
-    })).catch((readError) => ({readError: String(readError?.message || readError)}));
+    const mainProcess = await electronApp?.evaluate(readLiveAiMainProcess)
+      .catch((readError) => ({readError: String(readError?.message || readError)}));
     const playwrightPages = await Promise.all((electronApp?.windows?.() || []).map(async (page, index) => ({
       index,
       closed: page.isClosed(),
-      url: await page.url().catch(() => ""),
+      url: page.url(),
       isOriginalEditorPage: page === editorWindow,
     }))).catch((readError) => ({readError: String(readError?.message || readError)}));
-    const failure = editorWindow?.isClosed()
-      ? "Editor window closed before the assistant request settled."
-      : "Assistant request did not settle before the live-test deadline.";
-    throw new Error(`${failure} ${JSON.stringify({state, lifecycle: liveLifecycleEvents, mainProcess, playwrightPages})}`, {cause: error});
+    const failure = describeLiveAiWaitFailure(editorWindow?.isClosed(), mainProcess, testInfo.status === "timedOut");
+    liveWaitFailure = {failure, state, lifecycle: [...liveLifecycleEvents], mainProcess, playwrightPages,
+      runner: {node: process.version, playwright: require("@playwright/test/package.json").version}};
+    throw new Error(`${failure} ${JSON.stringify(liveWaitFailure).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]")}`, {cause: error});
   }
 }
 
@@ -290,7 +473,7 @@ test.describe("AI Coding Agent Live Provider", () => {
   test.skip(!LIVE_ENABLED, "Set FDO_E2E_LIVE_AI=1 to run live-provider e2e.");
 
   test.beforeAll(async () => {
-    electronApp = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
+    electronApp = await launchElectronApp(electron, {isolatedUserDataDir: true, keepDisplayAwake: true, env: {
       OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined,
     }});
     electronApp.process?.()?.on?.("exit", (code, signal) => {
@@ -300,10 +483,12 @@ test.describe("AI Coding Agent Live Provider", () => {
 
   test.beforeEach(async () => {
     liveLifecycleEvents = [];
+    liveWaitFailure = null;
+    liveRequestConfiguration = null;
+    stopObservingPage = undefined;
     editorWindow = await openEditorWithMockedIPC(electronApp, { __useRealAssistants: true });
     recordLiveLifecycle("editor-window-ready");
-    editorWindow.on("close", () => recordLiveLifecycle("editor-window-close"));
-    editorWindow.on("crash", () => recordLiveLifecycle("editor-window-crash"));
+    stopObservingPage = await observeLiveAiPage(electronApp, editorWindow, recordLiveLifecycle);
     await editorWindow.evaluate(() => {
       window.__liveAiResponses = [];
       window.electron.aiCodingAgent.on.streamDone((event) => {
@@ -321,24 +506,39 @@ test.describe("AI Coding Agent Live Provider", () => {
   }, 60000);
 
   test.afterEach(async ({}, testInfo) => {
-    if (!editorWindow || editorWindow.isClosed()) return;
-    const observed = await editorWindow.evaluate(() => ({
+    await stopObservingPage?.();
+    const observed = !editorWindow || editorWindow.isClosed()
+      ? {readError: "Editor page unavailable; see lifecycle and waitFailure."}
+      : await editorWindow.evaluate(() => ({
       response: document.querySelector('[data-testid="ai-coding-response"]')?.textContent || "",
       error: document.querySelector('[data-testid="ai-coding-error"]')?.textContent || "",
       backendResponses: window.__liveAiResponses || [],
       files: Object.fromEntries(["/index.ts", "/render.tsx", "/render.test.ts"].map(file =>
         [file, window.__editorTestApi?.getFileContent(file) || ""])),
-    }));
-    const report = JSON.stringify({provider: LIVE_PROVIDER, model: LIVE_MODEL, status: testInfo.status,
-      durationMs: testInfo.duration, ...observed}, null, 2).split(LIVE_API_KEY).join("[REDACTED]");
+    })).catch(error => ({readError: String(error.message || error)}));
+    const requestBudget = await electronApp?.evaluate(() => globalThis.__FDO_E2E_LIVE_AI_BUDGET__ || null).catch(() => null);
+    const codingLifecycle = await electronApp?.evaluate(() => globalThis.__FDO_E2E_CODING_LIFECYCLE__ || []).catch(() => []);
+    const report = JSON.stringify({requestBudget, codingLifecycle, provider: LIVE_PROVIDER, model: LIVE_MODEL, status: testInfo.status,
+      durationMs: testInfo.duration, lifecycle: liveLifecycleEvents, waitFailure: liveWaitFailure, requestConfiguration: liveRequestConfiguration,
+      ...observed}, null, 2).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]");
     // Persist even with the list reporter, which does not retain body-only attachments.
     const reportPath = testInfo.outputPath("editor-live-result.json");
     await require("node:fs/promises").writeFile(reportPath, report, "utf8");
     await testInfo.attach("editor-live-result.json", {path: reportPath, contentType: "application/json"});
+    const transportLog = process.env.FDO_E2E_LIVE_AI_TRANSPORT_LOG;
+    if (transportLog && await fs.stat(transportLog).then(() => true).catch(() => false)) {
+      await testInfo.attach("playwright-transport.log", {path: transportLog, contentType: "text/plain"});
+    }
     if (/JSON Inspector/i.test(testInfo.title)) {
       await persistJsonInspectorArtifactStatus(testInfo);
     }
-    await expectNoUnexpectedErrorToasts(editorWindow);
+    if (/Rose Calculator/i.test(testInfo.title)) {
+      await persistRoseCalculatorArtifactStatus(testInfo);
+    }
+    if (/Web Tools Workbench/i.test(testInfo.title)) {
+      await persistWebToolsWorkbenchArtifactStatus(testInfo);
+    }
+    if (editorWindow && !editorWindow.isClosed()) await expectNoUnexpectedErrorToasts(editorWindow);
   });
 
   const openAiCodingAssistant = async () => {
@@ -358,12 +558,12 @@ test.describe("AI Coding Agent Live Provider", () => {
     });
 
     let resolvedAssistants = assistants;
-    let hasCodingAssistants = Array.isArray(resolvedAssistants)
-      && resolvedAssistants.some((assistant) => assistant?.purpose === "coding");
+    const config = readLiveAiConfig();
+    let selectedAssistant = findLiveCodingAssistant(resolvedAssistants, config, LIVE_ASSISTANT_NAME);
     let provisionedAssistant = false;
 
-    if (!hasCodingAssistants) {
-      const provisionResult = await editorWindow.evaluate(async ({ provider, apiKey, model, name }) => {
+    if (!selectedAssistant) {
+      const provisionResult = await editorWindow.evaluate(async ({ provider, apiKey, model, name, baseUrl, contextLength, accountId, firstResponseTimeoutMs, defaultThinkingMode }) => {
         if (!window?.electron?.settings?.ai?.addAssistant) {
           return {
             ok: false,
@@ -378,6 +578,7 @@ test.describe("AI Coding Agent Live Provider", () => {
             apiKey,
             model,
             purpose: "coding",
+            baseUrl, contextLength, accountId, firstResponseTimeoutMs, defaultThinkingMode,
             default: true,
           });
           return {
@@ -387,7 +588,7 @@ test.describe("AI Coding Agent Live Provider", () => {
         } catch (error) {
           return {
             ok: false,
-            reason: String(error?.message || error).split(apiKey).join("[REDACTED]"),
+            reason: String(error?.message || error).split(apiKey || "[unused-secret]").join("[REDACTED]"),
           };
         }
       }, {
@@ -395,6 +596,11 @@ test.describe("AI Coding Agent Live Provider", () => {
         apiKey: LIVE_API_KEY,
         model: LIVE_MODEL,
         name: LIVE_ASSISTANT_NAME,
+        firstResponseTimeoutMs: process.env.FDO_TEST_AI_FIRST_RESPONSE_TIMEOUT_MS,
+        defaultThinkingMode: readLiveAiConfig().defaultThinkingMode,
+        accountId: process.env.FDO_TEST_AI_ACCOUNT_ID,
+        baseUrl: process.env.FDO_TEST_AI_BASE_URL,
+        contextLength: process.env.FDO_TEST_AI_CONTEXT_LENGTH,
       });
 
       expect(
@@ -403,14 +609,13 @@ test.describe("AI Coding Agent Live Provider", () => {
       ).toBeTruthy();
 
       resolvedAssistants = provisionResult.assistants || [];
-      hasCodingAssistants = Array.isArray(resolvedAssistants)
-        && resolvedAssistants.some((assistant) => assistant?.purpose === "coding");
+      selectedAssistant = findLiveCodingAssistant(resolvedAssistants, config, LIVE_ASSISTANT_NAME);
       provisionedAssistant = true;
     }
 
     expect(
-      hasCodingAssistants,
-      "Live Editor tests require their dedicated coding assistant.",
+      selectedAssistant,
+      "Live Editor tests require a dedicated assistant matching the requested provider, model, thinking mode and timeout.",
     ).toBeTruthy();
 
     if (provisionedAssistant) {
@@ -429,6 +634,12 @@ test.describe("AI Coding Agent Live Provider", () => {
 
     await expect(promptInput).toBeVisible({ timeout: 15000 });
     await expect(actionSelect).toBeVisible({ timeout: 15000 });
+    await editorWindow.locator('#assistant-select').selectOption(selectedAssistant.id);
+    await expect(editorWindow.locator('#assistant-select')).toHaveValue(selectedAssistant.id);
+    liveRequestConfiguration = {provider: selectedAssistant.provider, model: selectedAssistant.model,
+      thinkingMode: selectedAssistant.defaultThinkingMode, firstResponseTimeoutMs: selectedAssistant.firstResponseTimeoutMs,
+      requestLimit: config.limit, requestBudgetMode: config.requestBudgetMode};
+    console.log(`Live AI request configuration: ${JSON.stringify(liveRequestConfiguration)}`);
     return { promptInput, actionSelect, assistants: resolvedAssistants };
   };
 
@@ -437,10 +648,86 @@ test.describe("AI Coding Agent Live Provider", () => {
       error: document.querySelector('[data-testid="ai-coding-error"]')?.textContent || "",
       response: document.querySelector('[data-testid="ai-coding-response"]')?.textContent || "",
     }));
-    const error = observed.error.split(LIVE_API_KEY).join("[REDACTED]");
+    const error = observed.error.split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]");
     expect(error, `Editor AI request failed: ${error}`).toBe("");
     expect(observed.response.trim(), "Editor completed without an AI response").not.toBe("");
   };
+
+  const jsonInspectorScenarioDeps = () => ({
+    test,
+    expect,
+    editorWindow,
+    LIVE_SCENARIO_TIMEOUT_MS,
+    LIVE_SCENARIO_SEED,
+    LIVE_API_KEY,
+    scenarioCatalogModule,
+    templateModule,
+    openAiCodingAssistant,
+    waitForAssistantRequestToSettle,
+    expectSuccessfulResponse,
+    evaluateJsonInspectorScenario,
+    ensureRootCertificate,
+    waitForPluginRegistered,
+    activatePlugin,
+    waitForPluginReady,
+    selectPluginOpen,
+    waitForPluginUiRendered,
+    waitForTargetPluginVisualState,
+    capturePluginIframeScreenshot,
+    persistLiveArtifact,
+    removePlugin,
+  });
+
+  const roseCalculatorScenarioDeps = () => ({
+    test,
+    expect,
+    editorWindow,
+    LIVE_SCENARIO_TIMEOUT_MS,
+    LIVE_ROSE_CALCULATOR_SEED,
+    LIVE_API_KEY,
+    scenarioCatalogModule,
+    templateModule,
+    openAiCodingAssistant,
+    waitForAssistantRequestToSettle,
+    expectSuccessfulResponse,
+    evaluateRoseCalculatorScenario,
+    ensureRootCertificate,
+    waitForPluginRegistered,
+    activatePlugin,
+    waitForPluginReady,
+    selectPluginOpen,
+    waitForPluginUiRendered,
+    waitForRoseCalculatorVisualState,
+    capturePluginIframeScreenshot,
+    persistLiveArtifact,
+    removePlugin,
+  });
+
+  const webToolsWorkbenchScenarioDeps = () => ({
+    test,
+    expect,
+    editorWindow,
+    LIVE_SCENARIO_TIMEOUT_MS,
+    LIVE_WEB_TOOLS_WORKBENCH_SEED,
+    LIVE_API_KEY,
+    WEB_TOOLS_WORKBENCH_REFERENCE_IMAGE,
+    scenarioCatalogModule,
+    templateModule,
+    openAiCodingAssistant,
+    waitForAssistantRequestToSettle,
+    expectSuccessfulResponse,
+    evaluateWebToolsWorkbenchScenario,
+    ensureRootCertificate,
+    waitForPluginRegistered,
+    activatePlugin,
+    waitForPluginReady,
+    selectPluginOpen,
+    waitForPluginUiRendered,
+    waitForWebToolsWorkbenchVisualState,
+    capturePluginIframeScreenshot,
+    persistLiveArtifact,
+    removePlugin,
+  });
 
   test("submits live question prompt and keeps workspace file unchanged in Review first", async () => {
     const { promptInput } = await openAiCodingAssistant();
@@ -565,10 +852,10 @@ test.describe("AI Coding Agent Live Provider", () => {
     const files = await editorWindow.evaluate(() => Object.fromEntries(
       window.__editorTestApi.getState().filesKeys.filter(path => !path.startsWith('/node_modules/') && !path.startsWith('/dist/'))
         .map(path => [path, window.__editorTestApi.getFileContent(path)]).filter(([, content]) => typeof content === 'string')));
-    await expect(editorWindow.getByRole('button', {name: 'Clear conversation', exact: true})).toBeInViewport({ratio: 1});
+    await expect(editorWindow.getByRole('button', {name: 'Reset workspace conversation', exact: true})).toBeInViewport({ratio: 1});
     const rubric = evaluatePluginCode(files);
     const reportPath = testInfo.outputPath('plugin-best-practices.json');
-    await require('node:fs/promises').writeFile(reportPath, JSON.stringify({rubric, files}, null, 2).split(LIVE_API_KEY).join('[REDACTED]'));
+    await require('node:fs/promises').writeFile(reportPath, JSON.stringify({rubric, files}, null, 2).split(LIVE_API_KEY || "[unused-secret]").join('[REDACTED]'));
     await testInfo.attach('plugin-best-practices.json', {path: reportPath, contentType: 'application/json'});
     expect(files['/index.ts']).toContain('Sentinel Beacon');
     expect(rubric.passed, JSON.stringify(rubric, null, 2)).toBe(true);
@@ -576,188 +863,22 @@ test.describe("AI Coding Agent Live Provider", () => {
     expect(compiled.success, compiled.error || 'Generated plugin did not compile').toBe(true);
   }, LIVE_TIMEOUT_MS);
 
-  test("live scenario: builds and verifies a seeded JSON Inspector without external access", async ({}, testInfo) => {
-    // Keep Playwright's built-in slow-test multiplier as a compatibility
-    // fallback for runners that retain the base 60-second budget despite the
-    // live configuration. The explicit deadline still covers a generation
-    // followed by one Problems-panel repair pass.
-    test.slow(true, "A live workspace generation may require a validation repair pass.");
-    test.setTimeout(LIVE_SCENARIO_TIMEOUT_MS);
-    console.log(`Live JSON Inspector timeout: ${testInfo.timeout}ms`);
-    const scenario = scenarioCatalogModule.exports.selectPluginAuthoringScenario(LIVE_SCENARIO_SEED);
-    await editorWindow.evaluate(({main, render, tests}) => {
-      window.__editorTestApi.createFile("/index.ts", main, "typescript");
-      window.__editorTestApi.createFile("/render.tsx", render, "typescript");
-      window.__editorTestApi.createFile("/render.test.ts", tests, "typescript");
-    }, {
-      main: templateModule.exports.BLANK_TEMPLATE_MAIN("Scenario Fixture"),
-      render: templateModule.exports.BLANK_TEMPLATE_RENDER("Scenario Fixture"),
-      tests: templateModule.exports.BLANK_TEMPLATE_TEST(),
+  test.describe("JSON Inspector live scenario", () => {
+    test("live scenario: builds and verifies a seeded JSON Inspector without external access", async ({}, testInfo) => {
+      await runJsonInspectorLiveScenario(jsonInspectorScenarioDeps(), testInfo);
     });
+  });
 
-    // A blank workspace includes this example test. Exercise the same Run Tests
-    // action a plugin author uses before asking the model to replace the files.
-    const seededTestFile = await editorWindow.evaluate(() => window.__editorTestApi.getFileContent("/render.test.ts"));
-    expect(seededTestFile).toContain('from "node:test"');
-    await editorWindow.getByRole("button", {name: "Run Tests", exact: true}).click();
-    await expect(editorWindow.getByRole("tab", {name: "Tests", exact: true})).toHaveAttribute("aria-selected", "true");
-    await expect(editorWindow.getByText("Plugin tests passed.", {exact: true})).toBeVisible({timeout: 30000});
-
-    const {promptInput, actionSelect} = await openAiCodingAssistant();
-    await editorWindow.getByLabel("Changes", {exact: true}).selectOption("apply");
-    // This is an explicit complete-workspace request. Plan mode avoids an
-    // extra Smart-mode routing pass and leaves the provider budget for code.
-    await actionSelect.selectOption("plan");
-    await promptInput.fill(scenario.prompt);
-    // The code editor may retain a caret selection from the seeded file. For a
-    // workspace-creation prompt it is optional context, never a prerequisite.
-    await expect(editorWindow.getByText("Selection recommended", {exact: true})).toHaveCount(0);
-    await promptInput.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await waitForAssistantRequestToSettle(LIVE_SCENARIO_TIMEOUT_MS);
-    await expectSuccessfulResponse();
-
-    const problems = await editorWindow.evaluate(() => {
-      const paths = window.__editorTestApi.getState().filesKeys
-        .filter((filePath) => !filePath.startsWith("/node_modules/") && !filePath.startsWith("/dist/"));
-      return paths.flatMap((filePath) => (window.__editorTestApi.getMarkersForPath?.(filePath) || [])
-        .filter((marker) => Number(marker?.severity) >= 8)
-        .map((marker) => ({path: filePath, message: marker.message, severity: marker.severity})));
+  test.describe("Rose Calculator live scenario", () => {
+    test("live scenario: builds, deploys, and screenshots a Rose Calculator with quick and sidebar actions", async ({}, testInfo) => {
+      await runRoseCalculatorLiveScenario(roseCalculatorScenarioDeps(), testInfo);
     });
-    expect(problems, `The AI agent must repair errors reported by the Problems panel: ${JSON.stringify(problems)}`).toEqual([]);
+  });
 
-    const files = await editorWindow.evaluate(() => Object.fromEntries(
-      window.__editorTestApi.getState().filesKeys
-        .filter(path => !path.startsWith("/node_modules/") && !path.startsWith("/dist/"))
-        .map(path => [path, window.__editorTestApi.getFileContent(path)])
-        .filter(([, content]) => typeof content === "string"),
-    ));
-    const rubric = evaluateJsonInspectorScenario(files);
-    const metadataIcon = files["/index.ts"]?.match(/\bicon\s*:\s*["']([^"']+)["']/)?.[1] || "";
-    expect(metadataIcon, "The JSON Inspector must use the known valid Blueprint icon requested by the scenario").toBe("data-search");
-    const compiled = await editorWindow.evaluate(latestContent => window.electron.plugin.build({latestContent}), files);
-    const testRun = await editorWindow.evaluate(latestContent => window.electron.plugin.runTests({latestContent}), files);
-    const report = {seed: LIVE_SCENARIO_SEED, scenario: {
-      id: scenario.id, title: scenario.title, designBrief: scenario.designBrief,
-    }, defaultTest: {
-      path: "/render.test.ts",
-      content: seededTestFile,
-      executedWith: "Editor Run Tests action",
-      result: "passed",
-    }, problems, rubric, compiled, testRun, files};
-    const reportPath = testInfo.outputPath("json-inspector-scenario.json");
-    await require("node:fs/promises").writeFile(
-      reportPath,
-      JSON.stringify(report, null, 2).split(LIVE_API_KEY).join("[REDACTED]"),
-      "utf8",
-    );
-    await testInfo.attach("json-inspector-scenario.json", {path: reportPath, contentType: "application/json"});
-
-    expect(rubric.passed, JSON.stringify(rubric, null, 2)).toBe(true);
-    expect(compiled.success, compiled.error || "Generated JSON Inspector did not compile").toBe(true);
-    expect(testRun.skipped, "The scenario must add node:test tests").toBe(false);
-    expect(testRun.success, testRun.output || testRun.error || "Generated JSON Inspector tests failed").toBe(true);
-
-    const compiledOutputFiles = Array.isArray(compiled.files)
-      ? compiled.files
-      : (compiled.files?.outputFiles || compiled.outputFiles || []);
-    const compiledContent = compiledOutputFiles.find((file) => typeof file?.text === "string")?.text || "";
-    expect(compiledContent, "The compiler did not return deployable plugin output").not.toBe("");
-    const pluginName = `live-json-inspector-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    try {
-      await ensureRootCertificate(editorWindow);
-      const deployed = await editorWindow.evaluate(async ({content, name}) => {
-        return await window.electron.plugin.deployToMainFromEditor({
-          name,
-          sandbox: `live_ai_${name}`,
-          entrypoint: "dist/index.cjs",
-          content,
-          metadata: {
-            name: "Live JSON Inspector Visual Check",
-            version: "1.0.0",
-            author: "FDO Live Evaluation",
-            description: "Disposable visual deployment check for generated plugin CSS.",
-            icon: "search",
-          },
-          rootCert: "root",
-        });
-      }, {content: compiledContent, name: pluginName});
-      expect(deployed.success, deployed.error || "Generated plugin deployment failed").toBe(true);
-      await waitForPluginRegistered(editorWindow, pluginName);
-      expect((await activatePlugin(editorWindow, pluginName)).success).toBe(true);
-      await waitForPluginReady(editorWindow, pluginName);
-      await editorWindow.evaluate(() => { window.location.hash = "#/"; });
-      await editorWindow.waitForFunction(() => window.location.hash === "#/");
-      await selectPluginOpen(editorWindow, pluginName);
-      await waitForPluginUiRendered(editorWindow, pluginName, 30000);
-
-      const uiState = await waitForTargetPluginVisualState(editorWindow, pluginName, 30000);
-      const screenshotPath = testInfo.outputPath("json-inspector-ui.png");
-      const visualStatePath = testInfo.outputPath("json-inspector-visual-state.json");
-      await fs.writeFile(visualStatePath, JSON.stringify(uiState, null, 2), "utf8");
-      await testInfo.attach("json-inspector-visual-state.json", {path: visualStatePath, contentType: "application/json"});
-      await capturePluginIframeScreenshot(editorWindow, pluginName, screenshotPath);
-      await testInfo.attach("json-inspector-ui.png", {path: screenshotPath, contentType: "image/png"});
-      await persistLiveArtifact(screenshotPath, "json-inspector-latest.png");
-      await persistLiveArtifact(visualStatePath, "json-inspector-latest.json");
-      expect(uiState.iframePresent).toBe(true);
-      expect(uiState.text).toMatch(/JSON Inspector/i);
-      expect(uiState.styledElements).toBeGreaterThan(0);
-      expect(uiState.styleText).toMatch(/@keyframes/i);
-      expect(uiState.styleText).toMatch(/prefers-reduced-motion/i);
-      expect(uiState.visual.pureCssFoundationApplied).toBe(true);
-      expect(uiState.visual.coreStyleClassesEmitted).toBe(true);
-      expect(uiState.visual.panelHasSurface).toBe(true);
-      expect(uiState.visual.panelHasRoundedCorners).toBe(true);
-      expect(uiState.visual.panelHasPadding).toBe(true);
-      expect(uiState.visual.inputWidthRatio).toBeGreaterThanOrEqual(0.55);
-      expect(uiState.visual.inputHasEditorHeight).toBe(true);
-      expect(uiState.visual.verticalActionFlow).toBe(true);
-      expect(uiState.visual.resultHasSurface).toBe(true);
-      expect(uiState.visual.resultBelowAction).toBe(true);
-
-      const frame = editorWindow.frameLocator(`iframe[data-plugin-id="${pluginName}"]`);
-      const input = frame.locator('[data-role="json-input"]');
-      const action = frame.locator('[data-role="inspect-json"]');
-      const result = frame.locator('[data-role="result"]');
-      const interactions = [];
-      const exercise = async ({id, json, state, expectedText}) => {
-        await input.fill(json);
-        await action.click();
-        await expect(result).toHaveAttribute("data-state", state, {timeout: 10000});
-        const text = await result.innerText();
-        expect(text).toMatch(expectedText);
-        const interactionScreenshotPath = testInfo.outputPath(`json-inspector-${id}.png`);
-        await capturePluginIframeScreenshot(editorWindow, pluginName, interactionScreenshotPath);
-        await testInfo.attach(`json-inspector-${id}.png`, {path: interactionScreenshotPath, contentType: "image/png"});
-        await persistLiveArtifact(interactionScreenshotPath, `json-inspector-${id}-latest.png`);
-        interactions.push({id, json, state, result: text});
-      };
-
-      await exercise({
-        id: "valid-service",
-        json: '{"service":"payments-api","environment":"production","latencyMs":127,"healthy":true}',
-        state: "success",
-        expectedText: /object[\s\S]*service/i,
-      });
-      await exercise({
-        id: "valid-array",
-        json: '[{"id":"INC-1042"},{"id":"INC-1043"},{"id":"INC-1044"}]',
-        state: "success",
-        expectedText: /array[\s\S]*3/i,
-      });
-      await exercise({
-        id: "invalid-json",
-        json: '{"service":"payments-api",}',
-        state: "error",
-        expectedText: /invalid|error|parse|malformed/i,
-      });
-      const interactionReportPath = testInfo.outputPath("json-inspector-interactions.json");
-      await fs.writeFile(interactionReportPath, JSON.stringify(interactions, null, 2), "utf8");
-      await testInfo.attach("json-inspector-interactions.json", {path: interactionReportPath, contentType: "application/json"});
-      await persistLiveArtifact(interactionReportPath, "json-inspector-interactions-latest.json");
-    } finally {
-      await removePlugin(editorWindow, pluginName);
-    }
+  test.describe("Web Tools Workbench live scenario", () => {
+    test("live scenario: builds, deploys, and screenshots a local webmaster-tools workbench", async ({}, testInfo) => {
+      await runWebToolsWorkbenchLiveScenario(webToolsWorkbenchScenarioDeps(), testInfo);
+    });
   });
 
   test("live visual reference: creates a polished JSON Inspector from a supplied mobile mockup", async ({}, testInfo) => {
@@ -875,7 +996,7 @@ test.describe("AI Coding Agent Live Provider", () => {
       const response = editorWindow.getByTestId("ai-coding-response");
       await expect(response).toBeVisible();
       const result = {success: true, content: await response.innerText()};
-      const report = JSON.stringify({provider: LIVE_PROVIDER, model: LIVE_MODEL, result}, null, 2).split(LIVE_API_KEY).join("[REDACTED]");
+      const report = JSON.stringify({provider: LIVE_PROVIDER, model: LIVE_MODEL, result}, null, 2).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]");
       await testInfo.attach(`${scenario.id}.json`, {body: report, contentType: "application/json"});
       expect(result.success, result.error || "Provider failed").toBe(true);
       expect(result.content.trim().length).toBeGreaterThan(0);

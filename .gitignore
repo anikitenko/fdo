@@ -96,3 +96,4 @@ typings/
 # Electron-Forge
 out/
 artifacts/live-ai/
+test-results/

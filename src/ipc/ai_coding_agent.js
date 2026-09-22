@@ -1,11 +1,21 @@
-import {reserveLiveAiTestRequest} from "../utils/liveAiTestBudget";
+import {withUsageContext, usageLedger} from "../utils/aiBilling/ledger";
+import {codingFirstResponseTimeoutMs} from "../utils/codingRequestPolicy.cjs";
+import {inspectCloudflareModel} from "../utils/cloudflareProvider.cjs";
+import {ollamaLlmOptions, inspectOllamaModel} from "../utils/ollamaProvider.cjs";
+import {observeIpcSender, sendToIpcSender} from "../utils/ipcReplyTarget";
+import {assertLiveAiTestRequestsAvailable, reserveLiveAiTestRequest} from "../utils/liveAiTestBudget";
 import {createPluginAssistantIsolation} from "../utils/pluginAssistantIsolation";
 import {extractCodexFailure} from "../utils/codexCliJson";
 import {app, ipcMain} from "electron";
 import {AiCodingAgentChannels} from "./channels.js";
-import LLM from "@themaximalist/llm.js";
+import LLM from "../utils/aiProviderClient";
 import {sendCodingLlmRequest} from "../utils/codingLlmRequest";
+import {createCodingFirstContentDeadline} from "../utils/codingFirstContentDeadline";
+import {generateStagedWorkspace, useStagedWorkspaceGeneration} from "../utils/codingWorkspaceGeneration";
+import {isAiCodingOutputLimitError, withCodingOutputRecovery} from "../utils/aiCodingOutputRecovery";
+import {isAiCodingTransientError, isAiCodingProviderTimeoutError, withCodingTransientRecovery} from "../utils/aiCodingTransientRecovery";
 import {buildPluginAuthoringGuide, buildPluginCodingPrompt} from "../utils/pluginAuthoringGuide";
+import {buildAiProviderInstructionBlock, getAiProviderInstructions} from "../utils/aiProviderInstructions";
 import {settings} from "../utils/store.js";
 import {spawn} from "node:child_process";
 import { resolveCodexCliInvocation } from "../utils/codexCli.js";
@@ -21,6 +31,7 @@ import {
 import {
     buildAiCodingDoneStatus,
     buildAiCodingFirstResponseStatus,
+    buildAiCodingReasoningStatus,
     buildAiCodingLaunchStatus,
     buildAiCodingTransportStatus,
     buildAiCodingWaitingStatus,
@@ -29,11 +40,15 @@ import {
 const activeCodingRequests = new Map();
 // Plugin workspaces commonly need several complete files in one response.
 // Keep this high enough for a compact implementation, its stylesheet, and tests.
-const CODING_MAX_OUTPUT_TOKENS = 8192;
-// A streaming provider should acknowledge a request promptly. This protects
-// the Editor from an indefinitely pending fetch while still allowing a long
-// generation once the provider has started sending content.
-const CODING_FIRST_CONTENT_TIMEOUT_MS = 90_000;
+const DEFAULT_CODING_MAX_OUTPUT_TOKENS = 8192;
+const LIVE_CODING_MAX_OUTPUT_TOKENS = 16384;
+const configuredLiveCodingOutputTokens = Number(process.env.FDO_E2E_CODING_MAX_OUTPUT_TOKENS);
+// Live visual scenarios intentionally ask for a complete multi-screen plugin.
+// Let their runner request more room without raising normal editor request cost.
+const CODING_MAX_OUTPUT_TOKENS = process.env.FDO_E2E === "1"
+    && Number.isFinite(configuredLiveCodingOutputTokens)
+    ? Math.max(4096, Math.min(32768, Math.floor(configuredLiveCodingOutputTokens)))
+    : (process.env.FDO_E2E === "1" ? LIVE_CODING_MAX_OUTPUT_TOKENS : DEFAULT_CODING_MAX_OUTPUT_TOKENS);
 const PLUGIN_WORKSPACE_ONLY_PROMPT = `
 PLUGIN WORKSPACE BOUNDARY:
 - AI Coding Assistant is restricted to the current plugin workspace only.
@@ -53,7 +68,9 @@ function recordE2ECodingLifecycle(event, requestId, details = {}) {
         at: new Date().toISOString(),
         ...details,
     });
-    globalThis.__FDO_E2E_CODING_LIFECYCLE__ = records.slice(-80);
+    // Retain the full bounded live run (up to 50 inference attempts), including
+    // early slow steps, without storing prompts, source or credentials.
+    globalThis.__FDO_E2E_CODING_LIFECYCLE__ = records.slice(-500);
 }
 
 function registerActiveCodingRequest(requestId, controls = {}) {
@@ -76,6 +93,7 @@ function updateActiveCodingRequest(requestId, controls = {}) {
         ...controls,
         cancel: typeof controls.cancel === "function" ? controls.cancel : existing.cancel,
     });
+    if (existing.cancelled && typeof controls.cancel === "function") controls.cancel();
 }
 
 function getActiveCodingRequestState(requestId) {
@@ -91,6 +109,19 @@ function unregisterActiveCodingRequest(requestId) {
     activeCodingRequests.delete(requestId);
 }
 
+function cancelActiveCodingRequest(requestId) {
+    const activeRequest = activeCodingRequests.get(requestId);
+    if (!activeRequest || activeRequest.cancelled) return;
+    activeRequest.cancelled = true;
+    activeRequest.cancel?.();
+}
+
+function sendCodingEvent(event, channel, payload) {
+    if (!sendToIpcSender(event, channel, payload)) {
+        cancelActiveCodingRequest(payload.requestId);
+    }
+}
+
 class AiCodingRequestCancelledError extends Error {
     constructor(message = "AI request stopped by user.") {
         super(message);
@@ -99,7 +130,7 @@ class AiCodingRequestCancelledError extends Error {
 }
 
 function sendBackendStatus(event, requestId, message, metadata = {}) {
-    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+    sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {
         requestId,
         type: "status",
         message,
@@ -179,9 +210,14 @@ function updateCodexAssistantState(assistantInfo, patch = {}) {
 // Create LLM instance for coding tasks
 async function createCodingLlm(assistantInfo, stream = false) {
     const llm = new LLM({
+        accountId: assistantInfo.accountId,
+        firstResponseTimeoutMs: codingFirstResponseTimeoutMs(assistantInfo),
         service: assistantInfo.provider,
         apiKey: assistantInfo.apiKey,
         model: assistantInfo.model,
+        ...(assistantInfo.provider === 'cloudflare' && ['on', 'off'].includes(assistantInfo.defaultThinkingMode)
+            ? {think: assistantInfo.defaultThinkingMode === 'on'} : {}),
+        ...ollamaLlmOptions(assistantInfo),
         stream: stream,
         extended: true,
         max_tokens: CODING_MAX_OUTPUT_TOKENS,
@@ -189,6 +225,9 @@ async function createCodingLlm(assistantInfo, stream = false) {
 
     // This is deliberately limited to the public plugin contract. The coding
     // assistant must never receive product-host implementation details.
+    const providerInstructions = buildAiProviderInstructionBlock(
+        getAiProviderInstructions(settings.get("ai.providerInstructions", {}), assistantInfo.provider),
+    );
     llm.system(`
 You are a coding assistant for a plugin workspace. Work only with the supplied
 plugin files, diagnostics, and public plugin SDK declarations. Do not request,
@@ -196,6 +235,7 @@ infer, or describe product-host source, settings, credentials, internal logs,
 or application architecture.
 
 ${buildPluginAuthoringGuide()}
+${providerInstructions}
 `);
     return llm;
 
@@ -315,7 +355,7 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
             let hasJsonEventStream = false;
             let earlyRetryWithoutJson = false;
             const heartbeat = setInterval(() => {
-                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {
                     requestId,
                     type: "heartbeat",
                     content: " ",
@@ -361,7 +401,7 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
                     );
                 }
                 fullContent += piece;
-                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {
                     requestId,
                     type: "content",
                     content: piece,
@@ -548,11 +588,11 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
             buildAiCodingDoneStatus(result.elapsedMs),
             { phase: "done", elapsedMs: result.elapsedMs },
         );
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent: result.content });
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent: result.content });
         return { success: true, requestId, content: result.content };
     } catch (error) {
         if (error instanceof AiCodingRequestCancelledError || isActiveCodingRequestCancelled(requestId)) {
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
+            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
                 requestId,
                 message: "AI request stopped by user.",
             });
@@ -566,7 +606,7 @@ async function runCodexCliStream(event, requestId, assistantInfo, prompt) {
                 checkedAt: new Date().toISOString(),
             },
         });
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: message,
         });
@@ -645,7 +685,7 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
             let stderr = "";
             let firstContentAt = null;
             const heartbeat = setInterval(() => {
-                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {
                     requestId,
                     type: "heartbeat",
                     content: " ",
@@ -673,7 +713,7 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
                     );
                 }
                 fullContent += text;
-                event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {
                     requestId,
                     type: "content",
                     content: text,
@@ -707,7 +747,7 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
                         buildAiCodingDoneStatus(Date.now() - startedAt),
                         { phase: "done", elapsedMs: Date.now() - startedAt },
                     );
-                    event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, {requestId, fullContent});
+                    sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DONE, {requestId, fullContent});
                     finish(null, {success: true, requestId, content: fullContent});
                     return;
                 }
@@ -737,13 +777,13 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
         runAttempt(false);
     }).catch((error) => {
         if (error instanceof AiCodingRequestCancelledError || isActiveCodingRequestCancelled(requestId)) {
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
+            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
                 requestId,
                 message: "AI request stopped by user.",
             });
             return { success: false, requestId, cancelled: true, error: "AI request stopped by user." };
         }
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error?.message || "Gemini CLI request failed.",
         });
@@ -752,9 +792,102 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt) {
     } finally { await isolation.cleanup(); }
 }
 
-async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null } = {}) {
+async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null, workspace = false, workspaceFiles } = {}) {
     registerActiveCodingRequest(requestId);
-    recordE2ECodingLifecycle("request-started", requestId, {provider: assistantInfo?.provider || ""});
+    let stopObservingSender = () => {};
+    try {
+        stopObservingSender = observeIpcSender(event, () => cancelActiveCodingRequest(requestId));
+        if (["codex-cli", "gemini-cli"].includes(assistantInfo.provider)) {
+            const entry = usageLedger.begin(assistantInfo.provider, assistantInfo.model);
+            try {
+                const result = await runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {image});
+                entry.finish(result.success ? 'completed' : 'failed');
+                return result;
+            } catch (error) { entry.finish('failed'); throw error; }
+        }
+        const transientBudget = {remaining: 1};
+        const runCompletePrompt = (taskPrompt, stageOptions = {}) => withCodingOutputRecovery({
+            prompt: taskPrompt,
+            run: (attemptPrompt, attempt) => withCodingTransientRecovery({
+                budget: transientBudget,
+                isCancelled: () => isActiveCodingRequestCancelled(requestId),
+                run: suppressTransientError => runCodingPromptAttempt(event, requestId, assistantInfo, attemptPrompt, {
+                    image, ...stageOptions, suppressOutputLimitError: attempt === 0, suppressTransientError,
+                }),
+                onRetry: ({delayMs}) => {
+                    sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {requestId, type: "reset"});
+                    sendBackendStatus(event, requestId,
+                        `The provider is temporarily unavailable. Retrying once in ${Math.ceil(delayMs / 1000)} seconds; incomplete code was not applied.`,
+                        {phase: "provider-retry", delayMs});
+                },
+                onRetryStarted: () => sendBackendStatus(event, requestId,
+                    "Retrying the provider now. Waiting for a new, complete response.", {phase: "provider-retry"}),
+            }),
+            isCancelled: () => isActiveCodingRequestCancelled(requestId),
+            onRetry: () => {
+                sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {requestId, type: "reset"});
+                sendBackendStatus(event, requestId,
+                    "The response reached its output limit. Restarting once with a compact, complete answer; incomplete code was not applied.",
+                    {phase: "output-limit-retry"});
+            },
+        });
+        if (useStagedWorkspaceGeneration(assistantInfo.provider, workspace)) {
+            const assertActive = () => {
+                if (isActiveCodingRequestCancelled(requestId)) throw new AiCodingRequestCancelledError();
+            };
+            const content = await generateStagedWorkspace({
+                prompt, workspaceFiles, assertActive, assertBudget: assertLiveAiTestRequestsAvailable,
+                onValidation: details => recordE2ECodingLifecycle('workspace-file-validation', requestId, details),
+                onStage: stage => sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA,
+                    {requestId, type: 'stage', ...stage}),
+                request: async ({prompt: stagePrompt, maxOutputTokens, minimumRequests, responseSchema, bufferedResponse, workspaceStep, includeImage = true}) => {
+                    // The workspace orchestrator owns plan/file output-limit
+                    // recovery. A generic complete-answer retry can repeat an
+                    // oversized plan or module and leak a premature UI error.
+                    const result = await withCodingTransientRecovery({
+                        budget: transientBudget,
+                        // A file-stage 408 goes directly to the orchestrator's
+                        // buffered-to-streaming recovery. Replaying the same
+                        // buffered request first can waste another full timeout.
+                        shouldRetry: error => !(workspaceStep?.startsWith('/') && isAiCodingProviderTimeoutError(error)),
+                        isCancelled: () => isActiveCodingRequestCancelled(requestId),
+                        run: suppressTransientError => {
+                            assertLiveAiTestRequestsAvailable(minimumRequests);
+                            return runCodingPromptAttempt(event, requestId, assistantInfo, stagePrompt, {
+                                image: includeImage ? image : null, maxOutputTokens, responseSchema, bufferedResponse, workspaceStep, deferCompletion: true, suppressOutputLimitError: true,
+                                suppressProviderTimeoutError: true, suppressTransientError,
+                            });
+                        },
+                        onRetry: () => {
+                            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {requestId, type: 'reset'});
+                            sendBackendStatus(event, requestId, 'Provider temporarily unavailable. Retrying the current workspace step once.', {phase: 'provider-retry'});
+                        },
+                    });
+                    assertActive();
+                    if (!result.success) throw new Error(result.error || 'Workspace generation failed. No changes were applied.');
+                    return result.content;
+                },
+            });
+            assertActive();
+            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DONE, {requestId, fullContent: content});
+            return {success: true, requestId, content};
+        }
+        return await runCompletePrompt(prompt);
+    } catch (error) {
+        if (!isActiveCodingRequestCancelled(requestId)) throw error;
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_CANCELLED, {requestId, message: "AI request stopped by user."});
+        return {success: false, requestId, cancelled: true, error: "AI request stopped by user."};
+    } finally {
+        stopObservingSender();
+        recordE2ECodingLifecycle("request-finished", requestId);
+        unregisterActiveCodingRequest(requestId);
+    }
+}
+
+async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {image = null, suppressOutputLimitError = false, suppressProviderTimeoutError = false, suppressTransientError = false, maxOutputTokens, responseSchema, bufferedResponse, workspaceStep, deferCompletion = false} = {}) {
+    const attemptStartedAt = Date.now();
+    const stepDetails = workspaceStep ? {workspaceStep} : {};
+    recordE2ECodingLifecycle("request-started", requestId, {provider: assistantInfo?.provider || "", ...stepDetails});
     let waitingHeartbeat = null;
     let clearFirstContentDeadline = () => {};
     try {
@@ -762,7 +895,12 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
         // providers receive the guide from createCodingLlm(), while CLI
         // providers receive the exact same public guide in their prompt.
         const isCliProvider = assistantInfo.provider === "codex-cli" || assistantInfo.provider === "gemini-cli";
-        const providerPrompt = isCliProvider ? buildPluginCodingPrompt(prompt) : prompt;
+        const providerInstructions = buildAiProviderInstructionBlock(
+            getAiProviderInstructions(settings.get("ai.providerInstructions", {}), assistantInfo.provider),
+        );
+        const providerPrompt = isCliProvider
+            ? `${buildPluginCodingPrompt(prompt)}${providerInstructions}`
+            : prompt;
         const scopedPrompt = `${PLUGIN_WORKSPACE_ONLY_PROMPT}\n\n${providerPrompt}`;
         if (assistantInfo.provider === "codex-cli") {
             if (image) {
@@ -777,6 +915,16 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             return await runGeminiCliStream(event, requestId, assistantInfo, scopedPrompt);
         }
 
+        if (["ollama", "cloudflare"].includes(assistantInfo.provider)) {
+            const inspection = new AbortController();
+            updateActiveCodingRequest(requestId, {cancel: () => inspection.abort()});
+            if (isActiveCodingRequestCancelled(requestId)) throw new AiCodingRequestCancelledError();
+            if (assistantInfo.provider === "cloudflare") {
+                await inspectCloudflareModel(assistantInfo, {requireVision: !!image, signal: inspection.signal});
+            } else {
+                await inspectOllamaModel(assistantInfo.baseUrl, assistantInfo.model, {requireVision: !!image, signal: inspection.signal});
+            }
+        }
         reserveLiveAiTestRequest();
         const llm = await createCodingLlm(assistantInfo, true);
         recordE2ECodingLifecycle("provider-created", requestId, {provider: assistantInfo?.provider || ""});
@@ -792,20 +940,17 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             throw new AiCodingRequestCancelledError();
         }
         const startedAt = Date.now();
+        const firstContentTimeoutMs = codingFirstResponseTimeoutMs(assistantInfo);
         let firstContentAt = null;
-        let firstContentTimeout = null;
-        const firstContentDeadline = new Promise((_, reject) => {
-            firstContentTimeout = setTimeout(() => {
-                llm.abort?.();
-                reject(new Error(`The assistant did not start responding within ${Math.round(CODING_FIRST_CONTENT_TIMEOUT_MS / 1000)} seconds. Check the selected model and provider connection, then retry.`));
-            }, CODING_FIRST_CONTENT_TIMEOUT_MS);
+        let reasoningReceived = false;
+        const deadline = createCodingFirstContentDeadline({
+            timeoutMs: firstContentTimeoutMs,
+            provider: assistantInfo.provider,
+            describeTransport: () => llm.describeTransport?.() || "",
+            abort: () => llm.abort?.(),
         });
-        clearFirstContentDeadline = () => {
-            if (firstContentTimeout) {
-                clearTimeout(firstContentTimeout);
-                firstContentTimeout = null;
-            }
-        };
+        const firstContentDeadline = deadline.promise;
+        clearFirstContentDeadline = deadline.clear;
         sendBackendStatus(
             event,
             requestId,
@@ -815,7 +960,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
         sendBackendStatus(
             event,
             requestId,
-            buildAiCodingWaitingStatus({ elapsedMs: 0, retrying: false }),
+            buildAiCodingWaitingStatus({ elapsedMs: 0, retrying: false, transportStatus: llm.describeTransport?.() }),
             { phase: "waiting-for-first-content", provider: assistantInfo?.provider || "" },
         );
         let fullContent = "";
@@ -826,17 +971,29 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             sendBackendStatus(
                 event,
                 requestId,
-                buildAiCodingWaitingStatus({ elapsedMs: Date.now() - startedAt, retrying: false }),
-                { phase: "waiting-for-first-content", elapsedMs: Date.now() - startedAt },
+                reasoningReceived ? buildAiCodingReasoningStatus(Date.now() - startedAt)
+                    : buildAiCodingWaitingStatus({ elapsedMs: Date.now() - startedAt, retrying: false,
+                        transportStatus: llm.describeTransport?.() }),
+                { phase: reasoningReceived ? "reasoning" : "waiting-for-first-content", elapsedMs: Date.now() - startedAt },
             );
         }, 10000);
 
         // Establishing a streaming connection may itself take a while. Start
         // the heartbeat before awaiting it so the Editor keeps the request
         // alive and gives the author honest waiting feedback during that gap.
-        recordE2ECodingLifecycle("provider-request-dispatched", requestId);
+        recordE2ECodingLifecycle("provider-request-dispatched", requestId, {...stepDetails,
+            promptCharacters: scopedPrompt.length,
+            systemCharacters: llm.messages?.filter(message => message.role === 'system')
+                .reduce((total, message) => total + String(message.content || '').length, 0) || 0,
+            hasImage: !!image, structured: !!responseSchema,
+            maxOutputTokens: Math.min(maxOutputTokens || CODING_MAX_OUTPUT_TOKENS, CODING_MAX_OUTPUT_TOKENS)});
         const resp = await Promise.race([
-            sendCodingLlmRequest(llm, scopedPrompt, image),
+            sendCodingLlmRequest(llm, scopedPrompt, image, {
+                ...(assistantInfo.provider === "ollama" ? {options: ollamaLlmOptions(assistantInfo).options} : {}),
+                ...(maxOutputTokens ? {max_tokens: Math.min(maxOutputTokens, CODING_MAX_OUTPUT_TOKENS)} : {}),
+                ...(responseSchema ? {responseSchema} : {}),
+                ...(bufferedResponse ? {bufferedResponse: true} : {}),
+            }),
             firstContentDeadline,
         ]);
 
@@ -851,6 +1008,16 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                         if (!chunk) continue;
                         const { type, content: piece } = chunk;
 
+                        if (type === "thinking" && typeof piece === "string" && piece && !firstContentAt) {
+                            deadline.noteReasoning();
+                            if (!reasoningReceived) {
+                                reasoningReceived = true;
+                                recordE2ECodingLifecycle("first-reasoning", requestId, {elapsedMs: Date.now() - startedAt});
+                                sendBackendStatus(event, requestId, buildAiCodingReasoningStatus(Date.now() - startedAt),
+                                    {phase: "reasoning", elapsedMs: Date.now() - startedAt});
+                            }
+                        }
+
                         if (type === "content" && piece && typeof piece === "string") {
                             if (!firstContentAt) {
                                 firstContentAt = Date.now();
@@ -864,7 +1031,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                                 );
                             }
                             fullContent += piece;
-                            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DELTA, {
+                            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DELTA, {
                                 requestId,
                                 type: "content",
                                 content: piece,
@@ -882,7 +1049,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                 throw new AiCodingRequestCancelledError();
             }
 
-            await resp.complete();
+            const completedResponse = await resp.complete();
             if (!fullContent.trim()) {
                 throw new Error("The assistant returned no text. Check the selected model, provider access and output-token limit.");
             }
@@ -892,14 +1059,19 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                 buildAiCodingDoneStatus(Date.now() - startedAt),
                 { phase: "done", elapsedMs: Date.now() - startedAt },
             );
-            recordE2ECodingLifecycle("request-completed", requestId, {elapsedMs: Date.now() - startedAt, contentLength: fullContent.length});
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
+            recordE2ECodingLifecycle("request-completed", requestId, {...stepDetails,
+                elapsedMs: Date.now() - startedAt, contentLength: fullContent.length,
+                ...(Number.isFinite(completedResponse?.usage?.input_tokens) ? {inputTokens: completedResponse.usage.input_tokens} : {}),
+                ...(Number.isFinite(completedResponse?.usage?.output_tokens) ? {outputTokens: completedResponse.usage.output_tokens} : {})});
+            if (!deferCompletion) sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
             return { success: true, requestId, content: fullContent };
         }
 
         throw new Error("Invalid response from assistant backend");
     } catch (error) {
         recordE2ECodingLifecycle("request-failed", requestId, {
+            ...stepDetails, elapsedMs: Date.now() - attemptStartedAt,
+            ...(Number.isFinite(error?.status) ? {status: error.status} : {}),
             name: error?.name || "Error",
             cancelled: error instanceof AiCodingRequestCancelledError || isActiveCodingRequestCancelled(requestId),
         });
@@ -908,20 +1080,21 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             clearInterval(waitingHeartbeat);
         }
         if (error instanceof AiCodingRequestCancelledError || isActiveCodingRequestCancelled(requestId)) {
-            event.sender.send(AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
+            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_CANCELLED, {
                 requestId,
                 message: "AI request stopped by user.",
             });
             return { success: false, requestId, cancelled: true, error: "AI request stopped by user." };
         }
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
-            requestId,
-            error: error.message,
-        });
+        if ((!suppressOutputLimitError || !isAiCodingOutputLimitError(error))
+            && (!suppressProviderTimeoutError || !isAiCodingProviderTimeoutError(error))
+            && (!suppressTransientError || !isAiCodingTransientError(error))) {
+            sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
+                requestId,
+                error: error.message,
+            });
+        }
         throw error;
-    } finally {
-        recordE2ECodingLifecycle("request-finished", requestId);
-        unregisterActiveCodingRequest(requestId);
     }
 }
 
@@ -1000,7 +1173,7 @@ Do NOT say that the workspace is read-only, that the sandbox blocked you, or tha
         return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt);
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handleGenerateCode', error);
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
         });
@@ -1103,7 +1276,7 @@ async function handleEditCode(event, data) {
         const prompt = buildEditCodePrompt({ instruction, language, code, context, targetFilePath });
         return await runCodingPrompt(event, requestId, assistantInfo, prompt);
     } catch (error) {
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
         });
@@ -1131,7 +1304,7 @@ ${context ? `Relevant bundled FDO SDK knowledge:\n${context}\n` : ''}
 Provide a clear, concise explanation of what this code does, how it works, and any notable patterns or practices used.`;
         return await runCodingPrompt(event, requestId, assistantInfo, prompt);
     } catch (error) {
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
         });
@@ -1151,7 +1324,7 @@ async function handleFixCode(event, data) {
         const prompt = buildFixCodePrompt({ error, language, code, context, targetFilePath });
         return await runCodingPrompt(event, requestId, assistantInfo, prompt);
     } catch (error) {
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
         });
@@ -1183,7 +1356,7 @@ async function handleSmartMode(event, data) {
         return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt);
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handleSmartMode', error);
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
         });
@@ -1245,10 +1418,16 @@ async function handleRouteJudge(_event, data = {}) {
             'Return exactly: {"route":"smart","confidence":0.0,"intent":{"isQuestion":false,"asksForCodeChange":false,"asksForFileCreation":false,"asksForPlanExecution":false,"isFollowupConfirmation":false},"reasons":["..."]}',
         ].join("\n");
 
+        if (assistantInfo.provider === "ollama") await inspectOllamaModel(assistantInfo.baseUrl, assistantInfo.model);
         const routerLlm = new LLM({
+            accountId: assistantInfo.accountId,
+            firstResponseTimeoutMs: codingFirstResponseTimeoutMs(assistantInfo),
             service: assistantInfo.provider,
             apiKey: assistantInfo.apiKey,
             model: assistantInfo.model,
+            ...(assistantInfo.provider === 'cloudflare' && ['on', 'off'].includes(assistantInfo.defaultThinkingMode)
+                ? {think: assistantInfo.defaultThinkingMode === 'on'} : {}),
+            ...ollamaLlmOptions(assistantInfo),
             stream: false,
             extended: false,
             max_tokens: 260,
@@ -1256,7 +1435,8 @@ async function handleRouteJudge(_event, data = {}) {
         });
 
         reserveLiveAiTestRequest();
-        const resp = await routerLlm.chat(routerPrompt);
+        const resp = await routerLlm.chat(routerPrompt, assistantInfo.provider === "ollama"
+            ? {options: ollamaLlmOptions(assistantInfo).options} : {});
         const raw = typeof resp === "string" ? resp : (resp?.content || "");
         const jsonText = extractJsonObject(raw);
         if (!jsonText) {
@@ -1301,7 +1481,7 @@ async function handleRouteJudge(_event, data = {}) {
 
 // Handle code planning - Generate plugin scaffold
 async function handlePlanCode(event, data) {
-    const { requestId, prompt, image, context, assistantId } = data;
+    const { requestId, prompt, image, context, assistantId, workspaceFiles } = data;
 
     console.log('[AI Coding Agent Backend] Plan code request', { requestId, promptLength: prompt?.length, hasImage: !!image, assistantId });
 
@@ -1336,10 +1516,10 @@ async function handlePlanCode(event, data) {
                 : "Preparing full plugin scaffold request.",
             { phase: "prepare", executionMode, promptLength: fullPrompt.length, contextLength: context?.length || 0 },
         );
-        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt, { image });
+        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt, { image, workspace: true, workspaceFiles });
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handlePlanCode', error);
-        event.sender.send(AiCodingAgentChannels.on_off.STREAM_ERROR, {
+        sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {
             requestId,
             error: error.message,
         });
@@ -1358,21 +1538,18 @@ async function handleCancelRequest(_event, data) {
         return { success: false, requestId, error: "No active AI request found." };
     }
 
-    activeRequest.cancelled = true;
-    if (typeof activeRequest.cancel === "function") {
-        activeRequest.cancel();
-    }
+    cancelActiveCodingRequest(requestId);
 
     return { success: true, requestId, cancelled: true };
 }
 
 export function registerAiCodingAgentHandlers() {
-    ipcMain.handle(AiCodingAgentChannels.ROUTE_JUDGE, handleRouteJudge);
-    ipcMain.handle(AiCodingAgentChannels.GENERATE_CODE, handleGenerateCode);
-    ipcMain.handle(AiCodingAgentChannels.EDIT_CODE, handleEditCode);
-    ipcMain.handle(AiCodingAgentChannels.EXPLAIN_CODE, handleExplainCode);
-    ipcMain.handle(AiCodingAgentChannels.FIX_CODE, handleFixCode);
-    ipcMain.handle(AiCodingAgentChannels.SMART_MODE, handleSmartMode);
-    ipcMain.handle(AiCodingAgentChannels.PLAN_CODE, handlePlanCode);
+    ipcMain.handle(AiCodingAgentChannels.ROUTE_JUDGE, withUsageContext(handleRouteJudge, "coding"));
+    ipcMain.handle(AiCodingAgentChannels.GENERATE_CODE, withUsageContext(handleGenerateCode, "coding"));
+    ipcMain.handle(AiCodingAgentChannels.EDIT_CODE, withUsageContext(handleEditCode, "coding"));
+    ipcMain.handle(AiCodingAgentChannels.EXPLAIN_CODE, withUsageContext(handleExplainCode, "coding"));
+    ipcMain.handle(AiCodingAgentChannels.FIX_CODE, withUsageContext(handleFixCode, "coding"));
+    ipcMain.handle(AiCodingAgentChannels.SMART_MODE, withUsageContext(handleSmartMode, "coding"));
+    ipcMain.handle(AiCodingAgentChannels.PLAN_CODE, withUsageContext(handlePlanCode, "coding"));
     ipcMain.handle(AiCodingAgentChannels.CANCEL_REQUEST, handleCancelRequest);
 }

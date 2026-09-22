@@ -412,7 +412,7 @@ new InspectorPlugin();`,
             },
             {
                 path: "/render.tsx",
-                content: `const form = document.querySelector("form");\nif (form?.dataset.bound) return;\nform.dataset["bound"] = "true";\nform.setAttribute("data-bound", "true");`,
+                content: `export function bind() { const form = document.querySelector("form");\nif (form?.dataset.bound) return;\nform.dataset["bound"] = "true";\nform.setAttribute("data-bound", "true"); }`,
             },
         ]);
 

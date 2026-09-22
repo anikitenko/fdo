@@ -1,0 +1,44 @@
+{
+  "runner": "v24.13.0",
+  "playwright": "1.63.0",
+  "durationMs": 180000,
+  "waitMs": 0,
+  "contentMode": "code",
+  "events": [
+    {
+      "event": "editor-page-close",
+      "at": "2026-09-21T08:32:46.051Z"
+    },
+    {
+      "event": "playwright-context-close",
+      "at": "2026-09-21T08:32:46.052Z"
+    },
+    {
+      "event": "cleanup-started",
+      "at": "2026-09-21T08:32:46.056Z"
+    },
+    {
+      "event": "electron-process-exit",
+      "at": "2026-09-21T08:32:51.078Z",
+      "exitCode": null,
+      "signal": "SIGKILL"
+    }
+  ],
+  "status": "failed",
+  "passed": false,
+  "runtime": {
+    "electron": "44.4.1",
+    "chromium": "152.0.7977.78",
+    "node": "24.21.0"
+  },
+  "error": "page.waitForFunction: Target page, context or browser has been closed\nBrowser logs:\n\n<launching> /Users/alexvwan/dev/fdo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron -r /Users/alexvwan/dev/fdo/node_modules/playwright-core/lib/server/electron/loader.js --inspect=0 --remote-debugging-port=0 .\n<launched> pid=8292\n[pid=8292][err] Debugger listening on ws://127.0.0.1:54762/59bbf4a2-3ccd-4ca5-935e-c69278629f59\n[pid=8292][err] For help, see: https://nodejs.org/learn/getting-started/debugging\n[pid=8292][err] Debugger attached.\n[pid=8292][out] [STARTUP] process-start: 0ms (Δ0ms) [MEM: 216.8 MB, CPU: 0.0%] { note: 'Metrics initialized' }\n[pid=8292][err] \n[pid=8292][err] DevTools listening on ws://127.0.0.1:54765/devtools/browser/8a53b229-4130-4653-bedf-744647b35a66\n[pid=8292][out] [STARTUP] app-ready: 58ms (Δ58ms) [MEM: 253.9 MB, CPU: 102.7%] {}\n[pid=8292][out] [STARTUP] window-created: 126ms (Δ69ms) [MEM: 270.9 MB, CPU: 95.3%] {}\n[pid=8292][out] [STARTUP] window-visible: 257ms (Δ130ms) [MEM: 278.4 MB, CPU: 36.6%] {}\n[pid=8292][out] [STARTUP] react-mount-start: 276ms (Δ19ms) [MEM: 280.0 MB, CPU: 48.1%] {}\n[pid=8292][out] [STARTUP] renderer-process-start: 276ms (Δ0ms) [MEM: 280.0 MB, CPU: 37.6%] {}\n[pid=8292][out] [STARTUP] renderer-loaded: 307ms (Δ31ms) [MEM: 281.7 MB, CPU: 51.2%] {}\n[pid=8292][out] [STARTUP] react-mount-complete: 448ms (Δ141ms) [MEM: 297.0 MB, CPU: 60.0%] {}\n[pid=8292][out] [STARTUP] app-interactive: 448ms (Δ0ms) [MEM: 297.0 MB, CPU: 0.0%] {}\n[pid=8292][err] [8292:0921/113131.437970:INFO:CONSOLE:2] \"%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n[pid=8292][err]   Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of\n[pid=8292][err]   this app to unnecessary security risks.\n[pid=8292][err] \n[pid=8292][err] For more information and help, consult\n[pid=8292][err] https://electronjs.org/docs/tutorial/security.\n[pid=8292][err] This warning will not show up\n[pid=8292][err] once the app is packaged.\", source: node:electron/js2c/sandbox_bundle (2)\n[pid=8292][err] [8292:0921/113131.840730:INFO:CONSOLE:1] \"[AI Coding Agent] Event handlers registered\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)\n[pid=8292][err] [8292:0921/113132.041982:INFO:CONSOLE:1] \"[AI Coding Agent] Submit started [object Object]\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)\n[pid=8292][err] [8292:0921/113132.058609:INFO:CONSOLE:1] \"[AI Coding Agent] Preparing request [object Object]\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)\n[pid=8292][err] [8292:0921/113132.058714:INFO:CONSOLE:1] \"[AI Coding Agent] Request ID set 1789979492058-5u27bl6p3\", source: file:///Users/alexvwan/dev/fdo/dist/renderer/214.449284aac5a53831061e.js (1)",
+  "mainProcess": {
+    "windows": [
+      {
+        "id": 1,
+        "destroyed": false,
+        "webContentsDestroyed": false
+      }
+    ]
+  }
+}

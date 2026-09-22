@@ -31,6 +31,50 @@ at errorUIRenderer
         expect(result.summary).toBe("");
     });
 
+    test("does not treat source code error handling or test fixtures as a reported failure", () => {
+        expect(classifyAiCodingIssueScope({
+            prompt: "Explain the selected code",
+            selectedCode: 'try { parse(input); } catch (error) { output.textContent = "Error: invalid JSON"; }\nconst expected = "TypeError: goober is unavailable in plugin host environment";',
+        })).toEqual({kind: "none", summary: ""});
+    });
+
+    test("generic compiler/test errors do not claim a confirmed current runtime failure", () => {
+        const result = classifyAiCodingIssueScope({
+            prompt: "Fix this test",
+            problemsContext: "Recent test output:\nAssertionError: expected uppercase output",
+        });
+        expect(result.kind).toBe("plugin");
+        expect(result.summary).toBe("Reported error included in the request context.");
+        expect(result.summary).not.toContain("runtime diagnostics identify");
+    });
+
+    test("does not diagnose a new plugin from stale SDK/host problem markers", () => {
+        const result = classifyAiCodingIssueScope({
+            prompt: "Create a compact JSON Inspector plugin with a polished iframe UI.",
+            problemsContext: "TypeError: SDK host runtime failed in window.createBackendReq",
+        });
+
+        expect(result).toEqual({kind: "none", summary: ""});
+    });
+
+    test("does not infer an SDK/host failure from ordinary authoring instructions", () => {
+        const result = classifyAiCodingIssueScope({
+            prompt: "Build a plugin with FDO_SDK that renders inside an iframe in the plugin host runtime.",
+        });
+
+        expect(result).toEqual({kind: "none", summary: ""});
+    });
+
+    test("keeps an unexpected plugin-process exit unclassified until logs identify its cause", () => {
+        const result = classifyAiCodingIssueScope({
+            prompt: "Plugin process stopped unexpectedly while rendering an FDO_SDK iframe plugin.",
+        });
+
+        expect(result.kind).toBe("runtime");
+        expect(result.summary).toContain("before rendering");
+        expect(result.summary).not.toContain("SDK/host runtime contract");
+    });
+
     test("does not inject diagnosis for generation-style prompts", () => {
         expect(shouldIncludeIssueDiagnosis({
             prompt: "I want a plugin like switchhosts.app with SDK best practices",

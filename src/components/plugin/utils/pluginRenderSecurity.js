@@ -1,28 +1,60 @@
+import {parse} from "@babel/parser";
+
 const MAX_PLUGIN_SOURCE_LENGTH = 512 * 1024;
 
 const failFastRules = [
-    { pattern: /\bglobalThis\./g, reason: "global object access" },
-    { pattern: /\bprocess\./g, reason: "Node process access" },
-    { pattern: /\beval\s*\(/g, reason: "eval" },
-    { pattern: /\bFunction\s*\(/g, reason: "Function constructor" },
-    { pattern: /\bnew\s+Function\s*\(/g, reason: "Function constructor" },
-    { pattern: /\bimportScripts\s*\(/g, reason: "worker script imports" },
-    { pattern: /\bwindow\.parent\b/g, reason: "direct parent window access" },
-    { pattern: /\bwindow\.top\b/g, reason: "direct top window access" },
-    { pattern: /\bwindow\.location\b/g, reason: "programmatic navigation" },
-    { pattern: /\blocation\.(?:assign|replace|reload)\s*\(/g, reason: "programmatic navigation" },
-    { pattern: /\blocation\.href\s*=/g, reason: "programmatic navigation" },
-    { pattern: /\bhistory\.(?:pushState|replaceState)\s*\(/g, reason: "history navigation" },
-    { pattern: /\bwindow\.open\s*\(/g, reason: "window navigation" },
-    { pattern: /\bdocument\.cookie\b/g, reason: "cookie access" },
-    { pattern: /\blocalStorage\b/g, reason: "localStorage access" },
-    { pattern: /\bsessionStorage\b/g, reason: "sessionStorage access" },
-    { pattern: /\bnavigator\.sendBeacon\b/g, reason: "beacon network access" },
-    { pattern: /\b(?:SharedWorker|Worker)\s*\(/g, reason: "worker creation" },
-    { pattern: /\bRTCPeerConnection\s*\(/g, reason: "WebRTC network access" },
+    { pattern: /\bglobalThis\s*\.\s*/, reason: "global object access" },
+    { pattern: /\bprocess\s*\.\s*/, reason: "Node process access" },
+    { pattern: /\beval\s*\(/, reason: "eval" },
+    { pattern: /\bFunction\s*\(/, reason: "Function constructor" },
+    { pattern: /\bnew\s+Function\s*\(/, reason: "Function constructor" },
+    { pattern: /\bimportScripts\s*\(/, reason: "worker script imports" },
+    { pattern: /\bwindow\s*\.\s*parent\b/, reason: "direct parent window access" },
+    { pattern: /\bwindow\s*\.\s*top\b/, reason: "direct top window access" },
+    { pattern: /\bwindow\s*\.\s*location\b/, reason: "programmatic navigation" },
+    { pattern: /\blocation\s*\.\s*(?:assign|replace|reload)\s*\(/, reason: "programmatic navigation" },
+    { pattern: /\blocation\s*\.\s*href\s*=/, reason: "programmatic navigation" },
+    { pattern: /\bhistory\s*\.\s*(?:pushState|replaceState)\s*\(/, reason: "history navigation" },
+    { pattern: /\bwindow\s*\.\s*open\s*\(/, reason: "window navigation" },
+    { pattern: /\bdocument\s*\.\s*cookie\b/, reason: "cookie access" },
+    { pattern: /\blocalStorage\b/, reason: "localStorage access" },
+    { pattern: /\bsessionStorage\b/, reason: "sessionStorage access" },
+    { pattern: /\bnavigator\s*\.\s*sendBeacon\b/, reason: "beacon network access" },
+    { pattern: /\b(?:SharedWorker|Worker)\s*\(/, reason: "worker creation" },
+    { pattern: /\bRTCPeerConnection\s*\(/, reason: "WebRTC network access" },
 ];
 
-export function rejectKnownUnsafeRenderPatterns(code, label = "plugin UI source") {
+function executableSource(code, label, requireValidSyntax) {
+    try {
+        const ast = parse(code, {
+            sourceType: "unambiguous",
+            plugins: ["jsx", "typescript"],
+            allowReturnOutsideFunction: true,
+            tokens: true,
+        });
+        // Preserve expressions inside template literals and JSX, but exclude
+        // prose, comments, regex bodies, and quoted values from code checks.
+        const ignored = new Set(["string", "regexp", "template", "jsxText", "CommentLine", "CommentBlock"]);
+        let result = "";
+        let offset = 0;
+        for (const token of ast.tokens) {
+            const kind = typeof token.type === "string" ? token.type : token.type.label;
+            if (!ignored.has(kind)) continue;
+            result += code.slice(offset, token.start) + " ".repeat(token.end - token.start);
+            offset = token.end;
+        }
+        return result + code.slice(offset);
+    } catch (error) {
+        if (requireValidSyntax) {
+            throw new Error(`${label} is not valid JavaScript/TypeScript: ${error.message}`);
+        }
+        // The renderer owns syntax diagnostics (and legacy HTML payloads).
+        // Preserve the conservative guard if the input cannot be tokenized.
+        return code;
+    }
+}
+
+export function rejectKnownUnsafeRenderPatterns(code, label = "plugin UI source", {requireValidSyntax = false} = {}) {
     if (typeof code !== "string") {
         throw new Error(`${label} must be a string.`);
     }
@@ -31,8 +63,9 @@ export function rejectKnownUnsafeRenderPatterns(code, label = "plugin UI source"
         throw new Error(`${label} exceeds the host size limit.`);
     }
 
+    const executable = executableSource(code, label, requireValidSyntax);
     for (const rule of failFastRules) {
-        if (rule.pattern.test(code)) {
+        if (rule.pattern.test(executable)) {
             throw new Error(`${label} contains blocked ${rule.reason}. This is only a fail-fast guard; the iframe sandbox is the real security boundary.`);
         }
     }
@@ -46,7 +79,7 @@ export function normalizePluginRenderPayload(content) {
     }
 
     return {
-        onLoad: rejectKnownUnsafeRenderPatterns(parseSerializedRenderSegment(content.onLoad ?? JSON.stringify("null"), "onLoad"), "plugin onLoad source"),
+        onLoad: rejectKnownUnsafeRenderPatterns(parseSerializedRenderSegment(content.onLoad ?? JSON.stringify("null"), "onLoad"), "plugin onLoad source", {requireValidSyntax: true}),
         render: rejectKnownUnsafeRenderPatterns(parseSerializedRenderSegment(content.render, "render"), "plugin render source"),
     };
 }

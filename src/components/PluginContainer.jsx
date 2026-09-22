@@ -732,7 +732,14 @@ export const PluginContainer = ({
         if (!iframeLoaded || !iframeReady || !content?.render) {
             return;
         }
-        const normalized = normalizePluginRenderPayload(content);
+        let normalized;
+        try {
+            normalized = normalizePluginRenderPayload(content);
+        } catch (error) {
+            setHostError(error?.message || "Invalid plugin render payload.");
+            setDebugStage("plugin-render-validation-failed");
+            return;
+        }
         const signature = `${renderAttempt}:${normalized.render.length}:${normalized.onLoad.length}`;
         if (lastPostedRenderSignatureRef.current === signature) {
             return;
@@ -826,7 +833,8 @@ export const PluginContainer = ({
     }, [hostError, content, iframeMounted]);
 
     const shouldShowLoadingOverlay = active && (
-        !hostDocument
+        Boolean(hostError)
+        || !hostDocument
         || !iframeLoaded
         || (!content?.render && !iframeMounted && !iframeReady)
     );

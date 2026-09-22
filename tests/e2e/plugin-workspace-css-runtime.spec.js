@@ -15,6 +15,16 @@ const workspace = JSON.parse(fs.readFileSync(
   path.resolve(__dirname, "../fixtures/ai/json-inspector-workspace.json"),
   "utf8",
 ));
+// Exercise nested imports and overlapping class declarations through the real
+// compiler and iframe, not only the CSS map utility.
+const css = workspace['/styles.css'];
+const formAt = css.indexOf('.flow {');
+const resultAt = css.indexOf('.result {');
+workspace['/styles/base.css'] = css.slice(0, formAt);
+workspace['/features/json/form.css'] = css.slice(formAt, resultAt);
+workspace['/features/json/result.css'] = css.slice(resultAt);
+workspace['/styles/layout.css'] = '@import "./base.css"; @import "../features/json/form.css"; @import "../features/json/result.css"; .panel { padding: 24px; }';
+workspace['/styles.css'] = '@import "./styles/layout.css"; .panel { border-radius: 12px; }';
 const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const pluginName = `e2e-json-inspector-workspace-${token}`;
 
@@ -47,7 +57,7 @@ test.describe("plugin workspace CSS runtime", () => {
     await closeElectronApp(electronApp);
   }, 120000);
 
-  test("builds, deploys, and renders a stylesheet-importing workspace", async ({}, testInfo) => {
+  test("builds, deploys, and renders nested feature CSS with declaration overrides", async ({}, testInfo) => {
     test.setTimeout(120000);
     const window = await electronApp.firstWindow();
     await window.evaluate(() => {
@@ -60,6 +70,15 @@ test.describe("plugin workspace CSS runtime", () => {
 
     const compiled = await window.evaluate((latestContent) => window.electron.plugin.build({latestContent}), workspace);
     expect(compiled.success, compiled.error || "The JSON Inspector fixture did not compile").toBe(true);
+    for (const [source, message] of [
+      ['@import "./styles/missing.css";', 'CSS import not found'],
+      ['@import "./styles.css";', 'Circular CSS import'],
+    ]) {
+      const invalid = await window.evaluate((latestContent) => window.electron.plugin.build({latestContent}),
+        {...workspace, '/styles.css': source});
+      expect(invalid.success, 'Broken stylesheet imports must fail compilation').toBe(false);
+      expect(invalid.error).toContain(message);
+    }
     const outputFiles = Array.isArray(compiled.files) ? compiled.files : (compiled.files?.outputFiles || compiled.outputFiles || []);
     const content = outputFiles.find((file) => typeof file?.text === "string")?.text || "";
     expect(content).not.toBe("");
@@ -85,6 +104,8 @@ test.describe("plugin workspace CSS runtime", () => {
     await waitForPluginReady(window, pluginName);
     await selectPluginOpen(window, pluginName);
     await waitForPluginUiRendered(window, pluginName, 30000);
+    const frame = window.frameLocator(`iframe[data-plugin-id="${pluginName}"]`);
+    await expect(frame.locator('body')).toContainText('JSON Inspector', {timeout: 10000});
 
     const state = await window.evaluate((id) => {
       const iframe = Array.from(document.querySelectorAll("iframe[data-plugin-id]"))
@@ -102,7 +123,9 @@ test.describe("plugin workspace CSS runtime", () => {
     expect(state.styleText).toMatch(/@keyframes/i);
     expect(state.styleText).toMatch(/prefers-reduced-motion/i);
 
-    const frame = window.frameLocator(`iframe[data-plugin-id="${pluginName}"]`);
+    await expect(frame.locator('main')).toHaveCSS('padding', '24px');
+    await expect(frame.locator('main')).toHaveCSS('border-radius', '12px');
+    await expect(frame.locator('main')).toHaveCSS('background-color', 'rgb(247, 248, 252)');
     const input = frame.locator('[data-role="json-input"]');
     const action = frame.locator('[data-role="inspect-json"]');
     const result = frame.locator('[data-role="result"]');
@@ -120,6 +143,9 @@ test.describe("plugin workspace CSS runtime", () => {
     await action.click();
     await expect(result).toHaveAttribute("data-state", "error", {timeout: 10000});
     await expect(result).toContainText("Invalid JSON");
+
+    await window.emulateMedia({reducedMotion: 'reduce'});
+    await expect(result).toHaveCSS('animation-name', 'none');
 
     const screenshotPath = testInfo.outputPath("json-inspector-workspace.png");
     await window.locator(`iframe[data-plugin-id="${pluginName}"]`).screenshot({path: screenshotPath});

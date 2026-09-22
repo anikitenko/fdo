@@ -1,5 +1,5 @@
 import {contextBridge, ipcRenderer} from 'electron'
-import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels} from "./ipc/channels";
+import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels} from "./ipc/channels";
 
 const pluginListenerWrappers = {
     unloaded: new WeakMap(),
@@ -74,6 +74,16 @@ contextBridge.exposeInMainWorld('electron', {
             updated: (callback) => ipcRenderer.removeListener(NotificationChannels.on_off.UPDATED, callback),
         }
     },
+    aiUsage: {
+        get: filter => ipcRenderer.invoke(AiUsageChannels.GET, filter),
+        rates: () => ipcRenderer.invoke(AiUsageChannels.RATES),
+        saveRate: data => ipcRenderer.invoke(AiUsageChannels.SAVE_RATE, data),
+        subscribe: callback => {
+            const listener = () => callback();
+            ipcRenderer.on(AiUsageChannels.UPDATED, listener);
+            return () => ipcRenderer.removeListener(AiUsageChannels.UPDATED, listener);
+        },
+    },
     aiChat: {
         getSessions: () => ipcRenderer.invoke(AiChatChannels.SESSIONS_GET),
         createSession: (name) => ipcRenderer.invoke(AiChatChannels.SESSION_CREATE, name),
@@ -134,10 +144,12 @@ contextBridge.exposeInMainWorld('electron', {
         },
         ai: {
             getAssistants: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET),
+            getProviderInstructions: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_PROVIDER_INSTRUCTIONS),
+            setProviderInstructions: (instructions) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_PROVIDER_INSTRUCTIONS, instructions),
             addAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.ADD, data),
             setDefaultAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_DEFAULT, data),
             removeAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE, data),
-            getAvailableModels: (provider, apiKey) => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, provider, apiKey),
+            getAvailableModels: (provider, apiKey, baseUrl, accountId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, provider, apiKey, baseUrl, accountId),
             getCodexAuthStatus: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_STATUS, assistantId),
             startCodexLogin: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, assistantId),
             codexLogout: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, assistantId),

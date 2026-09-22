@@ -1,8 +1,8 @@
 module.exports = {
   transform: {
-    "^.+\\.[jt]sx?$": "babel-jest",
+    "^.+\\.(?:[jt]sx?|mjs)$": "babel-jest",
   },
-  transformIgnorePatterns: ["/node_modules/(?!electron|playwright)/"],
+  transformIgnorePatterns: ["/node_modules/(?!(?:electron|playwright|ollama|html-tags)(?:/|$))"],
   testEnvironment: "jsdom",
   moduleNameMapper: {
     "^.+\\.module\\.css$": "identity-obj-proxy",

@@ -1,3 +1,4 @@
+import {withUsageContext, currentTurnUsage} from "../../utils/aiBilling/ledger";
 import {ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
 import {settings} from "../../utils/store";
@@ -133,7 +134,7 @@ export function registerAiChatHandlers() {
         return next;
     })
 
-    ipcMain.handle(AiChatChannels.SEND_MESSAGE, async (event, { sessionId, content, think, stream, provider, model, assistantId, temperature, uiLanguage, attachments, replyTo }) => {
+    ipcMain.handle(AiChatChannels.SEND_MESSAGE, withUsageContext(async (event, { sessionId, content, think, stream, provider, model, assistantId, temperature, uiLanguage, attachments, replyTo }) => {
         return await withSessionLock(sessionId, async () => {
             if (uiLanguage) {
                 const previous = settings.get("ai.options.chatDialog", {}) || {};
@@ -276,7 +277,7 @@ export function registerAiChatHandlers() {
                     `Model: ${assistantInfo.model || "Unknown"}`,
                 ].join("\n");
                 event.sender.send(AiChatChannels.on_off.STREAM_ERROR, { sessionId, error: errorText });
-                const assistantMsg = { id: crypto.randomUUID(), role: "assistant", content: errorText, createdAt: new Date().toISOString() };
+                const assistantMsg = { id: crypto.randomUUID(), role: "assistant", content: errorText, createdAt: new Date().toISOString(), ...currentTurnUsage() };
                 session.messages.push(assistantMsg);
                 session.updatedAt = new Date().toISOString();
                 sessions[idx] = session;
@@ -288,7 +289,7 @@ export function registerAiChatHandlers() {
                 return session;
             }
         })
-    })
+    }, "chat"))
 
     ipcMain.handle(AiChatChannels.GET_CAPABILITIES, async (_, model, provider, assistantId) => {
         const assistantInfo = selectAssistant(assistantId, provider, model);

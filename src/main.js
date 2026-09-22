@@ -1,3 +1,5 @@
+import './utils/installStdioErrorHandlers';
+import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {app, BrowserWindow, dialog, nativeTheme, protocol} from 'electron';
 import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
@@ -921,6 +923,7 @@ app.whenReady().then(async () => {
     registerSettingsHandlers();
     registerSystemHandlers();
     registerPluginHandlers();
+    registerAiUsageHandlers();
     registerAiChatHandlers();
     registerAiCodingAgentHandlers();
 

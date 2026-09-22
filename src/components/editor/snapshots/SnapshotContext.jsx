@@ -271,15 +271,20 @@ export const SnapshotProvider = ({children}) => {
   const openPanel = useCallback(() => setPanelOpen(true), []);
   const closePanel = useCallback(() => setPanelOpen(false), []);
 
-  // Expose a safe global opener so legacy UI can open the timeline (Option B)
+  // Expose safe legacy entry points. Consumers outside this provider can open
+  // the timeline or request a switch without bypassing the unsaved-change gate.
   useEffect(() => {
     try {
       window.__openSnapshotsPanel = () => setPanelOpen(true);
+      window.__requestSnapshotSwitch = (versionId) => requestSwitch(versionId);
     } catch (_) {}
     return () => {
-      try { if (window.__openSnapshotsPanel) delete window.__openSnapshotsPanel; } catch (_) {}
+      try {
+        if (window.__openSnapshotsPanel) delete window.__openSnapshotsPanel;
+        if (window.__requestSnapshotSwitch) delete window.__requestSnapshotSwitch;
+      } catch (_) {}
     };
-  }, []);
+  }, [requestSwitch]);
 
   // Hotkeys
   const hotkeys = useMemo(() => [{

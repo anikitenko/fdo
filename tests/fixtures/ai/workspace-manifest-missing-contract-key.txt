@@ -1,0 +1,14 @@
+{"files":[
+{"path":"/styles/base.css","contract":"Leaf CSS: .shell background/min-height, palette vars, type, buttons, focus, reduced-motion."},
+{"path":"/styles/dashboard.css","contract":"Leaf CSS: .dashboard grid 2-col, .card tiles, .dock sticky, mobile 1fr media."},
+{"path":"/styles/workspace.css","contract":"Leaf CSS: ivory .workspace, .result success/error states, inputs, Pure form."},
+{"path":"/styles/library.css","contract":"Leaf CSS: .library overlay open/closed, search, rows, close."},
+{"path":"/styles.css","contract":"Thin root: @import base/dashboard/workspace/library then one nested .shell button rule."},
+{"path":"/features/tools/logic.ts","contract":"Export pure deterministic tool fns: text, data, seo, images, social returning result objects."},
+{"path":"/features/tools/tools.test.ts","contract":"node:test suites for each deterministic tool incl. valid/invalid and boundary cases."},
+{"path":"/ui/dashboard.ts","contract":"Export renderDashboard(): string with brand, five category cards, JSON card, dock, roles."},
+{"path":"/ui/workspace.ts","category workspace renderers + json formatter surface with roles and states."},
+{"path":"/ui/library.ts","contract":"Export renderLibrary(): string and renderSpace(): string overlays/sheets with roles."},
+{"path":"/ui/actions.ts","contract":"Export defineRenderOnLoadActions handler strings for buttons and category action logic."},
+{"path":"/render.test.ts","contract":"node:test: match dashboard title, interactive targets, and formatter markup on render() output."}
+]}

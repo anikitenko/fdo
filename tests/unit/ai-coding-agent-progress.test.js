@@ -4,14 +4,42 @@ import {
     buildAiCodingLaunchStatus,
     buildAiCodingTransportStatus,
     buildAiCodingWaitingStatus,
+    buildAiCodingStreamStatus,
+    createAiCodingStreamProgress,
+    recordAiCodingStreamText,
     upsertAiCodingRequestStatus,
 } from "../../src/utils/aiCodingAgentProgress.js";
 
 describe("aiCodingAgentProgress", () => {
+    test("reports received text and measured throughput without estimating completion", () => {
+        const progress = createAiCodingStreamProgress();
+        expect(buildAiCodingStreamStatus(progress, 0)).toBe("");
+        recordAiCodingStreamText(progress, "a".repeat(998), 0);
+        recordAiCodingStreamText(progress, "\n ", 10000);
+        expect(buildAiCodingStreamStatus(progress, 10000)).toBe(
+            "1,000 answer characters received · 100 chars/s average. Receiving answer text.");
+        expect(buildAiCodingStreamStatus(progress, 15000)).toContain("Last answer text 5s ago.");
+        expect(buildAiCodingStreamStatus(progress, 40000)).toContain("No new answer text for 30s.");
+        recordAiCodingStreamText(progress, "Resumed", 41000);
+        expect(buildAiCodingStreamStatus(progress, 41000)).toContain("Receiving answer text.");
+        expect(buildAiCodingStreamStatus(createAiCodingStreamProgress(), 41000)).toBe("");
+    });
+    test("shows a resumed phase as the latest activity without duplicating it", () => {
+        let entries = upsertAiCodingRequestStatus([], "Running tests", {phase: "tests"});
+        entries = upsertAiCodingRequestStatus(entries, "Correcting code", {phase: "generation"});
+        entries = upsertAiCodingRequestStatus(entries, "Verifying corrected code", {phase: "tests"});
+        expect(entries.map(entry => entry.message)).toEqual(["Correcting code", "Verifying corrected code"]);
+    });
     test("builds user-facing waiting milestones", () => {
         expect(buildAiCodingWaitingStatus({ elapsedMs: 0 })).toBe("Analyzing the request and plugin workspace.");
         expect(buildAiCodingWaitingStatus({ elapsedMs: 12000 })).toContain("12s elapsed");
-        expect(buildAiCodingWaitingStatus({ elapsedMs: 32000 })).toContain("Larger prompts can take up to about a minute.");
+        expect(buildAiCodingWaitingStatus({ elapsedMs: 32000 })).toContain("Prompt or image processing may still be in progress.");
+    });
+
+    test("uses provider transport feedback without speculative processing claims", () => {
+        const transportStatus = "Waiting for the complete response from Cloudflare. This request returns its answer all at once.";
+        expect(buildAiCodingWaitingStatus({elapsedMs: 120000, transportStatus}))
+            .toBe(`${transportStatus} (120s elapsed)`);
     });
 
     test("builds retry and completion statuses", () => {
@@ -40,5 +68,16 @@ describe("aiCodingAgentProgress", () => {
         });
         expect(nextPhase).toHaveLength(2);
         expect(nextPhase[1].message).toContain("15s");
+    });
+
+    test("does not repeat a lifecycle message emitted by a transport retry", () => {
+        const first = upsertAiCodingRequestStatus([], "Starting the coding assistant.", {
+            phase: "launch",
+        });
+        const repeated = upsertAiCodingRequestStatus(first, "Starting the coding assistant.", {
+            phase: "retry-launch",
+        });
+
+        expect(repeated).toEqual(first);
     });
 });

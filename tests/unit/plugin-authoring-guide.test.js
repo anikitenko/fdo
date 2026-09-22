@@ -63,6 +63,16 @@ describe("shared plugin authoring guide", () => {
         expect(guide).toContain("read data.json");
         expect(guide).toContain("never read data.content.json");
         expect(guide).toContain("PLUGIN STYLESHEET CONTRACT");
+        expect(guide).toContain("split code into cohesive workspace modules");
+        expect(guide).toContain("no minimum line count or file count");
+        expect(guide).toContain("respect explicit user restrictions on file creation");
+        expect(guide).toContain("factory closures are not automatically available in the iframe");
+        expect(guide).toContain("FOLDER STRUCTURE AND TYPESCRIPT QUALITY");
+        expect(guide).toContain("/features/text/");
+        expect(guide).toContain("import type");
+        expect(guide).toContain("A type assertion is not runtime validation");
+        expect(guide).toContain("discriminated unions");
+        expect(guide).toContain("Bundling alone does not establish");
         expect(guide).not.toMatch(/src\/ipc|PluginPage\.jsx|settings\.json/);
     });
 
@@ -75,6 +85,6 @@ describe("shared plugin authoring guide", () => {
     test("supplies the guide to API system prompts and CLI prompts", () => {
         const source = fs.readFileSync(path.resolve("src/ipc/ai_coding_agent.js"), "utf8");
         expect(source).toContain("${buildPluginAuthoringGuide()}");
-        expect(source).toContain("const providerPrompt = isCliProvider ? buildPluginCodingPrompt(prompt) : prompt;");
+        expect(source).toMatch(/const providerPrompt = isCliProvider\s*\? `\$\{buildPluginCodingPrompt\(prompt\)\}\$\{providerInstructions\}`\s*: prompt;/);
     });
 });

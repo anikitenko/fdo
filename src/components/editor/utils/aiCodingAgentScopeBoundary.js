@@ -22,14 +22,17 @@ function matchesWorkspacePath(candidatePath = "", workspacePaths = []) {
     ));
 }
 
-export function hasHostAppFileReference(text = "", workspaceFiles = []) {
+export function hasHostAppFileReference(text = "", workspaceFiles = [], declaredFiles = []) {
     const normalizedText = normalizeText(text);
     if (!normalizedText) {
         return false;
     }
 
     const workspacePaths = normalizeWorkspacePaths(workspaceFiles);
-    const absolutePathMatches = normalizedText.match(/(?:\/users\/[^\s"'`]+?\.[a-z0-9]+|\/var\/[^\s"'`]+?\.[a-z0-9]+|\/tmp\/[^\s"'`]+?\.[a-z0-9]+|[a-z]:\\[^\s"'`]+?\.[a-z0-9]+)/g) || [];
+    // A generated URL regexp commonly includes `https?:\\/\\/…`. Do not
+    // mistake its `s:\\` fragment for a Windows drive path; actual Windows
+    // paths have a non-separator path character after the first backslash.
+    const absolutePathMatches = normalizedText.match(/(?:\/(?:users|var|tmp|private|applications|library|system|volumes|opt|etc|usr|bin|sbin|dev|home|mnt|proc|root|run|srv|sys|windows|program files)\/[^\s"'`]+?\.[a-z0-9]+|[a-z]:[\\/](?![\\/])[^\s"'`]+?\.[a-z0-9]+)/g) || [];
     if (absolutePathMatches.some((match) => !matchesWorkspacePath(match, workspacePaths))) {
         return true;
     }
@@ -39,8 +42,11 @@ export function hasHostAppFileReference(text = "", workspaceFiles = []) {
         return false;
     }
 
+    // Complete file sections may introduce new virtual src/tests modules.
+    // They cannot authorize matching machine-absolute paths checked above.
+    const responseWorkspacePaths = normalizeWorkspacePaths([...workspaceFiles, ...declaredFiles]);
     return hostPathMatches.some((match) => {
         const normalizedMatch = match.replace(/^[/\\]+/, "");
-        return !matchesWorkspacePath(normalizedMatch, workspacePaths);
+        return !matchesWorkspacePath(normalizedMatch, responseWorkspacePaths);
     });
 }

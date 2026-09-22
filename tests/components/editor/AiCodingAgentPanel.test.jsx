@@ -45,16 +45,104 @@ jest.mock("../../../src/components/AppToaster.jsx", () => ({
     },
 }));
 
-function TestHarness({ codeEditor }) {
+function TestHarness({ codeEditor, onActivityChange }) {
     const [response, setResponse] = React.useState("");
     return (
         <HotkeysProvider>
-            <AiCodingAgentPanel codeEditor={codeEditor} response={response} setResponse={setResponse} />
+            <AiCodingAgentPanel codeEditor={codeEditor} response={response} setResponse={setResponse} onActivityChange={onActivityChange} />
         </HotkeysProvider>
     );
 }
 
 let streamHandlers;
+
+test.each([false, true])('workspace progress follows the current file after a provider retry (popover: %s)', async popover => {
+    let requestId, finish;
+    const activity = jest.fn();
+    window.electron.aiCodingAgent.smartMode.mockImplementationOnce(request => {
+        requestId = request.requestId;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    render(<TestHarness onActivityChange={popover ? activity : undefined}/>);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Explain this plugin'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(requestId).toBeTruthy());
+    await act(async () => {
+        streamHandlers.delta({requestId, type: 'stage', label: 'Generating file 1 of 12: /types.ts', content: ''});
+        streamHandlers.delta({requestId, type: 'reset'});
+        streamHandlers.delta({requestId, type: 'status', message: 'Retrying the provider.', metadata: {phase: 'provider-retry'}});
+    });
+    for (const label of ['Generating file 2 of 12: /render.tsx', 'Repairing file: /render.tsx', 'Splitting oversized module: /render.tsx']) {
+        await act(async () => {
+            streamHandlers.delta({requestId, type: 'stage', label, content: 'Pending types file'});
+            streamHandlers.delta({requestId, type: 'status', message: 'Waiting for the complete response from Cloudflare.', metadata: {phase: 'waiting-for-first-content'}});
+        });
+        if (popover) {
+            expect(activity.mock.lastCall[0].stage).toBe(label);
+            expect(activity.mock.lastCall[0].latestStatus).toBe('Waiting for the complete response from Cloudflare.');
+        } else {
+            const progress = screen.getByTestId('ai-coding-request-progress');
+            expect(progress.querySelector('strong')).toHaveTextContent(label);
+            expect(progress).not.toHaveTextContent('Correcting generated code · attempt 2');
+        }
+    }
+    await act(async () => {
+        streamHandlers.error({requestId, error: 'Test finished'});
+        finish({success: false, requestId, error: 'Test finished'});
+    });
+});
+
+test("shows measured streaming progress, preserves whitespace, and resets counts on retry", async () => {
+    let requestId;
+    let finish;
+    const onActivityChange = jest.fn();
+    window.electron.aiCodingAgent.smartMode.mockImplementationOnce((request) => {
+        requestId = request.requestId;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    render(<TestHarness onActivityChange={onActivityChange} />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: "Explain this plugin"}});
+    fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+    await waitFor(() => expect(requestId).toBeTruthy());
+    await act(async () => {
+        streamHandlers.delta({requestId, type: "status", message: "First answer", metadata: {phase: "first-content"}});
+        for (const content of ["```js\nconst a =", "\n  ", "42;\n```"])
+            streamHandlers.delta({requestId, content});
+        streamHandlers.delta({requestId: "stale", content: "discard this"});
+    });
+    const response = await screen.findByTestId("ai-coding-response");
+    expect(response.querySelector("pre").textContent).toBe("```js\nconst a =\n  42;\n```");
+    expect(response.querySelector("code")).toBeNull();
+    await waitFor(() => expect(onActivityChange.mock.lastCall[0].latestStatus).toContain("25 answer characters received"));
+    await act(async () => {
+        streamHandlers.delta({requestId, type: "reset"});
+        streamHandlers.delta({requestId, content: "New"});
+    });
+    await waitFor(() => expect(onActivityChange.mock.lastCall[0].latestStatus).toContain("3 answer characters received"));
+    await act(async () => {
+        streamHandlers.delta({requestId, type: "stage", label: "Generating file 2 of 3: /index.ts", content: "Pending first file"});
+        streamHandlers.delta({requestId, type: "status", message: "Waiting for the complete response from Cloudflare. This request returns its answer all at once. (10s elapsed)", metadata: {phase: "waiting-for-first-content"}});
+    });
+    expect(onActivityChange.mock.lastCall[0].stage).toBe("Generating file 2 of 3: /index.ts");
+    expect(onActivityChange.mock.lastCall[0].latestStatus).toContain("Waiting for the complete response from Cloudflare.");
+    await act(async () => {
+        streamHandlers.delta({requestId, type: "status", message: "First answer", metadata: {phase: "first-content"}});
+        streamHandlers.delta({requestId, content: "Next"});
+    });
+    await waitFor(() => {
+        expect(onActivityChange.mock.lastCall[0].stage).toBe("Generating file 2 of 3: /index.ts");
+        expect(onActivityChange.mock.lastCall[0].latestStatus).toContain("4 answer characters received");
+    });
+    await act(async () => {
+        streamHandlers.error({requestId, error: "Test stream stopped"});
+        finish({success: false, requestId, error: "Test stream stopped"});
+    });
+    expect(screen.getByTestId("ai-coding-response")).toHaveTextContent("Pending first file");
+    expect(screen.getByTestId("ai-coding-response")).toHaveTextContent("Next");
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+});
 
 test.each([undefined, "another-snapshot"])("keeps historical replies browseable without apply controls for snapshot %s", async (snapshot) => {
     virtualFS.sandboxName = "old-history";
@@ -134,7 +222,9 @@ test("restores plugin conversation and includes it in a follow-up, then clears i
     expect(JSON.stringify(window.electron.aiCodingAgent.smartMode.mock.calls[1][0])).toContain("Previous conversation in this plugin workspace");
     expect(JSON.stringify(window.electron.aiCodingAgent.smartMode.mock.calls[1][0])).toContain("We chose Quasar Quill");
     await waitFor(() => expect(screen.queryByRole("button", {name: /Stop/i})).toBeNull());
-    fireEvent.click(screen.getByRole("button", {name: "Clear conversation"}));
+    fireEvent.click(screen.getByRole("button", {name: "Reset workspace conversation"}));
+    expect(screen.getByText(/removes the saved AI conversation for the current plugin workspace/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Reset conversation"}));
     expect(JSON.parse(localStorage.getItem("fdo:plugin-ai-history:v1:history-plugin"))).toEqual([]);
 });
 
@@ -178,6 +268,8 @@ beforeEach(() => {
     virtualFS.sandboxName = "";
     virtualFS.fs.snapshotSwitchRevision = 0;
     delete virtualFS.notifications;
+    delete window.__requestSnapshotSwitch;
+    delete window.__openSnapshotsPanel;
     localStorage.clear();
     jest.clearAllMocks();
     window.location.hash = "";
@@ -299,6 +391,26 @@ beforeEach(() => {
 });
 
 describe("AiCodingAgentPanel auto-apply patch flow", () => {
+    test("restores the snapshot linked from a saved conversation entry", async () => {
+        virtualFS.sandboxName = "linked-snapshot";
+        const requestSnapshotSwitch = jest.fn();
+        window.__requestSnapshotSwitch = requestSnapshotSwitch;
+        localStorage.setItem("fdo:plugin-ai-history:v1:linked-snapshot", JSON.stringify([
+            {
+                role: "user",
+                content: "Create a functional Web Tools Workbench plugin.",
+                snapshot: "zygomorphic-turquoise",
+            },
+        ]));
+
+        render(<TestHarness />);
+
+        await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+        fireEvent.click(screen.getByRole("button", {name: "Snapshot: zygomorphic-turquoise"}));
+
+        expect(requestSnapshotSwitch).toHaveBeenCalledWith("zygomorphic-turquoise");
+    });
+
     test.each(["apply", "review"])("%s mode applies the selected-code fix only after authorization", async (mode) => {
         const selection = {
             startLineNumber: 2,
@@ -1060,6 +1172,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
         });
         expect(screen.getByRole("button", {name: /Stop/i})).toBeTruthy();
+        expect(screen.getByTestId("ai-coding-request-progress")).toHaveTextContent("Correcting generated code · attempt 2");
+        expect(screen.getByTestId("ai-coding-request-progress")).toHaveTextContent(/elapsed/);
         expect(window.electron.plugin.getRuntimeStatus).not.toHaveBeenCalled();
         expect(window.electron.plugin.init).not.toHaveBeenCalled();
         expect(window.electron.plugin.render).not.toHaveBeenCalled();
@@ -2012,6 +2126,75 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(promptInput.value).toContain("Include every required plugin workspace file section");
     });
 
+    test("discards buffered partial output when the backend restarts a limited response", async () => {
+        const codeEditor = {
+            getSelection: jest.fn(() => null),
+            getModel: jest.fn(() => ({
+                getLanguageId: jest.fn(() => "typescript"),
+                getValue: jest.fn(() => "export {};"),
+                getValueInRange: jest.fn(() => ""),
+            })),
+        };
+        const providerError = "Assistant stream response.incomplete: max_output_tokens";
+        window.electron.aiCodingAgent.smartMode.mockImplementationOnce(async ({requestId}) => {
+            Promise.resolve().then(() => {
+                streamHandlers.delta?.({requestId, content: "DiscardedPartialClass"});
+                streamHandlers.delta?.({requestId: "stale-request", type: "reset"});
+                streamHandlers.delta?.({requestId, type: "reset"});
+                streamHandlers.delta?.({requestId, content: "ReplacementPartialClass"});
+                streamHandlers.error?.({requestId, error: providerError});
+            });
+            return {success: false, requestId, error: providerError};
+        });
+        render(<TestHarness codeEditor={codeEditor} />);
+        await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: {value: "Build a JSON Inspector plugin"},
+        });
+        fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+        expect(await screen.findByText(/assistant reached its response limit/i)).toBeTruthy();
+        expect(screen.getByTestId("ai-coding-response")).toHaveTextContent("ReplacementPartialClass");
+        expect(screen.getByTestId("ai-coding-response")).not.toHaveTextContent("DiscardedPartialClass");
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    });
+
+    test.each(["openai", "anthropic"].flatMap(provider => [
+        "Assistant stream ended before completion; no changes were applied.",
+        "Assistant stream error: Rate limit exceeded",
+        `Assistant stream response.incomplete: ${provider === "openai" ? "max_output_tokens" : "max_tokens"}`,
+    ].map(error => [provider, error])))("%s preserves workspace files after %s and ignores late stream completion", async (provider, error) => {
+        window.electron.settings.ai.getAssistants.mockResolvedValue([
+            {id: "assistant-1", name: "Safety test", provider, model: "test-model", purpose: "coding", default: true},
+        ]);
+        const files = {"/index.ts": "export const preserved = true;", "/notes.txt": "User notes"};
+        virtualFS.getLatestContent.mockImplementation(() => ({...files}));
+        const model = {
+            getLanguageId: () => "typescript", getValue: () => files["/index.ts"], getValueInRange: () => "",
+            pushEditOperations: jest.fn(),
+        };
+        let failedRequestId;
+        const content = '```typescript\n// SOLUTION READY TO APPLY\nexport const overwritten = true;\n```';
+        window.electron.aiCodingAgent.generateCode.mockImplementation(async ({requestId}) => {
+            failedRequestId = requestId;
+            streamHandlers.delta?.({requestId, content});
+            streamHandlers.error?.({requestId, error});
+            return {success: false, requestId, error};
+        });
+        render(<TestHarness codeEditor={{getSelection: () => null, getModel: () => model}} />);
+        await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
+        fireEvent.change(screen.getByLabelText(/Action/i, {selector: "select"}), {target: {value: "generate"}});
+        fireEvent.change(document.querySelector("#prompt-input"), {target: {value: "Update the value in /index.ts"}});
+        fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+        await waitFor(() => expect(screen.getByTestId("ai-coding-error")).toBeTruthy());
+        await act(async () => { streamHandlers.done?.({requestId: failedRequestId, fullContent: content}); });
+        expect(model.pushEditOperations).not.toHaveBeenCalled();
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+        expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+        expect(virtualFS.fs.create).not.toHaveBeenCalled();
+        expect(virtualFS.getLatestContent()).toEqual({"/index.ts": "export const preserved = true;", "/notes.txt": "User notes"});
+    });
+
     test("recognizes the provider output-limit signal", () => {
         expect(isAiCodingOutputLimitError("Assistant stream response.incomplete: max_output_tokens")).toBe(true);
         expect(isAiCodingOutputLimitError("network timeout")).toBe(false);
@@ -2302,7 +2485,10 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
     });
 
-    test("stops an in-flight request and blocks late auto-apply", async () => {
+    test.each(["openai", "anthropic", "codex-cli"])("stops a %s request and blocks late auto-apply", async (provider) => {
+        window.electron.settings.ai.getAssistants.mockResolvedValue([
+            {id: "assistant-1", name: "Safety test", provider, model: "test-model", purpose: "coding", default: true},
+        ]);
         const selection = {
             startLineNumber: 2,
             startColumn: 1,
@@ -2394,29 +2580,38 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         await waitFor(() => {
             expect(screen.getByText(/AI Request Stopped/i)).toBeTruthy();
         });
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+        expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+        expect(virtualFS.fs.create).not.toHaveBeenCalled();
 
         expect(currentValue).toContain("const brokenValue = oldThing();");
         expect(currentValue).not.toContain("const brokenValue = safeThing();");
         expect(model.pushEditOperations).not.toHaveBeenCalled();
     });
 
-    test("aborts an idle provider request instead of leaving the Editor busy", async () => {
+    test.each(["openai", "anthropic", "codex-cli"])("aborts an idle %s request and rejects a late successful reply", async (provider) => {
+        window.electron.settings.ai.getAssistants.mockResolvedValue([
+            {id: "assistant-1", name: "Safety test", provider, model: "test-model", purpose: "coding", default: true},
+        ]);
         jest.useFakeTimers();
         try {
-            const neverCompletes = new Promise(() => {});
+            let completeLate;
+            const pending = new Promise(resolve => { completeLate = resolve; });
             let pendingRequestId = "";
             window.electron.aiCodingAgent.generateCode.mockImplementation(({requestId}) => {
                 pendingRequestId = requestId;
-                return neverCompletes;
+                return pending;
             });
             const model = {
                 getLanguageId: () => "typescript",
                 getValue: () => "export const ready = true;",
                 getValueInRange: () => "",
+                pushEditOperations: jest.fn(),
             };
 
             render(<TestHarness codeEditor={{getSelection: () => null, getModel: () => model}} />);
             await act(async () => { await Promise.resolve(); });
+            fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
             fireEvent.change(screen.getByLabelText(/Action/i, {selector: "select"}), {target: {value: "generate"}});
             fireEvent.change(document.querySelector("#prompt-input"), {target: {value: "Generate a status card"}});
             fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
@@ -2430,6 +2625,15 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.aiCodingAgent.cancelRequest).toHaveBeenCalledWith({requestId: pendingRequestId});
             expect(screen.getByText("Request timed out. The AI service may be unavailable. Please try again.")).toBeTruthy();
             expect(screen.queryByRole("button", {name: /Stop/i})).toBeNull();
+            await act(async () => {
+                const content = '```typescript\n// SOLUTION READY TO APPLY\nexport const ready = false;\n```';
+                streamHandlers.done?.({requestId: pendingRequestId, fullContent: content});
+                completeLate({requestId: pendingRequestId, success: true, content});
+            });
+            expect(model.pushEditOperations).not.toHaveBeenCalled();
+            expect(virtualFS.createFile).not.toHaveBeenCalled();
+            expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+            expect(virtualFS.fs.create).not.toHaveBeenCalled();
         } finally {
             jest.useRealTimers();
         }
@@ -2604,7 +2808,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         await waitFor(() => {
             expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
         });
-        expect(window.electron.aiCodingAgent.routeJudge).toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.routeJudge).not.toHaveBeenCalled();
         expect(window.electron.aiCodingAgent.fixCode).not.toHaveBeenCalled();
         expect(virtualFS.setFileContent.mock.calls.length).toBe(setFileCallsBeforeSubmit);
     });
@@ -2947,6 +3151,53 @@ describe("AiCodingAgentPanel smart mode guidance", () => {
 });
 
 describe("AiCodingAgentPanel plugin scope enforcement", () => {
+    test("applies newly generated nested test files without restarting workspace generation", async () => {
+        const {BLANK_TEMPLATE_MAIN} = require("../../../src/components/editor/utils/virtualTemplates");
+        const initialEntry = BLANK_TEMPLATE_MAIN("Workbench");
+        const model = {
+            getValue: () => initialEntry,
+            getLanguageId: () => "typescript",
+            getValueInRange: () => "",
+            getFullModelRange: () => ({startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1}),
+            pushEditOperations: jest.fn(),
+        };
+        virtualFS.getLatestContent.mockReturnValue({"/index.ts": initialEntry});
+        const files = {
+            "/logic.ts": "export const format = (value: unknown) => JSON.stringify(value);",
+            "/tests/tools.test.ts": [
+                "import test from 'node:test';",
+                "import assert from 'node:assert/strict';",
+                "import {format} from '../logic';",
+                "test('format', () => assert.equal(format({}), '{}'));",
+            ].join("\n"),
+        };
+        const content = Object.entries(files)
+            .map(([path, source]) => `### File: ${path}\n\`\`\`typescript\n${source}\n\`\`\``).join("\n\n");
+        window.electron.aiCodingAgent.planCode.mockImplementationOnce(async ({requestId}) => {
+            streamHandlers.done?.({requestId, fullContent: content});
+            return {success: true, requestId, content};
+        });
+        render(<TestHarness codeEditor={{
+            getSelection: () => null,
+            getModel: () => model,
+            focus: jest.fn(),
+        }} />);
+        await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+        fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: {value: "Create a plugin with JSON formatting logic and a node:test suite in separate workspace files."},
+        });
+        fireEvent.change(screen.getByLabelText("Action"), {target: {value: "plan"}});
+        fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
+        expect(await screen.findByText("Applied as snapshot snapshot-1")).toBeTruthy();
+        expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+        expect(window.electron.aiCodingAgent.generateCode).not.toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.smartMode).not.toHaveBeenCalled();
+        const applied = Object.fromEntries(virtualFS.createFile.mock.calls.map(([path, model]) => [path, model.getValue()]));
+        expect(applied).toEqual(files);
+        expect(screen.queryByText(/Plugin Scope Enforced/i)).toBeNull();
+    });
+
     test("blocks prompt requests that target FDO host files", async () => {
         const codeEditor = {
             getSelection: jest.fn(() => ({
@@ -3430,4 +3681,69 @@ describe("isInformationalOnlyPrompt", () => {
     test("does not classify polite mutation questions as informational", () => {
         expect(isInformationalOnlyPrompt("can you please make name of plugin from undefined to a better name?")).toBe(false);
     });
+});
+
+test('keeps one elapsed clock across statuses and stream completion, freezes it at completion, and resets for a new submission', async () => {
+    jest.useFakeTimers();
+    let unmount;
+    try {
+        let requestId, finish;
+        window.electron.aiCodingAgent.smartMode.mockImplementation(request => {
+            requestId = request.requestId;
+            return new Promise(resolve => { finish = resolve; });
+        });
+        const activity = jest.fn();
+        ({unmount} = render(<TestHarness onActivityChange={activity}/>));
+        await screen.findByLabelText(/Describe what you want to do/i);
+        const submit = () => {
+            fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Explain this plugin'}});
+            fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+        };
+        submit();
+        await waitFor(() => expect(requestId).toBeTruthy());
+        await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+        const elapsed = activity.mock.lastCall[0].elapsedMs;
+        expect(elapsed).toBeGreaterThanOrEqual(5000);
+        expect(activity.mock.lastCall[0].stageElapsedMs).toBeGreaterThanOrEqual(5000);
+        for (const phase of ['generation', 'provider-retry', 'plan-retry-validation']) {
+            await act(async () => {
+                streamHandlers.delta({requestId, type: 'status', message: phase, metadata: {phase}});
+                streamHandlers.delta({requestId, type: 'reset'});
+            });
+            expect(activity.mock.lastCall[0].elapsedMs).toBe(elapsed);
+        }
+        await act(async () => {
+            streamHandlers.delta({requestId, type: 'stage', label: 'Generating file 2 of 12: /render.tsx', content: 'Pending first file'});
+            streamHandlers.delta({requestId, type: 'status', message: 'Waiting for response', metadata: {phase: 'waiting-for-first-content'}});
+        });
+        expect(activity.mock.lastCall[0].stage).toBe('Generating file 2 of 12: /render.tsx');
+        expect(activity.mock.lastCall[0].elapsedMs).toBe(elapsed);
+        expect(activity.mock.lastCall[0].stageElapsedMs).toBe(0);
+        await act(async () => { await jest.advanceTimersByTimeAsync(2000); });
+        const stageElapsed = activity.mock.lastCall[0].stageElapsedMs;
+        expect(stageElapsed).toBeGreaterThanOrEqual(2000);
+        await act(async () => {
+            streamHandlers.delta({requestId, type: 'status', message: 'Still receiving this file', metadata: {phase: 'waiting-for-first-content'}});
+        });
+        expect(activity.mock.lastCall[0].stageElapsedMs).toBe(stageElapsed);
+        expect(activity.mock.lastCall[0].elapsedMs).toBeGreaterThanOrEqual(elapsed + 2000);
+        await act(async () => { streamHandlers.done({requestId, fullContent: 'This plugin displays a greeting.'}); });
+        expect(activity.mock.lastCall[0].isLoading).toBe(true);
+        await act(async () => { await jest.advanceTimersByTimeAsync(3000); });
+        expect(activity.mock.lastCall[0].elapsedMs).toBeGreaterThanOrEqual(elapsed + 3000);
+        await act(async () => { finish({success: true, requestId, content: 'This plugin displays a greeting.'}); });
+        expect(activity.mock.lastCall[0].isLoading).toBe(false);
+        const finalElapsed = activity.mock.lastCall[0].elapsedMs;
+        const finalStageElapsed = activity.mock.lastCall[0].stageElapsedMs;
+        expect(finalElapsed).toBeGreaterThanOrEqual(elapsed + 3000);
+        await act(async () => { await jest.advanceTimersByTimeAsync(3000); });
+        expect(activity.mock.lastCall[0].elapsedMs).toBe(finalElapsed);
+        expect(activity.mock.lastCall[0].stageElapsedMs).toBe(finalStageElapsed);
+        requestId = null;
+        submit();
+        await waitFor(() => expect(requestId).toBeTruthy());
+        expect(activity.mock.lastCall[0].elapsedMs).toBeLessThan(1000);
+        expect(activity.mock.lastCall[0].stageElapsedMs).toBeLessThan(1000);
+        await act(async () => { finish({success: true, requestId, content: 'Another explanation.'}); });
+    } finally { unmount?.(); jest.useRealTimers(); }
 });

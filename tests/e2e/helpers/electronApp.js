@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const {acquireElectronPowerGuard} = require('./electronPowerGuard.cjs');
 
 let e2eUserDataDir = "";
 const appUserDataDirs = new WeakMap();
@@ -86,6 +87,14 @@ async function launchElectronApp(electron, options = {}) {
     isolated: isolatedUserDataDir,
   });
   const firstWindow = await app.firstWindow();
+  if (options.keepDisplayAwake === true) {
+    try {
+      appUserDataDirs.get(app).powerGuard = await acquireElectronPowerGuard(app);
+    } catch (error) {
+      await closeElectronApp(app);
+      throw error;
+    }
+  }
   try {
     await firstWindow.evaluate(() => {
       window.__E2E__ = true;
@@ -180,9 +189,7 @@ async function clearConfirmLog(page) {
   });
 }
 
-async function closeElectronApp(app) {
-  if (!app) return;
-  const appUserData = appUserDataDirs.get(app) || null;
+async function closeElectronWindows(app) {
   try {
     const windows = app.windows();
     for (const win of windows) {
@@ -203,6 +210,34 @@ async function closeElectronApp(app) {
   try {
     await app.close();
   } catch (_) {}
+}
+
+async function closeElectronApp(app) {
+  if (!app) return;
+  const appUserData = appUserDataDirs.get(app) || null;
+  await appUserData?.powerGuard?.release();
+  const child = app.process();
+  // A lost browser connection can make app.close() return without terminating
+  // Electron, leaving its Node inspector (and test worker) alive. Bound graceful
+  // cleanup and wait for the owned process to exit before removing its profile.
+  if (child.exitCode === null && child.signalCode === null) {
+    let onExit;
+    let deadline;
+    const exited = new Promise((resolve, reject) => {
+      onExit = resolve;
+      child.once('exit', onExit);
+      deadline = setTimeout(() => reject(new Error('Electron did not exit during test cleanup')), 10000);
+    });
+    const forceExit = setTimeout(() => child.kill('SIGKILL'), 5000);
+    try {
+      void closeElectronWindows(app).catch(() => {});
+      await exited;
+    } finally {
+      clearTimeout(forceExit);
+      clearTimeout(deadline);
+      child.off('exit', onExit);
+    }
+  }
 
   if (appUserData?.path && process.env.FDO_E2E_KEEP_USER_DATA !== "1") {
     try {

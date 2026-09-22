@@ -26,53 +26,72 @@ export function shouldIncludeIssueDiagnosis({
 
 export function classifyAiCodingIssueScope({
     prompt = "",
-    selectedCode = "",
     problemsContext = "",
 } = {}) {
+    // Source code can contain error constructors, example messages and tests
+    // without having failed. Only reported errors/diagnostics are evidence.
     const text = [
         prompt,
-        selectedCode,
         problemsContext,
     ].filter(Boolean).join("\n");
     const normalized = normalizeText(text);
 
-    const hasRuntimeError = /error:|typeerror|referenceerror|unhandledpromiserejectionwarning|stack|backend:|\bat\b/.test(normalized);
-    const hasSdkSignals = /@anikitenko\/fdo-sdk|fdo_sdk|fdo_sdk|fdointerface|pluginmetadata|domtable|dominput|dombutton|goober|sdk/.test(normalized);
-    const hasHostSignals = /plugin host environment|plugin host|window\.|iframe|host runtime|createbackendreq|executeinjectedscript/.test(normalized);
-    const hasPluginSignals = /\bplugin\b|index\.ts|render\(|metadata\.icon|init\(\)/.test(normalized);
-
-    if (!hasRuntimeError && !hasSdkSignals && !hasHostSignals) {
+    // A workspace-creation request can inherit stale compiler markers from a
+    // prior plugin. Do not present those as a diagnosis of a plugin that has
+    // not been generated yet. Explicit debugging language still opts in to a
+    // diagnosis when the user is actually investigating a failure.
+    const scaffoldIntent = /\b(create|build|generate|scaffold|implement|make)\b[\s\S]{0,100}\bplugin\b/.test(normalized);
+    const explicitTroubleshooting = /\b(diagnos(?:e|is|tic)?|debug|analy[sz]e|investigat(?:e|ion|ing)?|troubleshoot(?:ing)?|crash|broken|failing|failure)\b/.test(normalized);
+    if (scaffoldIntent && !explicitTroubleshooting) {
         return {
             kind: "none",
             summary: "",
         };
     }
 
-    if (hasSdkSignals && hasHostSignals) {
+    const hasReportedError = /(?:\b(?:[a-z]+)?error:|typeerror|referenceerror|unhandledpromiserejectionwarning|\bexception\b|\bcrash(?:ed|ing)?\b|plugin process stopped unexpectedly|\bstack trace\b|backend:\s*(?:error|failed))/.test(normalized);
+    const hasSdkContractFailure = /(?:@anikitenko\/fdo-sdk|fdo_sdk|fdointerface|pluginmetadata|domtable|dominput|dombutton|goober)\b[^\n]{0,180}\b(?:does not provide|not exported|undefined|unavailable|missing|is not a function|cannot read)|\b(?:baseplugin|fdoplugin)\b[^\n]{0,120}\b(?:undefined|not exported|unavailable|missing)|\bgoober\b[^\n]{0,120}\b(?:unavailable|missing|failed)/.test(normalized);
+    const hasHostContractFailure = /(?:plugin host environment|plugin host|host runtime|createbackendreq|executeinjectedscript)[^\n]{0,180}\b(?:error|failed|unavailable|missing|undefined|is not a function|cannot read)|\b(?:error|failed|unavailable|missing|undefined|is not a function|cannot read)[^\n]{0,180}(?:plugin host environment|plugin host|host runtime|createbackendreq|executeinjectedscript)|\biframe\b[^\n]{0,180}\b(?:error|failed|unavailable|missing|undefined|is not a function|cannot read)/.test(normalized);
+
+    if (!hasReportedError && !hasSdkContractFailure && !hasHostContractFailure) {
+        return {
+            kind: "none",
+            summary: "",
+        };
+    }
+
+    if (hasSdkContractFailure && hasHostContractFailure) {
         return {
             kind: "sdk-host",
-            summary: "Diagnosis: likely SDK/host runtime contract issue.",
+            summary: "Possible SDK/host runtime contract issue reported. Verify the concrete diagnostic before assigning a cause.",
         };
     }
 
-    if (hasHostSignals) {
+    if (hasHostContractFailure) {
         return {
             kind: "host-runtime",
-            summary: "Diagnosis: likely plugin host/runtime issue.",
+            summary: "Possible plugin host issue reported. Verify the concrete diagnostic before assigning a cause.",
         };
     }
 
-    if (hasSdkSignals) {
+    if (hasSdkContractFailure) {
         return {
             kind: "sdk",
-            summary: "Diagnosis: likely SDK integration issue.",
+            summary: "Possible SDK integration issue reported. Verify the concrete diagnostic before assigning a cause.",
         };
     }
 
-    if (hasPluginSignals || hasRuntimeError) {
+    if (/plugin process stopped unexpectedly/.test(normalized)) {
+        return {
+            kind: "runtime",
+            summary: "Diagnosis: the plugin process stopped before rendering. Inspect the runtime log for the concrete exception before attributing it to the SDK or host.",
+        };
+    }
+
+    if (hasReportedError) {
         return {
             kind: "plugin",
-            summary: "Diagnosis: likely current plugin implementation issue.",
+            summary: "Reported error included in the request context.",
         };
     }
 

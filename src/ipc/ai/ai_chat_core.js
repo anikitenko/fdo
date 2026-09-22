@@ -1,5 +1,6 @@
 // src/main/ai/ai_chat_core.js
-import LLM from "@themaximalist/llm.js";
+import LLM from "../../utils/aiProviderClient";
+import {currentTurnUsage} from "../../utils/aiBilling/ledger";
 import { settings } from "../../utils/store.js";
 import { AiChatChannels } from "../channels.js";
 import { recordAnswerMetrics, recordTokenUsage, recordToolUsage } from "./metrics.js";
@@ -624,6 +625,7 @@ export function persistClarificationResponse(session, sessions, idx, clarificati
         content: safeClarificationText,
         createdAt: now,
         clarification: true,
+        ...currentTurnUsage(),
     };
 
     const nextRouting = updateSessionRoutingState(session, {
@@ -1468,7 +1470,8 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
         stream: streaming,
         extended: true,
         tools: toolsToUse,
-        max_tokens: maxTokens
+        max_tokens: Math.min(caps.maxOutputTokens || 8192, maxTokens),
+        modelMetadata: caps.modelMetadata,
     };
 
     if (caps.supportsTemperature) {
@@ -2015,6 +2018,7 @@ function buildWebNoResultsFallback(results = [], originalPrompt = "") {
 }
 
 async function persistAssistantMessage(event, { session, sessions, idx, intent }, llm, maxTokens, assistantMsg, toolsUsed = []) {
+    Object.assign(assistantMsg, currentTurnUsage());
     recordAnswerMetrics({
         grounded: !!assistantMsg?.grounded,
         noSourceMatches: !!assistantMsg?.noSourceMatches,
@@ -2459,6 +2463,7 @@ Return markdown with these sections when applicable:
 
 const buildLlmOptions = async (llm, useStream, useThink, caps) => {
     const llmOptions = {
+        api: caps.api,
         think: useThink,
         stream: useStream,
     }
@@ -2469,7 +2474,7 @@ const buildLlmOptions = async (llm, useStream, useThink, caps) => {
                 llmOptions.reasoning = {effort: useThink ? "high" : "medium"};
             }
             if (!(caps.reasoning && caps.api === "chat.completions")) {
-                llmOptions[caps.maxField] = Math.floor((caps.maxTokens ?? 8192) * 0.95);
+                llmOptions[caps.maxField] = Math.min(caps.maxOutputTokens || 8192, Math.floor((caps.maxTokens ?? 8192) * 0.95));
             }
             break
         default:
@@ -2561,11 +2566,6 @@ export async function handleStreamingResponse(
                 full += piece;
 
                 tokenEstimate = Math.ceil(full.length / 4);
-                // soft cutoff guard
-                if (tokenEstimate > (maxTokens || 8192) * 0.95) {
-                    console.warn(`[AI Chat] ⚠️ Streaming cut early — reached ~95% of ${maxTokens} tokens`);
-                    break;
-                }
                 if (piece) {
                     event.sender.send(AiChatChannels.on_off.STREAM_DELTA, {
                         sessionId,

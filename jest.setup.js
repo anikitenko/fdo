@@ -15,14 +15,7 @@ if (typeof globalThis.TextDecoder !== 'function') {
   globalThis.TextDecoder = TextDecoder;
 }
 
-// Setup jsdom-like globals for component tests
-if (typeof window === 'undefined') {
-  global.window = global;
-}
-if (!global.window.document) {
-  global.window.document = { createElement: () => ({ style: {} }) };
-}
-
+// Node suites keep native globals; jsdom supplies renderer globals.
 // Simple localStorage mock with quota simulation
 class LocalStorageMock {
   constructor() { this.store = new Map(); this.maxBytes = 5 * 1024 * 1024; }
@@ -49,7 +42,8 @@ if (!global.localStorage) {
 }
 
 // Mock preload bridge used in renderer code
-global.window.electron = {
+const preloadTarget = typeof window === 'undefined' ? {} : window;
+preloadTarget.electron = {
   system: {
     on: {
       confirmEditorClose: jest.fn(),

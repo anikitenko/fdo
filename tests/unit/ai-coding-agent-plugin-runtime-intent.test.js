@@ -20,6 +20,23 @@ describe("detectAiPluginRuntimeIntent", () => {
         expect(result.shouldProbe).toBe(false);
     });
 
+    test("does not mistake scaffold design language for a runtime action request", () => {
+        const result = detectAiPluginRuntimeIntent([
+            "Create a functional Rose Calculator plugin.",
+            "Use a verified BlueprintJS icon, render an iframe UI, and open its sidebar when a user clicks History.",
+            "Add node:test coverage and apply complete workspace files.",
+        ].join(" "));
+        expect(result).toEqual({
+            shouldProbe: false,
+            wantsLogs: false,
+            wantsActivate: false,
+            wantsDeactivate: false,
+            wantsInit: false,
+            wantsRender: false,
+            wantsRestart: false,
+        });
+    });
+
     test("detects verification + log intent for plugin prompts", () => {
         const result = detectAiPluginRuntimeIntent("can you run plugin and verify logs?");
         expect(result.shouldProbe).toBe(true);

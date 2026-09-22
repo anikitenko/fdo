@@ -5,6 +5,7 @@ const htmlTagSet = new Set(htmlTags)
 const mdnProperties = new Set(Object.keys(cssData))
 
 export function extractCssStyles(cssString) {
+    if (!cssString.replace(/\/\*[\s\S]*?\*\//g, '').trim()) return {};
     cssString = replace(
         `:host{${cssString}}`,
         /**

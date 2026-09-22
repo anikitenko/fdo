@@ -47,6 +47,9 @@ module.exports = {
         __filename: false,
     },
     plugins: [
+        // Google Gen AI includes ws for its optional Live API. Use ws's own
+        // JavaScript fallbacks instead of packaging optional native addons.
+        new webpack.IgnorePlugin({resourceRegExp: /^(bufferutil|utf-8-validate)$/, contextRegExp: /node_modules[/\\]ws[/\\]/}),
         new CopyWebpackPlugin({
             patterns: [
                 {

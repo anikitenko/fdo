@@ -38,6 +38,8 @@ export const SettingsChannels = withPrefix('settings', {
     },
     ai_assistants: {
         GET: 'get',
+        GET_PROVIDER_INSTRUCTIONS: 'get-provider-instructions',
+        SET_PROVIDER_INSTRUCTIONS: 'set-provider-instructions',
         ADD: 'add',
         REMOVE: 'remove',
         SET_DEFAULT: 'set-default',
@@ -176,3 +178,5 @@ export const PluginChannels = withPrefix('plugin', {
 export const StartupChannels = withPrefix('startup', {
     LOG_METRIC: 'log-metric'
 })
+
+export const AiUsageChannels = withPrefix("ai-usage", {GET: "get", UPDATED: "updated", RATES: "rates", SAVE_RATE: "save-rate"});
