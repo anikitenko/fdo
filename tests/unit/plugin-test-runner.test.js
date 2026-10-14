@@ -1,4 +1,4 @@
-import {collectPluginWorkspaceFiles, formatNoPluginTestsMessage, isPluginTestFile} from "../../src/utils/pluginTestRunner";
+import {collectPluginWorkspaceFiles, formatNoPluginTestsMessage, isPluginTestFile} from "../../src/utils/plugins/runtime/pluginTestRunner";
 
 describe("plugin test runner helpers", () => {
     test("detects plugin test files in common node:test naming conventions", () => {

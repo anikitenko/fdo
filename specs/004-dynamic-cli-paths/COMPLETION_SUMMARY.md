@@ -69,7 +69,7 @@ Successfully implemented dynamic CLI path resolution with automatic detection of
 - `fdo open` still shows metrics
 
 ✅ **Centralized CLI Configuration**
-- Single source of truth: `src/utils/cliCommands.js`
+- Single source of truth: `src/utils/system/cliCommands.js`
 - Easy to add new commands
 - Automatic integration with all systems
 - Clear documentation
@@ -80,14 +80,14 @@ Successfully implemented dynamic CLI path resolution with automatic detection of
 
 ### New Files Created
 
-1. **`src/utils/cliCommands.js`**
+1. **`src/utils/system/cliCommands.js`**
    - CLI commands configuration
    - Helper functions for command detection
    - Central place to add new commands
 
 ### Modified Files
 
-1. **`src/utils/installFDOCLI.js`**
+1. **`src/utils/system/installFDOCLI.js`**
    - Complete refactor from hardcoded to dynamic
    - New helper functions:
      - `isDevelopmentEnvironment()` - Detects dev vs prod
@@ -105,7 +105,7 @@ Successfully implemented dynamic CLI path resolution with automatic detection of
    - Fixed `sign` subcommand handling
    - CLI-only commands exit without GUI
 
-3. **`src/utils/startupMetrics.js`**
+3. **`src/utils/system/startupMetrics.js`**
    - Import centralized CLI commands
    - Suppress logs during CLI-only operations
    - Show logs for GUI operations
@@ -185,7 +185,7 @@ fdo compile path # Compiles, exits (no logs)
 
 ## CLI Commands Configuration
 
-Location: `src/utils/cliCommands.js`
+Location: `src/utils/system/cliCommands.js`
 
 **Current Commands:**
 ```javascript
@@ -239,12 +239,12 @@ GUI_COMMANDS: [
 ## Files Changed
 
 ### Core Implementation
-- `src/utils/installFDOCLI.js` (complete refactor)
-- `src/utils/cliCommands.js` (new file)
+- `src/utils/system/installFDOCLI.js` (complete refactor)
+- `src/utils/system/cliCommands.js` (new file)
 
 ### Integration
 - `src/main.js` (CLI argument handling)
-- `src/utils/startupMetrics.js` (log suppression)
+- `src/utils/system/startupMetrics.js` (log suppression)
 
 ### No Changes Required
 - `src/ipc/system.js` (already calls `installFDOCLI()`)

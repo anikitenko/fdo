@@ -1,17 +1,24 @@
-import {listGeminiModels} from "../utils/geminiProvider.cjs";
-import {listAnthropicModels} from "../utils/aiProviders/catalog";
-import {codingFirstResponseTimeoutMs} from "../utils/codingRequestPolicy.cjs";
-import {listCloudflareModels, inspectCloudflareModel, cloudflareAccountId} from "../utils/cloudflareProvider.cjs";
-import {listOllamaModels, inspectOllamaModel, ollamaLlmOptions} from "../utils/ollamaProvider.cjs";
-import {reserveLiveAiTestRequest} from "../utils/liveAiTestBudget";
-import {refreshCodexRuntime} from "../utils/refreshCodexRuntime";
-import {ipcMain, utilityProcess, BrowserWindow} from "electron";
+import {listGeminiModels} from "../utils/ai/providers/geminiProvider.cjs";
+import {listAnthropicModels} from "../utils/ai/providers/catalog";
+import {codingFirstResponseTimeoutMs} from "../utils/ai/generation/codingRequestPolicy.cjs";
+import {listCloudflareModels, inspectCloudflareModel, cloudflareAccountId} from "../utils/ai/providers/cloudflareProvider.cjs";
+import {listOllamaModels, inspectOllamaModel, ollamaLlmOptions} from "../utils/ai/providers/ollamaProvider.cjs";
+import {listCursorModels, inspectCursorModel} from "../utils/ai/providers/cursorProvider";
+import {listOpenCodeModels, inspectOpenCodeModel} from "../utils/ai/providers/opencodeProvider.cjs";
+import {listOpenRouterModels, inspectOpenRouterModel} from "../utils/ai/providers/openRouterProvider.cjs";
+import {reserveLiveAiTestRequest} from "../utils/ai/testing/liveAiTestBudget";
+import {listCodexModels} from "../utils/ai/codex/codexModels";
+import {discoverAssistantInputCapabilities} from './assistantInputCapabilities';
+import {assistantInputCapabilities} from '../utils/ai/assistant/aiAssistantInputCapabilities';
+import {refreshCodexRuntime} from "../utils/ai/codex/refreshCodexRuntime";
+import {ipcMain, utilityProcess, BrowserWindow, dialog, shell} from "electron";
+import {registerAiExtensionsHandlers} from './aiExtensions';
 import {SettingsChannels} from "./channels";
-import {settings} from "../utils/store";
-import {Certs} from "../utils/certs";
-import LLM from "../utils/aiProviderClient"
+import {settings} from "../utils/persistence/store";
+import {Certs} from "../utils/system/certs";
+import LLM from "../utils/ai/providers/aiProviderClient"
 import { fetchOpenAICapabilities } from "./ai/model_capabilities/fetchers/openai_fetcher";
-import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout, verifyCodexModelAccess } from "../utils/codexCli.js";
+import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout } from "../utils/ai/codex/codexCli.js";
 import {
     fetchGeminiCliModels,
     readGeminiAuthStatus,
@@ -19,43 +26,9 @@ import {
     runGeminiLogout,
     startGeminiLogin,
     clearGeminiAuthProbeCache
-} from "../utils/geminiCli.js";
+} from "../utils/ai/generation/geminiCli.js";
 import path from "node:path";
-import {normalizeAiProviderInstructionMap} from "../utils/aiProviderInstructions";
-
-async function fetchCodexCliModels() {
-    const response = await fetch("https://developers.openai.com/api/docs/models/all", {
-        headers: {
-            "User-Agent": "FDO/1.0 Codex Model Loader",
-            "Accept": "text/html,application/xhtml+xml",
-        },
-    });
-    if (!response.ok) {
-        throw new Error(`OpenAI model catalog request failed with status ${response.status}.`);
-    }
-
-    const html = await response.text();
-    const matches = html.match(/\b(?:gpt-[\w.-]*codex(?:-max|-mini)?|gpt-5(?:\.\d+)?(?:-pro|-mini|-nano)?|codex-mini-latest)\b/gi) || [];
-    const unique = Array.from(new Set(matches.map((model) => model.trim().toLowerCase())));
-    const models = unique
-        .filter((model) => model.startsWith("gpt-5") || /codex/i.test(model))
-        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" }));
-
-    if (models.length === 0) {
-        throw new Error("No coding-capable OpenAI models were found in the official catalog.");
-    }
-
-    const recommendedModel =
-        models.find((modelId) => modelId === "gpt-5-codex") ||
-        models.find((modelId) => modelId === "gpt-5.4") ||
-        models[0];
-
-    return models.map((modelId) => ({
-        label: modelId === recommendedModel ? `${modelId} (Recommended)` : modelId,
-        value: modelId,
-        provider: "codex-cli",
-    }));
-}
+import {normalizeAiProviderInstructionMap} from "../utils/ai/assistant/aiProviderInstructions";
 
 const activeCodexAuthProcesses = new Map();
 const activeGeminiAuthProcesses = new Map();
@@ -403,6 +376,7 @@ function monitorGeminiTerminalSession(assistant, invocation, loginLaunchResult) 
 }
 
 export function registerSettingsHandlers() {
+    registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, settings, openExternal: url => shell.openExternal(url)});
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
         return settings.get('certificates.root') || [];
     });
@@ -466,14 +440,18 @@ export function registerSettingsHandlers() {
         return normalized;
     });
 
-    ipcMain.handle(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, async (_, provider, apiKey, baseUrl, accountId) => {
+    ipcMain.handle(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, async (_, provider, apiKey, baseUrl, accountId, executablePath) => {
+        if (provider === "cursor") return listCursorModels(apiKey);
+        if (provider === "opencode") return listOpenCodeModels(apiKey);
+        if (provider === "openrouter") return listOpenRouterModels(apiKey);
         if (provider === "cloudflare") return listCloudflareModels({accountId, apiKey});
         if (provider === "ollama") return listOllamaModels(baseUrl);
         if (provider === "gemini") return listGeminiModels(apiKey);
         if (provider === "anthropic") return listAnthropicModels(apiKey);
 
         if (provider === "codex-cli") {
-            return await fetchCodexCliModels();
+            const invocation = await resolveCodexCliInvocation({requireBundled: true,configuredPath: executablePath, preferBundled: true});
+            return await listCodexModels(invocation);
         }
         if (provider === "gemini-cli") {
             return await fetchGeminiCliModels();
@@ -500,6 +478,8 @@ export function registerSettingsHandlers() {
             }))
             .sort((a, b) => a.label.localeCompare(b.label));
     });
+
+    ipcMain.handle(SettingsChannels.ai_assistants.GET_INPUT_CAPABILITIES, (_event, config) => discoverAssistantInputCapabilities(config));
 
     ipcMain.handle(SettingsChannels.ai_assistants.ADD, async (_, data) => {
         // Local inference options must not leak from the shared Settings form
@@ -536,7 +516,7 @@ export function registerSettingsHandlers() {
                 throw new Error("Codex CLI is supported only for Coding Assistant purpose.");
             }
             try {
-                const invocation = await resolveCodexCliInvocation({
+                const invocation = await resolveCodexCliInvocation({requireBundled: true,
                     configuredPath: data.executablePath,
                     preferBundled: true,
                 });
@@ -554,9 +534,11 @@ export function registerSettingsHandlers() {
                     checkedAt: new Date().toISOString(),
                 };
                 if (authStatus.status === "authorized") {
-                    const modelVerification = await verifyCodexModelAccess(invocation, data.model);
-                    if (!modelVerification.ok) {
-                        throw new Error(modelVerification.message);
+                    // Saving configuration must not depend on inference latency.
+                    // Authentication and model discovery are separate from an AI request.
+                    const models = await listCodexModels(invocation);
+                    if (!models.some(model => model.value === data.model)) {
+                        throw new Error(`Model ${data.model || '(empty)'} is not in this Codex runtime's selectable catalog. Reload the model list and select an offered model.`);
                     }
                 }
             } catch (error) {
@@ -590,6 +572,26 @@ export function registerSettingsHandlers() {
             }
             data.apiKey = "";
             data.model = data.model || "gemini-2.5-pro";
+        } else if (data.provider === "cursor") {
+            if (data.purpose !== "coding") throw new Error("Cursor is supported only for Coding Assistant purpose.");
+            data.apiKey = String(data.apiKey || "").trim();
+            await inspectCursorModel(data);
+        } else if (data.provider === "opencode") {
+            if (data.purpose !== "coding") {
+                throw new Error("OpenCode Zen is currently supported for Coding Assistant purpose.");
+            }
+            data.apiKey = String(data.apiKey || "").trim();
+            // Key and model are validated against the live Zen catalog; this
+            // is a metadata request and does not generate tokens.
+            await inspectOpenCodeModel({apiKey: data.apiKey, model: data.model});
+        } else if (data.provider === "openrouter") {
+            if (data.purpose !== "coding") {
+                throw new Error("OpenRouter is currently supported for Coding Assistant purpose.");
+            }
+            data.apiKey = String(data.apiKey || "").trim();
+            // Key and model are validated against live catalog metadata only;
+            // no tokens are generated, keeping free-tier request budgets intact.
+            await inspectOpenRouterModel({apiKey: data.apiKey, model: data.model});
         } else {
             const llm = new LLM({
                 service: data.provider,
@@ -602,6 +604,10 @@ export function registerSettingsHandlers() {
                 throw new Error(`API Key verification failed for ${data.provider} and model ${data.model}. Please check your API key and model.`);
             }
         }
+        if (data.purpose === 'coding') {
+            try { data.inputCapabilities = await discoverAssistantInputCapabilities(data); }
+            catch { data.inputCapabilities = assistantInputCapabilities({...data, inputCapabilities: undefined}); }
+        } else delete data.inputCapabilities;
         // Upsert assistant WITHOUT touching `default`
 // (unless it's a brand-new item, and you want the very first one to be default)
         const key = `ai.${data.purpose}`;
@@ -659,7 +665,7 @@ export function registerSettingsHandlers() {
         if (data.provider === "codex-cli") {
             const storedAssistant = list.find((item) => norm(item.name) === target);
             if (storedAssistant?.codexAuth?.status !== "authorized") {
-                const invocation = resolvedInvocation || await resolveCodexCliInvocation({
+                const invocation = resolvedInvocation || await resolveCodexCliInvocation({requireBundled: true,
                     configuredPath: storedAssistant?.executablePath,
                     preferBundled: true,
                 });
@@ -709,7 +715,7 @@ export function registerSettingsHandlers() {
         
         let authStatus;
         if (assistant.provider === "codex-cli") {
-            const invocation = await resolveCodexCliInvocation({
+            const invocation = await resolveCodexCliInvocation({requireBundled: true,
                 configuredPath: assistant.executablePath,
                 preferBundled: true,
             });
@@ -761,7 +767,7 @@ export function registerSettingsHandlers() {
 
         let result = { started: false };
         if (assistant.provider === "codex-cli") {
-            const invocation = await resolveCodexCliInvocation({
+            const invocation = await resolveCodexCliInvocation({requireBundled: true,
                 configuredPath: assistant.executablePath,
                 preferBundled: true,
             });
@@ -829,7 +835,7 @@ export function registerSettingsHandlers() {
                 status: "cancelled",
                 message: "Codex authentication was cancelled before sign out.",
             });
-            const invocation = await resolveCodexCliInvocation({
+            const invocation = await resolveCodexCliInvocation({requireBundled: true,
                 configuredPath: assistant.executablePath,
                 preferBundled: true,
             });

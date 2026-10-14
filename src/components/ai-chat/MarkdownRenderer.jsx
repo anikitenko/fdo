@@ -3,7 +3,7 @@ import Markdown from 'markdown-to-jsx'
 
 import * as styles from "./MarkdownRenderer.module.scss";
 import classnames from "classnames";
-import { normalizeAsciiEmoticons } from "../../utils/emoticons.js";
+import { normalizeAsciiEmoticons } from "../../utils/presentation/emoticons.js";
 
 const AnchorScopeContext = React.createContext({
     anchorPrefix: "",

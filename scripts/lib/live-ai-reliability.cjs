@@ -1,31 +1,34 @@
-const {liveAiRequestLimit, liveAiRequestCeiling, liveAiBudgetPolicy} = require("../../src/utils/liveAiTestPolicy.cjs");
-const {codingFirstResponseTimeoutMs} = require("../../src/utils/codingRequestPolicy.cjs");
+const {liveAiRequestLimit, liveAiRequestCeiling, liveAiBudgetPolicy} = require("../../src/utils/ai/testing/liveAiTestPolicy.cjs");
+const {codingFirstResponseTimeoutMs} = require("../../src/utils/ai/generation/codingRequestPolicy.cjs");
 const {liveThinkingMode} = require('./live-ai-config.cjs');
-const {cloudflareAccountId} = require("../../src/utils/cloudflareProvider.cjs");
-const {ollamaLlmOptions} = require("../../src/utils/ollamaProvider.cjs");
+const {cloudflareAccountId} = require("../../src/utils/ai/providers/cloudflareProvider.cjs");
+const {ollamaLlmOptions} = require("../../src/utils/ai/providers/ollamaProvider.cjs");
 const path = require("node:path");
 
 function createReliabilityPlan(entries, {repeat = 3, env = process.env, requestLimit} = {}) {
     const requestBudgetMode = requestLimit === undefined ? liveAiBudgetPolicy(env).mode : 'fixed';
     requestLimit ??= liveAiRequestLimit(env);
+    const maximumRequestLimit = requestBudgetMode === 'adaptive' ? liveAiBudgetPolicy(env).maximumLimit : requestLimit;
     const ceiling = liveAiRequestCeiling(env);
     if (!Number.isInteger(repeat) || repeat < 1 || repeat > 10) throw new Error("Repeat must be an integer from 1 to 10.");
     if (!Number.isInteger(requestLimit) || requestLimit < 1 || requestLimit > ceiling) throw new Error(`Request limit must be an integer from 1 to ${ceiling}.`);
     if (!Array.isArray(entries) || !entries.length || entries.length * repeat > 30) throw new Error("Provide a nonempty matrix with at most 30 total runs.");
     return entries.flatMap((entry, index) => {
-        const allowed = ["provider", "model", "modelEnv", "apiKeyEnv", "baseUrl", "contextLength", "accountIdEnv", "firstResponseTimeoutMs", "thinkingMode"];
-        if (!entry || Object.keys(entry).some(key => !allowed.includes(key))) throw new Error("Matrix entries allow only provider, model or modelEnv, apiKeyEnv, baseUrl, contextLength, accountIdEnv, firstResponseTimeoutMs, and thinkingMode. Keep credentials in environment variables.");
-        if (!["openai", "anthropic", "gemini", "ollama", "cloudflare"].includes(entry.provider)) throw new Error("Live matrix supports openai, anthropic, gemini, ollama and cloudflare.");
+        const allowed = ["provider", "model", "modelEnv", "apiKeyEnv", "baseUrl", "contextLength", "accountIdEnv", "firstResponseTimeoutMs", "thinkingMode", "seed"];
+        if (!entry || Object.keys(entry).some(key => !allowed.includes(key))) throw new Error("Matrix entries allow only provider, model or modelEnv, apiKeyEnv, baseUrl, contextLength, accountIdEnv, firstResponseTimeoutMs, thinkingMode, and seed. Keep credentials in environment variables.");
+        if (!["openai", "anthropic", "gemini", "ollama", "cloudflare", "opencode", "openrouter"].includes(entry.provider)) throw new Error("Live matrix supports openai, anthropic, gemini, ollama, cloudflare, opencode and openrouter.");
         if (Boolean(entry.model) === Boolean(entry.modelEnv)) throw new Error("Specify exactly one of model or modelEnv.");
         const accountIdEnv = entry.provider === "cloudflare" ? entry.accountIdEnv || "FDO_TEST_AI_ACCOUNT_ID" : null;
         const apiKeyEnv = entry.provider === "ollama" ? null : entry.apiKeyEnv || "FDO_TEST_AI_API_KEY";
         const local = ollamaLlmOptions({...entry, baseUrl: entry.baseUrl || env.FDO_TEST_AI_BASE_URL, contextLength: entry.contextLength ?? env.FDO_TEST_AI_CONTEXT_LENGTH});
         if (![apiKeyEnv, entry.modelEnv, accountIdEnv].filter(Boolean).every(name => typeof name === "string" && /^[A-Z_][A-Z0-9_]*$/.test(name))) throw new Error("Use valid environment variable names.");
         const model = entry.model || env[entry.modelEnv];
+        const seed = entry.seed || env.FDO_E2E_WEB_TOOLS_WORKBENCH_SEED || 'web-tools-workbench-v1';
+        if (typeof seed !== 'string' || !/^[\w.-]{1,80}$/.test(seed)) throw new Error('Seed must contain 1–80 letters, digits, underscores, dots or hyphens.');
         if (typeof model !== "string" || !model.trim()) throw new Error(`Missing model for matrix entry ${index + 1}.`);
         return Array.from({length: repeat}, (_, repetition) => ({
             id: `${String(index + 1).padStart(2, "0")}-${entry.provider}-run-${repetition + 1}`,
-            provider: entry.provider, model: model.trim(), apiKeyEnv, requestLimit, requestBudgetMode,
+            provider: entry.provider, model: model.trim(), seed, apiKeyEnv, requestLimit, maximumRequestLimit, requestBudgetMode,
             defaultThinkingMode: liveThinkingMode(entry.provider, entry.thinkingMode ?? env.FDO_TEST_AI_THINKING_MODE),
             firstResponseTimeoutMs: codingFirstResponseTimeoutMs({provider: entry.provider, firstResponseTimeoutMs: entry.firstResponseTimeoutMs ?? env.FDO_TEST_AI_FIRST_RESPONSE_TIMEOUT_MS}),
             ...(entry.provider === "cloudflare" ? {accountId: cloudflareAccountId(env[accountIdEnv])} : {}),
@@ -39,7 +42,7 @@ function summarizeReliabilityRun(run, {exitCode, signal, report, artifactDir}) {
     const passed = exitCode === 0 && !signal && report?.status === "passed"
         && report.plannedTests > 0 && tests.length === report.plannedTests
         && tests.every(test => test.status === "passed" && test.expectedStatus === "passed");
-    return {id: run.id, provider: run.provider, model: run.model, requestLimit: run.requestLimit, requestBudgetMode: run.requestBudgetMode,
+    return {id: run.id, provider: run.provider, model: run.model, seed: run.seed, scenarios: tests.map(test => test.title), requestLimit: run.requestLimit, maximumRequestLimit: run.maximumRequestLimit, requestBudgetMode: run.requestBudgetMode,
         passed, exitCode, signal: signal || null, durationMs: report?.durationMs ?? null,
         plannedTests: report?.plannedTests ?? null, executedTests: tests.length,
         skippedTests: tests.filter(test => test.status === "skipped").length,

@@ -1,21 +1,23 @@
+import {getCachedFdoSdkKnowledgeIndex, resolveFdoSdkDistPath} from '../utils/sdk/installedSdkKnowledge';
 import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
-import PluginManager from "../utils/PluginManager";
+import PluginManager from "../utils/plugins/runtime/PluginManager";
 import {AppMetrics, PLUGINS_REGISTRY_FILE} from "../main.js";
-import {metricDensityReductionInterval} from "../utils/metricDensityReductionInterval";
+import {metricDensityReductionInterval} from "../utils/system/metricDensityReductionInterval";
 import {SystemChannels} from "./channels";
-import {getFilesTree} from "../utils/getFilesTree";
+import {getFilesTree} from "../utils/filesystem/getFilesTree";
 import path from "node:path";
-import PluginORM from "../utils/PluginORM";
-import {editorWindow, isWindowValid, cleanupWindowResources} from "../utils/editorWindow";
+import PluginORM from "../utils/persistence/PluginORM";
+import {editorWindow, isWindowValid, cleanupWindowResources} from "../utils/desktop/editorWindow";
+import {focusAssistantOwner} from '../utils/desktop/assistantWindowPolicy';
 
 import {exec} from "child_process";
 import {promisify} from "util";
-import {installFDOCLI, removeFDOCLI} from "../utils/installFDOCLI";
+import {installFDOCLI, removeFDOCLI} from "../utils/system/installFDOCLI";
 import {lookpath} from "lookpath";
 import {createEditorWindowConfirmState} from "./system_confirm_state";
-import {buildFdoSdkKnowledgeIndex, searchFdoSdkKnowledge} from "../utils/fdoSdkKnowledge";
-import {extractReferenceUrls, summarizeHtmlReference} from "../utils/externalReferenceKnowledge";
-import {fetchWithTimeout} from "../utils/fetchWithTimeout";
+import {searchFdoSdkKnowledge} from "../utils/sdk/fdoSdkKnowledge";
+import {extractReferenceUrls, summarizeHtmlReference} from "../utils/ai/assistant/externalReferenceKnowledge";
+import {fetchWithTimeout} from "../utils/network/fetchWithTimeout";
 import {readFile} from "node:fs/promises";
 import fs from "node:fs";
 
@@ -33,11 +35,6 @@ const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY = isDev
 
 // Timeout tracking for editor window close operations
 let editorCloseTimeoutId = null;
-let fdoSdkKnowledgeCache = {
-    sourcePath: "",
-    index: null,
-};
-
 function pickExistingDirectory(paths = []) {
     for (const candidate of paths) {
         try {
@@ -49,68 +46,6 @@ function pickExistingDirectory(paths = []) {
         }
     }
     return "";
-}
-
-function resolveFdoSdkPackagePath() {
-    const isDev = !app.isPackaged;
-    const candidates = isDev
-        ? [
-            path.join(process.cwd(), 'node_modules', '@anikitenko', 'fdo-sdk'),
-            path.join(__dirname, '..', '..', 'node_modules', '@anikitenko', 'fdo-sdk'),
-            path.join(__dirname, '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk'),
-        ]
-        : [
-            path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk'),
-            path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anikitenko', 'fdo-sdk'),
-        ];
-
-    return pickExistingDirectory(candidates) || candidates[0];
-}
-
-function resolveFdoSdkDistPath() {
-    const packagePath = resolveFdoSdkPackagePath();
-    const isDev = !app.isPackaged;
-    const candidates = [
-        path.join(packagePath, 'dist'),
-        ...(isDev
-            ? [path.join(__dirname, '..', '..', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')]
-            : [path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'main', 'node_modules', '@anikitenko', 'fdo-sdk', 'dist')]),
-    ];
-
-    return pickExistingDirectory(candidates) || candidates[0];
-}
-
-function getFilesTreeSafe(basePath, targetPath, filter = null) {
-    try {
-        const files = getFilesTree(basePath, targetPath);
-        return typeof filter === "function" ? files.filter(filter) : files;
-    } catch (_) {
-        return [];
-    }
-}
-
-function getCachedFdoSdkKnowledgeIndex() {
-    const packagePath = resolveFdoSdkPackagePath();
-    const distPath = resolveFdoSdkDistPath();
-    const sourcePath = `${packagePath}|${distPath}`;
-    if (fdoSdkKnowledgeCache.index && fdoSdkKnowledgeCache.sourcePath === sourcePath) {
-        return fdoSdkKnowledgeCache.index;
-    }
-
-    const topLevelDocsFilter = (file) => /README|CHANGELOG|package\.json/i.test(file.path);
-    const files = [
-        ...getFilesTreeSafe(distPath, '@types'),
-        ...getFilesTreeSafe(packagePath, '.', topLevelDocsFilter),
-        ...getFilesTreeSafe(packagePath, 'docs'),
-        ...getFilesTreeSafe(packagePath, 'examples'),
-        ...getFilesTreeSafe(distPath, 'docs'),
-    ];
-    const index = buildFdoSdkKnowledgeIndex(files);
-    fdoSdkKnowledgeCache = {
-        sourcePath,
-        index,
-    };
-    return index;
 }
 
 function getOptionalFdoSdkEditorModule() {
@@ -690,6 +625,8 @@ export function registerSystemHandlers() {
     ipcMain.on(SystemChannels.OPEN_EDITOR_WINDOW, (_event, data) => {
         systemOpenEditorWindow(data)
     });
+    ipcMain.handle(SystemChannels.FOCUS_EDITOR_WINDOW, event =>
+        focusAssistantOwner(BrowserWindow.fromWebContents(event.sender)));
 
     ipcMain.on(SystemChannels.EDITOR_CLOSE_APPROVED, (event) => {
         console.info('[Editor Close] Close approved by user');

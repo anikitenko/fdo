@@ -11,32 +11,32 @@ jest.mock("electron", () => ({
     },
 }));
 
-jest.mock("../../src/utils/UserORM", () => ({
+jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
     default: class UserORMMock {},
 }));
 
-jest.mock("../../src/utils/PluginORM", () => ({
+jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {},
 }));
 
-jest.mock("../../src/utils/certs", () => ({
+jest.mock("../../src/utils/system/certs", () => ({
     Certs: {},
 }));
 
-jest.mock("../../src/utils/NotificationCenter", () => ({
+jest.mock("../../src/utils/desktop/NotificationCenter", () => ({
     NotificationCenter: {
         addNotification: jest.fn(),
     },
 }));
 
-jest.mock("../../src/utils/pluginRuntimeBundle", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginRuntimeBundle", () => ({
     buildPluginRuntimeBundle: jest.fn(),
     getHostPluginNodeModulesPath: jest.fn(),
 }));
 
-jest.mock("../../src/utils/pluginRuntimeSecurity", () => ({
+jest.mock("../../src/utils/plugins/security/pluginRuntimeSecurity", () => ({
     buildPluginRuntimePolicy: jest.fn(() => ({})),
     ensurePluginRuntimeBootstrap: jest.fn(),
     resolveHostGrantedCapabilities: jest.fn(() => []),
@@ -44,7 +44,7 @@ jest.mock("../../src/utils/pluginRuntimeSecurity", () => ({
 
 const mockExecuteHostPrivilegedAction = jest.fn(async () => ({ok: true, correlationId: "priv-corr"}));
 
-jest.mock("../../src/utils/hostPrivilegedActions", () => ({
+jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     executeHostPrivilegedAction: (...args) => mockExecuteHostPrivilegedAction(...args),
     HOST_PRIVILEGED_HANDLER: "__host.privilegedAction",
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ: "system.clipboard.read",
@@ -52,18 +52,18 @@ jest.mock("../../src/utils/hostPrivilegedActions", () => ({
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC: "system.process.exec",
 }));
 
-jest.mock("../../src/utils/pluginCapabilityDeclaration", () => ({
+jest.mock("../../src/utils/plugins/security/pluginCapabilityDeclaration", () => ({
     extractCapabilityDeclarationComparison: jest.fn(() => ({})),
 }));
 
-jest.mock("../../src/utils/pluginHandshakeCompatibility", () => ({
+jest.mock("../../src/utils/sdk/pluginHandshakeCompatibility", () => ({
     evaluatePluginHandshakeCompatibility: jest.fn(() => ({})),
     normalizeDiagnosticsHandshake: jest.fn(() => ({})),
 }));
 
 const mockHandleHostAiAssistantsListRequest = jest.fn(async () => ({ok: true, assistants: []}));
 const mockHandleHostAiRequest = jest.fn(async () => ({ok: true, message: "ok"}));
-jest.mock("../../src/utils/pluginHostAi", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginHostAi", () => ({
     FDO_AI_LIST_ASSISTANTS_HANDLER_ID: "fdo.ai.assistants.list.v1",
     FDO_AI_REQUEST_HANDLER_ID: "fdo.ai.request.v1",
     handleHostAiAssistantsListRequest: (...args) => mockHandleHostAiAssistantsListRequest(...args),
@@ -74,7 +74,7 @@ const mockHandleHostAuthBrokerStartRequest = jest.fn(async () => ({ok: true, ses
 const mockHandleHostAuthBrokerRefreshRequest = jest.fn(async () => ({ok: true, sessionId: "sess-1"}));
 const mockHandleHostAuthBrokerLogoutRequest = jest.fn(async () => ({ok: true}));
 const mockHandleHostSessionRequest = jest.fn(async () => ({ok: true, status: 200}));
-jest.mock("../../src/utils/pluginHostAuth", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginHostAuth", () => ({
     FDO_AUTH_START_HANDLER_ID: "fdo.auth.start.v1",
     FDO_AUTH_REFRESH_HANDLER_ID: "fdo.auth.refresh.v1",
     FDO_AUTH_LOGOUT_HANDLER_ID: "fdo.auth.logout.v1",
@@ -86,7 +86,7 @@ jest.mock("../../src/utils/pluginHostAuth", () => ({
 }));
 
 const mockHandleHostBrowserOpenRequest = jest.fn(async () => ({ok: true, url: "https://example.com", policy: "trusted-content-link"}));
-jest.mock("../../src/utils/pluginHostBrowser", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginHostBrowser", () => ({
     FDO_BROWSER_OPEN_HANDLER_ID: "fdo.browser.open.v1",
     handleHostBrowserOpenRequest: (...args) => mockHandleHostBrowserOpenRequest(...args),
 }));
@@ -97,7 +97,7 @@ describe("PluginManager backend bridge routing", () => {
     });
 
     test("routes fdo.auth.start.v1 through auth broker handler instead of privileged transport", async () => {
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         PluginManager.loadedPlugins = {
             "plugin-auth": {
                 grantedCapabilities: ["system.network", "system.network.https"],
@@ -129,7 +129,7 @@ describe("PluginManager backend bridge routing", () => {
     });
 
     test("routes privileged alias through privileged transport", async () => {
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         PluginManager.loadedPlugins = {
             "plugin-priv": {
                 grantedCapabilities: ["system.process.exec"],
@@ -155,7 +155,7 @@ describe("PluginManager backend bridge routing", () => {
     });
 
     test("returns explicit error for unsupported backend bridge handlers", async () => {
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         PluginManager.loadedPlugins = {
             "plugin-x": {
                 grantedCapabilities: [],
@@ -177,7 +177,7 @@ describe("PluginManager backend bridge routing", () => {
     });
 
     test("routes browser open handler through host browser broker", async () => {
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         PluginManager.loadedPlugins = {
             "plugin-browser": {
                 grantedCapabilities: [],

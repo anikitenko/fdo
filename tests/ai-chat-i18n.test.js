@@ -4,7 +4,7 @@ import {
     getAiChatSourceTypeLabel,
     getAiChatText,
     normalizeAiChatUiLanguage,
-} from "../src/utils/aiChatI18n.js";
+} from "../src/utils/ai/assistant/aiChatI18n.js";
 
 describe("AI chat i18n helpers", () => {
     test("normalizes supported UI languages conservatively", () => {

@@ -1,4 +1,4 @@
-import {listOpenAIModels} from '../../../../utils/aiProviders/catalog';
+import {listOpenAIModels} from '../../../../utils/ai/providers/catalog';
 
 export async function fetchOpenAICapabilities(apiKey) {
     try {

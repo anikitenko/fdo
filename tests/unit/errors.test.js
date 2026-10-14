@@ -7,7 +7,7 @@ const {
   TestFailureError,
   AuditFailureError,
   RollbackFailureError
-} = require('../../src/utils/packageUpdater/errors');
+} = require('../../src/utils/packages/update/errors');
 
 describe('Error Types', () => {
   describe('GitNotAvailableError', () => {

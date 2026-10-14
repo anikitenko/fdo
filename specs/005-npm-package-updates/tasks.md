@@ -63,7 +63,7 @@ This MVP delivers immediate value and can be deployed independently before imple
 - [x] T002 [P] Install npm-check-updates package as devDependency in `package.json`
 - [x] T003 [P] Install semver package for version comparison in `package.json`
 - [x] T004 [P] Install simple-git package for Git operations in `package.json`
-- [x] T005 [P] Create placeholder files for main modules: `src/utils/packageUpdater.js`, `src/utils/packageUpdater/batchProcessor.js`, `src/utils/packageUpdater/reportGenerator.js`
+- [x] T005 [P] Create placeholder files for main modules: `src/utils/packages/packageUpdater.js`, `src/utils/packages/update/batchProcessor.js`, `src/utils/packages/update/reportGenerator.js`
 
 ---
 
@@ -77,14 +77,14 @@ This MVP delivers immediate value and can be deployed independently before imple
 
 ### Tasks
 
-- [x] T006 Implement custom error types in `src/utils/packageUpdater/errors.js`: GitNotAvailableError, TestFailureError, AuditFailureError, RollbackFailureError with messages and recovery guidance
-- [x] T007 [P] Implement validation functions in `src/utils/packageUpdater/validators.js`: validatePackageDependency, validateUpdateBatch, validateBreakingChange, validateTechnicalDebt, validateRollbackCheckpoint, validateTestResults, validateAuditResults
-- [x] T008 [P] Implement Git checkpoint utilities in `src/utils/packageUpdater/git.js`: createRollbackCheckpoint(message), rollbackToCheckpoint(checkpoint), getCommitHash(), hashFile(path)
-- [x] T009 [P] Implement npm command wrappers in `src/utils/packageUpdater/npm.js`: runInstall(), runAudit(), getOutdated(), getPackageInfo(name), runCi()
-- [x] T010 [P] Implement Jest test runner integration in `src/utils/packageUpdater/testRunner.js`: runTests(options), parseTestResults(jestOutput)
-- [x] T011 Create UpdateBatch state machine in `src/utils/packageUpdater/stateMachine.js`: transition(batch, event), validateTransition(from, event), with all 7 states and 8 transitions from data-model.md
-- [x] T012 [P] Implement package analysis utilities in `src/utils/packageUpdater/analyzer.js`: parsePackageJson(), getInstalledVersion(name), isDirect Dependency(name), getVersionConstraint(name)
-- [x] T013 [P] Implement semver comparison helpers in `src/utils/packageUpdater/semver.js`: hasMajorUpdate(current, latest), isCompatibleUpdate(current, latest, target), preserveConstraint(original, newVersion)
+- [x] T006 Implement custom error types in `src/utils/packages/update/errors.js`: GitNotAvailableError, TestFailureError, AuditFailureError, RollbackFailureError with messages and recovery guidance
+- [x] T007 [P] Implement validation functions in `src/utils/packages/update/validators.js`: validatePackageDependency, validateUpdateBatch, validateBreakingChange, validateTechnicalDebt, validateRollbackCheckpoint, validateTestResults, validateAuditResults
+- [x] T008 [P] Implement Git checkpoint utilities in `src/utils/packages/update/git.js`: createRollbackCheckpoint(message), rollbackToCheckpoint(checkpoint), getCommitHash(), hashFile(path)
+- [x] T009 [P] Implement npm command wrappers in `src/utils/packages/update/npm.js`: runInstall(), runAudit(), getOutdated(), getPackageInfo(name), runCi()
+- [x] T010 [P] Implement Jest test runner integration in `src/utils/packages/update/testRunner.js`: runTests(options), parseTestResults(jestOutput)
+- [x] T011 Create UpdateBatch state machine in `src/utils/packages/update/stateMachine.js`: transition(batch, event), validateTransition(from, event), with all 7 states and 8 transitions from data-model.md
+- [x] T012 [P] Implement package analysis utilities in `src/utils/packages/update/analyzer.js`: parsePackageJson(), getInstalledVersion(name), isDirect Dependency(name), getVersionConstraint(name)
+- [x] T013 [P] Implement semver comparison helpers in `src/utils/packages/update/semver.js`: hasMajorUpdate(current, latest), isCompatibleUpdate(current, latest, target), preserveConstraint(original, newVersion)
 
 ---
 
@@ -108,21 +108,21 @@ This MVP delivers immediate value and can be deployed independently before imple
 
 #### Detection & Analysis
 
-- [ ] T015 [US1] Implement detectDeprecations() in `src/utils/packageUpdater/index.js`: Parse npm install stderr, extract deprecation warnings, return DeprecationInfo[] with packageName, currentVersion, deprecationReason, hasReplacement, replacementPackage
-- [ ] T016 [P] [US1] Implement parseDeprecationWarning(stderr) helper in `src/utils/packageUpdater/parser.js`: Extract package name and message from npm WARN deprecated format
-- [ ] T017 [P] [US1] Implement findReplacement(packageName) in `src/utils/packageUpdater/analyzer.js`: Check npm registry for suggested replacement, search common migration patterns, return replacement package name or null
+- [ ] T015 [US1] Implement detectDeprecations() in `src/utils/packages/update/index.js`: Parse npm install stderr, extract deprecation warnings, return DeprecationInfo[] with packageName, currentVersion, deprecationReason, hasReplacement, replacementPackage
+- [ ] T016 [P] [US1] Implement parseDeprecationWarning(stderr) helper in `src/utils/packages/update/parser.js`: Extract package name and message from npm WARN deprecated format
+- [ ] T017 [P] [US1] Implement findReplacement(packageName) in `src/utils/packages/update/analyzer.js`: Check npm registry for suggested replacement, search common migration patterns, return replacement package name or null
 
 #### Report Generation
 
-- [ ] T018 [US1] Implement generateTechnicalDebtReport(debt) in `src/utils/packageUpdater/reportGenerator.js`: Create Markdown table with package, version, reason, monitoring plan, save to `specs/005-npm-package-updates/reports/technical-debt-report.md`
+- [ ] T018 [US1] Implement generateTechnicalDebtReport(debt) in `src/utils/packages/update/reportGenerator.js`: Create Markdown table with package, version, reason, monitoring plan, save to `specs/005-npm-package-updates/reports/technical-debt-report.md`
 - [ ] T019 [US1] Create monitoring plan template in reportGenerator.js: Default strategy for packages without replacement (monthly security checks, migration timeline)
 
 #### Integration & Orchestration
 
-- [ ] T020 [P] [US1] Implement updateDeprecatedPackages() in `src/utils/packageUpdater/index.js`: Detect deprecations, filter packages with replacements, update package.json, create checkpoint, run npm install
+- [ ] T020 [P] [US1] Implement updateDeprecatedPackages() in `src/utils/packages/update/index.js`: Detect deprecations, filter packages with replacements, update package.json, create checkpoint, run npm install
 - [ ] T021 [US1] Integrate deprecation detection with rollback in batchProcessor.js: If npm install fails after deprecation updates, rollback to checkpoint
-- [ ] T022 [P] [US1] Add deprecation tracking to UpdateBatch entity in `src/utils/packageUpdater/models.js`: Store deprecated packages list, track replacement status
-- [ ] T023 [P] [US1] Implement logDeprecationSummary() in `src/utils/packageUpdater/logger.js`: Console output showing packages with/without replacements, technical debt count
+- [ ] T022 [P] [US1] Add deprecation tracking to UpdateBatch entity in `src/utils/packages/update/models.js`: Store deprecated packages list, track replacement status
+- [ ] T023 [P] [US1] Implement logDeprecationSummary() in `src/utils/packages/update/logger.js`: Console output showing packages with/without replacements, technical debt count
 
 #### Validation & Testing
 
@@ -154,20 +154,20 @@ This MVP delivers immediate value and can be deployed independently before imple
 
 #### Breaking Changes Detection
 
-- [ ] T028 [US2] Implement detectBreakingChanges() in `src/utils/packageUpdater/index.js`: Use npm outdated, compare versions with semver.major(), filter packages with major version bumps, fetch changelog URLs from npm registry
-- [ ] T029 [P] [US2] Implement getChangelogUrl(packageName) in `src/utils/packageUpdater/registry.js`: Query npm registry for repository.url, construct GitHub/GitLab releases URL
+- [ ] T028 [US2] Implement detectBreakingChanges() in `src/utils/packages/update/index.js`: Use npm outdated, compare versions with semver.major(), filter packages with major version bumps, fetch changelog URLs from npm registry
+- [ ] T029 [P] [US2] Implement getChangelogUrl(packageName) in `src/utils/packages/update/registry.js`: Query npm registry for repository.url, construct GitHub/GitLab releases URL
 - [ ] T030 [P] [US2] Implement generateBreakingChangesReport(changes) in reportGenerator.js: Create Markdown table with package, current version, latest version, changelog link, save to `specs/005-npm-package-updates/reports/breaking-changes-report.md`
 
 #### Batch Processing
 
-- [ ] T031 [US2] Implement processBatch(batch, options) in `src/utils/packageUpdater/batchProcessor.js`: Execute state machine transitions (PENDING → UPDATING → TESTING → AUDITING → SUCCESS), handle failures → ROLLING_BACK, return BatchResult
-- [ ] T032 [P] [US2] Implement batch creation logic in `src/utils/packageUpdater/index.js`: Group packages by type (devDependencies, dependencies), create UpdateBatch entities with IDs, timestamps, rollback checkpoints
-- [ ] T033 [P] [US2] Implement runSecurityAudit() in `src/utils/packageUpdater/index.js`: Execute npm audit --json, parse vulnerabilities by severity, return AuditResults with success boolean (zero high/critical)
+- [ ] T031 [US2] Implement processBatch(batch, options) in `src/utils/packages/update/batchProcessor.js`: Execute state machine transitions (PENDING → UPDATING → TESTING → AUDITING → SUCCESS), handle failures → ROLLING_BACK, return BatchResult
+- [ ] T032 [P] [US2] Implement batch creation logic in `src/utils/packages/update/index.js`: Group packages by type (devDependencies, dependencies), create UpdateBatch entities with IDs, timestamps, rollback checkpoints
+- [ ] T033 [P] [US2] Implement runSecurityAudit() in `src/utils/packages/update/index.js`: Execute npm audit --json, parse vulnerabilities by severity, return AuditResults with success boolean (zero high/critical)
 - [ ] T034 [P] [US2] Integrate test runner with batch processor in batchProcessor.js: Run Jest after npm install, parse results, trigger rollback if tests fail
 
 #### Main Update Workflow
 
-- [ ] T035 [US2] Implement updatePackages(options) main entry point in `src/utils/packageUpdater/index.js`: Create checkpoints, process devDependencies batch first, then dependencies batch, generate reports, return UpdateResult with success status, batch results, summary
+- [ ] T035 [US2] Implement updatePackages(options) main entry point in `src/utils/packages/update/index.js`: Create checkpoints, process devDependencies batch first, then dependencies batch, generate reports, return UpdateResult with success status, batch results, summary
 - [ ] T036 [US2] Add batch sequencing logic in updatePackages(): Wait for devDependencies batch SUCCESS before starting dependencies batch, rollback both batches if either fails
 - [ ] T037 [P] [US2] Implement generateSummaryReport(summary) in reportGenerator.js: Create summary with updated count, skipped count, test results, audit results, save to `specs/005-npm-package-updates/reports/update-summary.md`
 
@@ -194,8 +194,8 @@ This MVP delivers immediate value and can be deployed independently before imple
 
 #### Lock File Optimization
 
-- [ ] T039 [US3] Implement optimizeLockFile() in `src/utils/packageUpdater/index.js`: Delete package-lock.json, run npm install, verify no conflicts, validate lock file integrity
-- [ ] T040 [P] [US3] Implement resolvePeerDependencies() in `src/utils/packageUpdater/npm.js`: Detect peer dependency warnings from npm output, attempt resolution strategies (--legacy-peer-deps, manual version selection), log resolution decisions
+- [ ] T039 [US3] Implement optimizeLockFile() in `src/utils/packages/update/index.js`: Delete package-lock.json, run npm install, verify no conflicts, validate lock file integrity
+- [ ] T040 [P] [US3] Implement resolvePeerDependencies() in `src/utils/packages/update/npm.js`: Detect peer dependency warnings from npm output, attempt resolution strategies (--legacy-peer-deps, manual version selection), log resolution decisions
 - [ ] T041 [P] [US3] Implement validateLockFile() in validators.js: Check file size, verify all dependencies have integrity hashes, ensure resolved URLs are valid
 
 #### Performance Measurement

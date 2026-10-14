@@ -49,7 +49,7 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginORM", () => ({
+jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
         getPlugin(id) {
@@ -74,7 +74,7 @@ jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
     default: jest.fn(() => "generated-plugin-name"),
 }));
 
-jest.mock("../../src/utils/UserORM", () => ({
+jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
     default: class UserORMMock {
         activatePlugin() {}
@@ -88,7 +88,7 @@ jest.mock("../../src/utils/UserORM", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginManager", () => ({
+jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
     __esModule: true,
     default: {
         loadPlugin: jest.fn(async () => ({success: true})),
@@ -148,7 +148,7 @@ jest.mock("../../src/utils/PluginManager", () => ({
     },
 }));
 
-jest.mock("../../src/utils/ensureAndWrite", () => ({
+jest.mock("../../src/utils/filesystem/ensureAndWrite", () => ({
     __esModule: true,
     default: jest.fn(async () => undefined),
 }));
@@ -157,18 +157,18 @@ jest.mock("../../src/utils/esbuild/plugins/virtual-fs", () => ({
     EsbuildVirtualFsPlugin: jest.fn(() => ({name: "virtual-fs"})),
 }));
 
-jest.mock("../../src/utils/certs", () => ({
+jest.mock("../../src/utils/system/certs", () => ({
     Certs: {
         signPlugin: jest.fn(() => ({success: true})),
         verifyPlugin: jest.fn(async () => ({success: true})),
     },
 }));
 
-jest.mock("../../src/utils/syncPluginDir", () => ({
+jest.mock("../../src/utils/plugins/runtime/syncPluginDir", () => ({
     syncPluginDir: jest.fn(async () => undefined),
 }));
 
-jest.mock("../../src/utils/NotificationCenter", () => ({
+jest.mock("../../src/utils/desktop/NotificationCenter", () => ({
     NotificationCenter: {
         addNotification: jest.fn(),
         getAllNotifications: jest.fn(() => [
@@ -186,33 +186,33 @@ jest.mock("../../src/utils/NotificationCenter", () => ({
     },
 }));
 
-jest.mock("../../src/utils/editorWindow", () => ({
+jest.mock("../../src/utils/desktop/editorWindow", () => ({
     editorWindow: {
         getWindow: jest.fn(() => null),
     },
 }));
 
-jest.mock("../../src/utils/getIgnoreInstance", () => ({
+jest.mock("../../src/utils/filesystem/getIgnoreInstance", () => ({
     getIgnoreInstance: jest.fn(async () => ({ignores: () => false})),
 }));
 
-jest.mock("../../src/utils/getAllFilesWithIgnorance", () => ({
+jest.mock("../../src/utils/filesystem/getAllFilesWithIgnorance", () => ({
     getAllFilesWithIgnorance: jest.fn(async () => []),
 }));
 
-jest.mock("../../src/utils/extractMetadata", () => ({
+jest.mock("../../src/utils/plugins/runtime/extractMetadata", () => ({
     extractMetadata: jest.fn(async () => ({})),
 }));
 
-jest.mock("../../src/utils/pluginMetadataContract", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({
     normalizeAndValidatePluginMetadata: jest.fn((metadata) => metadata),
 }));
 
-jest.mock("../../src/utils/pluginTestRunner", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({
     runPluginWorkspaceTests: jest.fn(async () => ({success: true, output: ""})),
 }));
 
-jest.mock("../../src/utils/hostPrivilegedActions", () => ({
+jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     HOST_PRIVILEGED_HANDLER: "__host.privilegedAction",
     executeHostPrivilegedAction: jest.fn(async (_request, ctx) => ({
         ok: true,
@@ -221,7 +221,11 @@ jest.mock("../../src/utils/hostPrivilegedActions", () => ({
     })),
 }));
 
-jest.mock("../../src/utils/privilegedFsScopeRegistry", () => ({
+jest.mock("../../src/utils/plugins/security/privilegedFsScopeRegistry", () => ({
+    // Derive from the real module so newly added exports (for example
+    // setHostSharedFilesystemScopes) never silently go missing again; only
+    // the host scope registry itself is overridden to keep this suite hermetic.
+    ...jest.requireActual("../../src/utils/plugins/security/privilegedFsScopeRegistry"),
     HOST_FS_SCOPE_REGISTRY: Object.freeze([]),
 }));
 
@@ -334,7 +338,7 @@ describe("plugin IPC log trace", () => {
     test("returns structured privileged audit events over IPC and exposes summary on runtime status", async () => {
         jest.resetModules();
         const {ipcMain} = require("electron");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
 

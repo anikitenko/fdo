@@ -1,6 +1,6 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
-import {WORKSPACE_MANIFEST_SCHEMA, parseWorkspaceManifest} from '../../src/utils/codingWorkspaceGeneration';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
+import {WORKSPACE_MANIFEST_SCHEMA, parseWorkspaceManifest} from '../../src/utils/ai/generation/codingWorkspaceGeneration';
 import {consume} from '../helpers/aiProviderWire';
 
 const plan = {files: [{path: '/render.ts', contract: 'Export render(): string'}]};

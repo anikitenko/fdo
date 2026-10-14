@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
 import {openaiEvents, anthropicEvents, responseFor, consume} from '../helpers/aiProviderWire';
 import {fetchOpenAICapabilities} from '../../src/ipc/ai/model_capabilities/fetchers/openai_fetcher';
 
@@ -34,7 +34,7 @@ test.each(['openai', 'anthropic'])('%s verifies model access through metadata wi
     expect(request.headers.get(service === 'openai' ? 'authorization' : 'x-api-key')).toBe(service === 'openai' ? 'Bearer test-secret' : 'test-secret');
 });
 
-test.each(['openai', 'anthropic', 'cloudflare', 'ollama'])('%s aborts a pending native request with no hidden retry', async service => {
+test.each(['openai', 'anthropic', 'cloudflare', 'ollama', 'opencode', 'openrouter'])('%s aborts a pending native request with no hidden retry', async service => {
     let ready;
     const dispatched = new Promise(resolve => { ready = resolve; });
     const fetchImpl = jest.fn((_url, {signal}) => new Promise((_resolve, reject) => {

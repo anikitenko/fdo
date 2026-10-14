@@ -1,13 +1,18 @@
+import AiCodingConfidence from '../ai/AiCodingConfidence';
 import {Callout, Classes, Divider, Intent, Popover, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
 import React from "react";
+import AiTimeEstimate from '../ai/AiTimeEstimate';
 import {AnsiOutput} from "./AnsiOutput";
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import virtualFS from "./utils/VirtualFS";
 import {PropTypes} from 'prop-types';
 import * as styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
 import {v4 as uuidv4} from 'uuid';
 import AiCodingAgentPanel from "./AiCodingAgentPanel.jsx";
+import AiAssistantWindow from './AiAssistantWindow';
+import {formatElapsedDuration} from '../../utils/presentation/formatElapsedDuration';
+import FdoAiMark from '../ai/FdoAiMark';
 
 function formatHistoryTimestamp(ts) {
     if (!ts) return "";
@@ -38,33 +43,46 @@ const ActivityDots = ({testId}) => (
     </span>
 );
 
-function formatAiActivityElapsed(elapsedMs = 0) {
-    const totalSeconds = Math.max(0, Math.floor(Number(elapsedMs || 0) / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = String(totalSeconds % 60).padStart(2, "0");
-    return minutes > 0 ? `${minutes}m ${seconds}s` : `${totalSeconds}s`;
-}
-
-const ActivityStatusPopover = ({activity, label, testId, stageTiming = false}) => (
+const ActivityStatusPopover = ({activity, label, testId, stageTiming = false, onClose}) => (
     <div className={styles["ai-agent-status-popover"]} data-testid={testId} role="dialog" aria-label={`${label} status`}>
+        <button type="button" className={styles["ai-agent-status-popover-close"]}
+                aria-label={`Close ${label} status`} title="Close" onClick={onClose}>
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                <path d="M3 3l6 6M9 3l-6 6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+        </button>
         <div className={styles["ai-agent-status-popover-heading"]}>
             <strong>{activity.error ? `${label} Error` : (activity.isLoading ? activity.stage || "Working on your request" : activity.stage || "Finished")}</strong>
-            {(stageTiming || !activity.error) && <time>{stageTiming ? "Stage: " : ""}{formatAiActivityElapsed(stageTiming ? activity.stageElapsedMs : activity.elapsedMs)} elapsed</time>}
+            {(stageTiming || !activity.error) && <time>{stageTiming ? "Stage: " : ""}{formatElapsedDuration(stageTiming ? activity.stageElapsedMs : activity.elapsedMs)} elapsed</time>}
         </div>
         <p role="status" aria-live="polite" aria-atomic="true">{activity.error || activity.latestStatus || (activity.isLoading ? "Processing your request…" : "No work is running.")}</p>
+        <AiCodingConfidence confidence={activity.confidence}/>
+        {activity.isLoading && <AiTimeEstimate text={activity.estimate} details={activity.estimateDetails} progress={activity.estimateProgress}/>}
     </div>
 );
 
-const ActivityTabTitle = ({activity, label, id}) => {
+const ActivityTabTitle = ({activity, label, id, openRequest = 0, onLayoutChange}) => {
     const [isOpen, setIsOpen] = useState(false);
+    const statusVisible = activity.isLoading || isOpen;
+    // Blueprint measures the indicator on parent updates, but closing this
+    // popover changes the tab width through local state alone.
+    useLayoutEffect(() => {onLayoutChange?.();}, [statusVisible, onLayoutChange]);
+    useEffect(() => {
+        if (activity.guideReviewPending) setIsOpen(false);
+    }, [activity.guideReviewPending]);
+    useEffect(() => {
+        if (openRequest && !activity.guideReviewPending) setIsOpen(true);
+    }, [openRequest]);
     const lastRunningActivity = useRef(activity);
     if (activity.isLoading) lastRunningActivity.current = activity;
     const displayedActivity = activity.isLoading ? activity : {...activity, elapsedMs: lastRunningActivity.current.elapsedMs,
         stageElapsedMs: activity.stageElapsedMs ?? lastRunningActivity.current.stageElapsedMs};
     return (
     <span className={styles["ai-agent-tab-title"]}>
+        {id === 'ai-agent' && <FdoAiMark size={20} active={activity.isLoading}
+            data-testid={activity.isLoading ? `${id}-working-dots` : undefined} />}
         <span>{label}</span>
-        {(activity.isLoading || isOpen) && (
+        {statusVisible && (
             <span
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
@@ -78,13 +96,15 @@ const ActivityTabTitle = ({activity, label, id}) => {
                 }}
             >
                 <Popover
-                    content={<ActivityStatusPopover activity={displayedActivity} label={label} testId={`${id}-status-popover`} stageTiming={id === "ai-agent"}/>}
-                    isOpen={isOpen}
-                    onInteraction={setIsOpen}
+                    content={<ActivityStatusPopover activity={displayedActivity} label={label} testId={`${id}-status-popover`} stageTiming={id === "ai-agent"} onClose={() => setIsOpen(false)}/>}
+                    isOpen={isOpen && !activity.guideReviewPending}
+                    onInteraction={nextOpen => setIsOpen(nextOpen && !activity.guideReviewPending)}
                     interactionKind="click"
                     placement="bottom"
                     popupKind="dialog"
                     canEscapeKeyClose={true}
+                    shouldReturnFocusOnClose={!activity.guideReviewPending}
+                    transitionDuration={activity.guideReviewPending ? 0 : 300}
                     // Native buttons already synthesize clicks for Enter/Space.
                     targetProps={{onKeyDown: undefined}}
                     popoverClassName={styles["ai-agent-status-popover-surface"]}
@@ -92,16 +112,23 @@ const ActivityTabTitle = ({activity, label, id}) => {
                 >
                     <button
                         type="button"
+                        disabled={!!activity.guideReviewPending}
                         aria-label={`Show ${label} status`}
                         className={`${styles["ai-agent-status-trigger"]} ${id === "ai-agent" ? styles["ai-agent-status-trigger-with-time"] : ""}`}
                         aria-describedby={id === "ai-agent" ? `${id}-overall-elapsed` : undefined}
                         data-testid={`${id}-status-trigger`}
                     >
-                        {activity.isLoading ? <ActivityDots testId={`${id}-working-dots`}/> : <span aria-hidden="true">•</span>}
+                        {id !== 'ai-agent' && (activity.isLoading ? <ActivityDots testId={`${id}-working-dots`}/> : <span aria-hidden="true">•</span>)}
                         {id === "ai-agent" && (
-                            <time id={`${id}-overall-elapsed`} className={styles["ai-agent-overall-elapsed"]}>
-                                Overall: {formatAiActivityElapsed(displayedActivity.elapsedMs)}
-                            </time>
+                            <>
+                                <time id={`${id}-overall-elapsed`} className={styles["ai-agent-overall-elapsed"]}
+                                    aria-label={`Total elapsed time: ${formatElapsedDuration(displayedActivity.elapsedMs)}`}>
+                                    {formatElapsedDuration(displayedActivity.elapsedMs, {compact: true})}
+                                </time>
+                                <svg className={styles["ai-agent-status-chevron"]} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                                    <path d="m2 4 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            </>
                         )}
                     </button>
                 </Popover>
@@ -112,6 +139,8 @@ const ActivityTabTitle = ({activity, label, id}) => {
 };
 
 const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEditor}) => {
+    const [, setTabLayoutRevision] = useState(0);
+    const refreshTabLayout = useCallback(() => setTabLayoutRevision(value => value + 1), []);
     const [markers, setMarkers] = useState(virtualFS.tabs.listMarkers());
     const [buildOutputStatus, setBuildOutputStatus] = useState(virtualFS.build.status());
     const [buildOutput, setBuildOutput] = useState(virtualFS.build.getHistory(80, "build"));
@@ -119,6 +148,11 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
     const [buildOutputIntent, setBuildOutputIntent] = useState("primary");
     const [testOutputIntent, setTestOutputIntent] = useState("primary");
     const [codingAiResponse, setCodingAiResponse] = useState("");
+    const [activityOpenRequest, setActivityOpenRequest] = useState(0);
+    useEffect(() => window.electron?.aiCodingAgent?.onOpenActivity?.(() => {
+        setSelectedTabId('ai-agent');
+        setActivityOpenRequest(value => value + 1);
+    }), [setSelectedTabId]);
     const [aiActivity, setAiActivity] = useState({
         isLoading: false,
         hasResponse: false,
@@ -191,8 +225,8 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
     }, []);
     return (
         <div className={styles["build-output-container"]}>
+            {aiActivity.isLoading && <div className={styles["ai-activity-glow"]} aria-hidden="true"/>}
             <div className={styles["build-output-tabs-container"]}>
-                {aiActivity.isLoading && <div className={styles["ai-activity-glow"]} aria-hidden="true"/>}
                 <Tabs
                     animate={true}
                     id="CodeEditorTabs"
@@ -209,15 +243,15 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
                     }/>
                     <Tab
                         id="output"
-                        title={<ActivityTabTitle label="Build" id="build" activity={{...operationActivity, isLoading: isBuildRunning, ...(!isBuildRunning ? {stage: "Build finished", latestStatus: ""} : {})}}/>}
+                        title={<ActivityTabTitle label="Build" id="build" onLayoutChange={refreshTabLayout} activity={{...operationActivity, isLoading: isBuildRunning, ...(!isBuildRunning ? {stage: "Build finished", latestStatus: ""} : {})}}/>}
                     />
                     <Tab
                         id="tests"
-                        title={<ActivityTabTitle label="Test" id="test" activity={{...operationActivity, isLoading: isTestRunning, ...(!isTestRunning ? {stage: "Tests finished", latestStatus: ""} : {})}}/>}
+                        title={<ActivityTabTitle label="Test" id="test" onLayoutChange={refreshTabLayout} activity={{...operationActivity, isLoading: isTestRunning, ...(!isTestRunning ? {stage: "Tests finished", latestStatus: ""} : {})}}/>}
                     />
                     <Tab
                         id="ai-agent"
-                        title={<ActivityTabTitle label="AI Coding Agent" id="ai-agent" activity={aiActivity}/>}
+                        title={<ActivityTabTitle label="AI Coding Agent" id="ai-agent" onLayoutChange={refreshTabLayout} activity={aiActivity} openRequest={activityOpenRequest}/>}
                     />
                 </Tabs>
                 <Divider/>
@@ -249,17 +283,15 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
                 </div>
             )}
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
-            {selectedTabId === "output" && (<OutputPanel intent={buildOutputIntent} entries={buildOutput} emptyMessage="Build output will be here..." />)}
-            {selectedTabId === "tests" && (<OutputPanel intent={testOutputIntent} entries={testOutput} emptyMessage="Test output will be here..." />)}
-            <div
-                className={`${styles["build-output-panel"]} ${styles["ai-agent-panel-host"]}`}
-                style={{ display: selectedTabId === "ai-agent" ? "block" : "none" }}
-                aria-hidden={selectedTabId === "ai-agent" ? "false" : "true"}
-            >
-                <AiCodingAgentPanel codeEditor={codeEditor} response={codingAiResponse}
+            {selectedTabId === "output" && (<OutputPanel intent={buildOutputIntent} entries={buildOutput} revealOnMount emptyMessage="Build output will be here..." />)}
+            {selectedTabId === "tests" && (<OutputPanel intent={testOutputIntent} entries={testOutput} revealOnMount emptyMessage="Test output will be here..." />)}
+            <AiAssistantWindow visible={selectedTabId === 'ai-agent'} focusRequest={activityOpenRequest} onReturnToTab={() => setSelectedTabId('ai-agent')}>
+                {({eventDocument}) => <AiCodingAgentPanel codeEditor={codeEditor} response={codingAiResponse}
                                     setResponse={setCodingAiResponse}
-                                    onActivityChange={setAiActivity}/>
-            </div>
+                                    onActivityChange={setAiActivity}
+                                    eventDocument={eventDocument}
+                                    onShowTests={() => setSelectedTabId('tests')}/>}
+            </AiAssistantWindow>
         </div>
     )
 }
@@ -311,15 +343,16 @@ ProblemsPanel.propTypes = {
     markers: PropTypes.array
 }
 
-const OutputPanel = ({intent, entries, emptyMessage}) => {
+const OutputPanel = ({intent, entries, emptyMessage, revealOnMount = false}) => {
     const outputRef = useRef(null);
-    useEffect(() => {
-        if (outputRef.current && typeof outputRef.current.scrollTo === "function") {
-            outputRef.current.scrollTo({top: outputRef.current.scrollHeight, behavior: "smooth"});
-        }
+    useLayoutEffect(() => {
+        if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }, [entries]);
+    useLayoutEffect(() => {
+        if (revealOnMount) outputRef.current?.scrollIntoView?.({block: "nearest", inline: "nearest"});
+    }, [revealOnMount]);
     return (
-        <div ref={outputRef} className={styles["build-output-panel"]}>
+        <div ref={outputRef} role="region" aria-label={revealOnMount ? "Plugin test output" : "Plugin build output"} className={styles["build-output-panel"]}>
             <div>
                 <Callout style={{margin: "10px", borderRadius: "5px", wordBreak: "break-word"}} intent={intent}>
                     {entries.length === 0 && <div>
@@ -342,6 +375,7 @@ const OutputPanel = ({intent, entries, emptyMessage}) => {
     )
 }
 OutputPanel.propTypes = {
+    revealOnMount: PropTypes.bool,
     intent: PropTypes.string.isRequired,
     entries: PropTypes.array,
     emptyMessage: PropTypes.string.isRequired,

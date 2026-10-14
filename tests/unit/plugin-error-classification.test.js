@@ -1,4 +1,4 @@
-import {classifyPluginError} from "../../src/utils/pluginErrorClassification";
+import {classifyPluginError} from "../../src/utils/plugins/runtime/pluginErrorClassification";
 
 describe("classifyPluginError", () => {
     test("classifies signature verification failures as non-retryable", () => {

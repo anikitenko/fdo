@@ -1,5 +1,37 @@
 const {evaluateWebToolsWorkbenchScenario} = require("../e2e/helpers/pluginScenarioRubric.cjs");
-const {buildWorkbenchMarkupRepairPrompt, needsWorkbenchTestRepair} = require("../e2e/live-ai-scenarios/web-tools-workbench.cjs");
+const {buildWorkbenchMarkupRepairPrompt, buildWorkbenchStyleRepairPrompt, needsWorkbenchTestRepair} = require("../e2e/live-ai-scenarios/web-tools-workbench.cjs");
+
+test('targets the missing dashboard style key without regenerating passing CSS modules', () => {
+  // The live run consumed 23 minutes generating a workspace, then rewrote
+  // every CSS module because layout-dashboard did not supply css.dashboard.
+  const files = fixture({
+    '/styles.css': '@import "./styles/base.css";\n@import "./styles/layout.css";\n@import "./styles/overlays.css";',
+    '/styles/base.css': '.shell { background: #0e2b28; min-height: 100vh; } .dock { position: sticky; bottom: 0; }',
+    '/styles/layout.css': '.layout-dashboard { display: grid; grid-template-columns: 1fr 1fr; }\n@media (max-width: 720px) { .layout-dashboard { grid-template-columns: 1fr; } }',
+    '/styles/overlays.css': '/* .dashboard is owned by layout.css */\n.library { background: ivory; }',
+  });
+  const rubric = evaluateWebToolsWorkbenchScenario(files);
+  expect(rubric.checks.polishedWorkbench).toBe(false);
+  expect(rubric.checks.responsiveLayout).toBe(true);
+  expect(rubric.visualFailures).toEqual([{role: 'dashboard', requirement: expect.stringContaining('desktop grid/flex')}]);
+  const prompt = buildWorkbenchStyleRepairPrompt(files, rubric);
+  expect(prompt).toContain('Repair only these existing CSS files: /styles/layout.css.');
+  expect(prompt).toContain('does not define css.dashboard');
+  expect(prompt).not.toContain('/styles/base.css');
+  expect(prompt).not.toContain('/styles/overlays.css');
+  expect(prompt).not.toContain('workbenchMarkup');
+  files['/styles/layout.css'] += '\n.dashboard { display: grid; grid-template-columns: 1fr 1fr; }';
+  expect(buildWorkbenchStyleRepairPrompt(files, evaluateWebToolsWorkbenchScenario(files))).toBe('');
+});
+
+test('retains dependency-following repair when a missing style has no identifiable owner', () => {
+  const files = fixture({'/styles.css': '.unrelated { color: red; }'});
+  const prompt = buildWorkbenchStyleRepairPrompt(files, evaluateWebToolsWorkbenchScenario(files));
+  expect(prompt).toContain('following relative @import dependencies');
+  expect(prompt).toContain('needs background:');
+  expect(prompt).toContain('mobile @media');
+  expect(prompt).not.toContain('Repair only these');
+});
 
 test.each(['declarativeActions', 'visibleStates', 'styleMapRendered'])(
   'repairs missing %s even when every required role is present', check => {

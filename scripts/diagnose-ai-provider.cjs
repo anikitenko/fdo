@@ -1,5 +1,5 @@
 const {readLiveAiConfig} = require('./lib/live-ai-config.cjs');
-const {ollamaLlmOptions} = require('../src/utils/ollamaProvider.cjs');
+const {ollamaLlmOptions} = require('../src/utils/ai/providers/ollamaProvider.cjs');
 
 async function probeProvider(config, Client, {timeoutMs = 60000} = {}) {
     const started = Date.now();
@@ -37,7 +37,7 @@ async function main() {
     const dir = await fs.mkdtemp(path.join(require('node:os').tmpdir(), 'fdo-ai-probe-'));
     try {
         const outfile = path.join(dir, 'provider.cjs');
-        await require('esbuild').build({entryPoints: [path.resolve(__dirname, '../src/utils/aiProviderClient.js')], outfile,
+        await require('esbuild').build({entryPoints: [path.resolve(__dirname, '../src/utils/ai/providers/aiProviderClient.js')], outfile,
             bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent', plugins: [{name: 'native-clients', setup(build) {
                 build.onResolve({filter: /^(openai|cloudflare|ollama|@anthropic-ai\/sdk|@google\/genai)$/}, args =>
                     ({path: require.resolve(args.path), external: true}));

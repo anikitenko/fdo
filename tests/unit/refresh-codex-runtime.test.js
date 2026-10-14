@@ -1,4 +1,4 @@
-import {refreshCodexRuntime} from "../../src/utils/refreshCodexRuntime";
+import {refreshCodexRuntime} from "../../src/utils/ai/codex/refreshCodexRuntime";
 
 test("refreshes a saved version using the configured runtime without changing the saved assistant", async () => {
     const assistant = {provider: "codex-cli", executablePath: "/custom/codex", codexRuntime: {version: "0.118.0"}};

@@ -110,7 +110,7 @@ describe('CodeDeployActions snapshot UI', () => {
     expect(screen.getByRole('button', { name: /Save & Close/i })).toBeTruthy();
   });
 
-  test('Run Tests button switches to output and invokes bundled test runner flow', async () => {
+  test('Run Tests button switches to Tests and invokes bundled test runner flow', async () => {
     const setSelectedTabId = jest.fn();
     render(<CodeDeployActions setSelectedTabId={setSelectedTabId} currentSelectedTabId="output" pluginDirectory="/tmp/plugin" />);
 
@@ -120,13 +120,39 @@ describe('CodeDeployActions snapshot UI', () => {
     expect(runTests).toHaveBeenCalled();
   });
 
-  test('Run Tests keeps the AI Coding Agent tab visible when already selected', async () => {
+  test('Run Tests switches away from AI Coding Agent to show test output', async () => {
     const setSelectedTabId = jest.fn();
     render(<CodeDeployActions setSelectedTabId={setSelectedTabId} currentSelectedTabId="ai-agent" pluginDirectory="/tmp/plugin" />);
 
     fireEvent.click(screen.getByRole('button', { name: /Run Tests/i }));
 
-    expect(setSelectedTabId).not.toHaveBeenCalled();
+    expect(setSelectedTabId).toHaveBeenCalledWith('tests');
     expect(runTests).toHaveBeenCalled();
   });
+
+  test('Compile switches away from AI Coding Agent to show build output', async () => {
+    const setSelectedTabId = jest.fn();
+    render(<CodeDeployActions setSelectedTabId={setSelectedTabId} currentSelectedTabId="ai-agent" pluginDirectory="/tmp/plugin" />);
+    fireEvent.click(screen.getByRole('button', {name: 'Compile', exact: true}));
+    expect(setSelectedTabId).toHaveBeenCalledWith('output');
+    expect(build).toHaveBeenCalled();
+  });
+
+  test('Save & Close includes the runtime bundle separately from original source', async()=>{
+    const source='export const original = 42;';
+    window.electron.settings.certificates.getRoot=jest.fn(async()=>[{label:'root'}]);
+    jest.spyOn(virtualFS,'listModels').mockReturnValue([{uri:{toString:()=> 'file:///index.ts'},getValue:()=>source}]);
+    jest.spyOn(virtualFS.build,'getMetadata').mockResolvedValue({name:'TestPlugin'});
+    jest.spyOn(virtualFS.build,'getEntrypoint').mockReturnValue('dist/index.cjs');
+    jest.spyOn(virtualFS.build,'getContent').mockReturnValue('module.exports = { original: 42 };');
+    window.electron.plugin.saveAndCloseFromEditor=jest.fn(async()=>({success:true}));
+    setupComponent();fireEvent.click(screen.getByRole('button',{name:'Save & Close'}));
+    await waitFor(()=>expect(window.electron.plugin.saveAndCloseFromEditor).toHaveBeenCalled());
+    expect(build).toHaveBeenCalled();
+    const saved=window.electron.plugin.saveAndCloseFromEditor.mock.calls[0][0];
+    expect(saved.entrypoint).toBe('dist/index.cjs');
+    expect(saved.content).toEqual([{path:'/index.ts',content:source},{path:'/dist/index.cjs',content:'module.exports = { original: 42 };'}]);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Save & Close'})).toBeEnabled());
+  });
+
 });

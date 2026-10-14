@@ -1,6 +1,6 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
-import {sendCodingLlmRequest} from '../../src/utils/codingLlmRequest';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
+import {sendCodingLlmRequest} from '../../src/utils/ai/generation/codingLlmRequest';
 import {openaiEvents, responseFor, consume, text} from '../helpers/aiProviderWire';
 
 test.each([null, 'data:image/png;base64,aGVsbG8='])('OpenAI SDK sends Responses input, instructions and screenshot: %s', async image => {

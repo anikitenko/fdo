@@ -9,11 +9,11 @@ import {
     HOST_PRIVILEGED_ACTION_SYSTEM_HOSTS_WRITE,
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
     HOST_PRIVILEGED_ACTION_SYSTEM_WORKFLOW_RUN,
-} from "../../src/utils/hostPrivilegedActions";
+} from "../../src/utils/plugins/security/hostPrivilegedActions";
 import {
     removeHostPluginCustomProcessScopes,
     setHostPluginCustomProcessScopes,
-} from "../../src/utils/privilegedProcessScopeRegistry";
+} from "../../src/utils/plugins/security/privilegedProcessScopeRegistry";
 
 function hostsRequest(payload = {}) {
     return {

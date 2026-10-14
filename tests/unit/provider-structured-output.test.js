@@ -1,10 +1,10 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
 import {consume, responseFor, openaiEvents, anthropicEvents, ollamaEvents} from '../helpers/aiProviderWire';
 
 const schema = {type: 'object', additionalProperties: false, required: ['title'], properties: {title: {type: 'string'}}};
 const answer = JSON.stringify({title: 'Workbench'});
-const routes = ['openai', 'openai-chat', 'anthropic', 'gemini', 'ollama', 'cloudflare'];
+const routes = ['openai', 'openai-chat', 'anthropic', 'gemini', 'ollama', 'cloudflare', 'opencode', 'openrouter'];
 const settings = route => ({service: route === 'openai-chat' ? 'openai' : route, model: 'test-model',
     apiKey: 'test-key', accountId: 'a'.repeat(32), modelMetadata: {},
     ...(route === 'openai-chat' ? {api: 'chat.completions'} : {})});
@@ -56,6 +56,10 @@ function assertFormat(route, body, requested = true) {
     if (route === 'gemini') expect(body.response_format).toEqual(requested ? {type: 'text', mime_type: 'application/json', schema} : undefined);
     if (route === 'ollama') expect(body.format).toEqual(requested ? schema : undefined);
     if (route === 'cloudflare') expect(body.response_format).toEqual(requested ? {type: 'json_schema', json_schema: schema} : undefined);
+    // OpenRouter providers vary in response_format support; some free models
+    // reject json_schema with HTTP 400, so the schema stays prompt-enforced
+    // and locally validated rather than transport-enforced.
+    if (route === 'openrouter') expect(body.response_format).toBe(undefined);
 }
 
 describe.each(routes)('%s native structured output', route => {

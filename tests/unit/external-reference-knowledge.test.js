@@ -3,7 +3,7 @@ import {
     formatExternalReferenceContext,
     shouldUseExternalReferenceKnowledge,
     summarizeHtmlReference,
-} from "../../src/utils/externalReferenceKnowledge.js";
+} from "../../src/utils/ai/assistant/externalReferenceKnowledge.js";
 
 describe("external reference knowledge", () => {
     test("extracts unique reference urls from prompt text", () => {

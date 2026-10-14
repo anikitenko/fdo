@@ -1,9 +1,9 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import PropTypes from "prop-types";
 import {Button, Spinner} from "@blueprintjs/core";
-import {pluginTrace} from "../utils/pluginTrace";
+import {pluginTrace} from "../utils/plugins/runtime/pluginTrace";
 import {AppToaster} from "./AppToaster.jsx";
-import {parseMissingCapabilityDiagnosticsFromError} from "../utils/parseMissingCapabilitiesFromError";
+import {parseMissingCapabilityDiagnosticsFromError} from "../utils/presentation/parseMissingCapabilitiesFromError";
 import {
     isAllowedPluginExternalUrl,
     isValidPluginUiRequestMessage,

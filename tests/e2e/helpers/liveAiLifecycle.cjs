@@ -53,8 +53,9 @@ function readLiveAiMainProcess({app, BrowserWindow}) {
   };
 }
 
-function describeLiveAiWaitFailure(pageClosed, mainProcess, timedOut = false) {
+function describeLiveAiWaitFailure(pageClosed, mainProcess, timedOut = false, cause) {
   if (timedOut) return "The live-test time limit was reached before the assistant finished. Page closure during teardown is not evidence of a transport failure.";
+  if (String(cause?.message || '').includes('Plugin guide proposal exhausted automatic section repairs')) return "Plugin guide proposal requires review after bounded automatic repairs. The live-test deadline was not reached.";
   if (!pageClosed) return "Assistant request did not settle before the live-test deadline.";
   const rendererAlive = mainProcess?.windows?.some(window => window.destroyed === false && window.webContentsDestroyed === false && !window.readError);
   return rendererAlive
@@ -62,4 +63,18 @@ function describeLiveAiWaitFailure(pageClosed, mainProcess, timedOut = false) {
     : "Editor page closed before the assistant request settled.";
 }
 
-module.exports = {observeLiveAiPage, describeLiveAiWaitFailure, readLiveAiMainProcess};
+function summarizeLiveAiWaitFailure({failure, state, mainProcess, cause}) {
+  const budget = mainProcess?.requestBudget;
+  const events = mainProcess?.codingLifecycle || [];
+  const last = events.at(-1);
+  return [
+    failure,
+    cause?.message ? `Wait: ${String(cause.message).slice(0, 300)}` : '',
+    `Completed responses: ${state?.streamResponses?.length ?? 'unavailable'}.`,
+    budget ? `Requests: ${budget.used}/${budget.ceiling}; validated files: ${budget.validatedFiles}.` : '',
+    last ? `Last event: ${last.event} at ${last.at}${last.workspaceStep ? ` (${String(last.workspaceStep).slice(0, 160)})` : ''}.` : '',
+    'Full diagnostics: editor-live-result.json (waitFailure); workspace checks: web-tools-workbench-repair-history.json.',
+  ].filter(Boolean).join('\n');
+}
+
+module.exports = {observeLiveAiPage, describeLiveAiWaitFailure, readLiveAiMainProcess, summarizeLiveAiWaitFailure};

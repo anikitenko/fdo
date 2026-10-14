@@ -1,6 +1,21 @@
 const {EventEmitter} = require("node:events");
 const {observeLiveAiPage, describeLiveAiWaitFailure, readLiveAiMainProcess} = require("../e2e/helpers/liveAiLifecycle.cjs");
 
+test('console wait failures omit generated source and retain actionable diagnostics', () => {
+  const {summarizeLiveAiWaitFailure} = require('../e2e/helpers/liveAiLifecycle.cjs');
+  const source = 'large private generated source'.repeat(10000);
+  const summary = summarizeLiveAiWaitFailure({failure: 'Repair did not start.',
+    cause: {message: 'Startup wait expired.'},
+    state: {response: source, streamResponses: [{content: source}]},
+    mainProcess: {requestBudget: {used: 62, ceiling: 75, validatedFiles: 25},
+      codingLifecycle: [{event: 'request-finished', at: '2026-09-28T13:15:01Z', content: source}]}});
+  expect(summary.length).toBeLessThan(1000);
+  expect(summary).not.toContain('private generated');
+  expect(summary).toContain('Requests: 62/75');
+  expect(summary).toContain('Completed responses: 1');
+  expect(summary).toContain('editor-live-result.json');
+});
+
 test('test timeout takes precedence over teardown page closure', () => {
   expect(describeLiveAiWaitFailure(true, {windows: [{destroyed: false, webContentsDestroyed: false}]}, true))
     .toContain('live-test time limit');
@@ -69,4 +84,11 @@ test("unavailable inspector diagnostics do not prevent the scenario from running
   const dispose = await observeLiveAiPage({context: () => context}, new EventEmitter(), record);
   expect(record).toHaveBeenCalledWith("inspector-observer-unavailable", {message: "Target closed"});
   await dispose();
+});
+
+test('proposal review failures are distinct from real deadlines', () => {
+  const cause = new Error('page.waitForFunction: Error: Plugin guide proposal exhausted automatic section repairs');
+  expect(describeLiveAiWaitFailure(false, {}, false, cause)).toContain('requires review');
+  expect(describeLiveAiWaitFailure(false, {}, false, cause)).toContain('deadline was not reached');
+  expect(describeLiveAiWaitFailure(false, {}, true, cause)).toContain('time limit was reached');
 });

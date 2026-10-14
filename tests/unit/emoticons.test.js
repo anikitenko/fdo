@@ -1,4 +1,4 @@
-import { getQuickEmojiPalette, searchEmojiPalette } from "../../src/utils/emoticons.js";
+import { getQuickEmojiPalette, searchEmojiPalette } from "../../src/utils/presentation/emoticons.js";
 
 describe("quick emoji palette", () => {
     test("includes a broader curated set with thumbs-up variants", () => {

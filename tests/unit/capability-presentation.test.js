@@ -1,4 +1,4 @@
-import {getCapabilityPresentation} from "../../src/utils/capabilityPresentation.js";
+import {getCapabilityPresentation} from "../../src/utils/presentation/capabilityPresentation.js";
 
 describe("capability presentation", () => {
     test("renders friendly labels for process execution capabilities", () => {

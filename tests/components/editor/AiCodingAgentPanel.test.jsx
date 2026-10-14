@@ -9,11 +9,84 @@ import AiCodingAgentPanel, {
     shouldAutoApplySingleFileResponse,
 } from "../../../src/components/editor/AiCodingAgentPanel.jsx";
 import {isNewPluginCreationRequest, resolveAiCodingAgentAction} from "../../../src/components/editor/utils/aiCodingAgentRouting.js";
-import {selectPluginAuthoringScenario} from "../../../src/utils/pluginAuthoringScenarioCatalog.js";
+import {selectPluginAuthoringScenario} from "../../../src/utils/plugins/authoring/pluginAuthoringScenarioCatalog.js";
 import virtualFS from "../../../src/components/editor/utils/VirtualFS";
 import runPluginTests from "../../../src/components/editor/utils/runTests.js";
+import {getPendingFiles, stagePendingFiles} from "../../../src/components/editor/utils/aiPendingFiles";
+import AiPendingFiles from "../../../src/components/editor/AiPendingFiles";
 
 const mockAppToasterShow = jest.fn();
+
+const skillMentionFixture = () => ({skills: [
+    {name: 'team-review', description: 'Read $HOME literally.', enabled: true, assistantIds: ['assistant-1']},
+    {name: 'team-style', description: 'Another model', enabled: true, assistantIds: ['other']},
+    {name: 'team-disabled', description: 'Disabled', enabled: false, assistantIds: ['assistant-1']},
+]});
+
+test('Codex skill picker requires deliberate selection and preserves literal variables and descriptions', async () => {
+    window.electron.settings.ai.getExtensions = jest.fn().mockResolvedValue(skillMentionFixture());
+    render(<TestHarness/>);
+    const input = await screen.findByLabelText(/Describe what you want to do/i);
+    await waitFor(() => expect(window.electron.settings.ai.getExtensions).toHaveBeenCalled());
+    fireEvent.change(input, {target: {value: 'Keep $HOME and ${NAME}; use $te'}});
+    expect(await screen.findByRole('listbox', {name: 'Codex skill suggestions'})).toBeVisible();
+    expect(screen.getByRole('option', {name: '$team-review'})).toBeVisible();
+    expect(screen.getByText('Read $HOME literally.')).toBeVisible();
+    expect(screen.queryByRole('option', {name: '$team-style'})).toBeNull();
+    expect(screen.queryByRole('option', {name: '$team-disabled'})).toBeNull();
+    expect(fireEvent.keyDown(input, {key: 'Enter'})).toBe(true);
+    expect(input.value).toBe('Keep $HOME and ${NAME}; use $te');
+    fireEvent.keyDown(input, {key: 'Escape'}); fireEvent.keyUp(input, {key: 'Escape'});
+    expect(screen.queryByRole('listbox', {name: 'Codex skill suggestions'})).toBeNull();
+    fireEvent.click(input);
+    fireEvent.keyDown(input, {key: 'Tab'}); fireEvent.keyUp(input, {key: 'Tab'});
+    expect(input.value).toBe('Keep $HOME and ${NAME}; use $team-review ');
+    expect(screen.queryByRole('listbox', {name: 'Codex skill suggestions'})).toBeNull();
+    fireEvent.change(input, {target: {value: 'Explain $HOME, $myVariable, ${NAME}, and `$team-review`'}});
+    expect(screen.queryByRole('listbox', {name: 'Codex skill suggestions'})).toBeNull();
+});
+
+test('skill suggestions refresh after assignment changes and disappear for another provider', async () => {
+    let changed;
+    window.electron.settings.ai.on = {extensionsUpdated: jest.fn(handler => {changed = handler;})};
+    window.electron.settings.ai.off = {extensionsUpdated: jest.fn()};
+    window.electron.settings.ai.getExtensions = jest.fn().mockResolvedValue(skillMentionFixture());
+    window.electron.settings.ai.getAssistants.mockResolvedValue([
+        {id: 'assistant-1', provider: 'codex-cli', name: 'Codex', purpose: 'coding', default: true},
+        {id: 'api', provider: 'openrouter', name: 'API', purpose: 'coding'},
+    ]);
+    const {unmount} = render(<TestHarness/>);
+    const input = await screen.findByLabelText(/Describe what you want to do/i);
+    await waitFor(() => expect(window.electron.settings.ai.getExtensions).toHaveBeenCalled());
+    fireEvent.change(input, {target: {value: '$'}});
+    expect(await screen.findByRole('option', {name: '$team-review'})).toBeVisible();
+    window.electron.settings.ai.getExtensions.mockResolvedValue({skills: []});
+    await act(async () => changed());
+    fireEvent.change(input, {target: {value: '$te'}});
+    expect(screen.queryByRole('listbox', {name: 'Codex skill suggestions'})).toBeNull();
+    fireEvent.change(screen.getByLabelText('AI Assistant'), {target: {value: 'api'}});
+    fireEvent.change(input, {target: {value: '$'}});
+    expect(screen.queryByRole('listbox', {name: 'Codex skill suggestions'})).toBeNull();
+    unmount(); expect(window.electron.settings.ai.off.extensionsUpdated).toHaveBeenCalled();
+});
+
+test('a follow-up sends literal dollar variables unchanged without skill errors or expansion', async () => {
+    window.electron.settings.ai.getExtensions = jest.fn().mockResolvedValue(skillMentionFixture());
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId}) => {
+        streamHandlers.done?.({requestId, fullContent: 'This is a plain explanation.'});
+        return {success: true, requestId, content: 'This is a plain explanation.'};
+    });
+    render(<TestHarness/>);
+    const input = await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(input, {target: {value: 'Explain my plugin without changing files.'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(input).not.toHaveAttribute('readonly'));
+    fireEvent.change(input, {target: {value: 'Can you also explain the literal variables $HOME, $myVariable and ${NAME} without changing files?'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2));
+    expect(window.electron.aiCodingAgent.smartMode.mock.lastCall[0].prompt).toContain('$HOME, $myVariable and ${NAME}');
+    expect(screen.queryByTestId('ai-coding-error')).toBeNull();
+});
 
 jest.mock("../../../src/components/editor/utils/VirtualFS", () => ({
     __esModule: true,
@@ -54,6 +127,42 @@ function TestHarness({ codeEditor, onActivityChange }) {
     );
 }
 
+test.each([false, true])('workspace review detects unregistered styles with repair=%s even when tests and AI review pass', async repair => {
+    virtualFS.getLatestContent.mockReturnValue({
+        '/index.ts': 'import {render} from "./view"; export const renderPlugin = render;',
+        '/view.ts': 'import css from "./styles.css"; export const render = () => `<div class="panel">Content</div>`;',
+        '/styles.css': '.panel {display:grid}',
+    });
+    runPluginTests.mockResolvedValue({success: true, skipped: false});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId}) => {
+        const content = JSON.stringify({status: 'completed', summary: 'Tests passed.', findings: [], limitations: []});
+        Promise.resolve().then(() => streamHandlers.done?.({requestId, fullContent: content}));
+        return {success: true, requestId, content};
+    });
+    window.electron.aiCodingAgent.planCode.mockResolvedValue({success: false, error: 'Fixture repair provider unavailable'});
+    render(<TestHarness/>);
+    const button = await screen.findByRole('button', {name: repair ? 'Review & repair' : 'Review workspace'});
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled());
+    expect(window.electron.plugin.activate).not.toHaveBeenCalled();
+    expect(window.electron.plugin.deactivate).not.toHaveBeenCalled();
+    expect(window.electron.plugin.init).not.toHaveBeenCalled();
+    expect(window.electron.plugin.render).not.toHaveBeenCalled();
+    expect(window.electron.aiCodingAgent.smartMode.mock.lastCall[0].context).toContain('STYLESHEET REVIEW CONTRACT');
+    if (repair) {
+        await waitFor(() => expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalled());
+        const request = window.electron.aiCodingAgent.planCode.mock.lastCall[0];
+        expect(request.repairPaths).toEqual(['/index.ts', '/view.ts']);
+        expect(request.prompt).toContain('CSS entries are objects');
+        await screen.findAllByText(/Fixture repair provider unavailable/);
+    } else {
+        await waitFor(() => expect(screen.getByTestId('ai-coding-response')).toHaveTextContent('unregistered plugin styles'));
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    }
+    expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+});
+
 let streamHandlers;
 
 test.each([false, true])('workspace progress follows the current file after a provider retry (popover: %s)', async popover => {
@@ -69,10 +178,13 @@ test.each([false, true])('workspace progress follows the current file after a pr
     fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
     await waitFor(() => expect(requestId).toBeTruthy());
     await act(async () => {
-        streamHandlers.delta({requestId, type: 'stage', label: 'Generating file 1 of 12: /types.ts', content: ''});
+        streamHandlers.delta({requestId, type: 'stage', label: 'Generating file 1 of 12: /types.ts', content: '',
+            estimate: {path: '/types.ts', index: 1, total: 12}});
         streamHandlers.delta({requestId, type: 'reset'});
         streamHandlers.delta({requestId, type: 'status', message: 'Retrying the provider.', metadata: {phase: 'provider-retry'}});
     });
+    if (popover) expect(activity.mock.lastCall[0].estimate).toContain('Estimating remaining time');
+    else expect(screen.getByTestId('ai-coding-request-progress')).toHaveTextContent('Estimating remaining time');
     for (const label of ['Generating file 2 of 12: /render.tsx', 'Repairing file: /render.tsx', 'Splitting oversized module: /render.tsx']) {
         await act(async () => {
             streamHandlers.delta({requestId, type: 'stage', label, content: 'Pending types file'});
@@ -106,6 +218,12 @@ test("shows measured streaming progress, preserves whitespace, and resets counts
     fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: "Explain this plugin"}});
     fireEvent.click(screen.getByRole("button", {name: /Submit/i}));
     await waitFor(() => expect(requestId).toBeTruthy());
+    const runningPrompt = screen.getByLabelText(/Current request/);
+    expect(runningPrompt).toHaveAttribute('readonly');
+    expect(runningPrompt).not.toBeDisabled();
+    expect(runningPrompt).toHaveValue('Explain this plugin');
+    fireEvent.change(runningPrompt, {target: {value: 'Accidental replacement'}});
+    expect(runningPrompt).toHaveValue('Explain this plugin');
     await act(async () => {
         streamHandlers.delta({requestId, type: "status", message: "First answer", metadata: {phase: "first-content"}});
         for (const content of ["```js\nconst a =", "\n  ", "42;\n```"])
@@ -142,6 +260,7 @@ test("shows measured streaming progress, preserves whitespace, and resets counts
     expect(screen.getByTestId("ai-coding-response")).toHaveTextContent("Pending first file");
     expect(screen.getByTestId("ai-coding-response")).toHaveTextContent("Next");
     expect(virtualFS.createFile).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/Describe what you want to do/i)).not.toHaveAttribute('readonly');
 });
 
 test.each([undefined, "another-snapshot"])("keeps historical replies browseable without apply controls for snapshot %s", async (snapshot) => {
@@ -310,6 +429,9 @@ beforeEach(() => {
     window.electron.system.getExternalReferenceKnowledge = jest.fn().mockResolvedValue({ success: true, results: [] });
     window.electron.plugin = {
         ...(window.electron.plugin || {}),
+        typecheck: jest.fn().mockResolvedValue({success: true}),
+        build: jest.fn().mockResolvedValue({success: true}),
+        runTests: jest.fn().mockResolvedValue({success: true, skipped: false}),
         getAll: jest.fn().mockResolvedValue({
             plugins: [
                 { id: "demo", metadata: { name: "Demo Plugin" } },
@@ -328,6 +450,7 @@ beforeEach(() => {
     };
 
     window.electron.aiCodingAgent = {
+        setActivity: jest.fn(),
         routeJudge: jest.fn().mockResolvedValue({
             success: true,
             judge: {
@@ -391,6 +514,90 @@ beforeEach(() => {
 });
 
 describe("AiCodingAgentPanel auto-apply patch flow", () => {
+    test.each([
+        ['codex-cli', undefined, 'Text only in FDO', true],
+        ['openrouter', {provider: 'openrouter', model: 'image-model', imageSupport: 'supported', source: 'provider-metadata'}, 'Images supported', false],
+        ['openrouter', {provider: 'openrouter', model: 'image-model', imageSupport: 'unsupported', source: 'provider-metadata'}, 'Text only', true],
+    ])('shows screenshot support and gates upload for %s (%s)', async (provider, inputCapabilities, label, disabled) => {
+        window.electron.settings.ai.getAssistants.mockResolvedValueOnce([
+            {id: 'assistant-1', name: 'Selected', provider, model: 'image-model', purpose: 'coding', default: true, inputCapabilities},
+        ]);
+        render(<TestHarness />);
+        await screen.findByLabelText('AI Assistant');
+        fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+        expect(screen.getByText(`Screenshots: ${label}`)).toBeTruthy();
+        expect(screen.getByRole('button', {name: 'Upload Image'}).disabled).toBe(disabled);
+    });
+
+    test('reloads assistants without losing the selected assistant or prompt draft', async () => {
+        const assistants = [
+            {id: 'a', name: 'First', provider: 'openai', purpose: 'coding', default: true},
+            {id: 'b', name: 'Second', provider: 'openai', purpose: 'coding'},
+        ];
+        window.electron.settings.ai.getAssistants.mockResolvedValueOnce(assistants)
+            .mockResolvedValueOnce([assistants[0], {...assistants[1], name: 'Updated second'}]);
+        render(<TestHarness />);
+        const select = await screen.findByLabelText('AI Assistant');
+        fireEvent.change(select, {target: {value: 'b'}});
+        const prompt = screen.getByLabelText(/Describe what you want to do/i);
+        fireEvent.change(prompt, {target: {value: 'Keep this draft'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Reload AI assistants'}));
+        await screen.findByRole('option', {name: /Updated second/});
+        expect(select.value).toBe('b');
+        expect(prompt.value).toBe('Keep this draft');
+        expect(window.electron.settings.ai.getAssistants).toHaveBeenCalledTimes(2);
+    });
+
+    test('offers assistant reload when none were configured at window opening', async () => {
+        window.electron.settings.ai.getAssistants.mockResolvedValueOnce([]);
+        render(<TestHarness />);
+        const reload = await screen.findByRole('button', {name: 'Reload AI assistants'});
+        fireEvent.click(reload);
+        const select = await screen.findByLabelText('AI Assistant');
+        expect(select.value).toBe('assistant-1');
+    });
+
+    test('keeps the existing assistant usable when reloading fails', async () => {
+        window.electron.settings.ai.getAssistants.mockResolvedValueOnce([
+            {id: 'assistant-1', name: 'Existing', provider: 'codex-cli', purpose: 'coding', default: true},
+        ]).mockRejectedValueOnce(new Error('Unavailable'));
+        render(<TestHarness />);
+        const select = await screen.findByLabelText('AI Assistant');
+        fireEvent.click(screen.getByRole('button', {name: 'Reload AI assistants'}));
+        await screen.findByText('Could not reload AI assistants. Try again or check Settings.');
+        expect(select.value).toBe('assistant-1');
+    });
+
+    test.each(['apply', 'review'])('conversational feature follow-ups work in %s mode without stale failure routing', async mode => {
+        virtualFS.getLatestContent.mockReturnValue({
+            '/index.ts': 'export const plugin = true;',
+            '/render.ts': 'export const render = () => "Top level keys";',
+        });
+        virtualFS.build.getHistory.mockReturnValue([{error: true, message: '/index.ts: previous build error'}]);
+        const content = '### File: /render.ts\n```typescript\nexport const render = () => "<button>Show nested values</button>";\n```';
+        window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+            streamHandlers.done?.({requestId, fullContent: content});
+            return {success: true, requestId, content};
+        });
+        render(<TestHarness />);
+        await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+        fireEvent.change(screen.getByLabelText('Changes'), {target: {value: mode}});
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value:
+            'wow cool, I like that plugin and I see that it shows top level keys.. and can you please add a button to show values of those keys including nested?'}});
+        fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+        await waitFor(() => expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1));
+        expect(window.electron.aiCodingAgent.fixCode).not.toHaveBeenCalled();
+        if (mode === 'review') {
+            expect(virtualFS.createFile).not.toHaveBeenCalled();
+            const apply = await screen.findByRole('button', {name: 'Apply proposed changes'});
+            await waitFor(() => expect(apply).not.toBeDisabled());
+            fireEvent.click(apply);
+        }
+        await waitFor(() => expect(virtualFS.createFile).toHaveBeenCalledWith('/render.ts', expect.anything(), undefined));
+        const renderModel = virtualFS.createFile.mock.calls.find(([path]) => path === '/render.ts')[1];
+        expect(renderModel.getValue()).toContain('Show nested values');
+    });
+
     test("restores the snapshot linked from a saved conversation entry", async () => {
         virtualFS.sandboxName = "linked-snapshot";
         const requestSnapshotSwitch = jest.fn();
@@ -634,6 +841,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(await screen.findByText(/Diagnostic response|Replaced/)).toBeTruthy();
         expect(model.pushEditOperations).not.toHaveBeenCalled();
         expect(currentValue).toBe("export default class Plugin {}");
+        expect(screen.getByRole('button', {name: 'Apply proposed changes'})).toBeTruthy();
     });
 
     test("test-fix requests do not replace a non-test current file without an explicit test target", async () => {
@@ -3161,7 +3369,8 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
             getFullModelRange: () => ({startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1}),
             pushEditOperations: jest.fn(),
         };
-        virtualFS.getLatestContent.mockReturnValue({"/index.ts": initialEntry});
+        virtualFS.getLatestContent.mockReturnValue({"/index.ts": initialEntry,
+            "/render.tsx": require("../../../src/components/editor/utils/virtualTemplates").BLANK_TEMPLATE_RENDER("Workbench")});
         const files = {
             "/logic.ts": "export const format = (value: unknown) => JSON.stringify(value);",
             "/tests/tools.test.ts": [
@@ -3746,4 +3955,699 @@ test('keeps one elapsed clock across statuses and stream completion, freezes it 
         expect(activity.mock.lastCall[0].stageElapsedMs).toBeLessThan(1000);
         await act(async () => { finish({success: true, requestId, content: 'Another explanation.'}); });
     } finally { unmount?.(); jest.useRealTimers(); }
+});
+
+test.each(['openai', 'anthropic', 'gemini', 'cloudflare', 'ollama', 'opencode', 'openrouter', 'codex-cli'])(
+    '%s applies a self-forwarding export correction without regenerating the workspace', async provider => {
+        const fixture = require('../../fixtures/ai/workspace-self-forwarder.cjs').scenario();
+        window.electron.settings.ai.getAssistants.mockResolvedValue([{
+            id: 'assistant-1', name: 'Test assistant', provider, model: 'test-model', purpose: 'coding', default: true,
+        }]);
+        virtualFS.getLatestContent.mockReturnValue({'/styles.css': '.retained { color: teal; }'});
+        const content = `### File: ${fixture.path}\n\`\`\`typescript\n${fixture.source}\n\`\`\``;
+        window.electron.aiCodingAgent.planCode.mockImplementationOnce(async ({requestId}) => {
+            streamHandlers.done?.({requestId, fullContent: content});
+            return {success: true, requestId, content};
+        });
+        render(<TestHarness />);
+        await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+        fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
+            target: {value: 'Create a dashboard renderer in /ui/render.ts.'},
+        });
+        fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+        fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+        expect(await screen.findByText('Applied as snapshot snapshot-1')).toBeTruthy();
+        expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+        expect(virtualFS.createFile).toHaveBeenCalledTimes(1);
+        const [path, model] = virtualFS.createFile.mock.calls[0];
+        expect(path).toBe(fixture.path);
+        expect(model.getValue().trim()).toBe(fixture.corrected.trim());
+        expect(screen.queryByTestId('ai-coding-error')).toBeNull();
+    },
+);
+
+test.each(['success', 'stop', 'edit', 'scoped'])('candidate compilation keeps the editor busy and handles %s before applying', async outcome => {
+    let finishBuild;
+    let workspace = {'/logic.ts': 'export const value = 1;'};
+    virtualFS.getLatestContent.mockImplementation(() => workspace);
+    const content = '### File: /logic.ts\n```typescript\nexport const value = 2;\n```';
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    window.electron.plugin.build.mockImplementation(() => new Promise(resolve => { finishBuild = resolve; }));
+    render(<TestHarness />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: (outcome === 'scoped' ? 'WORKSPACE_REPAIR_PATHS: ["/logic.ts"]\n' : '') + 'Update /logic.ts to export value = 2. Apply the complete workspace file.'}});
+    if (outcome !== 'scoped') fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(finishBuild).toBeDefined());
+    expect(window.electron.aiCodingAgent.setActivity).toHaveBeenLastCalledWith(true, expect.objectContaining({stage: expect.stringContaining('Checking'), estimate: expect.any(String)}));
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', {name: /Processing/i}).disabled).toBe(true);
+    if (outcome === 'stop') fireEvent.click(screen.getByRole('button', {name: /Stop/i}));
+    if (outcome === 'edit') workspace = {'/logic.ts': 'export const value = 99;'};
+    await act(async () => finishBuild({success: true}));
+    await waitFor(() => expect(screen.queryByRole('button', {name: /Processing/i})).toBeNull());
+    expect(window.electron.aiCodingAgent.setActivity).toHaveBeenLastCalledWith(false);
+    if (outcome === 'success' || outcome === 'scoped') expect(virtualFS.createFile).toHaveBeenCalledTimes(1);
+    else {
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+        expect(screen.getByTestId('ai-coding-error').textContent).toMatch(/stopped|Workspace changed/);
+    }
+    if (outcome === 'scoped') expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledWith(expect.objectContaining({repairPaths: ['/logic.ts']}));
+});
+
+test.each(['codex-cli', 'gemini-cli'])('%s workspace options errors are repaired before editor application', async provider => {
+    window.electron.settings.ai.getAssistants.mockResolvedValue([{id: 'assistant-1', name: provider, provider, model: 'test-model', purpose: 'coding', default: true}]);
+    const helper = 'export interface Options {dom: object; css: object} export function render(opts: Options) {return opts;}';
+    const original = 'import {render} from "./helper"; export const run = () => render({dom: {}, css: {}});';
+    virtualFS.getLatestContent.mockReturnValue({'/helper.ts': helper, '/caller.ts': original});
+    const broken = original.replace('dom: {}, css: {}', 'dom: {}');
+    let calls = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        const content = '### File: /caller.ts\n```typescript\n' + (++calls === 1 ? broken : original) + '\n```';
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    render(<TestHarness />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Update /caller.ts while preserving its helper. Return the complete file.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(virtualFS.createFile).toHaveBeenCalledTimes(1));
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2);
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[1][0].prompt).toContain('required option fields: css');
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[1][0].repairPaths).toEqual(['/caller.ts']);
+    expect(screen.getByTestId('ai-coding-repair-notice')).toHaveTextContent('Repairing 1 of 1 generated files');
+    expect(screen.getByTestId('ai-coding-repair-notice')).toHaveTextContent('required option fields: css');
+    expect(window.electron.plugin.build).toHaveBeenCalledTimes(1);
+    expect(window.electron.plugin.build.mock.calls[0][0].latestContent['/caller.ts']).toBe(original);
+});
+
+test.each([false, true])('validation can repair a retained caller while respecting explicit scope (%s)', async scoped => {
+    const retainedTest = 'import {test} from "node:test"; import assert from "node:assert/strict"; import {Render} from "./render"; test("renders UI", () => { assert.ok(Render({title: "Starter"})); });';
+    const repairedTest = 'import {test} from "node:test"; import assert from "node:assert/strict"; import {Render} from "./render"; test("renders workbench", () => { assert.match(Render(), /Workbench/); });';
+    const generated = 'export function Render() { return "<h1>Workbench</h1>"; }';
+    virtualFS.getLatestContent.mockReturnValue({
+        '/render.tsx': 'export function Render(props: {title: string}) { return props.title; }',
+        '/render.test.ts': retainedTest,
+        '/retained.ts': 'export const untouched = true;',
+    });
+    let calls = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        const content = ++calls === 1 ? `### File: /render.tsx\n\`\`\`typescript\n${generated}\n\`\`\``
+            : `### File: /render.test.ts\n\`\`\`typescript\n${repairedTest}\n\`\`\``;
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    render(<TestHarness />);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value:
+        (scoped ? 'WORKSPACE_REPAIR_PATHS: ["/render.tsx"]\n' : '') + 'Replace the starter UI with a Workbench in /render.tsx. Return the complete workspace file.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    if (scoped) {
+        await waitFor(() => expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('outside your explicit repair scope'));
+        expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    } else {
+        await waitFor(() => expect(virtualFS.createFile).toHaveBeenCalledTimes(2));
+        expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2);
+        const repair = window.electron.aiCodingAgent.planCode.mock.calls[1][0];
+        expect(repair.repairPaths).toEqual(['/render.test.ts']);
+        expect(repair.workspaceFiles).toContainEqual(expect.objectContaining({path: '/render.tsx', content: generated}));
+        expect(repair.workspaceFiles).toContainEqual(expect.objectContaining({path: '/render.test.ts', content: retainedTest}));
+        expect(window.electron.plugin.build.mock.calls[0][0].latestContent).toMatchObject({
+            '/render.tsx': generated, '/render.test.ts': repairedTest, '/retained.ts': 'export const untouched = true;',
+        });
+        expect(screen.getByTestId('ai-coding-repair-notice')).toHaveTextContent('Repairing 1 existing workspace file');
+    }
+});
+
+test('unscoped compiler failure stops without spending tokens on another workspace plan', async () => {
+    virtualFS.getLatestContent.mockReturnValue({'/logic.ts': 'export const value = 1;'});
+    const content = '### File: /logic.ts\n```typescript\nexport const value = 2;\n```';
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    window.electron.plugin.build.mockResolvedValue({success: false, error: 'Unresolved compiler entry point'});
+    render(<TestHarness />);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Update /logic.ts to export value = 2. Apply the complete workspace file.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('Automatic repair stopped'));
+    expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('Unresolved compiler entry point');
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+});
+
+test('removes the unused theme import before applying without another AI request', async () => {
+    virtualFS.getLatestContent.mockReturnValue({'/theme.ts': 'export const getToolIcon = () => "icon"; export const getCategoryColor = () => "blue";'});
+    const content = '### File: /render.tsx\n```typescript\nimport {getToolIcon, getCategoryColor} from "./theme"; export const render = () => getToolIcon();\n```';
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(async ({requestId}) => {
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    render(<TestHarness />);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Create /render.tsx using the theme icon.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    expect(await screen.findByText('Applied as snapshot snapshot-1')).toBeTruthy();
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+    const [path, model] = virtualFS.createFile.mock.calls[0];
+    expect(path).toBe('/render.tsx');
+    expect(model.getValue()).not.toContain('getCategoryColor');
+    expect(model.getValue()).toContain('getToolIcon()');
+});
+
+test('failed candidate validation can be repaired repeatedly using the latest candidate until checks pass', async () => {
+    virtualFS.getLatestContent.mockReturnValue({'/retained.ts': 'export const untouched = true;'});
+    const testSource = 'import {value} from "./logic"; export const actual = value;';
+    const response = value => `### File: /logic.ts\n\`\`\`typescript\nexport const value = ${value};\n\`\`\`\n\n### File: /logic.test.ts\n\`\`\`typescript\n${testSource}\n\`\`\``;
+    let calls = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        const content = response(++calls);
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    const failure = value => ({success: false, output: `\ntest at logic.test.js:1:1\nAssertionError: received ${value}`});
+    window.electron.plugin.runTests.mockResolvedValueOnce(failure(1)).mockResolvedValueOnce(failure(2))
+        .mockResolvedValueOnce(failure(3)).mockResolvedValueOnce(failure(4)).mockResolvedValue({success: true});
+    render(<TestHarness/>);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Create /logic.ts and its tests.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    const repair = await screen.findByRole('button', {name: 'Repair failed validation'});
+    await waitFor(() => expect(repair).toBeEnabled());
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+    for (const previous of [2, 3, 4]) {
+        const before = window.electron.aiCodingAgent.planCode.mock.calls.length;
+        fireEvent.click(repair);
+        await waitFor(() => expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(before + 1));
+        const request = window.electron.aiCodingAgent.planCode.mock.lastCall[0];
+        expect(request.workspaceFiles.find(file => file.path === '/logic.ts').content).toContain(`= ${previous}`);
+        expect(request.workspaceFiles.find(file => file.path === '/retained.ts').content).toBe('export const untouched = true;');
+        if (previous < 4) {
+            await waitFor(() => expect(repair).toBeEnabled());
+            expect(virtualFS.createFile).not.toHaveBeenCalled();
+        }
+    }
+    await waitFor(() => expect(screen.queryByTestId('validation-recovery')).toBeNull());
+    expect(virtualFS.createFile).toHaveBeenCalled();
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(5);
+});
+
+test('stopping a manual validation repair retains recovery and ignores a late provider response', async () => {
+    virtualFS.getLatestContent.mockReturnValue({'/retained.ts': 'export const untouched = true;'});
+    const content = '### File: /logic.ts\n```typescript\nexport const value = 1;\n```\n### File: /logic.test.ts\n```typescript\nimport {value} from "./logic"; export const actual = value;\n```';
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    window.electron.plugin.runTests.mockResolvedValue({success: false, output: '\ntest at logic.test.js:1:1\nAssertionError: wrong value'});
+    render(<TestHarness/>);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Create /logic.ts and its tests.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    const repair = await screen.findByRole('button', {name: 'Repair failed validation'});
+    await waitFor(() => expect(repair).toBeEnabled());
+    let finish, retryId;
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(({requestId}) => {
+        retryId = requestId;
+        return new Promise(resolve => {finish = resolve;});
+    });
+    fireEvent.click(repair);
+    await waitFor(() => expect(retryId).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', {name: 'Stop', exact: true}));
+    await act(async () => {finish({success: true, requestId: retryId, content});});
+    await waitFor(() => expect(repair).toBeEnabled());
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+    expect(screen.getByTestId('validation-recovery')).toBeTruthy();
+});
+
+test.each([true, false])('candidate tests allow one scoped repair and apply only on success (%s)', async passes => {
+    virtualFS.getLatestContent.mockReturnValue({'/retained.ts': 'export const untouched = true;'});
+    const testSource = 'import {value} from "./logic"; export const actual = value;';
+    const response = value => `### File: /logic.ts\n\`\`\`typescript\nexport const value = ${value};\n\`\`\`\n\n### File: /logic.test.ts\n\`\`\`typescript\n${testSource}\n\`\`\``;
+    let calls = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        const content = response(++calls);
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    const failure = {success: false, output: '\ntest at logic.test.js:1:1\nAssertionError: expected 2, received 1'};
+    window.electron.plugin.runTests.mockResolvedValueOnce(failure).mockResolvedValue(passes ? {success: true} : failure);
+    render(<TestHarness />);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Create /logic.ts and its tests.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    if (passes) expect(await screen.findByText('Applied as snapshot snapshot-1')).toBeTruthy();
+    else {
+        await waitFor(() => expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('Generated tests failed'));
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    }
+    expect(window.electron.plugin.runTests).toHaveBeenCalledTimes(2);
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2);
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[1][0].repairPaths.sort()).toEqual(['/logic.test.ts', '/logic.ts']);
+    expect(window.electron.plugin.runTests.mock.calls[1][0].latestContent['/retained.ts']).toBe('export const untouched = true;');
+    expect(screen.getByLabelText('Verification attempt 1')).toHaveTextContent('failed');
+    expect(screen.getByLabelText('Verification attempt 2')).toHaveTextContent(passes ? 'Candidate tests: passed' : 'Candidate tests: failed');
+    expect(screen.getByTestId('workspace-verification-report')).toHaveTextContent('not-run');
+});
+
+test.each([true, false])('test repair remains available after source validation repair (passes: %s)', async passes => {
+    virtualFS.getLatestContent.mockReturnValue({'/retained.ts': 'export const untouched = true;'});
+    const section = (path, content) => `### File: ${path}\n\`\`\`typescript\n${content}\n\`\`\``;
+    const source = value => `export const value = () => ${value};`;
+    const initialTest = 'import {value} from "./logic"; export const actual = value(1);';
+    const fixedTest = 'import {value} from "./logic"; export const actual = value();';
+    const replies = [section('/logic.ts', source(1)) + '\n' + section('/logic.test.ts', initialTest),
+        section('/logic.test.ts', fixedTest),
+        section('/logic.test.ts', fixedTest) + '\n' + section('/logic.ts', source(2))];
+    let call = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        const content = replies[call++];
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    const failure = {success: false, output: '\ntest at logic.test.js:1:1\nAssertionError: expected 2, received 1'};
+    window.electron.plugin.runTests.mockResolvedValueOnce(failure).mockResolvedValue(passes ? {success: true} : failure);
+    render(<TestHarness />);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Create /logic.ts and its tests.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    if (passes) expect(await screen.findByText('Applied as snapshot snapshot-1')).toBeTruthy();
+    else {
+        await waitFor(() => expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('Generated tests failed'));
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    }
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(3);
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[1][0].repairPaths).toEqual(['/logic.test.ts']);
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[2][0].repairPaths.sort()).toEqual(['/logic.test.ts', '/logic.ts']);
+    expect(window.electron.plugin.runTests).toHaveBeenCalledTimes(2);
+});
+
+test('plugin guide review keeps validation errors visible and submits edited approval', async () => {
+    let requestId, finish;
+    window.electron.aiCodingAgent.smartMode.mockImplementationOnce(request => {
+        requestId = request.requestId;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    window.electron.aiCodingAgent.reviewSkill = jest.fn()
+        .mockResolvedValueOnce({success: true, report: {source: '/installed/sdk.js', unchecked: 'Guidance remains unverified.', findings: []}})
+        .mockResolvedValueOnce({success: false, error: 'Unsupported SDK export'})
+        .mockResolvedValueOnce({success: true});
+    const activity = jest.fn();
+    render(<TestHarness onActivityChange={activity}/>);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Explain plugin'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(requestId).toBeTruthy());
+    act(() => streamHandlers.delta({requestId, type: 'skill-review', content: '# Proposed', report: {
+        source: '/installed/sdk.js', unchecked: 'Project guidance is not verified.', findings: [
+            {status: 'verified', reference: 'DOMText.createSpanText', message: 'API member exists.'},
+        ],
+    }}));
+    expect(await screen.findByLabelText('Guide compatibility report')).toHaveTextContent('API exists');
+    expect(activity.mock.lastCall[0].guideReviewPending).toBe(true);
+    expect(screen.getByLabelText('Guide compatibility report')).toHaveTextContent('/installed/sdk.js');
+    fireEvent.change(await screen.findByLabelText('Plugin guide'), {target: {value: '# Edited'}});
+    expect(screen.queryByLabelText('Guide compatibility report')).toBeNull();
+    fireEvent.click(screen.getByRole('button', {name: 'Check compatibility'}));
+    expect(await screen.findByLabelText('Guide compatibility report')).toHaveTextContent('Guidance remains unverified.');
+    expect(window.electron.aiCodingAgent.reviewSkill).toHaveBeenCalledWith({requestId, content: '# Edited', checkOnly: true});
+    expect(screen.getByLabelText('Plugin guide')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('approve-plugin-guide'));
+    expect(await screen.findByText('Unsupported SDK export')).toBeTruthy();
+    expect(window.electron.aiCodingAgent.reviewSkill).toHaveBeenCalledWith({requestId, content: '# Edited'});
+    fireEvent.click(screen.getByTestId('approve-plugin-guide'));
+    await waitFor(() => expect(screen.queryByLabelText('Plugin guide')).toBeNull());
+    expect(activity.mock.lastCall[0].guideReviewPending).toBe(false);
+    await act(async () => finish({success: true, content: 'Finished'}));
+});
+
+test('one repair includes retained import failures and independent TypeScript owners', async () => {
+    const section = (path, content) => `### File: ${path}\n\`\`\`typescript\n${content}\n\`\`\``;
+    virtualFS.getLatestContent.mockReturnValue({'/render.test.ts': 'import {Render} from "./render"; export const html = Render();'});
+    window.electron.plugin.typecheck.mockResolvedValueOnce({success: false, diagnostics: [
+        {path: '/actions.ts', line: 1, column: 1, code: 2339, message: 'Property dataset does not exist on Element'},
+    ]}).mockResolvedValue({success: true});
+    let calls = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId, repairPaths}) => {
+        if (calls) {
+            expect(repairPaths).toEqual(['/render.test.ts', '/actions.ts']);
+            expect(window.electron.plugin.build).not.toHaveBeenCalled();
+            expect(virtualFS.createFile).not.toHaveBeenCalled();
+        }
+        const content = ++calls === 1
+            ? section('/render.ts', 'export const render = () => "Workbench";') + '\n' + section('/actions.ts', 'export const bad = document.querySelector("div")?.dataset;')
+            : section('/render.test.ts', 'import {render} from "./render"; export const html = render();') + '\n' + section('/actions.ts', 'export const data = document.querySelector<HTMLElement>("div")?.dataset;');
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    render(<TestHarness />);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Build the Workbench workspace and actions. Return complete files.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(virtualFS.createFile).toHaveBeenCalledTimes(3));
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2);
+});
+
+test.each([true, false])('test progress permits exactly one final repair with application only on success (%s)', async passes => {
+    virtualFS.getLatestContent.mockReturnValue({});
+    const response = value => `### File: /logic.ts\n\`\`\`typescript\nexport const value = ${value};\n\`\`\`\n\n### File: /logic.test.ts\n\`\`\`typescript\nimport {value} from "./logic"; export const actual = value;\n\`\`\``;
+    let calls = 0;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId}) => {
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+        const content = response(++calls);
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    const outcome = failedCount => ({success: failedCount === 0,
+        output: '\ntest at logic.test.js:1:1\nAssertionError: remaining assertion failed',
+        results: ['format', 'url', 'image'].map((name, index) => ({file: '/logic.test.ts', name, passed: index >= failedCount}))});
+    window.electron.plugin.runTests.mockResolvedValueOnce(outcome(3)).mockResolvedValueOnce(outcome(2)).mockResolvedValue(outcome(passes ? 0 : 1));
+    render(<TestHarness />);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Create /logic.ts and its tests.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    if (passes) expect(await screen.findByText('Applied as snapshot snapshot-1')).toBeTruthy();
+    else {
+        await waitFor(() => expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('Generated tests failed'));
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    }
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(3);
+    expect(window.electron.plugin.runTests).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId('ai-coding-repair-notice')).toHaveTextContent('One final scoped repair');
+});
+
+test.each(['retry', 'edit'])('guide proposal recovery supports %s without approving the guide', async action => {
+    let requestId, finish;
+    window.electron.aiCodingAgent.smartMode.mockImplementationOnce(request => {
+        requestId = request.requestId;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    window.electron.aiCodingAgent.reviewSkill = jest.fn().mockResolvedValue({success: true});
+    render(<TestHarness />);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Explain plugin'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(requestId).toBeTruthy());
+    act(() => streamHandlers.delta({requestId, type: 'skill-review', proposal: true,
+        content: '{"purpose":"Retained"}', errors: {acceptance: 'Missing requirement quote'}}));
+    expect(await screen.findByText('Fix plugin guide draft')).toBeTruthy();
+    expect(screen.getByText(/This JSON is an intermediate format, not SKILL.md/)).toBeTruthy();
+    expect(screen.queryByText('Your approval is needed')).toBeNull();
+    expect(screen.getByLabelText('Plugin guide')).toHaveValue('{"purpose":"Retained"}');
+    expect(screen.queryByRole('button', {name: 'Approve and continue'})).toBeNull();
+    if (action === 'retry') {
+        fireEvent.click(screen.getByRole('button', {name: 'Retry failed step'}));
+        await waitFor(() => expect(window.electron.aiCodingAgent.reviewSkill).toHaveBeenCalledWith({requestId, action: 'retry'}));
+    } else {
+        fireEvent.change(screen.getByLabelText('Plugin guide'), {target: {value: '{"purpose":"Edited"}'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Validate edited proposal'}));
+        await waitFor(() => expect(window.electron.aiCodingAgent.reviewSkill).toHaveBeenCalledWith({requestId, content: '{"purpose":"Edited"}'}));
+    }
+    await waitFor(() => expect(screen.queryByLabelText('Plugin guide')).toBeNull());
+    await act(async () => finish({success: false, error: 'Stopped for test'}));
+});
+
+test.each([false, true])('guide compatibility check shows progress and explicit success (proposal=%s)', async proposal => {
+    let requestId, finish, resolveCheck;
+    window.electron.aiCodingAgent.smartMode.mockImplementationOnce(request => {
+        requestId = request.requestId;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    window.electron.aiCodingAgent.reviewSkill = jest.fn(() => new Promise(resolve => { resolveCheck = resolve; }));
+    render(<TestHarness />);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Explain plugin'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(requestId).toBeTruthy());
+    act(() => streamHandlers.delta({requestId, type: 'skill-review', proposal, content: proposal ? '{}' : '# Guide'}));
+    const checkLabel = proposal ? 'Check draft' : 'Check compatibility';
+    fireEvent.click(await screen.findByRole('button', {name: checkLabel}));
+    expect(screen.getByRole('button', {name: checkLabel})).toBeDisabled();
+    expect(screen.getByTestId('approve-plugin-guide')).toBeDisabled();
+    expect(screen.getByLabelText('Plugin guide')).toBeDisabled();
+    await act(async () => resolveCheck({success: true}));
+    expect(await screen.findByText(proposal ? /Proposal check passed/ : /Compatibility check passed/)).toBeTruthy();
+    expect(screen.getByLabelText('Plugin guide')).toBeEnabled();
+    expect(window.electron.aiCodingAgent.reviewSkill).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText('Plugin guide'), {target: {value: '# New edits'}});
+    expect(screen.queryByText(/check passed/)).toBeNull();
+    window.electron.aiCodingAgent.reviewSkill.mockRejectedValueOnce(new Error('Connection interrupted'));
+    fireEvent.click(screen.getByRole('button', {name: checkLabel}));
+    expect(await screen.findByText('Connection interrupted')).toBeTruthy();
+    expect(screen.getByRole('button', {name: checkLabel})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Stop and revise request'}));
+    await waitFor(() => expect(screen.queryByLabelText('Plugin guide')).toBeNull());
+    expect(window.electron.aiCodingAgent.cancelRequest).toHaveBeenCalledWith({requestId});
+    await act(async () => finish({success: false, error: 'Cancelled'}));
+});
+
+test('stopping a pending guide check prevents its late response from reopening review', async () => {
+    let requestId, finish, resolveCheck;
+    window.electron.aiCodingAgent.smartMode.mockImplementationOnce(request => {
+        requestId = request.requestId;
+        return new Promise(resolve => { finish = resolve; });
+    });
+    window.electron.aiCodingAgent.reviewSkill = jest.fn(() => new Promise(resolve => { resolveCheck = resolve; }));
+    render(<TestHarness />);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Explain plugin'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(requestId).toBeTruthy());
+    act(() => streamHandlers.delta({requestId, type: 'skill-review', content: '# Guide'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Check compatibility'}));
+    expect(screen.getByText('Checking compatibility…')).toBeTruthy();
+    const stop = screen.getByRole('button', {name: 'Stop and revise request'});
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    await waitFor(() => expect(screen.queryByLabelText('Plugin guide')).toBeNull());
+    expect(window.electron.aiCodingAgent.cancelRequest).toHaveBeenCalledWith({requestId});
+    await act(async () => resolveCheck({success: false, error: 'Late validation error'}));
+    expect(screen.queryByText('Late validation error')).toBeNull();
+    expect(screen.queryByLabelText('Plugin guide')).toBeNull();
+    await act(async () => finish({success: false, error: 'Cancelled'}));
+});
+
+test.each(['done', 'error'])('budget recovery submits directly without exposing technical instructions or applying partial output (%s)', async completion => {
+    const partial = '### File: /index.ts\n```typescript\nexport const unfinished = true;\n```';
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(async ({requestId}) => {
+        if (completion === 'done') streamHandlers.done?.({requestId, fullContent: partial});
+        else {
+            streamHandlers.delta({requestId, content: partial});
+            streamHandlers.error({requestId, error: 'Generation could not finish.'});
+        }
+        return {success: false, requestId, error: 'Generation could not finish.', failure: {schemaVersion: '1.0.0', code: 'WORKSPACE_GENERATION_BUDGET_EXHAUSTED', stage: 'file-generation', path: '/plugin/lifecycle-styles.ts', workspaceChanged: false, resumable: false, recoveryActions: ['smaller-scope']}};
+    });
+    let finishRetry;
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(() => new Promise(resolve => {finishRetry = resolve;}));
+    render(<><TestHarness/><AiPendingFiles/></>);
+    const input = await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(input, {target: {value: 'Build a JSON inspector with nested values.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    expect(await screen.findByText('Generation stopped before changes were applied')).toBeTruthy();
+    expect(screen.getByTestId('ai-coding-error')).toHaveTextContent('no resumable checkpoint');
+    expect(screen.queryByRole('button', {name: 'Apply proposed changes'})).toBeNull();
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', {name: 'Retry with smaller scope'}));
+    expect(input.value).toContain('Build a JSON inspector with nested values.');
+    expect(input.value).not.toContain('Smaller-scope generation request');
+    expect(input.value).toContain('For this retry, build a smaller working version');
+    expect(getPendingFiles().previousFiles).toContainEqual({path: '/index.ts', ready: true, content: 'export const unfinished = true;'});
+    expect(screen.getByRole('button', {name: 'Preview previous /index.ts'})).toBeVisible();
+    expect(screen.getByLabelText('Action')).toHaveValue('plan');
+    await waitFor(() => expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2));
+    expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0]).toMatchObject({
+        userRequirements: expect.stringContaining('For this retry, build a smaller working version'), recoveryMode: 'smaller-scope', recoveryPath: '/plugin/lifecycle-styles.ts',
+    });
+    expect(screen.getByTestId('generation-recovery-state')).toHaveTextContent('Generating the smaller-scope retry');
+    expect(screen.queryByRole('button', {name: 'Apply proposed changes'})).toBeNull();
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', {name: 'Stop', exact: true}));
+    await act(async () => finishRetry({success: false, error: 'Cancelled'}));
+});
+
+test('structured recovery submits once, preserves previews and ignores failure after stopping', async () => {
+    const metadata = {schemaVersion: '1.0.0', code: 'WORKSPACE_GENERATION_BUDGET_EXHAUSTED', stage: 'file-generation', path: '/plugin/lifecycle-styles.ts', workspaceChanged: false, resumable: false, recoveryActions: ['smaller-scope']};
+    let finish, retryId;
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(async ({requestId}) => ({success: false, requestId, error: 'A different message', failure: metadata}));
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(request => {
+        retryId = request.requestId;
+        return new Promise(resolve => {finish = resolve;});
+    });
+    render(<TestHarness/>);
+    const input = await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(input, {target: {value: 'Build a JSON inspector.'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    const retry = await screen.findByRole('button', {name: 'Retry with smaller scope'});
+    act(() => stagePendingFiles('### File: /saved-helper.ts\n```ts\nexport const saved = true;\n```'));
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await waitFor(() => expect(retryId).toBeTruthy());
+    expect(getPendingFiles().previousFiles).toContainEqual({path: '/saved-helper.ts', ready: true, content: 'export const saved = true;'});
+    expect(getPendingFiles().files).toEqual([]);
+    expect(screen.getByTestId('generation-recovery-state')).toHaveTextContent('Generating the smaller-scope retry');
+    expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2);
+    expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0].userRequirements).toContain('Build a JSON inspector.');
+    expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0].userRequirements).toContain('For this retry, build a smaller working version');
+    fireEvent.click(screen.getByRole('button', {name: 'Stop', exact: true}));
+    expect(screen.queryByTestId('generation-recovery-state')).toBeNull();
+    await act(async () => finish({success: false, requestId: retryId, error: 'Late failure', failure: metadata}));
+    expect(screen.queryByRole('button', {name: 'Retry with smaller scope'})).toBeNull();
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+});
+
+test.each(['resume', 'smaller-scope'])('saved checkpoints discovered after reopening recover with %s', async mode => {
+    virtualFS.sandboxName = 'saved-checkpoint-plugin';
+    window.electron.settings.ai.getAssistants.mockResolvedValue([{id: 'assistant-1', provider: 'openrouter', model: 'coding-model', name: 'API', purpose: 'coding', default: true}]);
+    const checkpoint = {id: '12345678-1234-1234-1234-123456789abc', requirements: 'Build a JSON inspector.', path: '/a.ts', completedFileCount: 2, pendingFileCount: 1, canResume: true};
+    window.electron.aiCodingAgent.getGenerationCheckpoint = jest.fn().mockResolvedValue({success: true, checkpoint});
+    window.electron.aiCodingAgent.discardGenerationCheckpoint = jest.fn().mockResolvedValue({success: true});
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(async request => ({success: false, requestId: request.requestId, error: 'Stopped for this test'}));
+    render(<TestHarness/>);
+    expect(await screen.findByTestId('saved-generation-checkpoint')).toHaveTextContent('2 validated files saved');
+    fireEvent.click(screen.getByRole('button', {name: mode === 'resume' ? 'Resume unfinished generation' : 'Retry with smaller scope using saved helpers'}));
+    const input = document.querySelector('#prompt-input');
+    expect(input.value).toContain(checkpoint.requirements);
+    if (mode === 'resume') {
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+        expect(screen.getByTestId('generation-recovery-state')).toHaveTextContent('No provider request has been sent');
+        fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    }
+    await waitFor(() => expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalled());
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[0][0]).toMatchObject({checkpointId: checkpoint.id, recoveryMode: mode, workspaceId: virtualFS.sandboxName});
+    await screen.findByTestId('ai-coding-error');
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+});
+
+test('checkpoint recovery is disabled when newer workspace edits exist; explicit discard is available', async () => {
+    virtualFS.sandboxName = 'saved-checkpoint-plugin';
+    window.electron.settings.ai.getAssistants.mockResolvedValue([{id: 'assistant-1', provider: 'openrouter', model: 'coding-model', name: 'API', purpose: 'coding', default: true}]);
+    const checkpoint = {id: '12345678-1234-1234-1234-123456789abc', requirements: 'Build tools', path: '/a.ts', completedFileCount: 1, pendingFileCount: 1, canResume: false, reason: 'The workspace changed. Preserve newer edits.'};
+    window.electron.aiCodingAgent.getGenerationCheckpoint = jest.fn().mockResolvedValue({success: true, checkpoint});
+    window.electron.aiCodingAgent.discardGenerationCheckpoint = jest.fn().mockResolvedValue({success: true});
+    render(<TestHarness/>);
+    expect(await screen.findByTestId('saved-generation-checkpoint')).toHaveTextContent('Preserve newer edits');
+    expect(screen.getByRole('button', {name: 'Resume unfinished generation'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Retry with smaller scope using saved helpers'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Discard saved generation work'}));
+    await waitFor(() => expect(screen.queryByTestId('saved-generation-checkpoint')).toBeNull());
+    expect(window.electron.aiCodingAgent.discardGenerationCheckpoint).toHaveBeenCalledWith({workspaceId: virtualFS.sandboxName, id: checkpoint.id});
+    expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+});
+
+test('saved proposal Apply rechecks the baseline and blocks overwriting newer edits', async () => {
+    virtualFS.sandboxName = 'checkpoint-apply';
+    const checkpoint = {id: '12345678-1234-1234-1234-123456789abc', workspaceId: virtualFS.sandboxName, requirements: 'Build helpers.', path: '/a.ts', completedFileCount: 1, pendingFileCount: 0, canResume: true};
+    window.electron.settings.ai.getAssistants.mockResolvedValue([{id: 'assistant-1', provider: 'openrouter', model: 'coding-model', name: 'API', purpose: 'coding', default: true}]);
+    window.electron.aiCodingAgent.getGenerationCheckpoint = jest.fn().mockResolvedValue({success: true, checkpoint: null});
+    window.electron.aiCodingAgent.planCode.mockImplementationOnce(async ({requestId}) => {
+        window.electron.aiCodingAgent.getGenerationCheckpoint.mockResolvedValue({success: true, checkpoint});
+        streamHandlers.delta?.({requestId, type: 'generation-checkpoint', checkpoint});
+        const content = '### File: /a.ts\n```typescript\nexport const a = 1;\n```';
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    render(<TestHarness/>);
+    fireEvent.change(await screen.findByLabelText(/Describe what you want to do/i), {target: {value: 'Build helpers.'}});
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'review'}});
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    const apply = await screen.findByRole('button', {name: 'Apply proposed changes'});
+    await waitFor(() => expect(apply).toBeEnabled());
+    await waitFor(() => expect(screen.getByTestId('saved-generation-checkpoint')).toBeTruthy());
+    virtualFS.getLatestContent.mockReturnValue({'/newer.ts': 'export const newer = true;'});
+    window.electron.aiCodingAgent.getGenerationCheckpoint.mockResolvedValue({success: true, checkpoint: {...checkpoint, canResume: false, reason: 'Newer workspace edits must be preserved.'}});
+    fireEvent.click(apply);
+    expect(await screen.findByText('Newer workspace edits must be preserved.')).toBeTruthy();
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+});
+
+test('documentation lookups never auto-apply a model-produced source block', () => {
+    const prompt = 'Use the configured OpenAI Docs MCP server to find documentation. Explain approvals and include links.';
+    expect(isInformationalOnlyPrompt(prompt)).toBe(true);
+    expect(shouldAutoApplySingleFileResponse({action: 'smart', prompt, targetFilePath: '/index.ts'})).toBe(false);
+    expect(shouldAutoApplySingleFileResponse({action: 'generate', prompt, targetFilePath: '/index.ts'})).toBe(false);
+});
+
+test('Smart documentation lookup uses the informational endpoint and preserves the current file despite a SOLUTION response', async () => {
+    const original = 'export const existingPlugin = true;';
+    let value = original;
+    const model = {getLanguageId: jest.fn(() => 'typescript'), getValue: jest.fn(() => value), getValueInRange: jest.fn(() => ''),
+        getFullModelRange: jest.fn(() => ({startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: original.length + 1})),
+        pushEditOperations: jest.fn((_, edits) => {value = edits[0].text;})};
+    const codeEditor = {getModel: () => model, getSelection: () => ({startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1}), focus: jest.fn()};
+    virtualFS.getLatestContent.mockReturnValue({'/index.ts': original});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId}) => {
+        const content = '```typescript\n// SOLUTION READY TO APPLY\nexport const remoteMcpDocumentation = {};\n```';
+        Promise.resolve().then(() => streamHandlers.done?.({requestId, fullContent: content}));
+        return {success: true, requestId, content};
+    });
+    render(<TestHarness codeEditor={codeEditor}/>);
+    const input = await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(input, {target: {value: 'Use the configured OpenAI Docs MCP server to find documentation. Explain approvals and include links.'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled());
+    await screen.findByText(/remoteMcpDocumentation/);
+    expect(window.electron.aiCodingAgent.generateCode).not.toHaveBeenCalled();
+    expect(model.pushEditOperations).not.toHaveBeenCalled();
+    expect(value).toBe(original);
+});
+
+test.each(['error', 'throws', 'classification'])('failed streamed replies preserve the prompt for switching assistants and resubmitting (%s)', outcome => {
+    return (async () => {
+        window.electron.settings.ai.getAssistants.mockResolvedValue([
+            {id: 'assistant-1', provider: 'codex-cli', name: 'Codex', purpose: 'coding', default: true},
+            {id: 'another', provider: 'openrouter', name: 'Another model', purpose: 'coding'},
+        ]);
+        window.electron.aiCodingAgent.smartMode.mockImplementationOnce(async ({requestId}) => {
+            streamHandlers.done({requestId, fullContent: 'User Safety: safe Response Safety: safe'});
+            if (outcome === 'throws') throw new Error('Invalid workspace file plan');
+            if (outcome === 'classification') return {success: true, requestId, content: 'User Safety: safe Response Safety: safe'};
+            return {success: false, requestId, error: 'Invalid workspace file plan'};
+        }).mockImplementationOnce(async ({requestId}) => ({success: false, requestId, error: 'Second request reached provider'}));
+        render(<TestHarness/>);
+        const input = await screen.findByLabelText(/Describe what you want to do/i);
+        fireEvent.change(input, {target: {value: 'Explain this plugin'}});
+        fireEvent.click(screen.getByRole('button', {name: /^Submit$/}));
+        await screen.findByText(outcome === 'classification' ? /The provider returned only a safety classification, with no answer/ : 'Invalid workspace file plan');
+        await waitFor(() => expect(screen.getByRole('button', {name: /^Submit$/})).toBeEnabled());
+        expect(input).toHaveValue('Explain this plugin');
+        fireEvent.change(screen.getByLabelText('AI Assistant'), {target: {value: 'another'}});
+        fireEvent.click(screen.getByRole('button', {name: /^Submit$/}));
+        await waitFor(() => expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2));
+        expect(window.electron.aiCodingAgent.smartMode.mock.calls[1][0]).toMatchObject({assistantId: 'another'});
+    })();
+});
+
+test('rechecks saved API image capabilities and enables attachments when fresh metadata advertises vision', async () => {
+    window.electron.settings.ai.getAssistants.mockResolvedValue([{id: 'assistant-1', provider: 'openai', name: 'Vision assistant', model: 'vision-fixture', purpose: 'coding', default: true,
+        inputCapabilities: {provider: 'openai', model: 'vision-fixture', imageSupport: 'unsupported', source: 'provider-metadata', reason: 'Old capability data'}}]);
+    window.electron.settings.ai.getInputCapabilities = jest.fn().mockResolvedValue({provider: 'openai', model: 'vision-fixture', imageSupport: 'supported', source: 'provider-metadata', reason: 'Current metadata advertises images'});
+    render(<TestHarness/>);
+    await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+    await waitFor(() => expect(window.electron.settings.ai.getInputCapabilities).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Upload Image'})).toBeEnabled());
+    expect(screen.getByText('Screenshots: Images supported')).toBeVisible();
 });

@@ -258,7 +258,7 @@ function selectInstallPath(platform, primaryPath, fallbackPaths) {
 ### Rationale
 
 **Existing `runWithSudo` Integration**:
-- Already implemented and tested (`src/utils/runWithSudo.js`)
+- Already implemented and tested (`src/utils/system/runWithSudo.js`)
 - Uses Electron dialog for user confirmation (matches app UX)
 - Leverages `@expo/sudo-prompt` for cross-platform elevation
 - Shows macOS permission dialog with app icon and custom message

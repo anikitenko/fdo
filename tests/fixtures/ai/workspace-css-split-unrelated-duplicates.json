@@ -1,0 +1,59 @@
+{
+  "files": [
+    {
+      "contract": "Defines the local category metadata and deterministic operation contracts used by workbench rendering and tests.",
+      "path": "/features/workbench/catalog.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Implements deterministic browser-local text, JSON, query, HTML, media, and social-preview transformations.",
+      "path": "/features/workbench/catalog.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Renders the category library overlay, personal-space dialog, and category workspace with accessible controls.",
+      "path": "/features/workbench/category.ts",
+      "visualReference": true
+    },
+    {
+      "contract": "Implements self-contained declarative click bindings for dashboard, JSON, library, space, and category controls.",
+      "path": "/features/workbench/actions.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Defines shared structural tokens for the shell, dashboard grid, dock, and foundational visual appearance.",
+      "path": "/styles/base.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines compact dashboard cards, folder tiles, and the anchored bottom dock styling.",
+      "path": "/styles/dashboard.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines the ivory JSON workspace, editor panes, feedback states, and animation behavior.",
+      "path": "/styles/json-workspace.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines the library overlay, search controls, filters, and quick-access rows.",
+      "path": "/styles/library.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines the dimmed personal-space sheet, tabs, sections, and saved rows.",
+      "path": "/styles/space.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines category-workspace inputs, action controls, results, and back navigation.",
+      "path": "/styles/category.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Tests dashboard composition, exact interactive targets, JSON markup, and category tools.",
+      "path": "/render.test.ts",
+      "visualReference": false
+    }
+  ]
+}

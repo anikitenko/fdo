@@ -12,7 +12,7 @@ This document defines the state model for editor window lifecycle management, fo
 
 ### 1. Editor Window Instance
 
-**Location**: `src/utils/editorWindow.js`
+**Location**: `src/utils/desktop/editorWindow.js`
 
 **Definition**: Singleton manager for the active editor BrowserWindow instance
 

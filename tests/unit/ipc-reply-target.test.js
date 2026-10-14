@@ -1,5 +1,5 @@
 import {EventEmitter} from "node:events";
-import {observeIpcSender, sendToIpcSender} from "../../src/utils/ipcReplyTarget";
+import {observeIpcSender, sendToIpcSender} from "../../src/utils/desktop/ipcReplyTarget";
 
 function fixture() {
     const sender = new EventEmitter();

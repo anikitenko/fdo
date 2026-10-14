@@ -1,6 +1,10 @@
+import {parse} from '@babel/parser';
+import traverseModule from '@babel/traverse';
 import {IconNames} from "@blueprintjs/icons";
-import {validateGeneratedFileSyntax} from "../../../utils/generatedFileSyntax";
-import {validateGeneratedWorkspaceImports} from "../../../utils/generatedWorkspaceImports";
+import {validateGeneratedFileSyntax} from "../../../utils/plugins/validation/generatedFileSyntax";
+import {validateGeneratedCallbackParameters} from "../../../utils/plugins/validation/generatedCallbackParameters";
+import {resolveGeneratedImport, validateGeneratedWorkspaceImports} from "../../../utils/plugins/validation/generatedWorkspaceImports";
+import {hasInvalidBackendRequest} from "../../../utils/plugins/validation/generatedBackendRequests";
 
 const BLUEPRINT_ICON_SET = new Set(
     Object.values(IconNames)
@@ -18,9 +22,109 @@ function findPluginEntryFile(files = []) {
     return files.find((file) => /^\/index\.[cm]?[jt]sx?$/.test(file?.path || ''));
 }
 
-function extractMetadataIconLiteral(content = "") {
-    const match = String(content || "").match(/\bicon\s*:\s*["'`]([^"'`]+)["'`]/);
-    return match?.[1] || null;
+// Inspect the deployed dependency graph, excluding test-only and unused
+// composition modules. This is a conservative diagnostic, not visual proof.
+export function findWorkspaceStyleIssues(files = []) {
+    const entry = findPluginEntryFile(files);
+    if (!entry) return [];
+    const byPath = new Map(files.map(file => [file.path, file]));
+    const paths = new Set(byPath.keys());
+    const visited = new Set();
+    const queue = [entry.path];
+    const styleOwners = new Set();
+    let registration = false;
+    while (queue.length) {
+        const path = queue.pop();
+        if (visited.has(path) || isPluginTestFilePath(path)) continue;
+        visited.add(path);
+        const file = byPath.get(path);
+        if (!file || !/\.[cm]?[jt]sx?$/.test(path)) continue;
+        try {
+            const ast = parse(file.content, {sourceType: 'module', plugins: ['typescript', 'jsx']});
+            const traverse = traverseModule.default || traverseModule;
+            traverse(ast, {
+                MemberExpression(member) {
+                    const node = member.node;
+                    if ((!node.computed && node.property.name === 'createClassFromStyle')
+                        || (node.computed && node.property.value === 'createClassFromStyle')) registration = true;
+                },
+            });
+            for (const statement of ast.program.body) {
+                if (!['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration'].includes(statement.type)
+                    || !statement.source || statement.importKind === 'type' || statement.exportKind === 'type') continue;
+                const specifier = statement.source.value;
+                if (/\.css$/.test(specifier)) styleOwners.add(path);
+                const target = resolveGeneratedImport(path, specifier, paths);
+                if (target) queue.push(target);
+            }
+        } catch { /* Source validation owns parser errors. */ }
+    }
+    if (styleOwners.size && !registration) {
+        return [...new Set([entry.path, ...styleOwners])].map(file => ({severity: 'warning', file,
+            issue: 'Plugin-local stylesheet imports have no SDK style registration in the deployed rendering dependency graph.',
+            evidence: `Entry ${entry.path} reaches CSS imports in ${[...styleOwners].join(', ')} with no createClassFromStyle reference. Unused composition modules and tests are excluded.`,
+            repair: 'Inspect the deployed render call chain. CSS entries are objects, not class-name strings: replace string-only style lookups and literal-name fallbacks with registration on one shared SDK DOM instance. Register palette styles on an ancestor, pass that DOM through child renderers, and finish the full markup with dom.renderHTML(...). Route plugin render() through this composition while preserving state, handlers and working behavior. Verify emitted CSS; class-name and stylesheet-text assertions alone do not verify styling.',
+        }));
+    }
+    return [];
+}
+
+function extractMetadataIconLiterals(content = "") {
+    const icons = [];
+    const unwrap = node => ["TSAsExpression", "TSSatisfiesExpression", "TSTypeAssertion", "ParenthesizedExpression"].includes(node?.type)
+        ? unwrap(node.expression) : node;
+    const key = node => !node?.computed && node?.key?.type === "Identifier" ? node.key.name
+        : node?.key?.type === "StringLiteral" ? node.key.value : null;
+    try {
+        const ast = parse(content, {sourceType: "module", plugins: ["typescript", "jsx", "decorators-legacy"]});
+        const sdkNames = new Set(["FDO_SDK"]);
+        for (const statement of ast.program.body) {
+            if (statement.type === "ImportDeclaration" && statement.source.value === "@anikitenko/fdo-sdk") {
+                for (const specifier of statement.specifiers) {
+                    if (specifier.imported?.name === "FDO_SDK") sdkNames.add(specifier.local.name);
+                }
+            }
+        }
+        const traverse = traverseModule.default || traverseModule;
+        traverse(ast, {Class(classPath) {
+            if (!sdkNames.has(classPath.node.superClass?.name)) return;
+            const members = classPath.node.body.body;
+            const resolve = (node, scope, seen = new Set()) => {
+                node = unwrap(node);
+                if (!node || seen.has(node)) return null;
+                seen.add(node);
+                if (node.type === "ObjectExpression") return node;
+                if (node.type === "Identifier") {
+                    const binding = scope.getBinding(node.name);
+                    if (binding?.constant) return resolve(binding.path.node.init, binding.path.scope, seen);
+                }
+                if (node.type === "MemberExpression" && node.object.type === "ThisExpression") {
+                    const name = node.computed ? node.property.value : node.property.name;
+                    const field = members.find(member => member.type === "ClassProperty" && key(member) === name);
+                    return resolve(field?.value, scope, seen);
+                }
+                return null;
+            };
+            const inspect = (node, scope) => {
+                const metadata = resolve(node, scope);
+                for (const property of metadata?.properties || []) {
+                    if (property.type !== "ObjectProperty" || key(property) !== "icon") continue;
+                    const value = unwrap(property.value);
+                    if (value?.type === "StringLiteral") icons.push(value.value);
+                    if (value?.type === "TemplateLiteral" && !value.expressions.length) icons.push(value.quasis[0].value.cooked);
+                }
+            };
+            for (const member of classPath.get("body.body")) {
+                if (member.isClassProperty() && ["metadata", "_metadata"].includes(key(member.node))) inspect(member.node.value, member.scope);
+                if (member.isClassMethod() && member.node.kind === "get" && key(member.node) === "metadata") {
+                    member.traverse({ReturnStatement(returnPath) {
+                        if (returnPath.getFunctionParent() === member) inspect(returnPath.node.argument, returnPath.scope);
+                    }});
+                }
+            }
+        }});
+    } catch { /* Syntax validation reports malformed source separately. */ }
+    return [...new Set(icons)];
 }
 
 function looksLikeCustomIconAsset(value = "") {
@@ -28,19 +132,19 @@ function looksLikeCustomIconAsset(value = "") {
 }
 
 function containsNonUiWindowAccess(content = "") {
-    const normalized = normalizeLineEndings(content);
-    const lines = normalized.split("\n");
-    const suspicious = [];
-
-    lines.forEach((line, index) => {
-        if (!/window\./.test(line)) return;
-        if (/onClick|onclick|addEventListener|=>/.test(line)) {
-            return;
-        }
-        suspicious.push(index + 1);
-    });
-
-    return suspicious;
+    const suspicious = new Set();
+    try {
+        const ast = parse(content, {sourceType: 'module', plugins: ['typescript', 'jsx', 'decorators-legacy']});
+        const traverse = traverseModule.default || traverseModule;
+        traverse(ast, {MemberExpression(path) {
+            if (path.node.object.type !== 'Identifier' || path.node.object.name !== 'window') return;
+            const uiCallback = path.findParent(parent => parent.isCallExpression()
+                && (parent.node.callee?.property?.name === 'addEventListener'
+                    || parent.node.callee?.name === 'defineRenderOnLoadActions'));
+            if (!uiCallback) suspicious.add(path.node.loc.start.line);
+        }});
+    } catch { /* Syntax errors are reported by the syntax validator. */ }
+    return [...suspicious];
 }
 
 function findForbiddenHostImports(content = "") {
@@ -139,8 +243,6 @@ function validateInjectedUiFoundation(files, errors) {
     const source = uiFiles.map((file) => normalizeLineEndings(file?.content || "")).join("\n");
     const primaryUiPath = uiFiles.find((file) => /(?:<textarea\b|<input\b|<select\b|createElement\s*\(\s*["'](?:textarea|input|select)["'])/i.test(file?.content || ""))?.path
         || "/render.tsx";
-    const backendRequestPath = uiFiles.find((file) => /\bwindow\.createBackendReq\s*\(/.test(file?.content || ""))?.path
-        || primaryUiPath;
     const hasFormField = /(?:<textarea\b|<input\b|<select\b|createElement\s*\(\s*["'](?:textarea|input|select)["'])/i.test(source);
     const hasActionButton = /(?:<button\b|createElement\s*\(\s*["']button["'])/i.test(source);
 
@@ -153,8 +255,13 @@ function validateInjectedUiFoundation(files, errors) {
     if (hasFormField && /(?:from\s+["']purecss(?:\/[^"']*)?["']|import\s+["']purecss(?:\/[^"']*)?["'])/i.test(source)) {
         errors.push(`${primaryUiPath}: Pure CSS is already injected into every plugin iframe. Remove the Pure CSS import and use its class names directly.`);
     }
-    if (/\bwindow\.createBackendReq\s*\(/.test(source) && !/\bwindow\.createBackendReq\s*\(\s*["']UI_MESSAGE["']\s*,\s*\{[\s\S]{0,600}\bhandler\s*:[\s\S]{0,600}\bcontent\s*:/.test(source)) {
-        errors.push(`${backendRequestPath}: window.createBackendReq must call "UI_MESSAGE" and pass an object with handler and content. Example: window.createBackendReq("UI_MESSAGE", {handler: "myHandler", content: {...}}).`);
+}
+
+function validateBackendRequestEnvelopes(files, errors) {
+    for (const file of files.filter(file => !isPluginTestFilePath(file?.path))) {
+        const source = normalizeLineEndings(file?.content || '');
+        const invalid = hasInvalidBackendRequest(source);
+        if (invalid) errors.push(`${file.path}: window.createBackendReq must call "UI_MESSAGE" and pass an object with handler and content. Example: window.createBackendReq("UI_MESSAGE", {handler: "myHandler", content: {...}}).`);
     }
 }
 
@@ -166,7 +273,7 @@ function validatePluginRenderingSyntax(files, errors) {
         // className/htmlFor) therefore cannot be passed to dom.renderHTML().
         const jsxPassedToRenderHtml = /\brenderHTML\s*\(\s*<\s*[A-Za-z][\w.-]*(?=[\s>])[\s\S]{0,500}\b(?:className|htmlFor)\s*=/m.test(content);
         if (jsxPassedToRenderHtml) {
-            errors.push(`${file.path || "/render.tsx"}: React JSX is unsupported in plugin workspace files. Use DOM.createElement(...) or DOMText/DOMNested helpers and pass their rendered HTML string to dom.renderHTML(...); use "class", not JSX className.`);
+            errors.push(`${file.path || "/render.tsx"}: React JSX is unsupported in plugin workspace files. Use an SDK DOM instance’s createElement(...) or DOMText/DOMNested helpers and pass their rendered HTML string to dom.renderHTML(...); use "class", not JSX className.`);
         }
     });
 }
@@ -198,8 +305,9 @@ function validateBackendFormSubmitBindings(files, errors) {
     if (!/\bwindow\.createBackendReq\s*\(/.test(source) || !/\baddEventListener\s*\(\s*["']submit["']/.test(source)) {
         return;
     }
-    const bindingPath = uiFiles.find((file) => /\baddEventListener\s*\(\s*["']submit["']/.test(file?.content || ""))?.path || "/render.tsx";
-    errors.push(`${bindingPath}: backend UI actions must use defineRenderOnLoadActions(...) with a click binding on a type="button" control. Do not attach a manual form submit listener in the plugin iframe.`);
+    for (const file of uiFiles.filter(file => /\baddEventListener\s*\(\s*["']submit["']/.test(file?.content || ""))) {
+        errors.push(`${file.path}: backend UI actions must use defineRenderOnLoadActions(...) with a click binding on a type="button" control. Do not attach a manual form submit listener in the plugin iframe.`);
+    }
 }
 
 function escapeRegExp(value = "") {
@@ -258,13 +366,19 @@ export function normalizeReservedHostBindingMarkers(files = []) {
     return {files: normalizedFiles, normalizedPaths};
 }
 
-export function validateGeneratedPluginFiles(files = [], {partial = false} = {}) {
+export function validateGeneratedPluginFiles(files = [], {partial = false, workspaceFiles = []} = {}) {
     const warnings = [];
     const errors = validateGeneratedWorkspaceImports(files, {sources: [], paths: files.map(file => file.path), checkMissing: false});
     const pluginEntry = findPluginEntryFile(files);
 
     files.forEach((file) => {
-        errors.push(...validateGeneratedFileSyntax(file, {entry: file === pluginEntry}));
+        const syntaxErrors = validateGeneratedFileSyntax(file, {entry: file === pluginEntry});
+        errors.push(...syntaxErrors);
+        // Scope-based SDK/bridge inspections can throw on duplicate bindings
+        // even when Babel's recovery parser produced an AST. Keep the source
+        // diagnostic as the repair owner; inspect this file after it parses.
+        if (syntaxErrors.length) return;
+        warnings.push(...validateGeneratedCallbackParameters(file));
         const content = normalizeLineEndings(file?.content || "");
         const forbiddenImports = findForbiddenHostImports(content);
         forbiddenImports.forEach(({ line, path }) => {
@@ -288,12 +402,12 @@ export function validateGeneratedPluginFiles(files = [], {partial = false} = {})
 
     if (pluginEntry) {
         const content = normalizeLineEndings(pluginEntry.content);
-        const metadataIcon = extractMetadataIconLiteral(content);
-
-        if (metadataIcon && looksLikeCustomIconAsset(metadataIcon)) {
-            errors.push(`/index.ts: metadata.icon must use a BlueprintJS v6 icon name string, not a custom asset path (${metadataIcon})`);
-        } else if (metadataIcon && !BLUEPRINT_ICON_SET.has(metadataIcon.trim().toLowerCase())) {
-            errors.push(`/index.ts: metadata.icon "${metadataIcon}" is not a valid BlueprintJS v6 icon name. Use a verified icon such as "data-search" or "cog".`);
+        for (const metadataIcon of extractMetadataIconLiterals(content)) {
+            if (metadataIcon && looksLikeCustomIconAsset(metadataIcon)) {
+                errors.push(`/index.ts: metadata.icon must use a BlueprintJS v6 icon name string, not a custom asset path (${metadataIcon})`);
+            } else if (metadataIcon && !BLUEPRINT_ICON_SET.has(metadataIcon.trim().toLowerCase())) {
+                errors.push(`/index.ts: metadata.icon "${metadataIcon}" is not a valid BlueprintJS v6 icon name. Use a verified icon such as "data-search" or "cog".`);
+            }
         }
 
         const suspiciousWindowLines = containsNonUiWindowAccess(content);
@@ -305,12 +419,21 @@ export function validateGeneratedPluginFiles(files = [], {partial = false} = {})
     validatePluginRenderingSyntax(files, errors);
     validatePluginDomHelperUsage(files, errors);
     validateReservedHostBindingMarkers(files, errors);
+    // These contracts can be rejected within a leaf module. Run them during
+    // generation, before the remaining workspace consumes more requests.
+    const candidateFiles = partial ? files
+        : [...new Map([...workspaceFiles, ...files].map(file => [file.path, file])).values()];
+    validateBackendRequestEnvelopes(candidateFiles, errors);
+    validateBackendFormSubmitBindings(candidateFiles, errors);
     // A leaf module can rely on wrappers, actions and handlers in pending files.
     // Cross-file rules run only on a complete workspace in the editor.
     if (!partial) {
-        validateInjectedUiFoundation(files, errors);
-        validateBackendFormSubmitBindings(files, errors);
-        validateUiMessageHandlerPayloadShape(files, errors);
+        // Repairs return replacements, not a complete workspace. Resolve
+        // cross-file contracts against retained files plus those replacements.
+        validateInjectedUiFoundation(candidateFiles, errors);
+        validateUiMessageHandlerPayloadShape(candidateFiles, errors);
+        const styleIssues = findWorkspaceStyleIssues(candidateFiles);
+        if (styleIssues.length) warnings.push(`${styleIssues[0].file}: reachable CSS imports (${styleIssues.slice(1).map(issue => issue.file).join(', ') || styleIssues[0].file}) have no SDK createClassFromStyle registration. ${styleIssues[0].repair}`);
     }
 
     return { warnings, errors };

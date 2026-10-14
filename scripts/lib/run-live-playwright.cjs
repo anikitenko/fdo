@@ -2,7 +2,7 @@ const {spawn} = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const {StringDecoder} = require("node:string_decoder");
-const {installStdioErrorHandlers} = require("../../src/utils/stdioErrors.cjs");
+const {installStdioErrorHandlers} = require("../../src/utils/system/stdioErrors.cjs");
 
 function summarizeProtocolLine(line) {
     const match = String(line).replace(/\x1b\[[0-9;]*m/g, "").match(/pw:protocol (SEND ►|◀ RECV) (\{.*)/);

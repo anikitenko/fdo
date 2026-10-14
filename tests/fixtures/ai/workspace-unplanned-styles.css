@@ -1,0 +1,97 @@
+@import url("./features/dashboard/styles.css");
+@import url("./features/json/workspace.css");
+@import url("./features/categories/styles.css");
+@import url("./features/library/styles.css");
+@import url("./features/personal-space/styles.css");
+
+.shell {
+  min-height: 100vh;
+  background: #102a28;
+  color: #f8f4e9;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.shell button,
+.shell input,
+.shell select,
+.shell textarea {
+  font: inherit;
+}
+
+.shell button {
+  cursor: pointer;
+}
+
+.shell button:focus-visible,
+.shell input:focus-visible,
+.shell select:focus-visible,
+.shell textarea:focus-visible {
+  outline: 2px solid #f2c879;
+  outline-offset: 2px;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.82fr) minmax(420px, 1.18fr);
+  min-height: 100vh;
+  background: #102a28;
+  overflow: hidden;
+}
+
+.card {
+  background: #183734;
+  border: 1px solid #29504b;
+}
+
+.library {
+  background: #f7f2e7;
+  color: #17302e;
+}
+
+.workspace {
+  background: #f7f2e7;
+  color: #17302e;
+}
+
+.result {
+  background: #fffdf7;
+  border: 1px solid #d8d0bd;
+}
+
+.dock {
+  position: sticky;
+  bottom: 0;
+  border-top: 1px solid #29504b;
+}
+
+.shell::selection,
+.dashboard::selection,
+.library::selection,
+.workspace::selection,
+.result::selection {
+  background: #f2c879;
+  color: #17302e;
+}
+
+@keyframes tool-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.shell.tool-motion {
+  animation: tool-fade-in 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell.tool-motion {
+    animation: none;
+  }
+}

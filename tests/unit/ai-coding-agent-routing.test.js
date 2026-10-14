@@ -78,6 +78,14 @@ describe("ai coding agent routing", () => {
         })).toBe("smart");
     });
 
+    test("routes a conversational feature addition to workspace implementation despite prior failure discussion", () => {
+        expect(resolveAiCodingAgentAction({requestedAction: 'smart',
+            prompt: 'wow cool, I like that plugin and I see that it shows top level keys.. and can you please add a button to show values of those keys including nested?',
+            previousResponse: 'The earlier build error was fixed. Plugin tests passed.',
+            workspaceFiles: [{path: '/index.ts', content: 'existing plugin'}, {path: '/render.ts', content: 'existing UI'}],
+        })).toBe('plan');
+    });
+
     test("routes TODO implementation prompts to plan mode", () => {
         expect(resolveAiCodingAgentAction({
             requestedAction: "smart",
@@ -258,4 +266,12 @@ describe("ai coding agent routing", () => {
             reason: "mutating-route-conflict",
         });
     });
+});
+
+test('Smart Mode treats documentation retrieval as an explanation even when it begins with Use', () => {
+    const prompt = 'Use the configured OpenAI Docs MCP server to find the current documentation for Responses API remote MCP tools. Explain how tool allowlists and approvals work, and include links to the documentation you retrieved. If you cannot call the MCP tools, say so explicitly.';
+    expect(resolveAiCodingAgentAction({requestedAction: 'smart', prompt})).toBe('explain');
+    expect(resolveAiCodingAgentAction({requestedAction: 'smart', prompt, selectedCode: 'export const x = 1;'})).toBe('explain');
+    expect(resolveAiCodingAgentAction({requestedAction: 'generate', prompt})).toBe('generate');
+    expect(resolveAiCodingAgentAction({requestedAction: 'smart', prompt: 'Find the docs and add a button to this plugin.', workspaceFiles: [{path: '/index.ts'}]})).not.toBe('explain');
 });

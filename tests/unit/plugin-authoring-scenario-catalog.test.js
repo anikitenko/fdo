@@ -1,46 +1,55 @@
-import {PLUGIN_AUTHORING_SCENARIOS, selectPluginAuthoringScenario, selectPluginAuthoringScenarioById} from "../../src/utils/pluginAuthoringScenarioCatalog";
+import {PLUGIN_AUTHORING_SCENARIOS, selectPluginAuthoringScenario, selectPluginAuthoringScenarioById} from "../../src/utils/plugins/authoring/pluginAuthoringScenarioCatalog";
 
 describe("plugin authoring scenario catalogue", () => {
+    test('realistic Workbench prompt specifies outcomes without leaking implementation or test hooks', () => {
+        for (const seed of ['web-tools-workbench-v1', 'another-human-request']) {
+            const scenario = selectPluginAuthoringScenarioById('web-tools-workbench', seed);
+            expect(scenario.id).toBe('web-tools-workbench');
+            expect(scenario.prompt).toContain('attached screenshot');
+            expect(scenario.prompt).toContain('Add tests');
+            expect(scenario.prompt.length).toBeLessThan(1300);
+            expect(scenario.prompt).not.toMatch(/data-role|data-state|defineRender|createClass|FDO_SDK|node:test|\/index|\.css|\.tsx|Pure CSS|JSON\.parse|WORKSPACE_REPAIR_PATHS/);
+        }
+    });
     test("selects a reproducible scenario and visual brief from a seed", () => {
         expect(selectPluginAuthoringScenario("repeatable-seed")).toEqual(selectPluginAuthoringScenario("repeatable-seed"));
     });
 
-    test("starts with a credential-free JSON Inspector task", () => {
-        const scenario = PLUGIN_AUTHORING_SCENARIOS.find((item) => item.id === "json-inspector");
-        expect(scenario).toMatchObject({handler: "inspectJson"});
-        expect(scenario.prompt).toContain("local deterministic data");
-        expect(scenario.prompt).toContain("node:test");
-        expect(scenario.prompt).toContain("@media (prefers-reduced-motion: reduce)");
-        expect(scenario.prompt).toContain("valid: false");
-        expect(scenario.prompt).toContain('metadata.icon to exactly "data-search"');
-        expect(scenario.prompt).toContain("pure-form pure-form-stacked");
-        expect(scenario.prompt).toContain("pure-button pure-button-primary");
-        expect(scenario.prompt).toContain("never return {ok: false}");
-        expect(scenario.prompt).toContain('never css[".panel"]');
-        expect(scenario.prompt).toContain("polished compact tool");
-        expect(scenario.prompt).toContain("animation: none");
-        expect(scenario.prompt).toContain('data-state to "success"');
-        expect(scenario.prompt).toContain('Set it to "error"');
-        expect(scenario.prompt).toContain("handler receives the content object directly");
-        expect(scenario.prompt).toContain("Do not read data.content.json");
-        expect(scenario.prompt).not.toMatch(/azure|aws|gcp/i);
+    test.each(["json-inspector", "rose-calculator"])("%s uses a DevOps request without implementation instructions", (id) => {
+        for (const seed of [id, "another-human-request"]) {
+            const scenario = selectPluginAuthoringScenarioById(id, seed);
+            expect(scenario.prompt).toContain("day-to-day DevOps work");
+            expect(scenario.prompt).toContain("work locally without credentials or sending my input anywhere");
+            expect(scenario.prompt).toContain("Add tests");
+            expect(scenario.prompt).toContain("reduced-motion preferences");
+            expect(scenario.prompt.length).toBeLessThan(1400);
+            expect(`${scenario.prompt} ${scenario.followUp}`).not.toMatch(/window\.|createBackendReq|PluginRegistry|inspectJson|data-role|data-state|defineRender|createClass|renderHTML|FDO_SDK|fdo-sdk|node:test|node:assert|metadata\.icon|\/index|\.css|\.tsx|Pure CSS|pure-form|pure-button|@media|@keyframes|workspace file sections|line[s]?\b/i);
+        }
     });
 
-    test("defines a stable rose calculator scenario with screenshot-testable actions", () => {
+    test("starts with a local JSON Inspector task", () => {
+        const scenario = PLUGIN_AUTHORING_SCENARIOS.find((item) => item.id === "json-inspector");
+        expect(scenario).toMatchObject({handler: "inspectJson"});
+        expect(scenario.prompt).toContain("Inspect JSON");
+        expect(scenario.prompt).toContain("value type, top-level item count, and top-level keys");
+        expect(scenario.prompt).toContain("helpful error for malformed input");
+    });
+
+    test("defines a rose calculator with calculations, quick actions, history, and a cat backdrop", () => {
         const scenario = selectPluginAuthoringScenarioById("rose-calculator");
         expect(scenario).toMatchObject({id: "rose-calculator", title: "Rose Calculator"});
-        expect(scenario.prompt).toContain('data-role="calculator-display"');
-        expect(scenario.prompt).toContain('data-role="calculator-quick-double"');
-        expect(scenario.prompt).toContain('data-role="calculator-sidebar"');
-        expect(scenario.prompt).toContain("defineRenderOnLoadActions");
-        expect(scenario.prompt).toContain("Do not use eval");
-        expect(scenario.prompt).toContain("grid");
-        expect(scenario.prompt).toContain("prefers-reduced-motion");
+        expect(scenario.prompt).toContain("decimals, parentheses");
+        expect(scenario.prompt).toContain("Clear should empty the input and result");
+        expect(scenario.prompt).toContain("double the current number, halve it, or add 10");
+        expect(scenario.prompt).toContain("last successful calculation");
+        expect(scenario.prompt).toContain("switch between rose themes");
+        expect(scenario.prompt).toContain("cat illustration across the background");
+        expect(scenario.prompt).toContain("stack them on narrow screens");
     });
 
     test("defines a credential-free Web Tools Workbench with navigable local utilities", () => {
-        const scenario = selectPluginAuthoringScenarioById("web-tools-workbench");
-        expect(scenario).toMatchObject({id: "web-tools-workbench", title: "Web Tools Workbench"});
+        const scenario = selectPluginAuthoringScenarioById("web-tools-workbench-contract");
+        expect(scenario).toMatchObject({id: "web-tools-workbench-contract", title: "Web Tools Workbench"});
         expect(scenario.prompt).toContain('data-role="tool-library-button"');
         expect(scenario.prompt).toContain('data-role="tool-format-json"');
         expect(scenario.prompt).toContain('type="button" data-role="tool-card-json"');

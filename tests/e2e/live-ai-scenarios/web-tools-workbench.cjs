@@ -1,5 +1,7 @@
 const fs = require("node:fs/promises");
-const {liveAiRepairAttempts} = require("../../../src/utils/liveAiTestPolicy.cjs");
+const {convergeWorkbench, workbenchPassed} = require("../helpers/workbenchConvergence.cjs");
+const {summarizeTestFailures} = require('../helpers/testFailureSummary.cjs');
+const {liveAiRepairAttempts} = require("../../../src/utils/ai/testing/liveAiTestPolicy.cjs");
 
 async function checkWorkbenchPersonalSpace(frame, expect, onOpen) {
   // The header and dock may both expose this action. Exercise every visible
@@ -67,6 +69,42 @@ function needsWorkbenchTestRepair(testRun, rubric) {
   return !testRun.success || testRun.skipped || !rubric.checks.nodeTests;
 }
 
+function buildWorkbenchStyleRepairPrompt(files, rubric) {
+  if (rubric.checks.polishedWorkbench && rubric.checks.responsiveLayout) return "";
+  const stylesheets = Object.entries(files).filter(([path]) => path.endsWith('.css'));
+  const selectors = new Map(stylesheets.map(([path, content]) => {
+    const names = new Set();
+    try {
+      require('postcss').parse(content).walkRules(rule => {
+        for (const match of rule.selector.matchAll(/\.([\w-]+)/g)) names.add(match[1]);
+      });
+    } catch { /* Let the normal build repair report malformed CSS. */ }
+    return [path, names];
+  }));
+  const roles = {shell: ['shell', 'workbench'], dashboard: ['dashboard', 'categories', 'tools', 'card', 'pure-g'], dock: ['dock']};
+  const failures = rubric.visualFailures || [];
+  const targets = new Set();
+  let unresolved = !failures.length;
+  for (const {role} of failures) {
+    const aliases = roles[role] || [];
+    const owners = [...selectors].filter(([, names]) => [...names].some(name => aliases.some(alias =>
+      name === alias || name.endsWith(`-${alias}`))));
+    if (!owners.length) unresolved = true;
+    owners.forEach(([path]) => targets.add(path));
+  }
+  // Unknown ownership keeps the dependency-following fallback; never invent
+  // a module or force all styles into the composition entry.
+  return [
+    unresolved
+      ? 'Repair the owning plugin-local CSS files, following relative @import dependencies from /styles.css or feature renderers.'
+      : `Repair only these existing CSS files: ${[...targets].sort().join(', ')}. Do not regenerate any other module.`,
+    'Return only changed complete CSS file sections. Preserve the modular stylesheet structure and imports. Do not change markup, behavior, tests, /package.json, or add files.',
+    `Failed visual requirements: ${failures.map(item => item.requirement).join(' ') || 'polishedWorkbench / responsiveLayout'}`,
+    'Match the selectors and style-map keys already used by the renderers. A prefixed selector such as .layout-dashboard does not define css.dashboard; preserve existing selectors that have other consumers while supplying the missing key. Keep all passing visual requirements and existing states unchanged.',
+    'Keep the dark-teal dashboard, ivory surfaces, pastel cards, and bottom dock. Use flat class selectors and at most one simple nested `.shell { & button { ... } }` rule. Keep @keyframes and the reduced-motion rule with animation: none.',
+  ].join('\n');
+}
+
 function evaluateWorkbenchRuntimeContract(files) {
   const entry = String(files?.["/index.ts"] || "");
   const violations = [];
@@ -82,7 +120,7 @@ function evaluateWorkbenchRuntimeContract(files) {
   return {passed: violations.length === 0, violations};
 }
 
-async function runWebToolsWorkbenchLiveScenario(deps, testInfo) {
+async function runWebToolsWorkbenchContractScenario(deps, testInfo) {
   const {
     test, expect, editorWindow, LIVE_SCENARIO_TIMEOUT_MS, LIVE_WEB_TOOLS_WORKBENCH_SEED,
     WEB_TOOLS_WORKBENCH_REFERENCE_IMAGE,
@@ -96,7 +134,7 @@ async function runWebToolsWorkbenchLiveScenario(deps, testInfo) {
   test.slow(true, "A live workspace generation may require validation or Problems-panel repair.");
   test.setTimeout(LIVE_SCENARIO_TIMEOUT_MS);
   console.log(`Live Web Tools Workbench timeout: ${testInfo.timeout}ms`);
-  const scenario = scenarioCatalogModule.exports.selectPluginAuthoringScenarioById("web-tools-workbench", LIVE_WEB_TOOLS_WORKBENCH_SEED);
+  const scenario = scenarioCatalogModule.exports.selectPluginAuthoringScenarioById("web-tools-workbench-contract", LIVE_WEB_TOOLS_WORKBENCH_SEED);
   await editorWindow.evaluate(({main, render, tests}) => {
     window.__editorTestApi.createFile("/index.ts", main, "typescript");
     window.__editorTestApi.createFile("/render.tsx", render, "typescript");
@@ -137,111 +175,66 @@ async function runWebToolsWorkbenchLiveScenario(deps, testInfo) {
       .filter(([, content]) => typeof content === "string"),
   ));
 
-  let files = await readWorkspaceFiles();
-  let compiled = await editorWindow.evaluate((latestContent) => window.electron.plugin.build({latestContent}), files);
   let repairPrompt = "";
-  const sendRepair = async (prompt) => {
-    repairPrompt = prompt;
-    await promptInput.fill(prompt);
-    await promptInput.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await waitForAssistantRequestToSettle(LIVE_SCENARIO_TIMEOUT_MS);
-    await expectSuccessfulResponse();
-    files = await readWorkspaceFiles();
-    compiled = await editorWindow.evaluate((latestContent) => window.electron.plugin.build({latestContent}), files);
-  };
-
-  if (!compiled.success) {
-    await sendRepair([
-      "Repair the plugin workspace you just generated; apply the corrections now and return complete file sections only.",
-      `The build failed with: ${compiled.error || "an unknown compiler error"}`,
-      "Keep every required Workbench screen and interaction. Follow the compiler diagnostics to the owning plugin-local modules, preserve their boundaries, and return only complete changed files. Add a helper module only if needed. Do not edit /package.json or add dependencies.",
-      "The FDO CSS style-map transformer rejects complex nested CSS. Use simple flat class selectors and at most `.shell { & button { ... } }`; do not use nested attribute selectors, :not(...), or comma-separated nested selectors.",
-    ].join("\n"));
-  }
-
-  let runtimeContract = evaluateWorkbenchRuntimeContract(files);
-  if (!runtimeContract.passed) {
-    await sendRepair([
-      "Repair only /index.ts in the current plugin workspace and return one complete /index.ts workspace file section. Do not change /render.tsx, /styles.css, tests, /package.json, or add files.",
-      `The deployed plugin entry is incompatible with the installed SDK: ${runtimeContract.violations.join(" ")}`,
-      "Import FDO_SDK, FDOInterface, and PluginMetadata from @anikitenko/fdo-sdk. Export the plugin class as `extends FDO_SDK implements FDOInterface`, preserve its metadata, render(), and renderOnLoad(), and instantiate it. Never use BasePlugin or FDOPlugin because they are undefined in this runtime.",
-    ].filter(Boolean).join("\n"));
-    runtimeContract = evaluateWorkbenchRuntimeContract(files);
-  }
-
-  // Visual fidelity to the reference mockup is what this scenario measures, so
-  // the stylesheet and markup stages converge over several rounds instead of
-  // failing the run on a single imperfect attempt.
-  const repairAttempts = liveAiRepairAttempts();
-  let rubric = evaluateWebToolsWorkbenchScenario(files);
-  for (let attempt = 0; attempt < repairAttempts; attempt += 1) {
-    if (rubric.checks.polishedWorkbench && rubric.checks.responsiveLayout) break;
-    const failedVisualChecks = Object.entries(rubric.checks)
-      .filter(([, passed]) => !passed)
-      .map(([name]) => name)
-      .join(", ");
-    await sendRepair([
-      "Repair the owning plugin-local CSS files in the current workspace, following relative @import dependencies from /styles.css or feature renderers. Return only changed complete CSS file sections. Preserve the modular stylesheet structure; do not flatten imported styles back into /styles.css. Do not change markup, behavior, tests, /package.json, or add files.",
-      `The visual stylesheet acceptance failed: ${failedVisualChecks}.`,
-      "Preserve the existing class names and all required states. Across the repaired stylesheet modules, retain: `.shell` with both `background:` and `min-height:`; `.dashboard` with `display: grid` and a two-column `grid-template-columns:` rule; `.dock` with `position: sticky`, `position: fixed`, or a `border:`; and a mobile `@media` rule whose `.dashboard` sets `grid-template-columns: 1fr`.",
-      "Keep the dark-teal dashboard, ivory surfaces, pastel cards, and bottom dock. Use flat class selectors and at most one simple nested `.shell { & button { ... } }` rule. Keep @keyframes and the reduced-motion rule with `animation: none`.",
-    ].filter(Boolean).join("\n"));
-    rubric = evaluateWebToolsWorkbenchScenario(files);
-  }
-
-  for (let attempt = 0; attempt < repairAttempts; attempt += 1) {
-    const markupRepairPrompt = buildWorkbenchMarkupRepairPrompt(rubric);
-    if (!markupRepairPrompt) break;
-    await sendRepair(markupRepairPrompt);
-    rubric = evaluateWebToolsWorkbenchScenario(files);
-  }
-
-  let testRun = await editorWindow.evaluate((latestContent) => window.electron.plugin.runTests({latestContent}), files);
-  if (needsWorkbenchTestRepair(testRun, rubric)) {
-    await sendRepair([
-      "Repair the generated node:test suite in /render.test.ts and any plugin-local test modules identified by the failure. Return only complete changed test files; preserve the modular structure and test coverage.",
-      "The generated node:test suite failed or is missing required coverage:",
-      String(testRun.output || testRun.error || "unknown test failure").slice(0, 5000),
-      "Keep all plugin behavior unchanged. Call the render function for HTML assertions.",
-      "Create at least two executable node:test tests using node:assert/strict. Assert the composed dashboard controls and the formatter/category workspace targets in the rendered HTML; an empty file, skipped test run, or placeholder assertion is not coverage.",
-      "renderOnLoad() returns an action object, so never pass it directly to assert.match; use String(renderOnLoad().source || \"\") only when testing its generated source.",
-      "Use node:test and node:assert/strict. Do not edit implementation files or /package.json. Additional focused test modules are allowed if needed.",
-    ].filter(Boolean).join("\n"));
-    testRun = await editorWindow.evaluate((latestContent) => window.electron.plugin.runTests({latestContent}), files);
-  }
-
-  const problems = await editorWindow.evaluate(() => {
-    const paths = window.__editorTestApi.getState().filesKeys
-      .filter((filePath) => !filePath.startsWith("/node_modules/") && !filePath.startsWith("/dist/"));
-    return paths.flatMap((filePath) => (window.__editorTestApi.getMarkersForPath?.(filePath) || [])
-      .filter((marker) => Number(marker?.severity) >= 8)
-      .map((marker) => ({path: filePath, message: marker.message, severity: marker.severity})));
+  const repairHistory = [];
+  const {files, compiled, runtimeContract, rubric, testRun, problems} = await convergeWorkbench({
+    attempts: liveAiRepairAttempts(),
+    inspect: async () => {
+      const files = await readWorkspaceFiles();
+      const compiled = await editorWindow.evaluate(latestContent => window.electron.plugin.build({latestContent}), files);
+      const testRun = await editorWindow.evaluate(latestContent => window.electron.plugin.runTests({latestContent}), files);
+      const problems = await editorWindow.evaluate(() => {
+        const paths = window.__editorTestApi.getState().filesKeys
+          .filter(path => !path.startsWith('/node_modules/') && !path.startsWith('/dist/'));
+        return paths.flatMap(path => (window.__editorTestApi.getMarkersForPath?.(path) || [])
+          .filter(marker => Number(marker?.severity) >= 8)
+          .map(marker => ({path, message: marker.message, severity: marker.severity})));
+      });
+      const rubric = evaluateWebToolsWorkbenchScenario(files);
+      return {files, compiled, testRun, problems, runtimeContract: evaluateWorkbenchRuntimeContract(files),
+        rubric, styleRepairPrompt: buildWorkbenchStyleRepairPrompt(files, rubric)};
+    },
+    repair: async prompt => {
+      repairPrompt = prompt;
+      await promptInput.fill(prompt);
+      const submit = editorWindow.getByRole('button', {name: /^(Submit|Continue Thread)$/});
+      await expect(submit).toBeEnabled({timeout: 30000});
+      const afterResponseCount = await editorWindow.evaluate(() => (window.__liveAiResponses || []).length);
+      await submit.click();
+      await waitForAssistantRequestToSettle(LIVE_SCENARIO_TIMEOUT_MS, {afterResponseCount});
+      await expectSuccessfulResponse();
+    },
+    onRound: async ({files, ...round}) => {
+      repairHistory.push(round);
+      // Persist every completed round before a later timeout can close Electron.
+      await fs.writeFile(testInfo.outputPath("web-tools-workbench-repair-history.json"),
+        JSON.stringify({repairHistory, files}, null, 2).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]"), "utf8");
+    },
   });
-  expect(problems, `The AI agent must repair errors reported by the Problems panel: ${JSON.stringify(problems)}`).toEqual([]);
 
-  rubric = evaluateWebToolsWorkbenchScenario(files);
-  runtimeContract = evaluateWorkbenchRuntimeContract(files);
   const report = {
     seed: LIVE_WEB_TOOLS_WORKBENCH_SEED,
     scenario: {id: scenario.id, title: scenario.title, designBrief: scenario.designBrief},
     defaultTest: {path: "/render.test.ts", content: seededTestFile, executedWith: "Editor Run Tests action", result: "passed"},
-    problems, rubric, runtimeContract, compiled, testRun, repairPrompt, files,
+    problems, rubric, runtimeContract, compiled, testRun, repairPrompt, repairHistory, files,
   };
   const reportPath = testInfo.outputPath("web-tools-workbench-scenario.json");
   await fs.writeFile(reportPath, JSON.stringify(report, null, 2).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]"), "utf8");
   await testInfo.attach("web-tools-workbench-scenario.json", {path: reportPath, contentType: "application/json"});
 
+  expect(workbenchPassed({compiled, runtimeContract, rubric, testRun, problems}), JSON.stringify({
+    failedChecks: Object.entries(rubric.checks).filter(([, passed]) => !passed).map(([name]) => name),
+    violations: rubric.violations, runtimeContract, problems,
+    compiled: {success: compiled.success, error: String(compiled.error || '').slice(0, 800)},
+    testRun: {success: testRun.success, skipped: testRun.skipped, output: summarizeTestFailures(testRun.output || testRun.error, 2000)},
+    details: 'web-tools-workbench-scenario.json and web-tools-workbench-repair-history.json',
+  }, null, 2)).toBe(true);
+  expect(problems, JSON.stringify(problems)).toEqual([]);
   expect(rubric.passed, JSON.stringify(rubric, null, 2)).toBe(true);
   expect(runtimeContract.passed, JSON.stringify(runtimeContract, null, 2)).toBe(true);
   expect(compiled.success, compiled.error || "Generated Web Tools Workbench did not compile").toBe(true);
   expect(testRun.skipped, "The scenario must add node:test tests").toBe(false);
-  // This scenario measures how closely the generated workbench reproduces the
-  // reference mockup, so the model's own helper-level assertions inform the
-  // repair round above but do not decide the run. Deployment and the
-  // interaction walkthrough below are the behavioural gate.
-  if (!testRun.success) {
-    console.warn(`Generated Web Tools Workbench node:test assertions still fail:\n${String(testRun.output || testRun.error || "").slice(0, 4000)}`);
-  }
+  expect(testRun.success, testRun.output || testRun.error).toBe(true);
 
   const compiledOutputFiles = Array.isArray(compiled.files) ? compiled.files : (compiled.files?.outputFiles || compiled.outputFiles || []);
   const compiledContent = compiledOutputFiles.find((file) => typeof file?.text === "string")?.text || "";
@@ -413,4 +406,4 @@ async function runWebToolsWorkbenchLiveScenario(deps, testInfo) {
   }
 }
 
-module.exports = {runWebToolsWorkbenchLiveScenario, buildWorkbenchMarkupRepairPrompt, needsWorkbenchTestRepair, runWorkbenchOperation, checkWorkbenchPersonalSpace};
+module.exports = {runWebToolsWorkbenchContractScenario, runWebToolsWorkbenchLiveScenario: require("./web-tools-workbench-user.cjs").runWebToolsWorkbenchUserScenario, buildWorkbenchMarkupRepairPrompt, buildWorkbenchStyleRepairPrompt, needsWorkbenchTestRepair, runWorkbenchOperation, checkWorkbenchPersonalSpace};

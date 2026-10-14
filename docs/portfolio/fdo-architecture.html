@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>FDO — Architecture case study</title>
+<style>
+:root{--ink:#132e38;--muted:#506772;--line:#c9d8d9;--paper:#f4f7f3;--green:#0b8068;--lime:#d6ef81;--dark:#102f37}*{box-sizing:border-box}body{margin:0;background:#dce5df;color:var(--ink);font-family:Arial,Helvetica,sans-serif}section{width:1600px;height:1000px;padding:54px 72px;position:relative;overflow:hidden;background:var(--paper);margin:0 0 24px}.top{display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:700;letter-spacing:2px;text-transform:uppercase}.brand{display:flex;align-items:center;gap:14px}.mark{width:40px;height:40px;background:var(--dark);color:var(--lime);display:grid;place-items:center;border-radius:10px;font-size:19px;letter-spacing:-1px}.eyebrow{color:var(--green);font-size:15px;letter-spacing:2px;font-weight:700;margin-top:38px}.title{font-size:62px;line-height:1.04;letter-spacing:-2.5px;max-width:1250px;margin:14px 0 16px;font-weight:600}.sub{font-size:23px;line-height:1.45;max-width:1200px;color:var(--muted);margin:0}.diagram{margin-top:34px;padding:30px;background:#fff;border:1px solid var(--line);border-radius:18px;position:relative}.flow{display:flex;align-items:stretch;gap:0}.node{background:#eff4f0;border:1px solid #cedcda;border-radius:12px;padding:25px;flex:1;min-width:0}.node.dark{background:var(--dark);color:white;border-color:var(--dark)}.node.dark p{color:#c9dfdc}.node.dark .tag{color:var(--lime)}.tag{font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--green)}h3{font-size:27px;line-height:1.2;letter-spacing:-.5px;margin:15px 0 12px}p{font-size:19px;line-height:1.5;margin:0;color:var(--muted)}.arrow{width:88px;min-width:88px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:12px;gap:7px;font-weight:700;color:var(--green)}.arrow b{font-size:31px;line-height:1}.strip{display:flex;gap:22px;margin-top:22px;padding:19px 24px;border:1px dashed #a8bebb;border-radius:10px;align-items:center}.strip strong{font-size:18px;white-space:nowrap}.strip p{font-size:18px}.choices{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:28px}.choice{border-top:2px solid var(--ink);padding-top:16px}.choice .tag{margin-bottom:10px}.choice p{font-size:20px}.foot{position:absolute;bottom:35px;left:72px;right:72px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:18px;font-size:13px;color:var(--muted)}.pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #c3d4ce;padding:7px 13px;border-radius:99px;margin:0 7px 0 0;font-size:14px}.pill::before{content:'';width:6px;height:6px;background:var(--green);border-radius:50%}.section-two{background:#102f37;color:#f2f6ef}.section-two .sub,.section-two .foot{color:#b8d0cb}.section-two .eyebrow,.section-two .top .count{color:var(--lime)}.section-two .diagram{background:#173c43;border-color:#36585d}.section-two .node{background:#21474d;border-color:#46666a;color:white}.section-two .node p{color:#c6d8d4}.section-two .node .tag{color:#b4dca2}.section-two .node:last-child{background:var(--lime);color:var(--dark);border-color:var(--lime)}.section-two .node:last-child p,.section-two .node:last-child .tag{color:#324b32}.section-two .arrow{width:60px;min-width:60px;color:var(--lime)}.section-two .strip{border-color:#6a8580}.section-two .strip p{color:#c6d8d4}.section-two .choice{border-color:#8aa89c}.section-two .choice .tag{color:var(--lime)}.section-two .choice p{color:#c6d8d4}.section-two .pill{color:#d7e8e1;border-color:#58766e}.section-two .pill::before{background:var(--lime)}.small-node h3{font-size:24px}.small-node p{font-size:18px}.providers{display:flex;gap:9px;flex-wrap:wrap;margin-top:20px}.providers span{background:#e0eade;border:1px solid #bfcec1;border-radius:6px;padding:6px 10px;font-size:14px;color:#28493e}a{color:inherit}.note{font-family:monospace;font-size:14px}.section-three .diagram{margin-top:30px}.section-three .node{min-height:230px}@media print{body{background:white}section{margin:0;page-break-after:always}@page{size:1600px 1000px;margin:0}}
+</style>
+<section id="isolation" aria-label="Architecture slide 1: Plugin boundaries">
+ <div class="top"><div class="brand"><div class="mark">F</div> FDO / Flex DevOps</div><div class="count">Architecture decision / 01</div></div>
+ <div class="eyebrow">Extensibility &amp; trust boundaries</div>
+ <h1 class="title">Extend the platform.<br>Keep authority in the host.</h1>
+ <p class="sub">A plugin system built around separate execution contexts, explicit capabilities<br>and a narrow bridge between the desktop UI and privileged operations.</p>
+ <div class="diagram">
+  <div class="flow">
+   <div class="node"><div class="tag">Presentation</div><h3>React + Electron UI</h3><p>Context isolation enabled.<br>Node integration disabled.<br>Preload exposes named APIs.</p></div>
+   <div class="arrow"><span>IPC</span><b>→</b></div>
+   <div class="node dark"><div class="tag">Authority</div><h3>Host policy &amp; lifecycle</h3><p>Resolve granted capabilities.<br>Manage plugin startup and state.<br>Route SDK requests and logs.</p></div>
+   <div class="arrow"><span>Messages</span><b>→</b></div>
+   <div class="node"><div class="tag">Extension runtime</div><h3>Plugin utility process</h3><p>Separate runtime per plugin.<br>Dedicated writable data home.<br>Versioned SDK interface.</p></div>
+  </div>
+  <div class="strip"><strong>Plugin UI boundary</strong><p>Production iframe: <span class="note">sandbox="allow-scripts"</span> · Content Security Policy · capability-aware network controls</p></div>
+ </div>
+ <div class="choices"><div class="choice"><div class="tag">Why this decision</div><p>Keep the desktop shell stable while allowing independent tools to extend the product through defined contracts.</p></div><div class="choice"><div class="tag">Trade-off</div><p>Process and message boundaries add lifecycle complexity. A separate process is not an OS security sandbox.</p></div></div>
+ <div class="foot"><span>Oleksandr Nykytenko · Software architecture portfolio</span><span>Implementation: main.js · PluginManager.js · PluginContainer.jsx</span></div>
+</section>
+<section id="workspace" class="section-two" aria-label="Architecture slide 2: Reversible AI changes">
+ <div class="top"><div class="brand"><div class="mark" style="background:#d6ef81;color:#102f37">F</div> FDO / Flex DevOps</div><div class="count">Architecture decision / 02</div></div>
+ <div class="eyebrow">AI-assisted development &amp; recovery</div>
+ <h1 class="title">Treat generated code<br>as a proposal, then validate it.</h1>
+ <p class="sub">The model generates bounded workspace files. The application controls<br>acceptance, source validation, application and restore points.</p>
+ <div class="diagram">
+  <div class="flow small-node">
+   <div class="node"><div class="tag">01 / Plan</div><h3>Workspace inventory</h3><p>Safe virtual paths.<br>Module contracts.<br>Budget admission.</p></div><div class="arrow"><b>→</b></div>
+   <div class="node"><div class="tag">02 / Generate</div><h3>Pending files</h3><p>One file per request.<br>Retain completed work.<br>Bounded repairs.</p></div><div class="arrow"><b>→</b></div>
+   <div class="node"><div class="tag">03 / Validate</div><h3>Acceptance checks</h3><p>Completion + format.<br>Syntax + imports.<br>Plugin entry rules.</p></div><div class="arrow"><b>→</b></div>
+   <div class="node"><div class="tag">04 / Apply</div><h3>Reversible change</h3><p>Create restore point.<br>Apply workspace files.<br>Save resulting state.</p></div>
+  </div>
+  <div class="strip"><strong>Failure before acceptance</strong><p>Incomplete output stays unapplied. Cancellation, request ceilings and deadlines stop further generation.</p></div>
+ </div>
+ <div class="choices"><div class="choice"><div class="tag">Why this decision</div><p>Prevent a partial model response from silently becoming the working plugin. Give the developer a recovery path.</p></div><div class="choice"><div class="tag">Trade-off</div><p>More requests and validation work. Passing source checks still needs compilation, behavior tests and runtime verification.</p></div></div>
+ <div class="foot"><span>Oleksandr Nykytenko · Software architecture portfolio</span><span>Implementation: codingWorkspaceGeneration.js · AiCodingAgentPanel.jsx · VirtualFS.js</span></div>
+</section>
+<section id="providers" class="section-three" aria-label="Architecture slide 3: AI provider adapters">
+ <div class="top"><div class="brand"><div class="mark">F</div> FDO / Flex DevOps</div><div class="count">Architecture decision / 03</div></div>
+ <div class="eyebrow">Integration design &amp; observability</div>
+ <h1 class="title">One application contract.<br>Provider-specific protocols.</h1>
+ <p class="sub">Keep provider differences at the integration boundary while the application<br>owns cancellation, retry budgets, completion checks and usage reporting.</p>
+ <div class="diagram">
+  <div class="flow">
+   <div class="node"><div class="tag">Product workflows</div><h3>Chat &amp; coding</h3><p>Conversation and workspace intent.<br>Progress and cancellation.<br>Usage and cost views.</p></div><div class="arrow"><span>Request</span><b>→</b></div>
+   <div class="node dark"><div class="tag">Shared boundary</div><h3>AI request orchestration</h3><p>Content / activity / completion.<br>Typed failures and budgets.<br>Provider-reported token usage.</p></div><div class="arrow"><span>Adapter</span><b>→</b></div>
+   <div class="node"><div class="tag">Native integration</div><h3>Provider APIs &amp; SDKs</h3><p>API-specific request formats.<br>Stream decoding and schemas.<br>Gateway capability checks.</p></div>
+  </div>
+  <div class="providers"><span>OpenAI</span><span>Anthropic</span><span>Gemini</span><span>Cloudflare</span><span>Ollama</span><span>OpenRouter / Zen gateways</span></div>
+ </div>
+ <div class="choices"><div class="choice"><div class="tag">Why this decision</div><p>Keep product code independent of wire formats. Test real SDK serialization using controlled HTTP responses.</p></div><div class="choice"><div class="tag">Trade-off</div><p>Each adapter needs maintenance. Model features vary; token usage is measured, while monetary cost may be estimated or unknown.</p></div></div>
+ <div class="foot"><span>Oleksandr Nykytenko · Software architecture portfolio</span><span>Implementation: aiProviderClient.js · aiProviders/ · aiBilling/</span></div>
+</section>
+</html>

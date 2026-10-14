@@ -22,26 +22,27 @@ import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx"
 import {AppToaster} from "./components/AppToaster.jsx";
 import {PluginContainer} from "./components/PluginContainer.jsx";
 import {SideBar} from "./components/SideBar.jsx";
+import {invokePluginUiAction} from './utils/plugins/runtime/pluginUiActions';
 import {CommandBar} from "./components/CommandBar.jsx";
-import {generateActionId} from "./utils/generateActionId";
+import {generateActionId} from "./utils/plugins/runtime/generateActionId";
 import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
-import {pluginTrace} from "./utils/pluginTrace";
-import {classifyPluginError} from "./utils/pluginErrorClassification";
-import {getCapabilityPresentation} from "./utils/capabilityPresentation";
-import {parseMissingCapabilityDiagnosticsFromError} from "./utils/parseMissingCapabilitiesFromError";
-import {classifyPrivilegedActionIssue, extractPrivilegedActionDiagnostics} from "./utils/privilegedActionIssuePresentation";
-import {getPluginTrustTier} from "./utils/pluginTrustTier";
-import {buildCapabilityDeclarationSummary} from "./utils/pluginCapabilityDeclaration";
-import {resolveBlueprintIcon, sanitizeBlueprintIcon} from "./utils/blueprintIcons";
-import {toCanonicalCapabilityId} from "./utils/pluginCapabilities";
+import {pluginTrace} from "./utils/plugins/runtime/pluginTrace";
+import {classifyPluginError} from "./utils/plugins/runtime/pluginErrorClassification";
+import {getCapabilityPresentation} from "./utils/presentation/capabilityPresentation";
+import {parseMissingCapabilityDiagnosticsFromError} from "./utils/presentation/parseMissingCapabilitiesFromError";
+import {classifyPrivilegedActionIssue, extractPrivilegedActionDiagnostics} from "./utils/presentation/privilegedActionIssuePresentation";
+import {getPluginTrustTier} from "./utils/plugins/security/pluginTrustTier";
+import {buildCapabilityDeclarationSummary} from "./utils/plugins/security/pluginCapabilityDeclaration";
+import {resolveBlueprintIcon, sanitizeBlueprintIcon} from "./utils/presentation/blueprintIcons";
+import {toCanonicalCapabilityId} from "./utils/plugins/security/pluginCapabilities";
 import {
     formatDiagnosticExactFixForCode,
     getDiagnosticFixTemplateForCode,
-} from "./utils/diagnosticFixTemplates";
+} from "./utils/plugins/validation/diagnosticFixTemplates";
 import {
     createPluginDoctorPresentation,
     DEFAULT_PLUGIN_DOCTOR_OPTIONS,
-} from "./utils/pluginDoctor";
+} from "./utils/plugins/runtime/pluginDoctor";
 
 // Lazy load settings dialog (only needed when opened)
 const SettingsDialog = lazy(() => import("./components/settings/SettingsDialog.jsx").then(m => ({default: m.SettingsDialog})));
@@ -588,6 +589,7 @@ export const Home = () => {
     const [notifications, setNotifications] = useState([]);
     const [pluginReadiness, setPluginReadiness] = useState(new Map());
     const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
+    const restorePluginUiActions = useRef(null);
     const [pluginRuntimeStatuses, setPluginRuntimeStatuses] = useState(new Map());
     const [pluginRenderEpochs, setPluginRenderEpochs] = useState(new Map());
     const [sideBarActionItems, setSideBarActionItems] = useState([
@@ -630,6 +632,23 @@ export const Home = () => {
         diagnostics: null,
         doctorOptions: DEFAULT_PLUGIN_DOCTOR_OPTIONS,
     });
+    const [doctorPresentationResult, setDoctorPresentationResult] = useState(null);
+    useEffect(() => {
+        const diagnostics = runtimeValidationDialog.diagnostics;
+        const options = runtimeValidationDialog.doctorOptions;
+        let disposed = false;
+        setDoctorPresentationResult(null);
+        if (!diagnostics || typeof window?.electron?.plugin?.getDoctorPresentation !== 'function') return;
+        Promise.resolve().then(() => window.electron.plugin.getDoctorPresentation(diagnostics, options))
+            .then(presentation => {
+                if (!disposed) setDoctorPresentationResult({diagnostics, options,
+                    presentation: presentation?.mode ? presentation : createPluginDoctorPresentation(diagnostics, options)});
+            }).catch(() => {
+                if (!disposed) setDoctorPresentationResult({diagnostics, options,
+                    presentation: createPluginDoctorPresentation(diagnostics, options)});
+            });
+        return () => { disposed = true; };
+    }, [runtimeValidationDialog.diagnostics, runtimeValidationDialog.doctorOptions]);
 
     const buttonMenuRef = useRef(null)
     const prevPluginReadinessRef = useRef(new Map());
@@ -785,7 +804,11 @@ export const Home = () => {
         ? (pluginRuntimeStatuses.get(runtimeValidationDialog.pluginId) || null)
         : null;
     const runtimeValidationSummary = runtimeValidationStatus?.diagnosticsSummary || null;
-    const pluginDoctorPresentation = createPluginDoctorPresentation(
+    const doctorPresentationIsCurrent = doctorPresentationResult?.diagnostics === runtimeValidationDialog.diagnostics
+        && doctorPresentationResult?.options === runtimeValidationDialog.doctorOptions;
+    const doctorNormalizationPending = !!runtimeValidationDialog.diagnostics && !doctorPresentationIsCurrent
+        && typeof window?.electron?.plugin?.getDoctorPresentation === 'function';
+    const pluginDoctorPresentation = doctorPresentationIsCurrent ? doctorPresentationResult.presentation : createPluginDoctorPresentation(
         runtimeValidationDialog.diagnostics,
         runtimeValidationDialog.doctorOptions,
     );
@@ -801,7 +824,7 @@ export const Home = () => {
                 ? "warning"
                 : "danger";
     const pluginDoctorStatusLabel = !pluginDoctorPanelModel
-        ? "Legacy diagnostics"
+        ? "Raw diagnostics"
         : pluginDoctorPanelModel.status === "needs-attention"
             ? "Needs attention"
             : pluginDoctorPanelModel.status === "degraded"
@@ -1762,14 +1785,12 @@ export const Home = () => {
                     const actionName = String(action?.name || "").trim() || "Action";
                     const actionSubtitle = String(action?.subtitle || "").trim();
                     return {
-                        id: `plugin-action-${id}-${generateActionId(actionName)}`,
+                        id: `plugin-action-${id}-${generateActionId(actionName)}-${generateActionId(String(action?.message_type || ''))}`,
                         name: actionName,
                         subtitle: actionSubtitle,
                         keywords: [actionName, actionSubtitle].filter(Boolean).join(" "),
                         icon: <Icon icon={sanitizeBlueprintIcon(action?.icon, "dot")} size={16}/>,
-                        perform: () => {
-                            console.log(action?.message_type);
-                        },
+                        perform: () => runPluginUiAction(id, action, 'quick-bar'),
                         section: pluginSection,
                         sectionPriorityKey: "Active plugin actions",
                         pluginId: id,
@@ -2010,13 +2031,31 @@ export const Home = () => {
         window.electron.plugin.on.init(onPluginInit)
         window.electron.plugin.on.unloaded(onPluginUnloaded)
         window.electron.plugin.on.deployFromEditor(onPluginLoaded)
+        restorePluginUiActions.current = onPluginInit;
         return () => {
+            restorePluginUiActions.current = null;
             window.electron.plugin.off.ready(onPluginReady)
             window.electron.plugin.off.init(onPluginInit)
             window.electron.plugin.off.deployFromEditor(onPluginLoaded)
             window.electron.plugin.off.unloaded(onPluginUnloaded)
         };
     }, [])
+
+    const activeUiPluginIds = JSON.stringify(state.activePlugins.map(item => item.id).sort());
+    useEffect(() => {
+        // Wait until active plugins have been restored. Applying registrations
+        // earlier lets the inactive-plugin cleanup erase them during startup.
+        const ids = JSON.parse(activeUiPluginIds);
+        if (!ids.length) return;
+        let disposed = false;
+        Promise.resolve(window.electron.plugin.getRuntimeStatus?.(ids)).then(result => {
+            if (disposed) return;
+            for (const status of result?.statuses || []) {
+                if (status.loaded && status.inited && status.uiExtensions) restorePluginUiActions.current?.({...status.uiExtensions, id: status.id});
+            }
+        }).catch(() => {});
+        return () => { disposed = true; };
+    }, [activeUiPluginIds]);
 
     useEffect(() => {
         const handleNotificationsUpdate = (_, updatedNotifications) => {
@@ -2132,13 +2171,34 @@ export const Home = () => {
         };
     }, []);
 
-    const handleSideBarItemsClick = (id) => {
+    const pendingUiActions = useRef(new Set());
+    const runPluginUiAction = async (id, action, source) => {
+        const key = `${id}:${action?.message_type}`;
+        if (pendingUiActions.current.has(key)) return;
+        pendingUiActions.current.add(key);
+        try {
+            handlePluginChange(id);
+            await invokePluginUiAction(id, action, source, window.electron.plugin.uiMessage);
+            // SDK navigation actions mutate plugin state used by render().
+            // Request the updated view after the handler has finished.
+            await window.electron.plugin.render(id);
+        } catch (error) {
+            const toaster = await AppToaster;
+            toaster?.show({intent: 'danger', message: `${getPluginDisplayName(id)}: ${error.message}`});
+        } finally { pendingUiActions.current.delete(key); }
+    };
+
+    const handleSideBarItemsClick = (id, actionId) => {
         if (id === "system-notifications") {
             setNotificationsShow(true);
         } else if (id === "system-settings") {
             setShowSettingsDialog(true);
         } else if (id === "system-ai-chat") {
             setShowAiChatDialog(true)
+        } else {
+            const action = sideBarActionItemsRef.current.find(item => item.id === id)?.submenu_list?.find(item => item.id === actionId);
+            if (action) void runPluginUiAction(id, action, 'sidebar');
+            else handlePluginChange(id);
         }
     };
 
@@ -3256,7 +3316,9 @@ export const Home = () => {
                             ) : (
                                 <>
                                     <p className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
-                                        The installed SDK runtime does not expose Plugin Doctor yet. Showing legacy raw diagnostics instead.
+                                        {doctorNormalizationPending
+                                            ? "Preparing Plugin Doctor from raw SDK diagnostics…"
+                                            : "Plugin Doctor normalization is unavailable. Showing raw SDK diagnostics."}
                                     </p>
                                     {runtimeValidationDialog.diagnostics ? (
                                         <pre className="bp6-code-block" style={{whiteSpace: "pre-wrap", marginBottom: "16px"}}>

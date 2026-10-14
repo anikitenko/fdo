@@ -10,7 +10,7 @@ const {
   getValidEvents,
   isTerminalState,
   getStateDescription
-} = require('../../src/utils/packageUpdater/stateMachine');
+} = require('../../src/utils/packages/update/stateMachine');
 
 describe('State Machine', () => {
   describe('transition', () => {

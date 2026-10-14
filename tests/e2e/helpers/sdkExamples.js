@@ -280,17 +280,14 @@ async function waitForPluginSettled(window, pluginName) {
 }
 
 async function selectPluginOpen(window, pluginName) {
-  await window.waitForFunction(() => {
-    return !!window.__homeTestApi?.selectPluginById;
-  }, { timeout: 15000 });
-  const selected = await window.evaluate(async ({ pluginName }) => {
-    if (!window.__homeTestApi?.selectPluginById) {
-      return { ok: false, reason: "homeTestApi_missing" };
-    }
-    return { ok: !!window.__homeTestApi.selectPluginById(pluginName, { open: true }) };
-  }, { pluginName });
-  if (!selected?.ok) {
-    throw new Error(`Failed to select SDK example plugin ${pluginName}: ${selected?.reason || "not_found"}`);
+  try {
+    // Home publishes its test API before its asynchronous plugin inventory
+    // arrives. Selection returning false is not yet evidence of a missing ID.
+    await window.waitForFunction(id => {
+      return !!window.__homeTestApi?.selectPluginById?.(id, {open: true});
+    }, pluginName, {timeout: 15000, polling: 100});
+  } catch (error) {
+    throw new Error(`Failed to select SDK example plugin ${pluginName}: Home did not make the plugin selectable within 15000ms.`, {cause: error});
   }
 }
 

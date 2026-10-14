@@ -111,6 +111,12 @@ contextBridge.exposeInMainWorld('electron', {
         }
     },
     aiCodingAgent: {
+        setActivity: (active, progress) => ipcRenderer.send(AiCodingAgentChannels.SET_ACTIVITY, active === true, progress),
+        onOpenActivity: callback => {
+            const listener = () => callback();
+            ipcRenderer.on(AiCodingAgentChannels.OPEN_ACTIVITY, listener);
+            return () => ipcRenderer.removeListener(AiCodingAgentChannels.OPEN_ACTIVITY, listener);
+        },
         routeJudge: (data) => ipcRenderer.invoke(AiCodingAgentChannels.ROUTE_JUDGE, data),
         generateCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.GENERATE_CODE, data),
         editCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.EDIT_CODE, data),
@@ -118,7 +124,11 @@ contextBridge.exposeInMainWorld('electron', {
         fixCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.FIX_CODE, data),
         smartMode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.SMART_MODE, data),
         planCode: (data) => ipcRenderer.invoke(AiCodingAgentChannels.PLAN_CODE, data),
+        getGenerationCheckpoint: data => ipcRenderer.invoke(AiCodingAgentChannels.GET_GENERATION_CHECKPOINT, data),
+        discardGenerationCheckpoint: data => ipcRenderer.invoke(AiCodingAgentChannels.DISCARD_GENERATION_CHECKPOINT, data),
+        reviewSkill: (data) => ipcRenderer.invoke(AiCodingAgentChannels.REVIEW_SKILL, data),
         cancelRequest: (data) => ipcRenderer.invoke(AiCodingAgentChannels.CANCEL_REQUEST, data),
+        recordLifecycle: (data) => ipcRenderer.invoke(AiCodingAgentChannels.RECORD_LIFECYCLE, data),
         on: {
             streamDelta: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DELTA, (_, data) => callback(data)),
             streamDone: (callback) => ipcRenderer.on(AiCodingAgentChannels.on_off.STREAM_DONE, (_, data) => callback(data)),
@@ -146,19 +156,36 @@ contextBridge.exposeInMainWorld('electron', {
             getAssistants: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET),
             getProviderInstructions: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_PROVIDER_INSTRUCTIONS),
             setProviderInstructions: (instructions) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_PROVIDER_INSTRUCTIONS, instructions),
+            signInMcp: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.MCP_SIGN_IN, {id}),
+            signOutMcp: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.MCP_SIGN_OUT, {id}),
+            cancelMcpSignIn: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.MCP_CANCEL_SIGN_IN, {id}),
+            checkCodexMcp: server => ipcRenderer.invoke(SettingsChannels.ai_assistants.CHECK_CODEX_MCP, server),
+            updateCodexMcp: server => ipcRenderer.invoke(SettingsChannels.ai_assistants.UPDATE_CODEX_MCP, server),
+            removeCodexMcp: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE_CODEX_MCP, {id}),
+            addCodexHook: hook => ipcRenderer.invoke(SettingsChannels.ai_assistants.ADD_CODEX_HOOK, hook),
+            updateCodexHook: hook => ipcRenderer.invoke(SettingsChannels.ai_assistants.UPDATE_CODEX_HOOK, hook),
+            removeCodexHook: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE_CODEX_HOOK, {id}),
+            testCodexHook: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.TEST_CODEX_HOOK, {id}),
+            getExtensions: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_EXTENSIONS),
+            importCodexSkill: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.IMPORT_CODEX_SKILL),
+            updateCodexSkill: skill => ipcRenderer.invoke(SettingsChannels.ai_assistants.UPDATE_CODEX_SKILL, skill),
+            removeCodexSkill: id => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE_CODEX_SKILL, {id}),
             addAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.ADD, data),
             setDefaultAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_DEFAULT, data),
             removeAssistant: (data) => ipcRenderer.invoke(SettingsChannels.ai_assistants.REMOVE, data),
-            getAvailableModels: (provider, apiKey, baseUrl, accountId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, provider, apiKey, baseUrl, accountId),
+            getAvailableModels: (provider, apiKey, baseUrl, accountId, executablePath) => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, provider, apiKey, baseUrl, accountId, executablePath),
+            getInputCapabilities: config => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_INPUT_CAPABILITIES, config),
             getCodexAuthStatus: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_STATUS, assistantId),
             startCodexLogin: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, assistantId),
             codexLogout: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, assistantId),
             cancelCodexAuth: (assistantId) => ipcRenderer.invoke(SettingsChannels.ai_assistants.CODEX_AUTH_CANCEL, assistantId),
             on: {
-                updated: (cb) => ipcRenderer.on(SettingsChannels.ai_assistants.on_off.UPDATED, cb)
+                updated: (cb) => ipcRenderer.on(SettingsChannels.ai_assistants.on_off.UPDATED, cb),
+                extensionsUpdated: cb => ipcRenderer.on(SettingsChannels.ai_assistants.on_off.EXTENSIONS_UPDATED, cb),
             },
             off: {
-                updated: (cb) => ipcRenderer.off(SettingsChannels.ai_assistants.on_off.UPDATED, cb)
+                updated: (cb) => ipcRenderer.off(SettingsChannels.ai_assistants.on_off.UPDATED, cb),
+                extensionsUpdated: cb => ipcRenderer.off(SettingsChannels.ai_assistants.on_off.EXTENSIONS_UPDATED, cb),
             }
         }
     },
@@ -168,6 +195,7 @@ contextBridge.exposeInMainWorld('electron', {
         getPluginMetric: (id, fromTime, toTime) => ipcRenderer.invoke(SystemChannels.GET_PLUGIN_METRIC, id, fromTime, toTime),
         openFileDialog: (params, multiple) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params, multiple),
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
+        focusEditorWindow: () => ipcRenderer.invoke(SystemChannels.FOCUS_EDITOR_WINDOW),
         openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
         getFdoSdkTypes: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_TYPES),
@@ -195,6 +223,7 @@ contextBridge.exposeInMainWorld('electron', {
         },
     },
     plugin: {
+        getDoctorPresentation: (diagnostics, options) => ipcRenderer.invoke(PluginChannels.GET_DOCTOR_PRESENTATION, diagnostics, options),
         getData: (filePath) => ipcRenderer.invoke(PluginChannels.GET_DATA, filePath),
         save: (content) => ipcRenderer.invoke(PluginChannels.SAVE, content),
         remove: (id) => ipcRenderer.invoke(PluginChannels.REMOVE, id),
@@ -227,6 +256,7 @@ contextBridge.exposeInMainWorld('electron', {
         deactivateAll: () => ipcRenderer.invoke(PluginChannels.DEACTIVATE_ALL),
         deployToMainFromEditor: (data) => ipcRenderer.invoke(PluginChannels.DEPLOY_FROM_EDITOR, data),
         saveAndCloseFromEditor: (data) => ipcRenderer.invoke(PluginChannels.SAVE_FROM_EDITOR, data),
+        typecheck: (data) => ipcRenderer.invoke(PluginChannels.TYPECHECK, data),
         build: (data) => ipcRenderer.invoke(PluginChannels.BUILD, data),
         runTests: (data) => ipcRenderer.invoke(PluginChannels.RUN_TESTS, data),
         init: (id) => ipcRenderer.invoke(PluginChannels.INIT, id),

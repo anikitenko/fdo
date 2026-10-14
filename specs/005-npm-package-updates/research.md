@@ -511,7 +511,7 @@ Based on research above, the implementation requires:
 - [ ] Install `npm-check-updates` as devDependency
 - [ ] Install `semver` for version comparison
 - [ ] Install `simple-git` for Git operations
-- [ ] Create `src/utils/packageUpdater.js` module
+- [ ] Create `src/utils/packages/packageUpdater.js` module
 - [ ] Create `scripts/updatePackages.js` CLI script
 - [ ] Implement batch update logic (devDeps → deps)
 - [ ] Implement security audit integration

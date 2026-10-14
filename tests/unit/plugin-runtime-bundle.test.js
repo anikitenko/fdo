@@ -1,4 +1,4 @@
-import {resolvePluginSourceEntrypoint} from "../../src/utils/pluginRuntimeBundle";
+import {resolvePluginSourceEntrypoint} from "../../src/utils/plugins/runtime/pluginRuntimeBundle";
 
 describe("plugin runtime bundle helpers", () => {
     test("reads the source entrypoint from package.json", () => {

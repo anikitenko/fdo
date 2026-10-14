@@ -1,6 +1,6 @@
 import {IconNames} from "@blueprintjs/icons";
-import {isCuratedOperatorProcessScopeId, isHostFallbackProcessScopeId} from "../../../utils/processScopeCatalog";
-import {hasCapability as hasGrantedCapability, HOST_WRITE_CAPABILITY} from "../../../utils/pluginCapabilities";
+import {isCuratedOperatorProcessScopeId, isHostFallbackProcessScopeId} from "../../../utils/plugins/security/processScopeCatalog";
+import {hasCapability as hasGrantedCapability, HOST_WRITE_CAPABILITY} from "../../../utils/plugins/security/pluginCapabilities";
 
 function toLineColumn(text, index) {
     const safeText = typeof text === "string" ? text : "";

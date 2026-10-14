@@ -1,5 +1,5 @@
 import React from "react";
-import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {Home} from "../../src/Home.jsx";
 
 const pluginContainerMounts = [];
@@ -9,7 +9,8 @@ jest.mock("../../src/components/NavigationPluginsButton.jsx", () => ({
 }));
 
 jest.mock("../../src/components/CommandBar.jsx", () => ({
-    CommandBar: () => null,
+    CommandBar: ({actions = []}) => <div>{actions.filter(action => action.source === 'plugin-init').map(action =>
+        <button key={action.id} onClick={action.perform}>{action.name}</button>)}</div>,
 }));
 
 jest.mock("../../src/components/NotificationsPanel.jsx", () => ({
@@ -42,7 +43,7 @@ jest.mock("../../src/components/SideBar.jsx", () => ({
     SideBar: ({ position, menuItems = [], click }) => (
         <div data-testid={`sidebar-${position}`}>
             {menuItems.map((item) => (
-                <button key={item.id} onClick={() => click(item.id)}>
+                <button key={item.id} onClick={() => click(item.id, item.submenu_list?.[0]?.id)}>
                     {item.name || item.id}
                 </button>
             ))}
@@ -51,6 +52,37 @@ jest.mock("../../src/components/SideBar.jsx", () => ({
 }));
 
 describe("Home plugin runtime backfill", () => {
+    test('restores actions after active plugin reconciliation without another init event', async () => {
+        const original = window.electron.plugin.getRuntimeStatus.getMockImplementation();
+        window.electron.plugin.getRuntimeStatus.mockImplementation(async (...args) => {
+            const result = await original(...args);
+            return {...result, statuses: result.statuses.map(status => ({...status, uiExtensions: {
+                quickActions: [{name: 'Restored action', message_type: 'restore'}], sidePanelActions: null,
+            }}))};
+        });
+        render(<Home/>);
+        expect(await screen.findByText('Restored action')).toBeVisible();
+        await waitFor(() => expect(screen.getByTestId('plugin-container')).toBeInTheDocument());
+        expect(screen.getByText('Restored action')).toBeVisible();
+    });
+    test('registered quick and sidebar actions reach the plugin backend', async () => {
+        window.electron.plugin.uiMessage = jest.fn(async () => ({ok: true}));
+        window.electron.plugin.render = jest.fn(async () => ({success: true}));
+        localStorage.setItem('showRightSideBar', 'true');
+        render(<Home/>);
+        await waitFor(() => expect(window.electron.plugin.on.init).toHaveBeenCalled());
+        const onInit = window.electron.plugin.on.init.mock.calls[0][0];
+        act(() => onInit({id: 'plugin-1', quickActions: [{name: 'Copy quick', message_type: 'copyQuick'}],
+            sidePanelActions: {icon: 'cog', label: 'Clipboard tools', submenu_list: [{id: 'copy-side', name: 'Copy', message_type: 'copySide'}]}}));
+        fireEvent.click(await screen.findByText('Copy quick'));
+        await waitFor(() => expect(window.electron.plugin.uiMessage).toHaveBeenCalledWith('plugin-1',
+            {handler: 'copyQuick', content: {source: 'quick-bar', actionId: 'Copy quick'}}));
+        fireEvent.click(screen.getByText('Clipboard tools'));
+        await waitFor(() => expect(window.electron.plugin.uiMessage).toHaveBeenCalledWith('plugin-1',
+            {handler: 'copySide', content: {source: 'sidebar', actionId: 'copy-side'}}));
+        expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1');
+        localStorage.removeItem('showRightSideBar');
+    });
     beforeEach(() => {
         pluginContainerMounts.length = 0;
         window.electron.notifications = {

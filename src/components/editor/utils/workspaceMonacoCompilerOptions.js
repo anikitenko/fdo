@@ -1,4 +1,4 @@
-import { workspaceTsCompilerOptions } from "../../../utils/workspaceTsCompilerOptions";
+import { workspaceTsCompilerOptions } from "../../../utils/plugins/validation/workspaceTsCompilerOptions";
 
 export function buildWorkspaceMonacoCompilerOptions(monacoTs) {
     const scriptTarget = monacoTs?.ScriptTarget?.ES2022
@@ -19,8 +19,10 @@ export function buildWorkspaceMonacoCompilerOptions(monacoTs) {
         typeRoots: ["/node_modules/@types", "/node_modules/"],
         types: ["node"],
         noImplicitAny: true,
-        noUnusedLocals: true,
-        noUnusedParameters: true,
+        // Unused declarations are quality findings, not workspace correctness
+        // failures. The backend retains them separately as warnings.
+        noUnusedLocals: false,
+        noUnusedParameters: false,
         noImplicitReturns: true,
         noFallthroughCasesInSwitch: true,
         isolatedModules: true,

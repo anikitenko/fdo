@@ -6,7 +6,7 @@ This host uses a deny-by-default capability model for plugins.
 
 Capabilities are defined in:
 
-- `src/utils/pluginCapabilities.js`
+- `src/utils/plugins/security/pluginCapabilities.js`
 
 That file is the single place to extend:
 
@@ -36,9 +36,9 @@ Current supported host action:
 
 Scope policy registry (single source of truth):
 
-- `src/utils/privilegedFsScopeRegistry.js`
-- `src/utils/networkScopeRegistry.js`
-- `src/utils/privilegedProcessScopeRegistry.js`
+- `src/utils/plugins/security/privilegedFsScopeRegistry.js`
+- `src/utils/plugins/security/networkScopeRegistry.js`
+- `src/utils/plugins/security/privilegedProcessScopeRegistry.js`
 - maps `scope` -> allowed roots/commands/destinations, operation types or process policy, and confirmation policy
 - for `system.process.exec`, child process environment is scoped to `allowedEnvKeys` from the selected process scope (plus plugin-provided `payload.env` overrides for those same allowed keys)
 - capability requirement for scoped mutate:
@@ -168,7 +168,7 @@ For runtime diagnostics, prefer the host Plugin Doctor view over raw diagnostics
 
 ## How To Add A New Capability
 
-1. Add capability definition to `PLUGIN_CAPABILITY_DEFINITIONS` in `src/utils/pluginCapabilities.js`.
+1. Add capability definition to `PLUGIN_CAPABILITY_DEFINITIONS` in `src/utils/plugins/security/pluginCapabilities.js`.
 2. If needed, add host runtime grants (for example, `grants.modules`).
 3. Persist plugin-level capability grants in plugin registry records (`capabilities`).
 4. Add tests:

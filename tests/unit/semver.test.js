@@ -9,7 +9,7 @@ const {
   getUpdateType,
   satisfiesConstraint,
   compareVersions
-} = require('../../src/utils/packageUpdater/semver');
+} = require('../../src/utils/packages/update/semver');
 
 describe('Semver Helpers', () => {
   describe('hasMajorUpdate', () => {

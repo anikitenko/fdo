@@ -142,7 +142,9 @@ describe("PluginPage host contract", () => {
         const cspMeta = document.head.querySelector("meta[http-equiv='Content-Security-Policy']");
         expect(cspMeta?.getAttribute("content")).toContain("connect-src 'none'");
         expect(cspMeta?.getAttribute("content")).toContain("worker-src 'none'");
-        expect(cspMeta?.getAttribute("content")).toContain("navigate-to 'none'");
+        expect(cspMeta?.getAttribute("content")).not.toContain("navigate-to");
+        expect(cspMeta?.getAttribute("content")).toContain("form-action 'none'");
+        expect(cspMeta?.getAttribute("content")).toContain("frame-src 'none'");
         expect(() => window.fetch("https://example.com")).toThrow(/system\.network\.https/);
         expect(() => new window.Worker("blob:test")).toThrow(/Network access denied/);
         expect(() => navigator.sendBeacon("https://example.com/collect")).toThrow(/system\.network\.https/);

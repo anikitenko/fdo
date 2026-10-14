@@ -15,7 +15,7 @@ import * as styles from './css/CreatePluginDialog.module.css'
 import {AppToaster} from "./AppToaster.jsx";
 import {Select} from "@blueprintjs/select";
 import PropTypes from "prop-types";
-import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
+import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 
 export const CreatePluginDialog = ({show, close}) => {
     const [uploadLoading, setUploadLoading] = useState(false);

@@ -9,6 +9,7 @@ const PROVIDERS = [
     {label: "OpenAI", value: "openai"},
     {label: "Anthropic", value: "anthropic"},
     {label: "Ollama (local)", value: "ollama"},
+    {label: "Cursor", value: "cursor"},
     {label: "Codex CLI (ChatGPT)", value: "codex-cli"},
     {label: "Gemini CLI (Google)", value: "gemini-cli"},
 ];

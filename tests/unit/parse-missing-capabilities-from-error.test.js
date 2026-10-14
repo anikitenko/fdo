@@ -1,7 +1,7 @@
 import {
     parseMissingCapabilitiesFromError,
     parseMissingCapabilityDiagnosticsFromError,
-} from "../../src/utils/parseMissingCapabilitiesFromError";
+} from "../../src/utils/presentation/parseMissingCapabilitiesFromError";
 
 describe("parseMissingCapabilitiesFromError", () => {
     test("parses single capability requirement format", () => {

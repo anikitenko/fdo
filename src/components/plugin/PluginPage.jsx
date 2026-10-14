@@ -1,11 +1,12 @@
 import React, {useEffect, useRef, useState} from "react";
+import {FDO_AI_MARK_STYLES} from '../../utils/ai/assistant/fdoAiIdentity';
 import {
     isTrustedParentPluginEvent,
     isValidPluginRenderMessage,
     isValidPluginUiResponseEvent,
 } from "./utils/pluginRenderSecurity";
-import {buildRuntimeSecurityPolicy} from "../../utils/pluginCapabilities";
-import {isNetworkTargetAllowed} from "../../utils/networkScopeRegistry";
+import {buildRuntimeSecurityPolicy} from "../../utils/plugins/security/pluginCapabilities";
+import {isNetworkTargetAllowed} from "../../utils/plugins/security/networkScopeRegistry";
 
 const NETWORK_CAPABILITY = "system.network";
 const NETWORK_HTTPS_CAPABILITY = "system.network.https";
@@ -72,6 +73,8 @@ export const PluginPage = () => {
                 "font-src 'self' data: static://*; " +
                 "object-src 'none'; " +
                 "base-uri 'none'; " +
+                // Chromium does not support navigate-to. Navigation is guarded
+                // separately; CSP blocks forms and embedded browsing contexts.
                 "form-action 'none';";
 
             // Remove existing CSP to prevent duplicates
@@ -994,6 +997,7 @@ function createESModule(pluginCode, onLoad) {
                 : React.createElement("div", { ref: pluginRootRef, "data-plugin-root": "true" }, pluginRenderedNode);
 
             return React.createElement(React.Fragment, null,
+                React.createElement("style", {"data-fdo-ai-identity": "true"}, ${JSON.stringify(FDO_AI_MARK_STYLES)}),
                 pluginContent
             )
         }

@@ -1,6 +1,6 @@
 const {EventEmitter} = require("node:events");
 const {spawn} = require("node:child_process");
-const {installStdioErrorHandlers} = require("../../src/utils/stdioErrors.cjs");
+const {installStdioErrorHandlers} = require("../../src/utils/system/stdioErrors.cjs");
 
 test("handles only broken output pipes and installs once per stream", () => {
     const stream = new EventEmitter();
@@ -13,7 +13,7 @@ test("handles only broken output pipes and installs once per stream", () => {
 });
 
 test.each(["stdout", "stderr"])("a real closed %s pipe does not crash continued console logging", async stream => {
-    const guardPath = require.resolve("../../src/utils/stdioErrors.cjs");
+    const guardPath = require.resolve("../../src/utils/system/stdioErrors.cjs");
     const child = spawn(process.execPath, ["-e", `
         require(${JSON.stringify(guardPath)}).installStdioErrorHandlers();
         process.send('ready');

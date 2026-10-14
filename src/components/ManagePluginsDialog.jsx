@@ -24,7 +24,7 @@ import {addHours, addMinutes, format, formatDistanceToNow, parse, startOfDay} fr
 import {debounce} from "lodash";
 import classNames from "classnames";
 import {AppToaster} from "./AppToaster.jsx";
-import {metricDensityReductionInterval} from "../utils/metricDensityReductionInterval";
+import {metricDensityReductionInterval} from "../utils/system/metricDensityReductionInterval";
 import {CertificateValidComponent} from "./editor/utils/CertificateValidComponent";
 import {RootCertificateSelectionComponent, selectRootCert} from "./editor/utils/RootCertificateSelectionComponent";
 import {CodeEditorSelectionComponent, selectCodeEditor} from "./editor/utils/CodeEditorSelectionComponent";
@@ -33,8 +33,8 @@ import {
     buildScopeCapabilities,
     getSelectedScopeCapabilities,
     hasCapabilitySelectionChanges
-} from "../utils/pluginCapabilitySelection";
-import {getCapabilityPresentation} from "../utils/capabilityPresentation";
+} from "../utils/plugins/security/pluginCapabilitySelection";
+import {getCapabilityPresentation} from "../utils/presentation/capabilityPresentation";
 import {
     hasCapability as hasGrantedCapability,
     HOST_WRITE_CAPABILITY,
@@ -50,10 +50,10 @@ import {
     SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
     SYSTEM_AI_CAPABILITY,
     SYSTEM_AI_REQUEST_CAPABILITY
-} from "../utils/pluginCapabilities";
-import {getPluginTrustTier} from "../utils/pluginTrustTier";
-import {buildCapabilityDeclarationSummary} from "../utils/pluginCapabilityDeclaration";
-import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
+} from "../utils/plugins/security/pluginCapabilities";
+import {getPluginTrustTier} from "../utils/plugins/security/pluginTrustTier";
+import {buildCapabilityDeclarationSummary} from "../utils/plugins/security/pluginCapabilityDeclaration";
+import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 
 function scopeCategoryLabel(scopeItem = {}) {
     if (scopeItem?.userDefined === true) {

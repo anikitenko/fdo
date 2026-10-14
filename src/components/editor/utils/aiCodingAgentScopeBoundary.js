@@ -32,9 +32,20 @@ export function hasHostAppFileReference(text = "", workspaceFiles = [], declared
     // A generated URL regexp commonly includes `https?:\\/\\/…`. Do not
     // mistake its `s:\\` fragment for a Windows drive path; actual Windows
     // paths have a non-separator path character after the first backslash.
-    const absolutePathMatches = normalizedText.match(/(?:\/(?:users|var|tmp|private|applications|library|system|volumes|opt|etc|usr|bin|sbin|dev|home|mnt|proc|root|run|srv|sys|windows|program files)\/[^\s"'`]+?\.[a-z0-9]+|[a-z]:[\\/](?![\\/])[^\s"'`]+?\.[a-z0-9]+)/g) || [];
-    if (absolutePathMatches.some((match) => !matchesWorkspacePath(match, workspacePaths))) {
-        return true;
+    const absolutePathPattern = /(?:\/(?:users|var|tmp|private|applications|library|system|volumes|opt|etc|usr|bin|sbin|dev|home|mnt|proc|root|run|srv|sys|windows|program files)\/[^\s"'`]+?\.[a-z0-9]+|[a-z]:[\\/](?![\\/])[^\s"'`]+?\.[a-z0-9]+)/g;
+    let absoluteMatch;
+    while ((absoluteMatch = absolutePathPattern.exec(normalizedText)) !== null) {
+        // Guarded roots only count at a path boundary. A workspace path such
+        // as `/features/library/styles.css` contains the `/library` substring
+        // mid-path, while a real system path never starts directly after a
+        // path character. A preceding `/` still counts, so glued references
+        // such as `file:///users/...` remain detectable.
+        if (absoluteMatch.index > 0 && /[a-z0-9._-]/.test(normalizedText[absoluteMatch.index - 1])) {
+            continue;
+        }
+        if (!matchesWorkspacePath(absoluteMatch[0], workspacePaths)) {
+            return true;
+        }
     }
 
     const hostPathMatches = normalizedText.match(/\b(?:src|tests)\/[a-z0-9._/-]+\.[a-z0-9]+\b/g) || [];

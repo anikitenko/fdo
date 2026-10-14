@@ -72,12 +72,12 @@ Tasks marked `[P]` can be executed in parallel if different developers work on d
 
 ### Tasks
 
-- [x] T006 [US-Foundation] Create src/utils/startupMetrics.js with StartupMetrics class structure per data-model.md
-- [x] T007 [US-Foundation] Implement initMetrics() function in src/utils/startupMetrics.js with session UUID generation
-- [x] T008 [US-Foundation] Implement logMetric(event, metadata) function with console output in src/utils/startupMetrics.js
-- [x] T009 [US-Foundation] Implement async file logging to ~/.fdo/logs/startup.log with NDJSON format in src/utils/startupMetrics.js
-- [x] T010 [US-Foundation] Implement getElapsedTime() helper function in src/utils/startupMetrics.js
-- [x] T011 [US-Foundation] Implement isSlowStartup() helper with 4.5s threshold check in src/utils/startupMetrics.js
+- [x] T006 [US-Foundation] Create src/utils/system/startupMetrics.js with StartupMetrics class structure per data-model.md
+- [x] T007 [US-Foundation] Implement initMetrics() function in src/utils/system/startupMetrics.js with session UUID generation
+- [x] T008 [US-Foundation] Implement logMetric(event, metadata) function with console output in src/utils/system/startupMetrics.js
+- [x] T009 [US-Foundation] Implement async file logging to ~/.fdo/logs/startup.log with NDJSON format in src/utils/system/startupMetrics.js
+- [x] T010 [US-Foundation] Implement getElapsedTime() helper function in src/utils/system/startupMetrics.js
+- [x] T011 [US-Foundation] Implement isSlowStartup() helper with 4.5s threshold check in src/utils/system/startupMetrics.js
 - [x] T012 [US-Foundation] Add initMetrics() call at top of src/main.js (first line after imports)
 - [x] T013 [US-Foundation] Add logMetric('app-ready') in app.on('ready') handler in src/main.js
 - [x] T014 [US-Foundation] Add logMetric('window-created') after BrowserWindow creation in src/main.js
@@ -212,7 +212,7 @@ Tasks marked `[P]` can be executed in parallel if different developers work on d
 
 ### Tasks - Asset Lazy Loading
 
-- [x] T064 [P] [US3] Create asset manifest documenting critical vs lazy assets in src/utils/assetManifest.js
+- [x] T064 [P] [US3] Create asset manifest documenting critical vs lazy assets in src/utils/system/assetManifest.js
 - [x] T065 [US3] Defer loading of large icon sets until needed in src/assets/ references (Blueprint icons only in critical)
 - [x] T066 [US3] Lazy load Monaco Editor assets only when /editor route accessed in src/components/editor/ (already done in Phase 3)
 - [x] T067 [US3] Lazy load ReactFlow assets only when /live-ui route accessed in src/components/live-ui/ (already done in Phase 3)
@@ -230,8 +230,8 @@ Tasks marked `[P]` can be executed in parallel if different developers work on d
 
 ### Tasks - Performance Monitoring
 
-- [x] T076 [US3] Add memory usage tracking to startup metrics in src/utils/startupMetrics.js (captureResourceUsage)
-- [x] T077 [US3] Add CPU usage sampling during startup in src/utils/startupMetrics.js (calculateCPUPercent)
+- [x] T076 [US3] Add memory usage tracking to startup metrics in src/utils/system/startupMetrics.js (captureResourceUsage)
+- [x] T077 [US3] Add CPU usage sampling during startup in src/utils/system/startupMetrics.js (calculateCPUPercent)
 - [x] T078 [US3] Log resource counts (assets loaded, bundles, modules) in startup metrics (memory.rss, memory.heapUsed, cpu%)
 - [x] T079 [P] [US3] Create tests/performance/resource-usage.test.js to validate thresholds (deferred to Phase 7)
 - [x] T080 [US3] Test and verify memory <300MB and CPU <60% on dual-core system (will validate with packaged app)
@@ -307,7 +307,7 @@ Tasks marked `[P]` can be executed in parallel if different developers work on d
 ### Tasks - Error Handling
 
 - [x] T102 [P] Implement window creation error handling with retry dialog in src/main.js
-- [x] T103 [P] Add error logging to startup metrics for failed launches in src/utils/startupMetrics.js (logStartupError)
+- [x] T103 [P] Add error logging to startup metrics for failed launches in src/utils/system/startupMetrics.js (logStartupError)
 - [x] T104 [P] Add slow startup detection warning (>4.5s) with context in src/main.js (checkSlowStartupWarning)
 - [x] T105 Test error recovery by simulating window creation failure (error dialog with retry implemented)
 

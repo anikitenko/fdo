@@ -2,7 +2,7 @@ import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 import build from "./build";
 
-const codeEditorActions = (codeEditor) => {
+const codeEditorActions = (codeEditor, {onCompile} = {}) => {
     if (!codeEditor) return;
     codeEditor.updateOptions({
         padding: {
@@ -80,6 +80,7 @@ const codeEditorActions = (codeEditor) => {
         // @param editor The editor instance is passed in as a convenience
         run: async function (ed) {
             ed.focus()
+            onCompile?.();
             await build()
         },
     });

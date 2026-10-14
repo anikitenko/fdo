@@ -4,6 +4,22 @@ import AIAssistantsPanel from '../../src/components/settings/panels/AIAssistants
 
 jest.mock('../../src/components/AppToaster', () => ({AppToaster: {show: jest.fn()}}));
 
+test('checks image support automatically when choosing a coding model in Settings', async () => {
+    const ai = {getAssistants: jest.fn().mockResolvedValue([]),
+        getAvailableModels: jest.fn().mockResolvedValue([{label: 'North Mini Code', value: 'cohere/north-mini-code:free', provider: 'openrouter'}]),
+        getInputCapabilities: jest.fn().mockResolvedValue({provider: 'openrouter', model: 'cohere/north-mini-code:free',
+            imageSupport: 'unsupported', source: 'provider-metadata', reason: 'Provider metadata does not advertise image input.'})};
+    window.electron = {settings: {ai}};
+    render(<AIAssistantsPanel />);
+    await screen.findByText('No AI Assistants yet');
+    fireEvent.click(screen.getByRole('button', {name: 'Add Assistant'}));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByLabelText('Provider'), {target: {value: 'openrouter'}});
+    fireEvent.change(dialog.getByLabelText('API Key'), {target: {value: 'test-token'}});
+    await dialog.findByText('Text only');
+    expect(ai.getInputCapabilities).toHaveBeenCalledWith(expect.objectContaining({provider: 'openrouter', model: 'cohere/north-mini-code:free'}));
+});
+
 test.each(['chat', 'coding'])('Gemini API can be saved for %s without CLI or local server fields', async purpose => {
     const ai = {getAssistants: jest.fn().mockResolvedValue([]),
         getAvailableModels: jest.fn().mockResolvedValue([{label: 'Gemini', value: 'gemini-test', provider: 'gemini'}]),
@@ -105,4 +121,33 @@ test('Cloudflare loads models after account and token, and saves coding-only acc
     expect(ai.addAssistant.mock.calls[0][0]).not.toHaveProperty('baseUrl');
     expect(ai.addAssistant.mock.calls[0][0]).not.toHaveProperty('contextLength');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+test('Cursor uses API-key model discovery and coding purpose without CLI setup or sign-in', async () => {
+    const ai = {getAssistants: jest.fn().mockResolvedValue([]),
+        getAvailableModels: jest.fn().mockResolvedValue([{label: 'Composer fixture', value: 'composer-fixture', provider: 'cursor'}]),
+        addAssistant: jest.fn().mockResolvedValue({}), getCodexAuthStatus: jest.fn()};
+    window.electron = {settings: {ai}};
+    render(<AIAssistantsPanel/>);
+    await screen.findByText('No AI Assistants yet');
+    fireEvent.click(screen.getByRole('button', {name: 'Add Assistant'}));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByLabelText('Provider'), {target: {value: 'cursor'}});
+    expect(dialog.getByText(/No separate Cursor CLI installation or browser login is required/)).toBeVisible();
+    expect(dialog.getByRole('option', {name: 'Cursor'})).toBeTruthy();
+    expect(dialog.getByText('A secret access token that lets FDO make requests using your Cursor account.')).toBeVisible();
+    expect(dialog.getByLabelText('Purpose')).toHaveValue('coding');
+    expect(dialog.getByLabelText('Purpose')).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText('API Key'), {target: {value: 'cursor-test-key'}});
+    await waitFor(() => expect(dialog.getByLabelText('Model')).toHaveValue('composer-fixture'));
+    expect(ai.getAvailableModels).toHaveBeenCalledWith('cursor', 'cursor-test-key', expect.anything());
+    expect(dialog.getByRole('option', {name: 'Composer fixture'})).toBeTruthy();
+    expect(dialog.getByText('Image attachments available')).toBeVisible();
+    expect(dialog.queryByText('Image support unknown')).toBeNull();
+    fireEvent.change(dialog.getByLabelText('Name'), {target: {value: 'Cursor coding'}});
+    fireEvent.click(dialog.getByRole('button', {name: 'Add Assistant'}));
+    await waitFor(() => expect(ai.addAssistant).toHaveBeenCalledTimes(1));
+    expect(ai.addAssistant.mock.calls[0][0]).toMatchObject({provider: 'cursor', purpose: 'coding', model: 'composer-fixture', apiKey: 'cursor-test-key'});
+    expect(ai.addAssistant.mock.calls[0][0]).not.toHaveProperty('executablePath');
+    expect(ai.getCodexAuthStatus).not.toHaveBeenCalled();
 });

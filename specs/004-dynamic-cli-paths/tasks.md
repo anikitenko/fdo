@@ -17,7 +17,7 @@
 ## Path Conventions
 
 - **Project Type**: Single desktop application (Electron-based)
-- **Primary file**: `src/utils/installFDOCLI.js` (existing, will be refactored)
+- **Primary file**: `src/utils/system/installFDOCLI.js` (existing, will be refactored)
 - **Supporting files**: Uses existing utilities, may extract helpers
 
 ---
@@ -27,7 +27,7 @@
 **Purpose**: Prepare logging infrastructure for structured logging per research.md
 
 - [x] T001 Configure electron-log debug mode in src/main.js for CLI installation operations
-- [x] T002 [P] Add log prefix constants for CLI operations in src/utils/installFDOCLI.js
+- [x] T002 [P] Add log prefix constants for CLI operations in src/utils/system/installFDOCLI.js
 
 ---
 
@@ -37,11 +37,11 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [x] T003 [P] Implement `isDevelopmentEnvironment()` helper in src/utils/installFDOCLI.js per research R7
-- [x] T004 [P] Implement `isPathWritable(targetPath)` helper in src/utils/installFDOCLI.js per research R4
-- [x] T005 [P] Implement `detectApplicationPath()` helper in src/utils/installFDOCLI.js per contracts and research R1
-- [x] T006 Implement `getPlatformPaths(platform)` helper in src/utils/installFDOCLI.js per research R2
-- [x] T007 [P] Implement `createWrapperScript(appPath, platform)` helper in src/utils/installFDOCLI.js per contracts and research R8
+- [x] T003 [P] Implement `isDevelopmentEnvironment()` helper in src/utils/system/installFDOCLI.js per research R7
+- [x] T004 [P] Implement `isPathWritable(targetPath)` helper in src/utils/system/installFDOCLI.js per research R4
+- [x] T005 [P] Implement `detectApplicationPath()` helper in src/utils/system/installFDOCLI.js per contracts and research R1
+- [x] T006 Implement `getPlatformPaths(platform)` helper in src/utils/system/installFDOCLI.js per research R2
+- [x] T007 [P] Implement `createWrapperScript(appPath, platform)` helper in src/utils/system/installFDOCLI.js per contracts and research R8
 
 **Checkpoint**: Foundation ready - helper functions tested and working
 
@@ -60,7 +60,7 @@
 
 ### Implementation for User Story 1
 
-- [x] T008 [US1] Refactor `installFDOCLI()` in src/utils/installFDOCLI.js to remove hardcoded paths for macOS
+- [x] T008 [US1] Refactor `installFDOCLI()` in src/utils/system/installFDOCLI.js to remove hardcoded paths for macOS
 - [x] T009 [US1] Add dynamic path detection to `installFDOCLI()` using `detectApplicationPath()` helper
 - [x] T010 [US1] Add idempotent check to `installFDOCLI()` per clarification (skip if file exists)
 - [x] T011 [US1] Add info-level logging for installation start and path detection in `installFDOCLI()`
@@ -99,7 +99,7 @@
 
 ### Implementation for User Story 2
 
-- [x] T029 [US2] Implement `selectInstallPath(platform, paths)` helper in src/utils/installFDOCLI.js per contracts
+- [x] T029 [US2] Implement `selectInstallPath(platform, paths)` helper in src/utils/system/installFDOCLI.js per contracts
 - [x] T030 [US2] Update `installFDOCLI()` to use `selectInstallPath()` instead of hardcoded primary path
 - [x] T031 [US2] Add permission checking logic before attempting installation in `installFDOCLI()`
 - [x] T032 [US2] Add fallback path iteration logic in `installFDOCLI()` per research R2
@@ -133,7 +133,7 @@
 
 ### Implementation for User Story 3
 
-- [x] T045 [US3] Refactor `removeFDOCLI()` in src/utils/installFDOCLI.js to check all possible CLI paths
+- [x] T045 [US3] Refactor `removeFDOCLI()` in src/utils/system/installFDOCLI.js to check all possible CLI paths
 - [x] T046 [US3] Add logic to check legacy hardcoded paths in `removeFDOCLI()` per FR-011
 - [x] T047 [US3] Add logic to check all fallback paths in `removeFDOCLI()` per research R2
 - [x] T048 [US3] Add idempotent behavior for uninstall (report success if not found) in `removeFDOCLI()`
@@ -188,7 +188,7 @@
 - [x] T070 [P] Review and refine all log messages for consistency across platforms
 - [x] T071 Verify all functional requirements (FR-001 through FR-019) are implemented
 - [ ] T072 Verify all success criteria (SC-001 through SC-009) are met
-- [x] T073 [P] Add JSDoc comments to all helper functions in src/utils/installFDOCLI.js
+- [x] T073 [P] Add JSDoc comments to all helper functions in src/utils/system/installFDOCLI.js
 - [x] T074 Code cleanup and remove any dead code from old hardcoded approach
 - [ ] T075 Performance validation (installation < 30s, detection < 5s, idempotent < 1s)
 - [ ] T076 [P] Update quickstart.md with any implementation notes if needed
@@ -243,10 +243,10 @@
 
 ```bash
 # Launch all helper functions in parallel:
-Task: "Implement isDevelopmentEnvironment() helper in src/utils/installFDOCLI.js"
-Task: "Implement isPathWritable(targetPath) helper in src/utils/installFDOCLI.js"
-Task: "Implement detectApplicationPath() helper in src/utils/installFDOCLI.js"
-Task: "Implement createWrapperScript(appPath, platform) helper in src/utils/installFDOCLI.js"
+Task: "Implement isDevelopmentEnvironment() helper in src/utils/system/installFDOCLI.js"
+Task: "Implement isPathWritable(targetPath) helper in src/utils/system/installFDOCLI.js"
+Task: "Implement detectApplicationPath() helper in src/utils/system/installFDOCLI.js"
+Task: "Implement createWrapperScript(appPath, platform) helper in src/utils/system/installFDOCLI.js"
 ```
 
 ## Parallel Example: User Story 2 and 3
@@ -360,7 +360,7 @@ With 2-3 developers:
 - **No automated tests**: Manual testing approach per plan.md (automated testing would require multi-platform CI)
 - **[P] markers**: Tasks that can run in parallel (different files/functions, no dependencies)
 - **[Story] labels**: Map tasks to user stories for traceability and independent testing
-- **File paths**: All tasks include exact file paths (primarily `src/utils/installFDOCLI.js`)
+- **File paths**: All tasks include exact file paths (primarily `src/utils/system/installFDOCLI.js`)
 - **Idempotent**: Core design principle - safe to retry any operation
 - **Logging**: Info for major steps, debug for details (electron-log)
 - **Error handling**: All errors returned in result objects, never thrown

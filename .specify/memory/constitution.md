@@ -410,8 +410,8 @@ child.once("exit", (code) => {
 1. **Main Process** (`src/main.js`): Node.js runtime, plugin management, IPC handlers, CLI
 2. **Renderer Process** (`src/App.jsx`): React app with routing, UI components
 3. **Preload Scripts** (`src/preload.js`): Secure IPC bridge
-4. **Plugin Manager** (`src/utils/PluginManager.js`): Plugin lifecycle, isolation, IPC
-5. **Certificate Authority** (`src/utils/certs.js`): CA management, signing, verification
+4. **Plugin Manager** (`src/utils/plugins/runtime/PluginManager.js`): Plugin lifecycle, isolation, IPC
+5. **Certificate Authority** (`src/utils/system/certs.js`): CA management, signing, verification
 6. **Virtual Filesystem** (`src/components/editor/utils/VirtualFS.js`): In-memory FS with versioning
 
 ### Data Model

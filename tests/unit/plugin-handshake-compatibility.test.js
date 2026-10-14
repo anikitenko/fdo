@@ -3,7 +3,7 @@ import {
     evaluatePluginHandshakeCompatibility,
     getHostHandshakeExpectations,
     isPluginHandshakeCompatible,
-} from "../../src/utils/pluginHandshakeCompatibility";
+} from "../../src/utils/sdk/pluginHandshakeCompatibility";
 
 describe("plugin handshake compatibility", () => {
     afterEach(() => {
@@ -24,18 +24,18 @@ describe("plugin handshake compatibility", () => {
                 }],
             })),
             getSdkHandshake: jest.fn(() => ({
-                contractVersion: "1",
+                contractVersion: "1.0.0",
                 apiVersion: "1.0.0",
-                capabilitySchemaVersion: "1",
+                capabilitySchemaVersion: "1.0.0",
                 featureFlags: {pluginDoctorReport: true},
             })),
         });
 
         const result = evaluatePluginHandshakeCompatibility({
             handshake: {
-                contractVersion: "1",
+                contractVersion: "1.0.0",
                 apiVersion: "1.0.0",
-                capabilitySchemaVersion: "1",
+                capabilitySchemaVersion: "1.0.0",
                 featureFlags: {},
             },
         });
@@ -72,9 +72,9 @@ describe("plugin handshake compatibility", () => {
 
         const compatible = isPluginHandshakeCompatible({
             handshake: {
-                contractVersion: "1",
+                contractVersion: "1.0.0",
                 apiVersion: "1.0.0",
-                capabilitySchemaVersion: "1",
+                capabilitySchemaVersion: "1.0.0",
                 featureFlags: {pluginDoctorReport: true},
             },
         });
@@ -91,5 +91,17 @@ describe("plugin handshake compatibility", () => {
             expectedCapabilitySchemaVersion: expect.any(String),
             requiredFeatureFlags: expect.any(Array),
         }));
+        expect(expectations.expectedContractVersion).toBe("1.0.0");
+        expect(expectations.expectedCapabilitySchemaVersion).toBe("1.0.0");
+    });
+
+    test("accepts the full semantic versions reported by SDK 1.5.2", () => {
+        __setOptionalSdkHandshakeModuleForTests({});
+        const result = evaluatePluginHandshakeCompatibility({handshake: {
+            contractVersion: '1.0.0', sdkVersion: '1.5.2', apiVersion: '1.0.0',
+            capabilitySchemaVersion: '1.0.0', featureFlags: {pluginDoctorReport: true},
+        }});
+        expect(result.status).toBe('compatible');
+        expect(result.findings).toEqual([]);
     });
 });

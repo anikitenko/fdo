@@ -1,4 +1,4 @@
-import { settings } from "../../utils/store.js";
+import { settings } from "../../utils/persistence/store.js";
 
 const MAX_RECENT_MISSES = 50;
 const LOW_CONFIDENCE_THRESHOLD = 0.55;

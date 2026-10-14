@@ -2,7 +2,7 @@ import {
     normalizeGeminiAuthState, 
     getGeminiCredentialFilePaths, 
     parseGeminiProbeOutput 
-} from "../../src/utils/geminiCli.js";
+} from "../../src/utils/ai/generation/geminiCli.js";
 
 describe("Gemini CLI Auth Utils", () => {
     const TOKEN = "FDO_AUTH_PROBE_OK_77b2";

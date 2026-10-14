@@ -1,189 +1,46 @@
-import cssData from 'mdn-data/css/properties.json'
-import htmlTags from 'html-tags'
+import postcss from 'postcss';
+import {mergeCssStyleMaps, attachCssConditionalRules} from './resolveCssImports';
 
-const htmlTagSet = new Set(htmlTags)
-const mdnProperties = new Set(Object.keys(cssData))
-
-export function extractCssStyles(cssString) {
-    if (!cssString.replace(/\/\*[\s\S]*?\*\//g, '').trim()) return {};
-    cssString = replace(
-        `:host{${cssString}}`,
-        /**
-         * Clean line breaks and normalize spaces
-         */
-        [/\s+/g, " "],
-        /**
-         * Delete comments
-         */
-        [/\/\*.+?\*\//g, ""],
-        /**
-         * Replace double characters with single characters
-         */
-        [/\"/g, `'`],
-        /**
-         * Add ";" in case of css compression
-         */
-        [/:([^;}]+)}/g, `:$1;}`],
-        /**
-         * Add import support
-         */
-        [/(@import +[^;]+);/g,`$1{}`],
-        /**
-         * Capture the selectors and generate an index block for the JSON
-         */
-        [/ *([^;{}]+) *{/g, (match, p1) => `"${p1.trim().replace(/^\./, "")}":{`], // Trims space in selector
-        /**
-         * Capture the css blocks "{}", to transform the css props into json props
-         */
-        [/{[^{}]+}/g, props],
-        /**
-         * Capture the first excluded block when using nested selectors
-         */
-        [/{([^"]+)/g, props],
-        /**
-         * Fix the union of props
-         */
-        [/}"/g, `},"`],
-        /**
-         * Fix props separation
-         */
-        [/, *}/g, `}`]
-    );
-
-    const parsed = JSON.parse(`{${cssString}}`)[":host"]
-    const merged = mergeSubSelectors(parsed)
-    return returnRemovedDots(injectPseudoVariants(merged))
-}
-
-/**
- * Formats properties as JSON
- * @param {string} block
- */
-const props = (block) =>
-    block.replace(/([\w-&+.\s]+) *: *([^;]+);/g, (match, p1, p2) => {
-        return `"${p1.trim()}":"${p2.trim()}",`;
-    });
-
-/**
- * Execute multiple replace operations on a string
- * @param {string} str
- * @param {any[]} args
- */
-const replace = (str, ...args) =>
-    args.reduce((str, args) => str.replace(...args), str);
-
-const returnRemovedDots = (styles) => {
-    const output = {}
-
-    for (const key in styles) {
-        const value = styles[key]
-
-        const baseMatch = key.match(/^([^.]+)(?:\.(.+))?$/)
-
-        if (baseMatch && !key.startsWith('@')) {
-            const base = baseMatch[1] // e.g. "details"
-            const extension = baseMatch[2] // e.g. "visible"
-
-            if (extension) {
-                // Merge into base
-                output[base] = output[base] || {}
-                output[base][`&.${extension}`] = styles[key]
-            } else {
-                // Base element
-                if (typeof value === 'object' && value !== null) {
-                    output[base] = {
-                        ...(output[base] || {}),
-                        ...processStyles(value)
-                    }
-                } else {
-                    output[base] = value
+// Parse real CSS nodes instead of rewriting CSS into JSON with regular
+// expressions. Selector lists must be split without splitting commas inside
+// :is(), attribute values, strings, or declaration functions.
+export function extractCssStyles(cssString = '') {
+    const root = postcss.parse(cssString);
+    const readNodes = (nodes, nested = false) => {
+        let result = {};
+        const imports = {};
+        for (const node of nodes || []) {
+            if (node.type === 'decl') {
+                result = mergeCssStyleMaps(result, {[node.prop]: node.value + (node.important ? ' !important' : '')});
+            } else if (node.type === 'rule') {
+                const body = readNodes(node.nodes, true);
+                for (const selector of node.selectors) {
+                    const key = nested ? selector.trim() : selector.trim().replace(/^\./, '');
+                    // Preserve the existing .panel.active -> panel[&.active]
+                    // contract even when the stylesheet has no base rule.
+                    const compound = !nested && /^\.([\w-]+)\./.exec(selector.trim());
+                    if (compound && !Object.hasOwn(result, compound[1])) result = mergeCssStyleMaps(result, {[compound[1]]: {}});
+                    result = mergeCssStyleMaps(result, {[key]: body});
                 }
-            }
-        } else {
-            // Keep untouched (e.g. @import or full selectors)
-            output[key] = value
-        }
-    }
-
-    return output
-
-    function processStyles(obj) {
-        const result = {}
-        for (const key in obj) {
-            const value = obj[key]
-            const isLikelyClass =
-                /^[a-zA-Z][\w-]*$/.test(key) &&
-                !mdnProperties.has(key) &&
-                !htmlTagSet.has(key.toLowerCase())
-
-            const isPseudoOrCombinator =
-                key.startsWith('&') ||
-                /^[^a-zA-Z0-9]/.test(key) ||
-                key.includes(' ') ||
-                key.startsWith(':')
-
-            const newKey =
-                isLikelyClass ? `&.${key}` :
-                    isPseudoOrCombinator ? key :
-                        key
-
-            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                result[newKey] = processStyles(value)
-            } else {
-                result[newKey] = value
+            } else if (node.type === 'atrule') {
+                const name = node.name.toLowerCase() === 'import' ? 'import' : node.name;
+                const key = `@${name}${node.params ? ` ${node.params}` : ''}`;
+                if (node.name.toLowerCase() === 'import') {
+                    // Composition merging deliberately removes import metadata;
+                    // retain it separately until resolveCssImports sees it.
+                    Object.defineProperty(imports, key, {value: {}, enumerable: true, configurable: true});
+                    continue;
+                }
+                const keyframes = /^(?:-\w+-)?keyframes$/i.test(node.name);
+                const entry = {[key]: readNodes(node.nodes, nested || keyframes)};
+                // Attach at the original source position, before imports are
+                // merged. A final global pass could override a later file's
+                // explicit conditional declarations with an earlier block.
+                result = mergeCssStyleMaps(result, !nested && /^(media|supports|container)$/i.test(node.name)
+                    ? attachCssConditionalRules(entry) : entry);
             }
         }
-        return result
-    }
-}
-
-const injectPseudoVariants = (styles) => {
-    const updated = { ...styles }
-
-    for (const selector in styles) {
-        if (!(selector.includes(":") || selector.includes("[") || selector.includes(" "))) continue // skip if there's no pseudo/combinator
-
-        // Try to find the base class name (e.g., "toggleCheckbox")
-        const baseMatch = selector.match(/^([\w-]+)/)
-        const base = baseMatch?.[1]
-
-        if (base && updated[base]) {
-            const suffix = selector.slice(base.length) // e.g., ":checked + .toggleSwitch.toggle-large::before"
-            updated[base] = {
-                ...updated[base],
-                [`${selector.includes(" ") ? "" : "&"}${suffix}`]: styles[selector]
-            }
-
-            // Remove from top-level
-            delete updated[selector]
-        }
-    }
-
-    return updated
-}
-
-const mergeSubSelectors = (styles) => {
-    const grouped = {}
-
-    for (const selector in styles) {
-        const baseMatch = selector.match(/^(\.[\w-]+)/)
-        const base = baseMatch?.[1] || selector
-        const suffix = selector.slice(base.length).trim()
-
-        // Ensure the base exists
-        if (!grouped[base]) grouped[base] = {}
-
-        if (!suffix) {
-            // top-level selector like `.toggle-large`
-            Object.assign(grouped[base], styles[selector])
-        } else if (suffix.startsWith(":") || suffix.startsWith("::") || suffix.startsWith("[")) {
-            // pseudo selectors like `.toggle-large::before`
-            grouped[base][suffix] = styles[selector]
-        } else {
-            // treat as its own full selector (like `.modal + .modalInner`)
-            grouped[selector] = styles[selector]
-        }
-    }
-
-    return grouped
+        return {...result, ...imports};
+    };
+    return readNodes(root.nodes);
 }

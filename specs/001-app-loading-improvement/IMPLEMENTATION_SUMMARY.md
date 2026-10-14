@@ -51,7 +51,7 @@ Successfully optimized FDO application startup performance through systematic bu
 **Objective**: Implement startup performance tracking
 
 **Completed**:
-- ✅ Created `src/utils/startupMetrics.js` with high-resolution timing
+- ✅ Created `src/utils/system/startupMetrics.js` with high-resolution timing
 - ✅ Added IPC channels for renderer→main metric logging
 - ✅ Implemented NDJSON logging to persistent file
 - ✅ Integrated metrics at key lifecycle points:
@@ -157,7 +157,7 @@ Successfully optimized FDO application startup performance through systematic bu
 
 #### 5A: Asset Lazy Loading
 **Completed**:
-- ✅ Created `src/utils/assetManifest.js`:
+- ✅ Created `src/utils/system/assetManifest.js`:
   - Documents critical vs lazy assets
   - Estimates sizes and load triggers
   - Lists evaluable/removable dependencies
@@ -250,7 +250,7 @@ Successfully optimized FDO application startup performance through systematic bu
   - Post-optimization results (73 MB renderer, 461 KB entry)
   - Optimization candidates (~25 MB identified)
   - Platform measurements section
-- ✅ Created `src/utils/assetManifest.js`:
+- ✅ Created `src/utils/system/assetManifest.js`:
   - Critical asset documentation
   - Lazy loading strategy
   - Optimization opportunities
@@ -360,8 +360,8 @@ All events include:
 ## Files Modified
 
 ### Core Implementation
-- ✅ `src/utils/startupMetrics.js` - Metrics tracking system (225 lines)
-- ✅ `src/utils/assetManifest.js` - Asset documentation (240 lines)
+- ✅ `src/utils/system/startupMetrics.js` - Metrics tracking system (225 lines)
+- ✅ `src/utils/system/assetManifest.js` - Asset documentation (240 lines)
 - ✅ `src/main.js` - Error handling, slow startup warnings
 - ✅ `src/preload.js` - IPC exposure for metrics
 - ✅ `src/renderer.js` - Renderer process metric
@@ -500,7 +500,7 @@ All events include:
 | Memory usage | <300 MB | ⏳ Pending | Tracked but not validated in packaged app |
 | CPU usage | <60% on dual-core | ⏳ Pending | Tracked but not validated in packaged app |
 | Lazy loading | Monaco/ReactFlow | ✅ Confirmed | ~25 MB deferred |
-| Asset manifest | Implemented | ✅ Complete | `src/utils/assetManifest.js` |
+| Asset manifest | Implemented | ✅ Complete | `src/utils/system/assetManifest.js` |
 
 ### User Story 4: Cross-Platform ⏸️
 

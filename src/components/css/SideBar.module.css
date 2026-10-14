@@ -61,7 +61,23 @@
 
 .notification-container {
     position: relative;
-    display: inline-block;
+    display: inline-flex;
+}
+
+.icon-button:global(.bp6-button.bp6-large) {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-button :global(.bp6-button-text) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .notification-dot {

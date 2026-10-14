@@ -130,15 +130,49 @@ describe("ai coding agent plugin scope", () => {
     test("keeps host file detection without overmatching nearby code tokens", () => {
         expect(validateAiCodingPluginScopeResponse({
             text: [
-                "File: /src/utils/fdoSdkKnowledge.js",
+                "File: /src/utils/sdk/fdoSdkKnowledge.js",
                 "const terms = values.filter(Boolean).map((term) => term.trim());",
                 "return Array.from(new Set(terms));",
             ].join("\n"),
             workspaceFiles,
         })).toMatchObject({
             ok: false,
-            references: ["/src/utils/fdoSdkKnowledge.js"],
+            references: ["/src/utils/sdk/fdoSdkKnowledge.js"],
         });
+    });
+
+    test("allows new workspace files whose segments contain guarded root names", () => {
+        // Regression: `/features/library/...` contains the macOS `/Library`
+        // root as a mid-path substring and must not read as a host path.
+        expect(validateAiCodingPluginScopeResponse({
+            text: [
+                "### File: /features/library/styles.css",
+                "```css",
+                "@import \"./features/library/styles.css\";",
+                ".library { position: fixed; }",
+                "```",
+                "### File: /features/library/render.tsx",
+                "```tsx",
+                "export default function render() { return null; }",
+                "```",
+            ].join("\n"),
+            workspaceFiles,
+        })).toEqual({ok: true, references: []});
+    });
+
+    test.each([
+        "Move state into /Library/Preferences/com.apple.workspace.plist next.",
+        "Rewrite file:///Users/developer/fdo/notes.txt instead.",
+    ])("still detects guarded roots at a real path boundary: %s", text => {
+        expect(validateAiCodingPluginScopeResponse({text: `${newWorkspaceFiles}\n${text}`, workspaceFiles}).ok)
+            .toBe(false);
+    });
+
+    test("does not treat URL path segments as host file references", () => {
+        expect(validateAiCodingPluginScopeResponse({
+            text: "Refresh https://cdn.example.com/var/build/app.js before rendering.",
+            workspaceFiles,
+        })).toMatchObject({ok: true, references: []});
     });
 
     test("builds a stable user-facing scope message", () => {

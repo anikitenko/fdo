@@ -2,7 +2,7 @@
 
 **Version**: 1.0.0  
 **Type**: Internal API (no external exposure)  
-**Location**: `src/utils/startupMetrics.js` (NEW)
+**Location**: `src/utils/system/startupMetrics.js` (NEW)
 
 ---
 

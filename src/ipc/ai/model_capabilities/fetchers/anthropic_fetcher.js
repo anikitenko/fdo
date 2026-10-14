@@ -1,4 +1,4 @@
-import {listAnthropicModels} from "../../../../utils/aiProviders/catalog";
+import {listAnthropicModels} from "../../../../utils/ai/providers/catalog";
 // src/main/ai/model_capabilities/fetchers/anthropic_fetcher.js
 export async function fetchAnthropicCapabilities(apiKey, options = {}) {
     const {

@@ -1,5 +1,4 @@
 import virtualFS from "./VirtualFS";
-import {createVirtualFile} from "./createVirtualFile";
 
 const build = async () => {
     virtualFS.build.setInProgress()
@@ -23,11 +22,12 @@ const build = async () => {
             return {success: false, error: result.error};
         } else {
             virtualFS.build.addProgress(90)
-            virtualFS.build.addMessage("Build complete, writing output...", false, "build")
+            virtualFS.build.addMessage("Build complete, preparing runtime bundle...", false, "build")
 
-            createVirtualFile(virtualFS.build.getEntrypoint(), result.files.outputFiles[0].text, undefined, false, true)
-
-            virtualFS.build.setContent(result.files.outputFiles[0].text)
+            const bundle = result.files?.outputFiles?.[0]?.text;
+            if (typeof bundle !== "string" || !bundle.trim()) throw new Error("Compiler returned no runtime bundle.");
+            // Runtime output belongs to the build artifact, never to Monaco source models.
+            virtualFS.build.setContent(bundle)
 
             virtualFS.build.addProgress(100)
             virtualFS.build.addMessage("Compilation successful!", false, "build")

@@ -254,7 +254,7 @@ if (!gotTheLock) {
 
 **Implementation**:
 ```javascript
-// src/utils/startupMetrics.js
+// src/utils/system/startupMetrics.js
 import fs from 'fs/promises';
 import path from 'path';
 import { app } from 'electron';

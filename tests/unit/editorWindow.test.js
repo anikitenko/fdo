@@ -44,9 +44,9 @@ describe('Editor Window Lifecycle', () => {
         };
 
         // Import after mocking
-        editorWindow = require('../../src/utils/editorWindow').editorWindow;
-        isWindowValid = require('../../src/utils/editorWindow').isWindowValid;
-        cleanupWindowResources = require('../../src/utils/editorWindow').cleanupWindowResources;
+        editorWindow = require('../../src/utils/desktop/editorWindow').editorWindow;
+        isWindowValid = require('../../src/utils/desktop/editorWindow').isWindowValid;
+        cleanupWindowResources = require('../../src/utils/desktop/editorWindow').cleanupWindowResources;
     });
 
     afterEach(() => {

@@ -13,6 +13,7 @@ import {GeneralPanel} from "./panels/GeneralPanel.jsx";
 import {CertificatePanel} from "./panels/CertificatePanel.jsx";
 import AIAssistantsPanel from "./panels/AIAssistantsPanel";
 import AICodingInstructionsPanel from "./panels/AICodingInstructionsPanel";
+import AIExtensionsPanel from './panels/AIExtensionsPanel';
 import SharedProcessScopesPanel from "./panels/SharedProcessScopesPanel.jsx";
 import SharedFilesystemScopesPanel from "./panels/SharedFilesystemScopesPanel.jsx";
 
@@ -111,6 +112,8 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                      panel={
                          <AIAssistantsPanel/>
                      }/>
+                <Tab id="ai-extensions" title={<div style={{width: '180px'}}><Icon icon="applications" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>AI Extensions</span></div>}
+                     panelClassName={styles['panel']} panel={<AIExtensionsPanel onOpenAssistants={() => {setActiveTab('ai'); localStorage.setItem('activeSettingsTab', 'ai');}}/>}/>
                 <Tab id={"ai-coding-instructions"}
                      title={
                          <div style={{verticalAlign: "center", width: "180px"}}

@@ -3,7 +3,7 @@ import {
     computeModelUsageStats,
     computeUsagePercent,
     formatUsagePercentDisplay,
-} from "../../src/utils/aiChatStats.js";
+} from "../../src/utils/ai/assistant/aiChatStats.js";
 
 describe("AI chat token usage stats", () => {
     test("computes exact percentage with one decimal of precision", () => {

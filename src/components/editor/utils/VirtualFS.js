@@ -1,3 +1,4 @@
+import {pluginBuildEntrypoint} from '../../../utils/plugins/runtime/pluginBuildArtifact';
 import React from 'react';
 import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
 import * as monaco from "monaco-editor";
@@ -8,7 +9,7 @@ import getLanguage from "./getLanguage";
 
 import LZString from "lz-string";
 import {createVirtualFile} from "./createVirtualFile";
-import {extractMetadata} from "../../../utils/extractMetadata";
+import {extractMetadata} from "../../../utils/plugins/runtime/extractMetadata";
 import { uniqueNamesGenerator, adjectives, colors } from 'unique-names-generator';
 import {
     getSdkEditorSupportBundleWithFallback,
@@ -427,9 +428,7 @@ const virtualFS = {
             this.history = []
         },
         getEntrypoint() {
-            const latestContent = this.parent.getLatestContent()
-            const srcJson = JSON.parse(latestContent["/package.json"])
-            return srcJson.module || srcJson.main || "dist/index.cjs"
+            return pluginBuildEntrypoint(this.parent.getLatestContent());
         },
         async getMetadata() {
             const latestContent = this.parent.getLatestContent()
@@ -1562,11 +1561,11 @@ const virtualFS = {
         }
         return true;
     },
-    deleteFile(fileName) {
+    deleteFile(fileName, {exact = false} = {}) {
         const tsDefaults = getMonacoTypeScriptDefaults();
         const fileIDs = []
         for (const key of Object.keys(this.files)) {
-            if (key.startsWith(fileName)) {
+            if (exact ? key === fileName : key.startsWith(fileName)) {
                 fileIDs.push(key)
                 tsDefaults?.addExtraLib("", key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`));

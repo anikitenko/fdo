@@ -1,4 +1,5 @@
 import AiUsagePopover, {MessageUsage} from "./AiUsagePopover";
+import FdoAiMark from '../ai/FdoAiMark';
 import * as styles from "../css/AiChatDialog.module.css";
 import {
     Button,
@@ -19,8 +20,8 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import AttachFromUrlDialog from "./components/AttachFromUrlDialog";
 import {shortenUrl} from "./utils/shortenUrl";
-import { getEmojiCompletionSuggestion, getQuickEmojiPalette, normalizeAsciiEmoticons, searchEmojiPalette } from "../../utils/emoticons.js";
-import { formatUsagePercentDisplay } from "../../utils/aiChatStats.js";
+import { getEmojiCompletionSuggestion, getQuickEmojiPalette, normalizeAsciiEmoticons, searchEmojiPalette } from "../../utils/presentation/emoticons.js";
+import { formatUsagePercentDisplay } from "../../utils/ai/assistant/aiChatStats.js";
 import {
     detectPreferredAiChatUiLanguage,
     getAiChatRoleLabel,
@@ -28,7 +29,7 @@ import {
     getAiChatText,
     getAiChatUiLanguageOptions,
     normalizeAiChatUiLanguage,
-} from "../../utils/aiChatI18n.js";
+} from "../../utils/ai/assistant/aiChatI18n.js";
 
 const costUsageTooltip = (t, message) => <MessageUsage t={t} {...message} />;
 
@@ -1580,9 +1581,15 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             isCloseButtonShown={true}
             onClose={() => setShowAiChatDialog(false)}
             onOpened={onDialogOpened}
-            title={<><Icon icon={"chat"} intent={"primary"} style={{paddingLeft: "3px"}} size={20}/><span
-                className={"bp6-heading"}
-                style={{fontSize: "1.2rem"}}>{t("chatTitle")}</span><AiUsagePopover surface="chat" sessionId={session?.id}/></>}
+            title={<span className={styles.dialogHeader}>
+                <span className={styles.dialogTitle}>
+                    <FdoAiMark size={24}/>
+                    <span>{t("chatTitle")}</span>
+                </span>
+                <span className={styles.dialogActions}>
+                    <AiUsagePopover surface="chat" sessionId={session?.id}/>
+                </span>
+            </span>}
             style={{
                 minWidth: 900,
                 paddingBottom: 0,
@@ -1711,7 +1718,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         )}
                                         {showActivityHeader && (
                                             <div className={styles.thinkingHeader}>
-                                                <Spinner size={14} intent="none" style={{color: 'rgba(255, 255, 255, 0.92)'}}/>
+                                                <FdoAiMark size={20} active phase={m.content ? 'responding' : 'waiting'}/>
                                                 <span>{headerLabel}</span>
                                             </div>
                                         )}

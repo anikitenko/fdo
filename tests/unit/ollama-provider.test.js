@@ -1,4 +1,4 @@
-const {normalizeOllamaBaseUrl, listOllamaModels, inspectOllamaModel, ollamaLlmOptions} = require('../../src/utils/ollamaProvider.cjs');
+const {normalizeOllamaBaseUrl, listOllamaModels, inspectOllamaModel, ollamaLlmOptions} = require('../../src/utils/ai/providers/ollamaProvider.cjs');
 const {readLiveAiConfig, preflightLiveAi} = require('../../scripts/lib/live-ai-config.cjs');
 const {createReliabilityPlan} = require('../../scripts/lib/live-ai-reliability.cjs');
 
@@ -47,7 +47,9 @@ test.each(['ftp://localhost', 'http://user:password@localhost', 'http://localhos
 
 test('keyless config ignores inherited hosted credentials and preserves local settings', () => {
     const config = readLiveAiConfig({FDO_TEST_AI_PROVIDER: 'ollama', FDO_TEST_AI_MODEL: 'local:8b', FDO_TEST_AI_API_KEY: 'secret', FDO_TEST_AI_BASE_URL: 'http://localhost:11434/', FDO_TEST_AI_CONTEXT_LENGTH: '16384'});
-    expect(config).toEqual({provider: 'ollama', model: 'local:8b', apiKey: '', limit: 20, defaultThinkingMode: 'auto', firstResponseTimeoutMs: 300000, baseUrl: 'http://localhost:11434', contextLength: 16384});
+    expect(config).toEqual({provider: 'ollama', model: 'local:8b', apiKey: '', limit: 50, maximumRequestLimit: 86,
+        requestProgressAllowance: 36, requestBudgetMode: 'adaptive', defaultThinkingMode: 'auto', firstResponseTimeoutMs: 300000, baseUrl: 'http://localhost:11434', contextLength: 16384,
+        timeoutPolicy: {mode: 'adaptive', initialMs: 600000, maximumMs: 7200000, perFileMs: 120000, maximumFiles: 36}});
     expect(ollamaLlmOptions(config)).toEqual({baseUrl: config.baseUrl, apiKey: '', options: {num_ctx: 16384}});
     const plan = createReliabilityPlan([{provider: 'ollama', model: config.model, contextLength: 16384}], {repeat: 1, env: {}});
     expect(plan[0]).toMatchObject({apiKeyEnv: null, contextLength: 16384});

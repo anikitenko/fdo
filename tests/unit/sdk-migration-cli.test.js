@@ -4,7 +4,7 @@ import nodePath from "node:path";
 import {
     runSdkMigration,
     SdkMigrationErrorCode,
-} from "../../src/utils/sdkMigrationCli";
+} from "../../src/utils/sdk/sdkMigrationCli";
 
 describe("sdk migration cli utility", () => {
     function createTempWorkspace() {

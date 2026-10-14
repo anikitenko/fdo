@@ -386,7 +386,7 @@ log.debug('Editor window cleanup complete');
 - **Data Model**: `specs/006-fix-editor-close/data-model.md`
 - **Implementation**: 
   - `src/ipc/system.js`
-  - `src/utils/editorWindow.js`
+  - `src/utils/desktop/editorWindow.js`
   - `src/components/editor/EditorPage.jsx`
 - **FDO Constitution**: `.specify/memory/constitution.md` (Section VI: Process Isolation & Safety)
 

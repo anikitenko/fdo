@@ -1,4 +1,4 @@
-import {compactWorkspaceDependency} from '../../src/utils/workspaceDependencyContext';
+import {compactWorkspaceDependency} from '../../src/utils/plugins/validation/workspaceDependencyContext';
 
 const padding = '/* Long module documentation. */\n'.repeat(70);
 

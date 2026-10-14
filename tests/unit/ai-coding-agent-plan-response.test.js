@@ -75,3 +75,19 @@ const value = 1;
         expect(shouldApplyAiResponseToWorkspace(response)).toBe(false);
     });
 });
+test('preserves inline fence text and the remainder of each workspace file', () => {
+    const source = 'export const clean = (text: string) => text.replace(/```$/, "");\nexport const after = true;';
+    const response = `### File: /actions.ts\n\`\`\`typescript\n${source}\n\`\`\`\n\n### File: /other.ts\n\`\`\`typescript\nexport const other = true;\n\`\`\``;
+    expect(parseAiWorkspacePlanResponse(response).files).toEqual([
+        {path: '/actions.ts', language: 'typescript', content: source},
+        {path: '/other.ts', language: 'typescript', content: 'export const other = true;'},
+    ]);
+});
+
+test('preserves inline backticks in the FILE-comment fallback', () => {
+    const source = 'export const marker = "```";\nexport const after = true;';
+    const response = `\`\`\`typescript\n// FILE: /actions.ts\n${source}\n\`\`\``;
+    expect(parseAiWorkspacePlanResponse(response).files).toEqual([
+        {path: '/actions.ts', language: '', content: source},
+    ]);
+});

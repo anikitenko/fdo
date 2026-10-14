@@ -10,7 +10,7 @@ const {
   validateRollbackCheckpoint,
   validateTestResults,
   validateAuditResults
-} = require('../../src/utils/packageUpdater/validators');
+} = require('../../src/utils/packages/update/validators');
 
 describe('Validators', () => {
   describe('validatePackageDependency', () => {

@@ -3,7 +3,12 @@ import {Button, Icon, Menu, MenuItem, Popover, Tooltip} from "@blueprintjs/core"
 import classNames from "classnames";
 import * as styles from "./css/SideBar.module.css"
 import PropTypes from "prop-types";
-import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
+import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
+import FdoAiMark from './ai/FdoAiMark';
+
+const sidebarIcon = item => item.id === 'system-ai-chat'
+    ? <FdoAiMark size={20} ambient/>
+    : <Icon icon={sanitizeBlueprintIcon(item.icon, "dot")} size={20}/>;
 
 export const SideBar = ({position, menuItems, click, activeItemId = "", topOffset = 50}) => {
     const [visibleItems, setVisibleItems] = useState(0);
@@ -16,9 +21,10 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
             if (sidebarRef.current) {
                 const sidebarHeight = sidebarRef.current.clientHeight;
                 const itemHeight = 50; // Approximate height per item
-                const maxItems = Math.floor(sidebarHeight / itemHeight);
-                setVisibleItems(maxItems);
-                setHiddenItems(menuItems.slice(maxItems));
+                const maxItems = Math.max(1, Math.floor(sidebarHeight / itemHeight));
+                const count = menuItems.length > maxItems ? maxItems - 1 : maxItems;
+                setVisibleItems(count);
+                setHiddenItems(menuItems.slice(count));
             }
         };
 
@@ -48,7 +54,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
         >
             {/* Sidebar Items */}
             <div className={styles["menu"]}>
-                {menuItems.slice(0, visibleItems - (hiddenItems.length > 0 ? 1 : 0)).map((item, index) => (
+                {menuItems.slice(0, visibleItems).map((item, index) => (
                     <div key={index + 1}>
                         {(item.submenu_list && item.submenu_list.length > 0) && (
                             <Popover
@@ -56,7 +62,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                     <Menu>
                                         {item.submenu_list.map((subItem, subIndex) => (
                                             <MenuItem key={subIndex + 1} text={subItem.name}
-                                                      onClick={() => click(item.id)}/>
+                                                      onClick={() => click(item.id, subItem.id)}/>
                                         ))}
                                     </Menu>
                                 }
@@ -64,14 +70,14 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                             >
                                 <Tooltip content={item.name}>
                                     <div className={styles["menu-item"]}>
-                                        <Button variant={"minimal"} size={"large"} aria-label={item.icon}>
-                                            <Icon icon={sanitizeBlueprintIcon(item.icon, "dot")} size={20}/>
+                                        <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.icon}>
+                                            {sidebarIcon(item)}
                                         </Button>
                                     </div>
                                 </Tooltip>
                             </Popover>
                         )}
-                        {!item.submenu_list && (
+                        {(!item.submenu_list || item.submenu_list.length === 0) && (
                             <Popover
                                 isOpen={openPopupItemId === item.id}
                                 onInteraction={(nextOpenState) => {
@@ -116,7 +122,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                         data-plugin-active={item.id === activeItemId ? "true" : "false"}
                                     >
                                         <div className={styles["notification-container"]}>
-                                            <Button variant={"minimal"} size={"large"} aria-label={item.icon}
+                                            <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.icon}
                                                     onClick={() => {
                                                         const hasPopupActions = Array.isArray(item.popupActions) && item.popupActions.length > 0;
                                                         const isActive = item.id === activeItemId;
@@ -132,7 +138,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                                     loading={item.loading}
                                                     intent={item.intent || (item.id === activeItemId ? "primary" : "none")}
                                                     aria-pressed={item.id === activeItemId}>
-                                                <Icon icon={sanitizeBlueprintIcon(item.icon, "dot")} size={20}/>
+                                                {sidebarIcon(item)}
                                             </Button>
                                             <span
                                                 className={styles["notification-dot"]}
@@ -150,8 +156,11 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                         content={
                             <Menu>
                                 {hiddenItems.map((item, index) => (
-                                    <MenuItem key={index + 1} icon={sanitizeBlueprintIcon(item.icon, "dot")} text={item.name}
-                                              onClick={() => click(item.id)} disabled={item.loading}/>
+                                    <MenuItem key={index + 1} icon={item.id === 'system-ai-chat' ? sidebarIcon(item) : sanitizeBlueprintIcon(item.icon, "dot")} text={item.name}
+                                              onClick={item.submenu_list?.length ? undefined : () => click(item.id)} disabled={item.loading}>
+                                        {item.submenu_list?.map(subItem => <MenuItem key={subItem.id} text={subItem.name}
+                                            onClick={() => click(item.id, subItem.id)}/>)}
+                                    </MenuItem>
                                 ))}
                             </Menu>
                         }
@@ -159,7 +168,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                     >
                         <Tooltip content={"More plugins"}>
                             <div className={styles["menu-item"]}>
-                                <Button variant={"minimal"} size={"large"} aria-label={"more"}>
+                                <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={"more"}>
                                     <Icon icon={"more"} size={20}/>
                                 </Button>
                             </div>

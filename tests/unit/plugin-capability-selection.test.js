@@ -3,7 +3,7 @@ import {
     buildScopeCapabilities,
     getSelectedScopeCapabilities,
     hasCapabilitySelectionChanges
-} from "../../src/utils/pluginCapabilitySelection";
+} from "../../src/utils/plugins/security/pluginCapabilitySelection";
 
 describe("pluginCapabilitySelection", () => {
     test("buildScopeCapabilities maps host scope policy to UI shape", () => {
