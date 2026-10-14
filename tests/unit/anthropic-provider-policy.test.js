@@ -1,8 +1,8 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
-import {anthropicParameters} from '../../src/utils/aiProviders/anthropicPolicy';
-import {listAnthropicModels} from '../../src/utils/aiProviders/catalog';
-import {tokenUsage} from '../../src/utils/aiProviders/messages';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
+import {anthropicParameters} from '../../src/utils/ai/providers/anthropicPolicy';
+import {listAnthropicModels} from '../../src/utils/ai/providers/catalog';
+import {tokenUsage} from '../../src/utils/ai/providers/messages';
 import {anthropicEvents, consume, responseFor} from '../helpers/aiProviderWire';
 
 const adaptive = {max_tokens: 4096, capabilities: {thinking: {supported: true, types: {adaptive: {supported: true}}}, effort: {high: {supported: true}}}};

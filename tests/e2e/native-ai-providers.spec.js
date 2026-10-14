@@ -2,7 +2,7 @@ const {test, expect, _electron: electron} = require('@playwright/test');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 const {readLiveAiConfig} = require('../../scripts/lib/live-ai-config.cjs');
 
-for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini']) {
+for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini', 'opencode', 'openrouter']) {
     test(`${provider} native client completes coding through the built app and real IPC`, async ({}, testInfo) => {
         const model = provider === 'cloudflare' ? '@cf/qwen/qwen3.8-27b' : 'test-model';
         const defaultThinkingMode = provider === 'cloudflare' ? readLiveAiConfig({FDO_TEST_AI_PROVIDER: provider,
@@ -23,12 +23,20 @@ for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini']
                     const json = data => Response.json(data);
                     const sse = events => new Response(events.map(event => `${(event.event_type || event.type) ? `event: ${event.event_type || event.type}\n` : ""}data: ${JSON.stringify(event)}\n\n`).join(''), {headers: {'content-type': 'text/event-stream'}});
                     if (address === 'https://api.openai.com/v1/models/test-model' || address === 'https://api.anthropic.com/v1/models/test-model') return json({id: 'test-model'});
+                    if (address === 'https://opencode.ai/zen/v1/models') return json({data: [{id: 'test-model'}, {id: 'mimo-v2.6-flash-free'}]});
+                    if (address === 'https://openrouter.ai/api/v1/auth/key') return json({data: {label: 'test-only-token', usage: 0, limit: null, is_free_tier: true}});
+                    if (address === 'https://openrouter.ai/api/v1/models') return json({data: [
+                        {id: 'test-model', pricing: {prompt: '0', completion: '0'}, architecture: {input_modalities: ['text', 'image'], output_modalities: ['text']}},
+                        {id: 'deepseek/deepseek-chat-v3:free', pricing: {prompt: '0', completion: '0'}, architecture: {input_modalities: ['text'], output_modalities: ['text']}},
+                        {id: 'some/paid-model', pricing: {prompt: '0.001', completion: '0.002'}},
+                        {id: 'free/audio-model', pricing: {prompt: '0', completion: '0'}, architecture: {output_modalities: ['audio']}}]});
                     if (address.startsWith(`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/models/search?`)) return json({success: true, result: [{name: model, task: {name: 'Text Generation'}}]});
                     if (address === 'https://generativelanguage.googleapis.com/v1beta/models/test-model') return json({name: 'models/test-model', supportedGenerationMethods: ['generateContent']});
                     if (address === 'http://127.0.0.1:11434/api/show') return json({capabilities: ['completion', 'vision']});
                     if (address === 'http://127.0.0.1:11434/api/tags') return json({models: [{name: 'test-model'}]});
                     const endpoints = {gemini: 'https://generativelanguage.googleapis.com/v1beta/interactions', openai: 'https://api.openai.com/v1/responses', anthropic: 'https://api.anthropic.com/v1/messages',
-                        cloudflare: `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run/${model}`, ollama: 'http://127.0.0.1:11434/api/chat'};
+                        cloudflare: `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run/${model}`, ollama: 'http://127.0.0.1:11434/api/chat',
+                        opencode: 'https://opencode.ai/zen/v1/chat/completions', openrouter: 'https://openrouter.ai/api/v1/chat/completions'};
                     if (address !== endpoints[provider]) throw new Error('Unexpected HTTP request in native provider regression');
                     const body = JSON.parse(init.body);
                     if (body.model && body.model !== model) throw new Error('Incorrect inference parameters');
@@ -51,6 +59,18 @@ for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini']
                     if (provider === 'cloudflare') {
                         if (body.chat_template_kwargs?.enable_thinking !== false) throw new Error('Saved thinking preference was not forwarded');
                         return sse([{result: {response: content}}, {result: {finish_reason: 'stop', usage: {prompt_tokens: 1000, completion_tokens: 100}}}]);
+                    }
+                    if (provider === 'opencode' || provider === 'openrouter') {
+                        // OpenAI-compatible Chat Completions: content delta,
+                        // finish reason, then the usage chunk requested via
+                        // stream_options.
+                        if (!body.stream_options?.include_usage) throw new Error(`Expected stream usage reporting for ${provider}`);
+                        return new Response(
+                            [{choices: [{index: 0, delta: {role: 'assistant', content}}]},
+                                {choices: [{index: 0, delta: {}, finish_reason: 'stop'}]},
+                                {choices: [], usage: {prompt_tokens: 1000, completion_tokens: 100, total_tokens: 1100}}]
+                                .map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n',
+                            {headers: {'content-type': 'text/event-stream'}});
                     }
                     return new Response(JSON.stringify({message: {role: 'assistant', content}, done: true, done_reason: 'stop', prompt_eval_count: 1000, eval_count: 100}) + '\n', {headers: {'content-type': 'application/x-ndjson'}});
                 };
@@ -91,7 +111,7 @@ for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini']
             expect(result.response).toMatchObject({success: true, content: 'export const answer = 42;'});
             expect(result.deltas.join('')).toBe('export const answer = 42;');
             expect(result.done).toEqual([expect.objectContaining({requestId: 'native-test'})]);
-            expect(await app.evaluate(() => globalThis.__nativeProviderRequests.filter(url => /\/(responses|messages|chat|interactions)$|\/ai\/run\//.test(url)).length)).toBe(1);
+            expect(await app.evaluate(() => globalThis.__nativeProviderRequests.filter(url => /\/(responses|messages|chat|interactions)$|\/chat\/completions$|\/ai\/run\//.test(url)).length)).toBe(1);
             if (['openai', 'anthropic', 'gemini'].includes(provider)) {
                 const chat = await page.evaluate(async provider => {
                     await window.electron.settings.ai.addAssistant({name: 'Chat billing regression', provider, purpose: 'chat', model: 'test-model', apiKey: 'test-only-token'});

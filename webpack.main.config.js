@@ -34,7 +34,9 @@ module.exports = {
         ],
     },
     externals: {
+        typescript: "commonjs typescript",
         esbuild: "commonjs esbuild",
+        "@cursor/sdk": "commonjs @cursor/sdk",
         "@anikitenko/fdo-sdk": "commonjs @anikitenko/fdo-sdk",
     },
     optimization: {
@@ -52,6 +54,14 @@ module.exports = {
         new webpack.IgnorePlugin({resourceRegExp: /^(bufferutil|utf-8-validate)$/, contextRegExp: /node_modules[/\\]ws[/\\]/}),
         new CopyWebpackPlugin({
             patterns: [
+                // Keep the SDK's lazy local-runtime chunks intact, together with
+                // its platform helpers and direct runtime dependencies.
+                ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client'].map(name => ({
+                    from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
+                })),
+                ...['typescript', '@types/node', 'undici-types'].map(name => ({
+                    from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
+                })),
                 {
                     from: path.resolve(__dirname, "node_modules/esbuild"),
                     to: "node_modules/esbuild",

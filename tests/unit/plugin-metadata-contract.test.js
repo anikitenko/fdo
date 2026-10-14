@@ -1,4 +1,4 @@
-import {normalizeAndValidatePluginMetadata} from "../../src/utils/pluginMetadataContract";
+import {normalizeAndValidatePluginMetadata} from "../../src/utils/plugins/runtime/pluginMetadataContract";
 
 describe("plugin metadata contract alignment", () => {
     test("normalizes lowercase icon values and validates them with the SDK contract", () => {

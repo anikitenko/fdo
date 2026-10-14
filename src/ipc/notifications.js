@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import {NotificationCenter} from "../utils/NotificationCenter";
+import {NotificationCenter} from "../utils/desktop/NotificationCenter";
 import {NotificationChannels} from "./channels";
 
 export function registerNotificationHandlers() {

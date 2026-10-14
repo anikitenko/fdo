@@ -5,7 +5,7 @@ import { app } from "electron";
 import { STATIC_MODEL_CAPABILITIES } from "./static_map.js";
 import { fetchOpenAICapabilities } from "./fetchers/openai_fetcher.js";
 import { fetchAnthropicCapabilities } from "./fetchers/anthropic_fetcher.js";
-import {inspectGeminiModel} from "../../../utils/geminiProvider.cjs";
+import {inspectGeminiModel} from "../../../utils/ai/providers/geminiProvider.cjs";
 
 const CACHE_FILE = path.join(app.getPath("userData"), "ai_model_cache.json");
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h

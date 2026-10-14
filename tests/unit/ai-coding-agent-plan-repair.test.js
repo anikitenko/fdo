@@ -1,4 +1,51 @@
-import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt} from "../../src/components/editor/utils/aiCodingAgentPlanRepair.js";
+import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt, getProblemsRepairPaths, getValidationRepairPaths, mergeValidationRepairResponse} from "../../src/components/editor/utils/aiCodingAgentPlanRepair.js";
+import {parseAiWorkspacePlanResponse} from '../../src/components/editor/utils/aiCodingAgentPlanResponse';
+import {validateGeneratedPluginFiles} from '../../src/components/editor/utils/validateGeneratedPluginFiles';
+
+test('repairs a workspace foundation failure while retaining every other generated file', () => {
+    const files = [{path: '/ui/cards.tsx', content: 'export const cards = `<input><button>Run</button>`;'},
+        ...Array.from({length: 20}, (_, i) => ({path: `/feature${i}.ts`, content: `export const value = ${i};`}))];
+    const errors = validateGeneratedPluginFiles(files).errors;
+    const paths = getValidationRepairPaths(errors, files);
+    expect(paths).toEqual(['/ui/cards.tsx']);
+    const prompt = buildValidationRepairPlanPrompt({validationErrors: errors, repairPaths: paths, invalidResponse: 'OLD FULL RESPONSE'});
+    expect(prompt).toContain('Do not replan the workspace');
+    expect(prompt).not.toContain('OLD FULL RESPONSE');
+    const repaired = '### File: /ui/cards.tsx\n```typescript\nexport const cards = `<form class="pure-form pure-form-stacked"><input><button class="pure-button pure-button-primary">Run</button></form>`;\n```';
+    const merged = parseAiWorkspacePlanResponse(mergeValidationRepairResponse(files, repaired, paths)).files;
+    expect(merged).toHaveLength(21);
+    expect(merged.slice(1).map(({path, content}) => ({path, content}))).toEqual(files.slice(1));
+    expect(validateGeneratedPluginFiles(merged).errors).toEqual([]);
+});
+
+test('does not infer repair scope from paths mentioned in diagnostic prose', () => {
+    expect(getValidationRepairPaths(['Unknown failure mentions /ui/cards.tsx'], [{path: '/ui/cards.tsx'}])).toEqual([]);
+});
+
+test('runtime test repairs order authorized implementations before their tests without expanding scope', () => {
+    const files = ['/render.test.ts', '/test/styles.spec.mjs', '/__tests__/tools.ts', '/render.tsx', '/image.ts', '/unrelated.ts']
+        .map(path => ({path}));
+    const errors = [
+        '/render.test.ts: Generated tests failed (1). See /unrelated.ts for context.',
+        '/test/styles.spec.mjs: Generated tests failed (1).',
+        '/__tests__/tools.ts: Generated tests failed (2).',
+        '/render.tsx: Implementation referenced by a failing test or its stack',
+        '/image.ts: Implementation referenced by a failing test or its stack',
+        '/render.tsx: Another diagnostic',
+    ];
+    expect(getValidationRepairPaths(errors, files)).toEqual([
+        '/render.tsx', '/image.ts', '/render.test.ts', '/test/styles.spec.mjs', '/__tests__/tools.ts',
+    ]);
+    expect(getValidationRepairPaths([...errors, '/missing.ts: Unknown owner'], files)).toEqual([]);
+    expect(getValidationRepairPaths(['/render.test.ts: Missing import', '/render.tsx: Missing export'], files))
+        .toEqual(['/render.test.ts', '/render.tsx']);
+});
+
+test.each(['', '### File: /unrelated.ts\n```typescript\nexport {};\n```'])(
+    'rejects missing or out-of-scope validation repair files', response => {
+        expect(() => mergeValidationRepairResponse([{path: '/ui/cards.tsx', content: 'original'}], response, ['/ui/cards.tsx']))
+            .toThrow('exactly the requested files');
+    });
 
 describe("ai coding agent plan repair prompt", () => {
     test("forces executable workspace file sections after a prose-only plan", () => {
@@ -20,7 +67,9 @@ test('Problems repair uses the current snapshot and puts repair before the origi
         {path: '/render.tsx', content: 'export const render = () => "current";'}];
     const prompt = buildProblemsRepairPlanPrompt({originalPrompt: 'Create all features', previousResponse: 'stale code',
         problemsContext: '/render.tsx:1:1 [8] Missing export', workspaceFiles});
-    expect(prompt).toContain(JSON.stringify(workspaceFiles));
+    expect(prompt).toContain('Host-selected repair files: ["/render.tsx"]');
+    expect(prompt).not.toContain('export const hello');
+    expect(prompt).not.toContain('export const render');
     expect(prompt).not.toContain('stale code');
     expect(prompt.indexOf('IMPORTANT REPAIR')).toBeLessThan(prompt.indexOf('Create all features'));
     expect(prompt).toContain('NOT a request to rebuild');
@@ -70,4 +119,12 @@ test('Problems repairs retain later modules and use focused workspace execution 
     expect(prompt).toContain('Return only files that must change');
     expect(prompt).toContain('supersedes older context');
     expect(prompt).toContain('/render.tsx: missing export');
+});
+
+
+test('Problems repair targets only existing diagnostic owners, deduplicated in diagnostic order', () => {
+    const workspace = [{path: '/index.ts'}, {path: '/render.tsx'}, {path: '/styles.css'}];
+    const diagnostics = "Current editor problems:\n/index.ts:10:20 [8] Duplicate metadata\n/index.ts:19:7 [8] Duplicate metadata\n/index.ts:45:10 [8] Property renderOnLoadActions does not exist; see /styles.css\n/missing.ts:1:1 [8] Missing\n/../index.ts:1:1 [8] Unsafe\n/render.tsx:2:1 [8] Invalid render";
+    expect(getProblemsRepairPaths(diagnostics, workspace)).toEqual(['/index.ts', '/render.tsx']);
+    expect(getProblemsRepairPaths('Unknown diagnostic', workspace)).toEqual([]);
 });

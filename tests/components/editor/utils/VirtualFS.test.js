@@ -36,6 +36,14 @@ describe('VirtualFS snapshots', () => {
     return model;
   };
 
+  test('exact rollback deletion preserves files sharing the generated path prefix', () => {
+    createModel('/new.ts', 'partial');
+    createModel('/new.tsx', 'retained');
+    virtualFS.deleteFile('/new.ts', {exact: true});
+    expect(virtualFS.files['/new.ts']).toBeUndefined();
+    expect(virtualFS.files['/new.tsx']).toBeDefined();
+  });
+
   test('creates snapshot with metadata and persists to localStorage', () => {
     createModel('/index.ts', 'console.log(1)');
     createModel('/src/a.ts', 'export const a = 1');

@@ -1,4 +1,4 @@
-const {liveAiBudgetPolicy, liveAiRequestCeiling} = require('../../src/utils/liveAiTestPolicy.cjs');
+const {liveAiBudgetPolicy, liveAiRequestCeiling} = require('../../src/utils/ai/testing/liveAiTestPolicy.cjs');
 
 function parseLiveAiCli(argv, env = process.env) {
     const args = [];

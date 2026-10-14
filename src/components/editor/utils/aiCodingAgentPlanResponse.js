@@ -3,7 +3,7 @@ import {sanitizeVirtualWorkspacePath} from "./aiCodingAgentWorkspacePath.js";
 export function parseAiWorkspacePlanResponse(response = "") {
     const files = [];
     const invalidPaths = [];
-    const filePattern = /###\s+File:\s+(\/[^\s\n]+)\s*\n\s*```(\w+)?\s*\n([^]{0,50000}?)```/g;
+    const filePattern = /^###[ \t]+File:[ \t]+(\/[^\s\n]+)[ \t]*\r?\n[ \t]*```(\w+)?[ \t]*\r?\n([^]{0,50000}?)^[ \t]*```[ \t]*\r?$/gm;
 
     let match;
     while ((match = filePattern.exec(response)) !== null) {
@@ -23,7 +23,7 @@ export function parseAiWorkspacePlanResponse(response = "") {
     // Some assistants return multiple files inside one code fence (or as raw
     // code), using line comments instead of Markdown headings.
     if (files.length === 0 && invalidPaths.length === 0) {
-        const fenced = [...response.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map(item => item[1]);
+        const fenced = [...response.matchAll(/^[ \t]*```\w*[ \t]*\r?\n([\s\S]*?)^[ \t]*```[ \t]*\r?$/gm)].map(item => item[1]);
         const blocks = fenced.length ? fenced : [response];
         for (const originalBlock of blocks) {
             const block = originalBlock.replace(/^\s*\/\/\s*SOLUTION(?:\s+READY\s+TO\s+APPLY)?[^\S\r\n]*\r?\n/i, "");

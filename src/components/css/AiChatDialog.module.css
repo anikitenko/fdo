@@ -1,3 +1,27 @@
+.dialogHeader {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+.dialogTitle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 1.2rem;
+    line-height: 1.25;
+}
+
+.dialogActions {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
+    font-weight: normal;
+}
+
 .emojiPopover {
     display: flex;
     flex-direction: column;

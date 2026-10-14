@@ -1,4 +1,5 @@
 const {parse} = require("@babel/parser");
+const {mappedMarkupRoles} = require('./mappedMarkupRoles.cjs');
 
 function sourceText(files) {
   return Object.entries(files).filter(([path]) => /\.[cm]?[jt]sx?$/.test(path)).map(([, content]) => String(content || "")).join("\n");
@@ -200,6 +201,7 @@ function evaluateRoseCalculatorScenario(files) {
 }
 
 function evaluateWebToolsWorkbenchScenario(files) {
+  const mappedRoles = mappedMarkupRoles(files);
   // Test assertions are not evidence that a control exists in the implementation.
   const source = sourceText(Object.fromEntries(Object.entries(files).filter(([path]) =>
     !/(?:^|\/)__tests__\/|\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path),
@@ -235,7 +237,7 @@ function evaluateWebToolsWorkbenchScenario(files) {
     Array.from(source.matchAll(/\bcategoryCard\s*\(\s*["']([a-z]+)["']/g), (match) => match[1]),
   );
   const hasDynamicCategoryCardMarkup = /["']data-role["']\s*:\s*`tool-card-\$\{\s*\w+\s*\}`/.test(source);
-  const hasRole = (role) => new RegExp(
+  const hasRole = (role) => mappedRoles.has(role) || new RegExp(
     `data-role\\s*["']?\\s*[:=]\\s*["']${role}["']|data-role=["']${role}["']`
       + `|\\b(?:tile|button|actionButton|createActionButton)\\s*\\([\\s\\S]{0,180}["']${role}["']`,
   ).test(source)
@@ -282,6 +284,13 @@ function evaluateWebToolsWorkbenchScenario(files) {
     || /(?:\.dashboard|\.categories|\.tools|\.pure-g)\b[\s\S]{0,900}(?:gap\s*:|display\s*:\s*(?:grid|flex))/.test(stylesheetSource);
   const hasResponsiveDashboardLayout = /@media[\s\S]{0,900}grid-template-columns\s*:\s*1fr/.test(stylesheetSource)
     || /@media[\s\S]{0,1200}\.card\s*\{[\s\S]{0,500}width\s*:\s*100%/.test(stylesheetSource);
+  const visualRequirements = [
+    {role: 'shell', passed: /(?:\.shell|\.workbench)\s*\{[\s\S]{0,1200}background\s*:/.test(stylesheetSource), requirement: '.shell or .workbench needs background:'},
+    {role: 'shell', passed: /(?:\.shell|\.workbench)\s*\{[\s\S]{0,1200}(?:min-height|height)\s*:/.test(stylesheetSource), requirement: '.shell or .workbench needs min-height: or height:'},
+    {role: 'dashboard', passed: hasDesktopDashboardLayout, requirement: 'The dashboard needs a desktop grid/flex layout under the class names consumed by the renderer (including css.dashboard when used).'},
+    {role: 'dock', passed: /\.dock\s*\{[\s\S]{0,800}(?:position\s*:\s*(?:sticky|fixed)|border)/.test(stylesheetSource), requirement: '.dock needs sticky/fixed positioning or a border.'},
+    {role: 'dashboard', passed: hasResponsiveDashboardLayout, requirement: 'A mobile @media rule must switch the dashboard to one column (or cards to width: 100%).'},
+  ];
   const checks = {
     // Current SDK examples use FDOPlugin; older supported examples use
     // FDO_SDK. Some valid SDK workspaces expose the same lifecycle directly
@@ -313,10 +322,7 @@ function evaluateWebToolsWorkbenchScenario(files) {
     styleMapRendered: !/\bDOM\.createClassFromStyle\s*\(/.test(source)
       && styleMapKeysRendered
       && /renderHTML\s*\(/.test(source),
-    polishedWorkbench: /(?:\.shell|\.workbench)\s*\{[\s\S]{0,1200}background\s*:/.test(stylesheetSource)
-      && /(?:\.shell|\.workbench)\s*\{[\s\S]{0,1200}(?:min-height|height)\s*:/.test(stylesheetSource)
-      && hasDesktopDashboardLayout
-      && /\.dock\s*\{[\s\S]{0,800}(?:position\s*:\s*(?:sticky|fixed)|border)/.test(stylesheetSource),
+    polishedWorkbench: visualRequirements.slice(0, 4).every(item => item.passed),
     responsiveLayout: hasResponsiveDashboardLayout,
     nestedStyles: hasNestedCssRule(stylesheetSource),
     keyframes: /@keyframes\s+[\w-]+/.test(stylesheetSource),
@@ -325,7 +331,9 @@ function evaluateWebToolsWorkbenchScenario(files) {
       && (tests.match(/\btest\s*\(/g) || []).length >= 2,
     noJestGlobals: !/\bexpect\s*\(/.test(tests),
   };
-  return {checks, violations, missingRoles, missingActionRoles, passed: Object.values(checks).every(Boolean) && violations.length === 0};
+  return {checks, violations, missingRoles, missingActionRoles,
+    visualFailures: visualRequirements.filter(item => !item.passed).map(({role, requirement}) => ({role, requirement})),
+    passed: Object.values(checks).every(Boolean) && violations.length === 0};
 }
 
 module.exports = {evaluateJsonInspectorScenario, evaluateRoseCalculatorScenario, evaluateWebToolsWorkbenchScenario};

@@ -1,0 +1,20 @@
+.estimate {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.estimate p {
+    margin: 0;
+}
+
+.estimate summary {
+    cursor: pointer;
+}
+
+.estimate details p {
+    margin-top: 4px;
+}

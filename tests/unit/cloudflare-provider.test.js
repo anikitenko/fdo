@@ -1,5 +1,5 @@
-import {buildAiProviderInstructionBlock, getAiProviderInstructions, normalizeAiProviderInstructionMap} from '../../src/utils/aiProviderInstructions';
-const {cloudflareConnection, listCloudflareModels, inspectCloudflareModel} = require('../../src/utils/cloudflareProvider.cjs');
+import {buildAiProviderInstructionBlock, getAiProviderInstructions, normalizeAiProviderInstructionMap} from '../../src/utils/ai/assistant/aiProviderInstructions';
+const {cloudflareConnection, listCloudflareModels, inspectCloudflareModel} = require('../../src/utils/ai/providers/cloudflareProvider.cjs');
 const {readLiveAiConfig, preflightLiveAi, findLiveCodingAssistant} = require('../../scripts/lib/live-ai-config.cjs');
 const {createReliabilityPlan} = require('../../scripts/lib/live-ai-reliability.cjs');
 const config = {provider: 'cloudflare', accountId: 'a'.repeat(32), apiKey: 'test-secret', model: '@cf/test/vision'};
@@ -10,6 +10,12 @@ test('uses a fixed account endpoint and rejects missing credentials or injected 
     expect(cloudflareConnection(config)).toEqual({baseUrl: `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai`, apiKey: config.apiKey});
     expect(() => cloudflareConnection({...config, accountId: '../evil'})).toThrow('account ID');
     expect(() => cloudflareConnection({...config, apiKey: ''})).toThrow('API token');
+});
+
+test('discovers selected-model image support at setup without generating tokens', async () => {
+    const fetchImpl = jest.fn().mockResolvedValueOnce(json(catalog)).mockResolvedValueOnce(json({input: {properties: {prompt: {type: 'string'}}}}));
+    expect(await inspectCloudflareModel(config, {includeInputCapabilities: true, fetchImpl})).toEqual({inputModalities: ['text']});
+    expect(fetchImpl.mock.calls[1][0]).toContain('models/schema');
 });
 
 test('discovers paginated text models, deduplicates and excludes other tasks', async () => {

@@ -109,7 +109,7 @@ tests/
     └── editor-close-flow.test.js          # [NEW] End-to-end close reliability tests
 ```
 
-**Structure Decision**: This is a desktop application (Electron) following the single-project structure. Core modifications target the main process window management (`src/ipc/system.js`, `src/utils/editorWindow.js`) and renderer process UI (`src/components/editor/EditorPage.jsx`). The existing structure is well-suited for this fix with clear separation between main and renderer processes.
+**Structure Decision**: This is a desktop application (Electron) following the single-project structure. Core modifications target the main process window management (`src/ipc/system.js`, `src/utils/desktop/editorWindow.js`) and renderer process UI (`src/components/editor/EditorPage.jsx`). The existing structure is well-suited for this fix with clear separation between main and renderer processes.
 
 ## Complexity Tracking
 

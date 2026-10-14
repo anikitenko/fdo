@@ -2,7 +2,7 @@ import {Button, Card, Divider, Elevation, Icon, Popover, Tag} from "@blueprintjs
 import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
 import {lazy, Suspense, useEffect, useState} from "react";
-import {sanitizeBlueprintIcon} from "../utils/blueprintIcons";
+import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 
 // Lazy load dialogs (only needed when opened)
 const CreatePluginDialog = lazy(() => import("./CreatePluginDialog.jsx").then(m => ({default: m.CreatePluginDialog})));

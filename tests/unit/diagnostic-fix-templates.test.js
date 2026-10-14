@@ -8,7 +8,7 @@ describe("diagnostic fix templates", () => {
             __setOptionalSdkModuleForTests,
             getDiagnosticFixTemplateForCode,
             formatDiagnosticExactFixForCode,
-        } = require("../../src/utils/diagnosticFixTemplates");
+        } = require("../../src/utils/plugins/validation/diagnosticFixTemplates");
 
         __setOptionalSdkModuleForTests({
             getDiagnosticFixTemplate: jest.fn(() => ({
@@ -43,7 +43,7 @@ describe("diagnostic fix templates", () => {
             __setOptionalSdkModuleForTests,
             __resetReportedUnknownFixTemplatesForTests,
             getDiagnosticFixTemplateForCode,
-        } = require("../../src/utils/diagnosticFixTemplates");
+        } = require("../../src/utils/plugins/validation/diagnosticFixTemplates");
 
         __setOptionalSdkModuleForTests({
             getDiagnosticFixTemplate: jest.fn(() => null),
@@ -69,7 +69,7 @@ describe("diagnostic fix templates", () => {
             __setOptionalSdkModuleForTests,
             getDiagnosticFixTemplateForCode,
             formatDiagnosticExactFixForCode,
-        } = require("../../src/utils/diagnosticFixTemplates");
+        } = require("../../src/utils/plugins/validation/diagnosticFixTemplates");
 
         __setOptionalSdkModuleForTests({});
         const template = getDiagnosticFixTemplateForCode("PROCESS_EXIT_NON_ZERO");

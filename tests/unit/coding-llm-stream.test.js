@@ -1,8 +1,8 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
-import {sendCodingLlmRequest} from '../../src/utils/codingLlmRequest';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
+import {sendCodingLlmRequest} from '../../src/utils/ai/generation/codingLlmRequest';
 import {openaiEvents, anthropicEvents, responseFor, consume, text} from '../helpers/aiProviderWire';
-import {withCodingTransientRecovery} from '../../src/utils/aiCodingTransientRecovery';
+import {withCodingTransientRecovery} from '../../src/utils/ai/assistant/aiCodingTransientRecovery';
 
 const providers = [['openai', openaiEvents], ['anthropic', anthropicEvents]];
 test.each(providers)('%s SDK preserves fragmented UTF8 and SSE framing', async (service, events) => {

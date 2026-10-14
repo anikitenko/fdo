@@ -1,7 +1,7 @@
-import {withUsageContext, currentTurnUsage} from "../../utils/aiBilling/ledger";
+import {withUsageContext, currentTurnUsage} from "../../utils/ai/billing/ledger";
 import {ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
-import {settings} from "../../utils/store";
+import {settings} from "../../utils/persistence/store";
 import {
     compressSessionMessages,
     createLlmInstance,

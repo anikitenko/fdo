@@ -264,7 +264,7 @@ main_window.bedd07a3.js      2.7 KB    (application entry)
 
 ### ⚠️ Known Issue: Startup Metrics in Packaged App
 
-**Issue**: The startup metrics logging system (`src/utils/startupMetrics.js`) does not write logs in the packaged application.
+**Issue**: The startup metrics logging system (`src/utils/system/startupMetrics.js`) does not write logs in the packaged application.
 
 **Symptoms**:
 - Log file not created at `~/Library/Application Support/FDO (FlexDevOPs)/logs/startup.log`

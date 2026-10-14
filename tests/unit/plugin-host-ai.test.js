@@ -1,4 +1,4 @@
-jest.mock("../../src/utils/store", () => ({
+jest.mock("../../src/utils/persistence/store", () => ({
     settings: {
         get: jest.fn(),
     },
@@ -6,18 +6,18 @@ jest.mock("../../src/utils/store", () => ({
 
 const mockChat = jest.fn(async () => ({content: "ok"}));
 
-jest.mock("../../src/utils/aiProviderClient", () => {
+jest.mock("../../src/utils/ai/providers/aiProviderClient", () => {
     return jest.fn().mockImplementation(() => ({
         chat: mockChat,
     }));
 });
 
-import {settings} from "../../src/utils/store";
+import {settings} from "../../src/utils/persistence/store";
 import {
     handleHostAiAssistantsListRequest,
     handleHostAiRequest,
     listHostAiAssistants,
-} from "../../src/utils/pluginHostAi";
+} from "../../src/utils/plugins/runtime/pluginHostAi";
 
 describe("plugin host ai", () => {
     beforeEach(() => {

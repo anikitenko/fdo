@@ -2,7 +2,7 @@ module.exports = {
   transform: {
     "^.+\\.(?:[jt]sx?|mjs)$": "babel-jest",
   },
-  transformIgnorePatterns: ["/node_modules/(?!(?:electron|playwright|ollama|html-tags)(?:/|$))"],
+  transformIgnorePatterns: ["/node_modules/(?!(?:electron|playwright|pkce-challenge|ollama|html-tags|monaco-editor)(?:/|$))"],
   testEnvironment: "jsdom",
   moduleNameMapper: {
     "^.+\\.module\\.css$": "identity-obj-proxy",

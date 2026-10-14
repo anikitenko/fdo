@@ -8,8 +8,7 @@ const {
   resolveSdkExamplesPath,
 } = require("../e2e/helpers/sdkExamples");
 const {
-  FIXTURE_RUNTIME_MATRIX_INCLUDE,
-  FIXTURE_RUNTIME_MATRIX_SMOKE_HANDLERS,
+  loadFixtureRuntimeMatrixContract,
 } = require("../e2e/helpers/fixtureRuntimeMatrixConfig");
 
 describe("sdkExamples helper", () => {
@@ -55,18 +54,61 @@ describe("sdkExamples helper", () => {
   });
 
   test("fixture runtime matrix config keeps an explicit fixture include list", () => {
-    expect(Array.isArray(FIXTURE_RUNTIME_MATRIX_INCLUDE)).toBe(true);
-    expect(FIXTURE_RUNTIME_MATRIX_INCLUDE.length).toBeGreaterThan(0);
-    expect(new Set(FIXTURE_RUNTIME_MATRIX_INCLUDE).size).toBe(FIXTURE_RUNTIME_MATRIX_INCLUDE.length);
-    expect(FIXTURE_RUNTIME_MATRIX_INCLUDE.every((item) => item.startsWith("fixtures/"))).toBe(true);
+    const matrix = loadFixtureRuntimeMatrixContract();
+    const fixturePaths = matrix.cases.map((entry) => entry.fixturePath);
+
+    expect(fixturePaths.length).toBeGreaterThan(0);
+    expect(new Set(fixturePaths).size).toBe(fixturePaths.length);
+    expect(fixturePaths.every((item) => item.startsWith("fixtures/"))).toBe(true);
+    expect(new Set(matrix.caseIds).size).toBe(matrix.caseIds.length);
+    expect(new Set(matrix.caseIds)).toEqual(new Set(matrix.cases.map((entry) => entry.id)));
   });
 
   test("fixture runtime smoke handlers only target explicitly included fixtures", () => {
-    const includeSet = new Set(FIXTURE_RUNTIME_MATRIX_INCLUDE);
-    for (const [relativePath, config] of Object.entries(FIXTURE_RUNTIME_MATRIX_SMOKE_HANDLERS)) {
-      expect(includeSet.has(relativePath)).toBe(true);
-      expect(typeof config.handler).toBe("string");
-      expect(config.handler.length).toBeGreaterThan(0);
+    const matrix = loadFixtureRuntimeMatrixContract();
+    const includeSet = new Set(matrix.cases.map((entry) => entry.fixturePath));
+    const handlers = [];
+
+    for (const entry of matrix.cases) {
+      // Every smoke probe belongs to a case that resolved from the explicit
+      // include list, and therefore to a fixture-scoped path.
+      expect(matrix.caseIds).toContain(entry.id);
+      expect(includeSet.has(entry.fixturePath)).toBe(true);
+      for (const probe of entry.probes.uiMessage) {
+        expect(typeof probe.handler).toBe("string");
+        expect(probe.handler.length).toBeGreaterThan(0);
+        handlers.push(probe.handler);
+      }
     }
+
+    expect(handlers.length).toBeGreaterThan(0);
   });
+});
+
+test('selectPluginOpen waits through Home API and inventory hydration', async () => {
+  const {selectPluginOpen} = require('../e2e/helpers/sdkExamples');
+  const previous = window.__homeTestApi;
+  const select = jest.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+  const page = {waitForFunction: jest.fn(async (predicate, id, options) => {
+    predicate = new Function('window', 'return (' + predicate.toString() + ')')(window);
+    expect(id).toBe('generated-plugin');
+    expect(options).toEqual({timeout: 15000, polling: 100});
+    delete window.__homeTestApi;
+    expect(predicate(id)).toBe(false);
+    window.__homeTestApi = {selectPluginById: select};
+    expect(predicate(id)).toBe(false);
+    expect(predicate(id)).toBe(true);
+  })};
+  try {
+    await selectPluginOpen(page, 'generated-plugin');
+    expect(select).toHaveBeenLastCalledWith('generated-plugin', {open: true});
+    expect(page.waitForFunction).toHaveBeenCalledTimes(1);
+  } finally { window.__homeTestApi = previous; }
+});
+
+test('selectPluginOpen still fails with the requested ID after a bounded wait', async () => {
+  const {selectPluginOpen} = require('../e2e/helpers/sdkExamples');
+  const cause = new Error('Timeout');
+  await expect(selectPluginOpen({waitForFunction: async () => {throw cause;}}, 'missing-plugin'))
+    .rejects.toMatchObject({message: expect.stringContaining('missing-plugin'), cause});
 });

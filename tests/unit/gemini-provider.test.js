@@ -1,7 +1,7 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
 import {consume} from '../helpers/aiProviderWire';
-import {listGeminiModels, inspectGeminiModel} from '../../src/utils/geminiProvider.cjs';
+import {listGeminiModels, inspectGeminiModel} from '../../src/utils/ai/providers/geminiProvider.cjs';
 import {readLiveAiConfig, preflightLiveAi} from '../../scripts/lib/live-ai-config.cjs';
 import {createReliabilityPlan} from '../../scripts/lib/live-ai-reliability.cjs';
 const options = {service: 'gemini', model: 'gemini-3.8-flash', apiKey: 'test-token'};

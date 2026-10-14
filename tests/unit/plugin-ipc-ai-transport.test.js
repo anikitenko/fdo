@@ -24,7 +24,7 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginORM", () => ({
+jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
         getAllPlugins() { return []; }
@@ -36,7 +36,7 @@ jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
     default: jest.fn(() => "generated-plugin-name"),
 }));
 
-jest.mock("../../src/utils/UserORM", () => ({
+jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
     default: class UserORMMock {
         activatePlugin() {}
@@ -50,7 +50,7 @@ jest.mock("../../src/utils/UserORM", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginManager", () => ({
+jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
     __esModule: true,
     default: {
         loadPlugin: jest.fn(async () => ({success: true})),
@@ -64,39 +64,39 @@ jest.mock("../../src/utils/PluginManager", () => ({
     },
 }));
 
-jest.mock("../../src/utils/ensureAndWrite", () => ({
+jest.mock("../../src/utils/filesystem/ensureAndWrite", () => ({
     __esModule: true,
     default: jest.fn(async () => undefined),
 }));
 jest.mock("../../src/utils/esbuild/plugins/virtual-fs", () => ({
     EsbuildVirtualFsPlugin: jest.fn(() => ({name: "virtual-fs"})),
 }));
-jest.mock("../../src/utils/certs", () => ({
+jest.mock("../../src/utils/system/certs", () => ({
     Certs: {
         signPlugin: jest.fn(() => ({success: true})),
         verifyPlugin: jest.fn(async () => ({success: true})),
     },
 }));
-jest.mock("../../src/utils/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
-jest.mock("../../src/utils/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
-jest.mock("../../src/utils/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
-jest.mock("../../src/utils/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
-jest.mock("../../src/utils/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
-jest.mock("../../src/utils/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
-jest.mock("../../src/utils/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
-jest.mock("../../src/utils/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
-jest.mock("../../src/utils/hostPrivilegedActions", () => ({
+jest.mock("../../src/utils/plugins/runtime/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
+jest.mock("../../src/utils/desktop/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
+jest.mock("../../src/utils/desktop/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
+jest.mock("../../src/utils/filesystem/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
+jest.mock("../../src/utils/filesystem/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
+jest.mock("../../src/utils/plugins/runtime/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
+jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
+jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
+jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     HOST_PRIVILEGED_HANDLER: "__host.privilegedAction",
     executeHostPrivilegedAction: jest.fn(async () => ({ok: true})),
 }));
 
-jest.mock("../../src/utils/pluginHostAi", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginHostAi", () => ({
     FDO_AI_LIST_ASSISTANTS_HANDLER_ID: "fdo.ai.assistants.list.v1",
     FDO_AI_REQUEST_HANDLER_ID: "fdo.ai.request.v1",
     handleHostAiAssistantsListRequest: jest.fn(async () => ({ok: true, assistants: [{id: "a-1", name: "Alpha"}]})),
     handleHostAiRequest: jest.fn(async () => ({ok: true, message: "AI response"})),
 }));
-jest.mock("../../src/utils/pluginHostAuth", () => ({
+jest.mock("../../src/utils/plugins/runtime/pluginHostAuth", () => ({
     FDO_AUTH_START_HANDLER_ID: "fdo.auth.start.v1",
     FDO_AUTH_REFRESH_HANDLER_ID: "fdo.auth.refresh.v1",
     FDO_AUTH_LOGOUT_HANDLER_ID: "fdo.auth.logout.v1",
@@ -113,8 +113,8 @@ describe("plugin IPC AI transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {handleHostAiAssistantsListRequest, handleHostAiRequest} = require("../../src/utils/pluginHostAi");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {handleHostAiAssistantsListRequest, handleHostAiRequest} = require("../../src/utils/plugins/runtime/pluginHostAi");
 
         PluginManager.getLoadedPlugin.mockReturnValue({
             ready: true,
@@ -156,13 +156,13 @@ describe("plugin IPC AI transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         const {
             handleHostAuthBrokerStartRequest,
             handleHostAuthBrokerRefreshRequest,
             handleHostAuthBrokerLogoutRequest,
             handleHostSessionRequest,
-        } = require("../../src/utils/pluginHostAuth");
+        } = require("../../src/utils/plugins/runtime/pluginHostAuth");
 
         PluginManager.getLoadedPlugin.mockReturnValue({
             ready: true,

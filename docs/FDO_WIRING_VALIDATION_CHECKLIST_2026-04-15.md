@@ -8,9 +8,9 @@ Validation scope: `P1.1`, `P1.2`, `P1.4`, `P2.2`
 - [x] Host fetches diagnostics via `UI_MESSAGE` + `handler: "__sdk.getDiagnostics"`.
   Evidence: [Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:913)
 - [x] Host builds report with `createPluginDoctorReport(diagnostics, { handshake: hostExpectations })`.
-  Evidence: [pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/pluginDoctor.js:105)
+  Evidence: [pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/plugins/runtime/pluginDoctor.js:105)
 - [x] Host builds panel with `createPluginDoctorPanelModel(report, { maxPrioritizedFindings: 8 })`.
-  Evidence: [pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/pluginDoctor.js:116)
+  Evidence: [pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/plugins/runtime/pluginDoctor.js:116)
 - [x] Panel UI renders from SDK panel fields directly (no host custom sorting/severity re-ranking).
   Evidence: [Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:3078), [Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:3142)
 - [x] Blocking state (`panel.blocking === true`) shows degraded-state banner and prioritized blocking findings.
@@ -67,14 +67,14 @@ Acceptance evidence:
 ## 4) P2.2 Handshake Compatibility Policy + UX
 
 - [x] Host evaluates diagnostics handshake using `evaluateSdkHandshakeCompatibility(...)`.
-  Evidence: [pluginHandshakeCompatibility.js](/Users/alexvwan/dev/fdo/src/utils/pluginHandshakeCompatibility.js:266)
+  Evidence: [pluginHandshakeCompatibility.js](/Users/alexvwan/dev/fdo/src/utils/sdk/pluginHandshakeCompatibility.js:266)
 - [x] Host behavior gates into `compatible` / `needs-attention` / `incompatible`.
   Evidence (UI/status): [Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:782)  
   Evidence (hard block on incompatible): [plugin.js](/Users/alexvwan/dev/fdo/src/ipc/plugin.js:1973)
 - [x] Same expectations passed into `createPluginDoctorReport(..., { handshake: ... })`.
-  Evidence: [pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/pluginDoctor.js:105)
+  Evidence: [pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/plugins/runtime/pluginDoctor.js:105)
 - [x] Handshake issues mapped to exact-fix text (`formatDiagnosticExactFix(...)`).
-  Evidence: [diagnosticFixTemplates.js](/Users/alexvwan/dev/fdo/src/utils/diagnosticFixTemplates.js:222), [Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:806)
+  Evidence: [diagnosticFixTemplates.js](/Users/alexvwan/dev/fdo/src/utils/plugins/validation/diagnosticFixTemplates.js:222), [Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:806)
 - [x] Automated tests cover all three status outcomes.
   Evidence: [plugin-doctor.test.js](/Users/alexvwan/dev/fdo/tests/unit/plugin-doctor.test.js:106), [plugin-doctor.test.js](/Users/alexvwan/dev/fdo/tests/unit/plugin-doctor.test.js:129), [plugin-doctor.test.js](/Users/alexvwan/dev/fdo/tests/unit/plugin-doctor.test.js:146)
 

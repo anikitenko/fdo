@@ -1,3 +1,4 @@
+import AiPendingFiles from './AiPendingFiles';
 import {useLocation} from "react-router-dom";
 import Split from "react-split-grid";
 import * as monaco from 'monaco-editor';
@@ -341,7 +342,7 @@ export const EditorPage = () => {
         };
     }, [pluginDirectory, pluginName, pluginTemplate, pluginData.name]);
 
-    useEffect(() => codeEditorActions(codeEditor), [codeEditor]);
+    useEffect(() => codeEditorActions(codeEditor, {onCompile: () => setBuildOutputSelectedTabId('output')}), [codeEditor]);
 
     const getWorkspaceFileIds = () => {
         try {
@@ -1232,9 +1233,12 @@ export const EditorPage = () => {
                                      }) => (
                                 <div {...getInnerGridProps()} className={styles["inner-files-deploy-grid"]}>
                                     <div className={styles["file-browser-tree"]}>
-                                        <SidebarSection id="project-explorer" title="Project Explorer" defaultCollapsed={false}>
-                                            <FileBrowserComponent/>
-                                        </SidebarSection>
+                                        <div className={styles["project-tree-scroll"]}>
+                                            <SidebarSection id="project-explorer" title="Project Explorer" defaultCollapsed={false}>
+                                                <FileBrowserComponent/>
+                                            </SidebarSection>
+                                        </div>
+                                        <AiPendingFiles/>
                                     </div>
                                     <div className={styles["gutter-row"]} {...getInnerGutterProps('row', 1)}></div>
                             <div className={styles["deploy-actions-cell"]}>

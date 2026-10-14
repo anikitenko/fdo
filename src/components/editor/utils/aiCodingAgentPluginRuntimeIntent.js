@@ -24,6 +24,9 @@ export function detectAiPluginRuntimeIntent(prompt = "") {
     if (!normalized) {
         return emptyRuntimeIntent();
     }
+    // Host workspace review language includes "stop", "verify", "render"
+    // and "plugin". Those describe source/test checks, not lifecycle actions.
+    if (/\bworkspace quality review\b/.test(normalized)) return emptyRuntimeIntent();
 
     // A creation request may naturally describe the UI to render, a verified
     // SDK icon, or an eventual open sidebar. Those are implementation details,

@@ -1,0 +1,37 @@
+.extensions :global(.bp6-tabs) > :global(.bp6-tab-list) { height: auto; background: transparent; }
+.skill { margin-top: 16px; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.assignments { border: 0; padding: 0; margin: 12px 0; }
+.assignments legend { font-weight: 600; margin-bottom: 8px; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.source { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 monospace; padding: 12px; background: rgba(128,128,128,.1); }
+.note { font-size: 12px; }
+.info { margin-bottom: 12px; }
+
+.endpoint { overflow-wrap: anywhere; }
+
+.disclosureSummary { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 12px; border: 1px solid rgba(128,128,128,.3); border-radius: 4px; font-weight: 600; list-style: none; }
+.disclosureSummary::-webkit-details-marker { display: none; }
+.disclosureSummary:hover { background: rgba(128,128,128,.08); }
+.disclosureSummary:focus-visible { outline: 2px solid #2d72d2; outline-offset: 2px; }
+.disclosureChevron { flex-shrink: 0; transition: transform .15s ease; }
+details[open] > .disclosureSummary .disclosureChevron { transform: rotate(90deg); }
+.disclosureButton { justify-content: flex-start; }
+.selectControl { position: relative; width: 100%; max-width: 420px; }
+.selectControl > select { box-sizing: border-box; width: 100%; padding-right: 36px; }
+.selectControl > svg, .selectControl > :global(.bp6-icon) { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+
+.argumentRow { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pairRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rowActions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.rowNumber { text-align: center; font-size: 12px; opacity: .7; }
+@media (max-width: 700px) {
+    .pairRow { grid-template-columns: minmax(0, 1fr) auto; }
+    .pairRow > :first-child { grid-column: 1 / -1; }
+    .argumentRow { grid-template-columns: 24px minmax(0, 1fr); }
+    .argumentRow .rowActions { grid-column: 2; }
+}
+.pairRow :global(.bp6-input), .argumentRow :global(.bp6-input) { box-sizing: border-box; min-width: 0; }
+.pairRow > :global(.bp6-input-group), .argumentRow > :global(.bp6-input-group) { min-width: 0; }
+
+.emptyState { height: auto; padding: 24px 12px; }

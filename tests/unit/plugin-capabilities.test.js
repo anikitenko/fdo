@@ -2,7 +2,7 @@ import {
     buildRuntimeSecurityPolicy,
     KNOWN_PLUGIN_CAPABILITIES,
     normalizeCapabilityList,
-} from "../../src/utils/pluginCapabilities";
+} from "../../src/utils/plugins/security/pluginCapabilities";
 
 describe("plugin capability registry", () => {
     test("normalizes capabilities to known unique values", () => {

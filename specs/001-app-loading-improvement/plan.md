@@ -193,7 +193,7 @@ See [data-model.md](./data-model.md) for:
 1. **Startup Metrics Logger**
    - Input: Event name, timestamp, metadata
    - Output: Console log + file append
-   - Location: `src/utils/startupMetrics.js` (NEW)
+   - Location: `src/utils/system/startupMetrics.js` (NEW)
 
 2. **Asset Categorization**
    - Critical assets list (home screen components)

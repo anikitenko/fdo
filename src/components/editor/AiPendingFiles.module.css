@@ -1,0 +1,48 @@
+.panel {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    border-top: 1px solid var(--app-border-color, #5c7080);
+}
+.resizeHandle {
+    height: 8px;
+    flex-shrink: 0;
+    cursor: ns-resize;
+    touch-action: none;
+}
+.resizeHandle:hover, .resizeHandle:focus-visible {
+    background: #4c90c0;
+    outline: none;
+}
+.heading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    width: 100%;
+    padding: 6px 12px;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+.heading:hover { background: rgba(128, 128, 128, 0.15); }
+.heading:focus-visible { outline: 2px solid #4c90c0; outline-offset: -2px; }
+.status { flex-shrink: 0; font-size: 12px; margin: 0; padding: 0 12px 8px; }
+.files { flex: 1; min-height: 0; overflow: auto; list-style: none; padding: 0 12px 8px; margin: 0; }
+.files li { font-size: 12px; padding: 3px 0; overflow-wrap: anywhere; }
+.files .fileRow { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: baseline; column-gap: 6px; row-gap: 2px; padding: 5px 0; }
+.fileIcon { grid-column: 1; grid-row: 1; }
+.fileName { grid-column: 2; grid-row: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.generating { grid-column: 3; white-space: nowrap; font-size: 11px; opacity: 0.8; }
+.fileRow .previewButton { grid-column: 3; white-space: nowrap; }
+.previewButton { flex-shrink: 0; border: 0; padding: 2px 4px; background: transparent; color: var(--app-link-color, #4c90c0); font-size: 11px; cursor: pointer; }
+.previewButton:hover { text-decoration: underline; }
+.previewButton:focus-visible { outline: 2px solid #4c90c0; outline-offset: 1px; }
+.previewDialog { width: min(900px, calc(100vw - 32px)); }
+.previewPath { font-family: monospace; overflow-wrap: anywhere; margin: 0 0 8px; }
+.previewNote { font-size: 12px; opacity: 0.8; }
+.previewSource { max-height: 65vh; overflow: auto; padding: 16px; margin: 0; background: rgba(128, 128, 128, 0.1); border: 1px solid var(--app-border-color, #5c7080); border-radius: 4px; font: 12px/1.6 monospace; tab-size: 4; user-select: text; }

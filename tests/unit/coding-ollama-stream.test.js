@@ -1,6 +1,6 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
-import {sendCodingLlmRequest} from '../../src/utils/codingLlmRequest';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
+import {sendCodingLlmRequest} from '../../src/utils/ai/generation/codingLlmRequest';
 import {ollamaEvents, responseFor, consume, text} from '../helpers/aiProviderWire';
 
 test('Ollama SDK preserves native context/output limits and image messages without cloud keys', async () => {

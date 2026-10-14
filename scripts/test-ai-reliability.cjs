@@ -4,6 +4,7 @@ const path = require("node:path");
 const {spawnSync} = require("node:child_process");
 const {createReliabilityPlan, summarizeReliabilityRun, summarizeReliability} = require("./lib/live-ai-reliability.cjs");
 const {runLivePlaywright} = require("./lib/run-live-playwright.cjs");
+const {sourceFingerprint} = require('./lib/ai-release-gate.cjs');
 
 async function main() {
     const options = {repeat: 3, grep: "Web Tools Workbench"};
@@ -20,7 +21,7 @@ async function main() {
         provider: process.env.FDO_TEST_AI_PROVIDER || "openai", modelEnv: "FDO_TEST_AI_MODEL", apiKeyEnv: "FDO_TEST_AI_API_KEY",
     }];
     const plan = createReliabilityPlan(entries, {repeat: options.repeat});
-    console.log(JSON.stringify({grep: options.grep, runs: plan, maximumProviderRequests: plan.reduce((sum, run) => sum + run.requestLimit, 0)}, null, 2));
+    console.log(JSON.stringify({grep: options.grep, runs: plan, maximumProviderRequests: plan.reduce((sum, run) => sum + run.maximumRequestLimit, 0)}, null, 2));
     if (options.dryRun) return 0;
     for (const run of plan) {
         if (run.provider !== "ollama" && !process.env[run.apiKeyEnv]?.trim()) throw new Error(`Missing test credential environment variable ${run.apiKeyEnv}. No personal credential fallback.`);
@@ -29,6 +30,7 @@ async function main() {
     const root = path.resolve("artifacts/live-ai/reliability", `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`);
     fs.mkdirSync(root, {recursive: true});
     fs.writeFileSync(path.join(root, "plan.json"), JSON.stringify({grep: options.grep, runs: plan}, null, 2));
+    const fingerprint = sourceFingerprint();
     const build = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"], {stdio: "inherit", env: process.env});
     if (build.error || build.status !== 0) throw new Error("Build failed; no live requests were dispatched.");
     const runs = [];
@@ -41,6 +43,7 @@ async function main() {
             artifactDir, env: {...process.env,
                 FDO_E2E_LIVE_AI: "1", FDO_E2E_KEEP_USER_DATA: "0",
                 FDO_TEST_AI_PROVIDER: run.provider, FDO_TEST_AI_MODEL: run.model,
+                FDO_E2E_WEB_TOOLS_WORKBENCH_SEED: run.seed,
                 FDO_TEST_AI_API_KEY: run.provider === "ollama" ? "" : process.env[run.apiKeyEnv],
                 FDO_TEST_AI_ACCOUNT_ID: run.accountId,
                 FDO_TEST_AI_FIRST_RESPONSE_TIMEOUT_MS: String(run.firstResponseTimeoutMs),
@@ -56,6 +59,7 @@ async function main() {
         runs.push(summarizeReliabilityRun(run, {exitCode: child.status, signal: child.signal, report, artifactDir}));
         const summaryPath = path.join(root, "summary.json");
         fs.writeFileSync(summaryPath, JSON.stringify({...summarizeReliability(runs),
+            sourceFingerprint: sourceFingerprint() === fingerprint ? fingerprint : null,
             passed: runs.length === plan.length && runs.every(result => result.passed),
             complete: runs.length === plan.length, plannedRuns: plan.length}, null, 2));
         console.log(`Reliability summary: ${summaryPath}`);

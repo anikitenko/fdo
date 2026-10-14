@@ -1,4 +1,4 @@
-import {fetchWithTimeout} from "../../src/utils/fetchWithTimeout.js";
+import {fetchWithTimeout} from "../../src/utils/network/fetchWithTimeout.js";
 
 describe("fetchWithTimeout", () => {
     const originalFetch = global.fetch;

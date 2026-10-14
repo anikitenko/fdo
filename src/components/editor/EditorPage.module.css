@@ -517,7 +517,16 @@
 }
 
 .file-browser-tree {
-    overflow: scroll;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.project-tree-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
 }
 
 .code-deploy-actions {
@@ -543,6 +552,7 @@
 }
 
 .terminal-output-console {
+    position: relative;
     background: #333;
     padding: 20px;
     height: 100%; /* Ensure it takes full height in the split section */
@@ -583,7 +593,7 @@
 .build-output-tabs-container {
     position: sticky;
     top: 0;
-    background-color: #333;
+    background-color: transparent;
     z-index: 10;
     padding: 8px;
 }
@@ -594,6 +604,10 @@
     inset: 0;
     overflow: hidden;
     border-radius: inherit;
+    /* A continuous top edge beneath the moving colour band. */
+    background:
+        linear-gradient(90deg, rgba(70, 210, 235, .6), rgba(179, 161, 255, .6)) top / 100% 3px no-repeat,
+        linear-gradient(180deg, rgba(138, 187, 255, .14), transparent) top / 100% 64px no-repeat;
     pointer-events: none;
     user-select: none;
 }
@@ -604,25 +618,28 @@
     position: absolute;
     top: 0;
     left: 0;
-    width: 60%;
-    animation: ai-aurora-drift 5s ease-in-out infinite alternate;
+    width: 100%;
+    animation: ai-aurora-drift 7s linear infinite;
 }
 
 .ai-activity-glow::before {
-    height: 40px;
-    background: radial-gradient(ellipse at 35% 0%, rgba(70, 210, 235, .18), transparent 65%),
-        radial-gradient(ellipse at 70% 0%, rgba(166, 133, 255, .2), transparent 65%);
+    height: 72px;
+    background: linear-gradient(90deg, rgba(70, 210, 235, .36), rgba(179, 161, 255, .5), rgba(70, 210, 235, .36));
+    background-size: 200% 100%;
+    mask-image: linear-gradient(to bottom, #000, transparent);
 }
 
 .ai-activity-glow::after {
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #46d2eb 30%, #b3a1ff 65%, transparent);
-    filter: drop-shadow(0 1px 3px rgba(138, 187, 255, .65));
+    height: 3px;
+    background: linear-gradient(90deg, #46d2eb, #b3a1ff 40%, #def9ff 55%, #46d2eb);
+    background-size: 200% 100%;
+    filter: drop-shadow(0 1px 4px rgba(138, 187, 255, .9))
+        drop-shadow(0 3px 10px rgba(138, 187, 255, .6));
 }
 
 @keyframes ai-aurora-drift {
-    from { transform: translateX(-55%); opacity: .55; }
-    to { transform: translateX(120%); opacity: 1; }
+    from { background-position: 0% 0; }
+    to { background-position: 200% 0; }
 }
 
 .ai-activity-dots {
@@ -677,8 +694,20 @@
 
 .ai-agent-status-trigger-with-time {
     width: auto;
+    height: 24px;
     gap: 6px;
-    padding: 0 6px;
+    padding: 0 8px;
+    border: 1px solid rgba(138, 187, 255, .25);
+    border-radius: 12px;
+    background: rgba(138, 187, 255, .08);
+}
+
+.ai-agent-status-chevron {
+    opacity: .7;
+}
+
+.ai-agent-status-trigger[aria-expanded="true"] .ai-agent-status-chevron {
+    transform: rotate(180deg);
 }
 
 .ai-agent-overall-elapsed {
@@ -697,6 +726,7 @@
 }
 
 .ai-agent-status-popover {
+    position: relative;
     box-sizing: border-box;
     color: var(--bp6-light-gray-5, #f6f7f9);
     min-width: 250px;
@@ -706,7 +736,35 @@
     overflow-wrap: anywhere;
 }
 
+.ai-agent-status-popover-close {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--bp6-gray-3, #abb3bf);
+    cursor: pointer;
+}
+
+.ai-agent-status-popover-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: inherit;
+}
+
+.ai-agent-status-popover-close:focus-visible {
+    outline: 2px solid var(--bp6-blue-3, #2d72d2);
+    outline-offset: 1px;
+}
+
 .ai-agent-status-popover-heading {
+    padding-right: 22px;
     align-items: baseline;
     display: flex;
     flex-wrap: wrap;

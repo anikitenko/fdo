@@ -1,0 +1,8 @@
+[
+  {"provider":"cloudflare","modelEnv":"FDO_RELEASE_CLOUDFLARE_MODEL","apiKeyEnv":"FDO_RELEASE_CLOUDFLARE_KEY","accountIdEnv":"FDO_TEST_AI_ACCOUNT_ID","seed":"release-1"},
+  {"provider":"cloudflare","modelEnv":"FDO_RELEASE_CLOUDFLARE_MODEL","apiKeyEnv":"FDO_RELEASE_CLOUDFLARE_KEY","accountIdEnv":"FDO_TEST_AI_ACCOUNT_ID","seed":"release-2"},
+  {"provider":"cloudflare","modelEnv":"FDO_RELEASE_CLOUDFLARE_MODEL","apiKeyEnv":"FDO_RELEASE_CLOUDFLARE_KEY","accountIdEnv":"FDO_TEST_AI_ACCOUNT_ID","seed":"release-3"},
+  {"provider":"openrouter","modelEnv":"FDO_RELEASE_OPENROUTER_MODEL","apiKeyEnv":"FDO_RELEASE_OPENROUTER_KEY","seed":"release-1"},
+  {"provider":"openrouter","modelEnv":"FDO_RELEASE_OPENROUTER_MODEL","apiKeyEnv":"FDO_RELEASE_OPENROUTER_KEY","seed":"release-2"},
+  {"provider":"openrouter","modelEnv":"FDO_RELEASE_OPENROUTER_MODEL","apiKeyEnv":"FDO_RELEASE_OPENROUTER_KEY","seed":"release-3"}
+]

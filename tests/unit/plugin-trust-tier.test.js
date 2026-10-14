@@ -1,4 +1,4 @@
-import {getPluginTrustTier, summarizePrivilegedRuntime} from "../../src/utils/pluginTrustTier";
+import {getPluginTrustTier, summarizePrivilegedRuntime} from "../../src/utils/plugins/security/pluginTrustTier";
 
 describe("plugin trust tier", () => {
     test("classifies basic ui/data plugins", () => {

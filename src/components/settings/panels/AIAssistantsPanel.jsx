@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
     Button,
     Card,
+    Callout,
     Dialog,
     FormGroup,
     InputGroup,
@@ -12,15 +13,19 @@ import {
 } from "@blueprintjs/core";
 import * as styles from "../../css/SettingsDialog.module.css";
 import {AppToaster} from "../../AppToaster";
+import {assistantInputCapabilities, imageSupportLabel, imageSupportOptionSuffix} from '../../../utils/ai/assistant/aiAssistantInputCapabilities';
 
 const PROVIDERS = [
     {label: "Gemini API (Google)", value: "gemini"},
     {label: "Cloudflare Workers AI", value: "cloudflare"},
     { label: "OpenAI", value: "openai" },
     { label: "Anthropic", value: "anthropic" },
+    { label: "OpenCode Zen (free & curated models)", value: "opencode" },
+    { label: "OpenRouter (free & curated models)", value: "openrouter" },
+    { label: "Cursor", value: "cursor" },
     { label: "Ollama (local)", value: "ollama" },
-    { label: "Codex CLI (ChatGPT)", value: "codex-cli" },
-    { label: "Gemini CLI (Google)", value: "gemini-cli" },
+    { label: "Codex (built into FDO)", value: "codex-cli" },
+    { label: "Gemini CLI (separate installation)", value: "gemini-cli" },
 ]
 
 const PURPOSES = [
@@ -49,6 +54,8 @@ export default function AIAssistantsPanel() {
     const [providerModels, setProviderModels] = useState([]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
     const [modelsError, setModelsError] = useState("");
+    const [modelInputCapabilities, setModelInputCapabilities] = useState(null);
+    const [loadingInputCapabilities, setLoadingInputCapabilities] = useState(false);
     const [codexAuthDialog, setCodexAuthDialog] = useState(EMPTY_CODEX_AUTH_DIALOG);
 
     const [form, setForm] = useState({
@@ -66,6 +73,29 @@ export default function AIAssistantsPanel() {
     });
 
     const filteredModels = providerModels;
+    const displayedInputCapabilities = assistantInputCapabilities({provider: form.provider, model: form.model},
+        modelInputCapabilities || providerModels.find(model => model.value === form.model)?.modelMetadata || {});
+
+    useEffect(() => {
+        let cancelled = false;
+        setModelInputCapabilities(null);
+        setLoadingInputCapabilities(false);
+        if (!isDialogOpen || !form.model || form.purpose !== 'coding') return;
+        const config = {provider: form.provider, model: form.model, apiKey: form.apiKey,
+            baseUrl: form.baseUrl, accountId: form.accountId};
+        const fallback = assistantInputCapabilities(config);
+        if (fallback.source === 'integration') { setModelInputCapabilities(fallback); return; }
+        if (typeof window.electron.settings.ai.getInputCapabilities !== 'function') return;
+        setLoadingInputCapabilities(true);
+        const timer = setTimeout(() => {
+            window.electron.settings.ai.getInputCapabilities(config).then(capabilities => {
+                if (!cancelled) setModelInputCapabilities(capabilities);
+            }).catch(() => {
+                if (!cancelled) setModelInputCapabilities({...fallback, reason: 'Capability metadata could not be checked. Image support remains unknown.'});
+            }).finally(() => { if (!cancelled) setLoadingInputCapabilities(false); });
+        }, 250);
+        return () => { cancelled = true; clearTimeout(timer); };
+    }, [isDialogOpen, form.provider, form.model, form.purpose, form.apiKey, form.baseUrl, form.accountId]);
 
     useEffect(() => {
         if (!isDialogOpen) {
@@ -82,14 +112,14 @@ export default function AIAssistantsPanel() {
                 try {
                     setIsLoadingModels(true);
                     setModelsError("");
-                    const models = await window.electron.settings.ai.getAvailableModels(form.provider, "");
+                    const models = await window.electron.settings.ai.getAvailableModels(form.provider, "", undefined, undefined, form.provider === "codex-cli" ? form.executablePath : undefined);
                     if (cancelled) return;
                     setProviderModels(models);
                     setForm((prev) => {
                         const hasCurrentModel = models.some((model) => model.value === prev.model);
                         return {
                             ...prev,
-                            model: hasCurrentModel ? prev.model : (models[0]?.value || (form.provider === "codex-cli" ? "gpt-5.3-codex" : "gemini-2.5-pro")),
+                            model: hasCurrentModel ? prev.model : (models[0]?.value || (form.provider === "codex-cli" ? "" : "gemini-2.5-pro")),
                             purpose: "coding",
                         };
                     });
@@ -154,7 +184,7 @@ export default function AIAssistantsPanel() {
         return () => {
             cancelled = true;
         };
-    }, [form.apiKey, form.provider, form.baseUrl, form.accountId, isDialogOpen]);
+    }, [form.apiKey, form.provider, form.baseUrl, form.accountId, form.executablePath, isDialogOpen]);
 
     useEffect(() => {
         (async () => {
@@ -225,7 +255,7 @@ export default function AIAssistantsPanel() {
                     : form.provider === "gemini-cli"
                         ? (form.model || "gemini-2.5-pro")
                         : form.model,
-                purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare"].includes(form.provider) ? "coding" : form.purpose,
+                purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter", "cursor"].includes(form.provider) ? "coding" : form.purpose,
                 defaultThinkingMode: form.defaultThinkingMode || "auto",
             };
             await window.electron.settings.ai.addAssistant(nextForm);
@@ -233,7 +263,7 @@ export default function AIAssistantsPanel() {
             const addedAssistant = updated.find((item) =>
                 item.name === form.name &&
                 item.provider === form.provider &&
-                item.purpose === (["codex-cli", "gemini-cli", "ollama"].includes(form.provider) ? "coding" : form.purpose)
+                item.purpose === (["codex-cli", "gemini-cli", "ollama", "openrouter", "cursor"].includes(form.provider) ? "coding" : form.purpose)
             );
 
             if (["codex-cli", "gemini-cli"].includes(form.provider) && addedAssistant) {
@@ -477,6 +507,7 @@ export default function AIAssistantsPanel() {
                             <p>
                                 <b>Model:</b> {a.model}
                             </p>
+                            {a.purpose === 'coding' && <p><b>Screenshots:</b> {imageSupportLabel(assistantInputCapabilities(a))}</p>}
                             <p>
                                 <b>Default Thinking:</b>{" "}
                                 {THINKING_DEFAULTS.find((item) => item.value === (a.defaultThinkingMode || "auto"))?.label || "Auto"}
@@ -575,7 +606,7 @@ export default function AIAssistantsPanel() {
                                 setForm({
                                     ...form,
                                     provider,
-                                    purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare"].includes(provider) ? "coding" : form.purpose,
+                                    purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter", "cursor"].includes(provider) ? "coding" : form.purpose,
                                     model: "",
                                     firstResponseTimeoutMs: "",
                                 });
@@ -591,6 +622,8 @@ export default function AIAssistantsPanel() {
                         </FormGroup>
                     ) : null}
 
+                    {form.provider === "cursor" && <Callout intent="primary" title="Connect Cursor">Create a key in Cursor Dashboard → API Keys, paste it below, and choose a model. No separate Cursor CLI installation or browser login is required. Available models and charges depend on your account.</Callout>}
+
                     <FormGroup label={form.provider === "codex-cli" ? "Codex Model" : form.provider === "gemini-cli" ? "Gemini Model" : "Model"} labelFor="ai-model">
                         <HTMLSelect
                             id="ai-model"
@@ -598,7 +631,9 @@ export default function AIAssistantsPanel() {
                                 isLoadingModels
                                     ? [{ label: `Loading ${PROVIDERS.find((p) => p.value === form.provider)?.label || form.provider} models...`, value: "" }]
                                     : filteredModels.length > 0
-                                        ? filteredModels
+                                        ? filteredModels.map(model => ({...model, label: form.purpose === 'coding' ? `${model.label}${imageSupportOptionSuffix(
+                                            model.value === form.model && modelInputCapabilities ? modelInputCapabilities
+                                                : assistantInputCapabilities({provider: form.provider, model: model.value}, model.modelMetadata || model))}` : model.label}))
                                         : [{ label: form.provider === "codex-cli"
                                             ? "No Codex models available"
                                             : form.provider === "gemini-cli"
@@ -616,13 +651,17 @@ export default function AIAssistantsPanel() {
                                 {modelsError}
                             </div>
                         ) : null}
+                        {form.purpose === 'coding' && form.model && <div style={{marginTop: '8px'}} role="status">
+                            <Tag>{loadingInputCapabilities ? 'Checking image support…' : imageSupportLabel(displayedInputCapabilities)}</Tag>
+                            {displayedInputCapabilities.reason && <p>{displayedInputCapabilities.reason}</p>}
+                        </div>}
                         {form.provider === "codex-cli" ? (
                             <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
-                                Codex model options are loaded dynamically. If Codex is already authenticated, the selected model is verified before the assistant is saved.
+                                Codex is integrated into FDO on macOS, Windows and Linux. No separate Codex installation is needed. Model options come from FDO’s bundled runtime. Saving checks the model catalog without running an AI request. Sign-in opens automatically when authentication is needed.
                             </div>
                         ) : form.provider === "gemini-cli" ? (
                             <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
-                                Gemini model options are loaded from the official model catalog (with safe local fallback) and used with your local Gemini CLI runtime.
+                                Gemini CLI is a separate tool, not bundled with FDO. Install and authenticate it on macOS, Windows or Linux, then FDO launches it as an external process. Gemini API assistants do not require the CLI.
                             </div>
                         ) : null}
                     </FormGroup>
@@ -632,16 +671,16 @@ export default function AIAssistantsPanel() {
                             id="ai-purpose"
                             options={PURPOSES}
                             value={form.purpose}
-                            disabled={["codex-cli", "gemini-cli", "ollama", "cloudflare"].includes(form.provider)}
+                            disabled={["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter", "cursor"].includes(form.provider)}
                             onChange={(e) => setForm({ ...form, purpose: e.target.value })}
                         />
                     </FormGroup>
 
-                    {form.purpose === "coding" && !["codex-cli", "gemini-cli"].includes(form.provider) ? (
+                    {form.purpose === "coding" ? (
                         <FormGroup label="First answer timeout (seconds)" labelFor="ai-first-response-timeout"
-                            helperText="Maximum wait for answer text, including reasoning. Blank uses the provider default; 10–600 seconds. Stop remains available.">
+                            helperText="Initial wait for answer text; confirmed reasoning or buffered generation can use up to 3× this time. Blank uses 240 seconds (300 for local, routed, and CLI providers); 10–600 seconds. Stop remains available.">
                             <InputGroup id="ai-first-response-timeout" type="number" min="10" max="600" step="1"
-                                placeholder={["cloudflare", "ollama"].includes(form.provider) ? "300" : "90"}
+                                placeholder={["cloudflare", "ollama", "opencode", "openrouter", "codex-cli", "gemini-cli", "cursor"].includes(form.provider) ? "300" : "240"}
                                 value={form.firstResponseTimeoutMs === "" ? "" : Number(form.firstResponseTimeoutMs) / 1000}
                                 onChange={e => setForm({...form, firstResponseTimeoutMs: e.target.value === "" ? "" : Number(e.target.value) * 1000})} />
                         </FormGroup>
@@ -658,20 +697,7 @@ export default function AIAssistantsPanel() {
 
                     {form.provider === "codex-cli" ? (
                         <>
-                            <FormGroup label="Executable Path" labelFor="ai-codex-path">
-                                <InputGroup
-                                    id="ai-codex-path"
-                                    placeholder="Optional: auto-detect 'codex' from PATH"
-                                    value={form.executablePath}
-                                    onChange={(e) => setForm({ ...form, executablePath: e.target.value })}
-                                />
-                            </FormGroup>
-                            <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
-                                Uses your local Codex CLI login. This is intended for Coding Assistant only and works with packaged apps if the executable is installed and reachable.
-                            </div>
-                            <div style={{ marginTop: "4px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
-                                Bundled Codex is only allowed when the detected bundled runtime passes the minimum safe version gate.
-                            </div>
+                            <p>FDO uses its bundled native Codex runtime and your Codex login. If the runtime is missing, repair or reinstall FDO.</p>
                         </>
                     ) : form.provider === "gemini-cli" ? (
                         <>
@@ -684,7 +710,7 @@ export default function AIAssistantsPanel() {
                                 />
                             </FormGroup>
                             <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
-                                Uses your local Gemini CLI runtime. This provider is intended for Coding Assistant workflows.
+                                Install Gemini CLI 0.60.0 or later separately: npm install -g @google/gemini-cli. Run gemini once to sign in, then leave this path empty for PATH discovery or select its installed entry point. On Windows, npm’s gemini.cmd is resolved to JavaScript and launched without a shell. FDO does not install Gemini CLI for you.
                             </div>
                         </>
                     ) : form.provider === "ollama" ? (
@@ -703,11 +729,12 @@ export default function AIAssistantsPanel() {
                     ) : (
                         <FormGroup
                             label={form.provider === "cloudflare" ? "API Token" : "API Key"}
+                            helperText={form.provider === "cursor" ? "A secret access token that lets FDO make requests using your Cursor account." : undefined}
                             labelFor={"ai-key"}
                         >
                             <InputGroup
                                 id="ai-key"
-                                placeholder={form.provider === "cloudflare" ? "Cloudflare API token" : form.provider === "gemini" ? "Google AI Studio API key" : "sk-..."}
+                                placeholder={form.provider === "cloudflare" ? "Cloudflare API token" : form.provider === "gemini" ? "Google AI Studio API key" : form.provider === "opencode" ? "OpenCode Zen key (sk-...)" : form.provider === "openrouter" ? "OpenRouter key (sk-or-...)" : form.provider === "cursor" ? "Cursor user or service-account API key" : "sk-..."}
                                 type="password"
                                 value={form.apiKey}
                                 onChange={(e) => {

@@ -14,15 +14,15 @@ import {
     buildPluginInitPayload,
     HOST_PLUGIN_API_VERSION,
     resolveHostGrantedCapabilities,
-} from "../../src/utils/pluginRuntimeSecurity";
-import {buildRuntimeSecurityPolicy} from "../../src/utils/pluginCapabilities";
+} from "../../src/utils/plugins/security/pluginRuntimeSecurity";
+import {buildRuntimeSecurityPolicy} from "../../src/utils/plugins/security/pluginCapabilities";
 
 describe("plugin runtime security", () => {
     test("resolves default and filtered capability grants", () => {
         expect(resolveHostGrantedCapabilities(undefined)).toEqual([]);
         expect(resolveHostGrantedCapabilities({pluginCapabilities: ["storage.json"]})).toEqual(["storage.json"]);
         expect(resolveHostGrantedCapabilities({envCapabilities: "storage.json,unknown"})).toEqual(["storage.json"]);
-        expect(buildPluginInitPayload(["storage.json"])).toEqual({
+        expect(buildPluginInitPayload(["storage.json", "system.tray"])).toEqual({
             apiVersion: HOST_PLUGIN_API_VERSION,
             capabilities: ["storage.json"],
         });

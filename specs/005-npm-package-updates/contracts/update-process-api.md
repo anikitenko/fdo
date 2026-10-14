@@ -15,7 +15,7 @@ This contract defines the programmatic API for the npm package update orchestrat
 
 ## Module: `PackageUpdater`
 
-**Location**: `src/utils/packageUpdater.js`
+**Location**: `src/utils/packages/packageUpdater.js`
 
 **Description**: Orchestrates the entire package update process with batching, testing, auditing, and rollback capabilities.
 
@@ -96,7 +96,7 @@ interface BatchResult {
 
 **Usage Example**:
 ```javascript
-const { updatePackages } = require('./src/utils/packageUpdater');
+const { updatePackages } = require('./src/utils/packages/update');
 
 const result = await updatePackages({
   target: 'minor',
@@ -153,7 +153,7 @@ interface BreakingChange {
 
 **Usage Example**:
 ```javascript
-const { detectBreakingChanges } = require('./src/utils/packageUpdater');
+const { detectBreakingChanges } = require('./src/utils/packages/update');
 
 const breaking = await detectBreakingChanges();
 console.log(`Found ${breaking.length} packages with major updates`);
@@ -183,7 +183,7 @@ interface DeprecationInfo {
 
 **Usage Example**:
 ```javascript
-const { detectDeprecations } = require('./src/utils/packageUpdater');
+const { detectDeprecations } = require('./src/utils/packages/update');
 
 const deprecated = await detectDeprecations();
 const noReplacement = deprecated.filter(d => !d.hasReplacement);
@@ -226,7 +226,7 @@ interface VulnerabilityDetail {
 
 **Usage Example**:
 ```javascript
-const { runSecurityAudit } = require('./src/utils/packageUpdater');
+const { runSecurityAudit } = require('./src/utils/packages/update');
 
 const audit = await runSecurityAudit();
 if (!audit.success) {
@@ -261,7 +261,7 @@ interface RollbackCheckpoint {
 
 **Usage Example**:
 ```javascript
-const { createRollbackCheckpoint } = require('./src/utils/packageUpdater');
+const { createRollbackCheckpoint } = require('./src/utils/packages/update');
 
 const checkpoint = await createRollbackCheckpoint('before devDependencies update');
 console.log(`Created checkpoint: ${checkpoint.commitHash}`);
@@ -285,7 +285,7 @@ async function rollbackToCheckpoint(checkpoint: RollbackCheckpoint): Promise<voi
 
 **Usage Example**:
 ```javascript
-const { rollbackToCheckpoint, createRollbackCheckpoint } = require('./src/utils/packageUpdater');
+const { rollbackToCheckpoint, createRollbackCheckpoint } = require('./src/utils/packages/update');
 
 const checkpoint = await createRollbackCheckpoint('before update');
 
@@ -335,7 +335,7 @@ interface GeneratedReports {
 
 **Usage Example**:
 ```javascript
-const { generateReports } = require('./src/utils/packageUpdater');
+const { generateReports } = require('./src/utils/packages/update');
 
 const reports = await generateReports({
   updated: [...],
@@ -353,7 +353,7 @@ console.log(`- ${reports.technicalDebtReport}`);
 
 ## Module: `BatchProcessor`
 
-**Location**: `src/utils/packageUpdater/batchProcessor.js`
+**Location**: `src/utils/packages/update/batchProcessor.js`
 
 **Description**: Handles processing of individual update batches.
 
@@ -390,7 +390,7 @@ interface BatchOptions {
 
 ## Module: `ReportGenerator`
 
-**Location**: `src/utils/packageUpdater/reportGenerator.js`
+**Location**: `src/utils/packages/update/reportGenerator.js`
 
 **Description**: Generates formatted Markdown reports.
 

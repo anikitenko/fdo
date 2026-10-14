@@ -1,6 +1,48 @@
 import {normalizeReservedHostBindingMarkers, validateGeneratedPluginFiles} from "../../src/components/editor/utils/validateGeneratedPluginFiles.js";
 
 describe("validateGeneratedPluginFiles", () => {
+    const unstyledFiles = [
+        {path: '/index.ts', content: 'import {renderWorkbench} from "./workbench"; export const render = renderWorkbench;'},
+        {path: '/workbench.ts', content: 'import css from "./styles.css"; export function renderWorkbench() { return `<div class="panel">Content</div>`; }'},
+        {path: '/styles.css', content: '.panel { display: grid; }'},
+        {path: '/render.ts', content: 'import {DOM} from "@anikitenko/fdo-sdk"; const dom = new DOM(); export const renderShell = () => dom.createClassFromStyle({display: "grid"});'},
+    ];
+    test('unused styling composition cannot hide unregistered CSS in the deployed graph', () => {
+        expect(validateGeneratedPluginFiles(unstyledFiles).warnings).toEqual(expect.arrayContaining([
+            expect.stringContaining('reachable CSS imports (/workbench.ts) have no SDK createClassFromStyle'),
+        ]));
+    });
+    test('registration in an imported rendering helper satisfies the structural check', () => {
+        const files = unstyledFiles.map(file => file.path === '/workbench.ts' ? {...file,
+            content: 'import {DOM} from "@anikitenko/fdo-sdk"; import css from "./styles.css"; export function renderWorkbench(dom: DOM) { const panel = dom.createClassFromStyle(css.panel); return `<div class="${panel}">Content</div>`; }'} : file);
+        expect(validateGeneratedPluginFiles(files).warnings).not.toEqual(expect.arrayContaining([
+            expect.stringContaining('have no SDK createClassFromStyle'),
+        ]));
+    });
+    test('style diagnostics resolve repaired files against retained workspace dependencies', () => {
+        const files = [unstyledFiles[0]];
+        expect(validateGeneratedPluginFiles(files, {workspaceFiles: unstyledFiles}).warnings)
+            .toEqual(expect.arrayContaining([expect.stringContaining('have no SDK createClassFromStyle')]));
+        expect(validateGeneratedPluginFiles(files, {partial: true}).warnings)
+            .not.toEqual(expect.arrayContaining([expect.stringContaining('have no SDK createClassFromStyle')]));
+    });
+    test('a renderer repair retains the form foundation supplied by another module', () => {
+        const workspaceFiles = [
+            {path: '/render.tsx', content: 'export const render = "old";'},
+            {path: '/features/json/render.ts', content: 'export const form = `<form class="pure-form pure-form-stacked"><input><button class="pure-button pure-button-primary">Format</button></form>`;'},
+        ];
+        const files = [{path: '/render.tsx', content: 'export const render = `<input type="search"><button>Search</button>`;'}];
+        expect(validateGeneratedPluginFiles(files).errors.length).toBeGreaterThan(0);
+        expect(validateGeneratedPluginFiles(files, {workspaceFiles}).errors).toEqual([]);
+    });
+
+    test('replacements cannot borrow foundation classes from their own stale source', () => {
+        const path = '/render.tsx';
+        const workspaceFiles = [{path, content: 'export const render = `<form class="pure-form pure-form-stacked"><input><button class="pure-button pure-button-primary">Run</button></form>`;'}];
+        const files = [{path, content: 'export const render = `<input><button>Run</button>`;'}];
+        const errors = validateGeneratedPluginFiles(files, {workspaceFiles}).errors;
+        expect(errors).toEqual(expect.arrayContaining([expect.stringContaining('interactive forms must use'), expect.stringContaining('primary action styled')]));
+    });
     test("accepts a plugin entry file with Blueprint icon and explicit instantiation", () => {
         const result = validateGeneratedPluginFiles([
             {
@@ -448,7 +490,7 @@ form?.addEventListener("submit", () => {});`,
     test("rejects copied FDO host runtime bootstrap code even without forbidden imports", () => {
         const result = validateGeneratedPluginFiles([
             {
-                path: "/src/utils/PluginManager.js",
+                path: "/src/utils/plugins/runtime/PluginManager.js",
                 content: `
 export function mountPlugin(pluginModule) {
     const moduleURL = createESModule(pluginModule.render, pluginModule.onLoad);
@@ -469,5 +511,31 @@ export function mountPlugin(pluginModule) {
             expect.stringContaining("SetPluginComponent(...)"),
             expect.stringContaining("PLUGIN_HELLO"),
         ]));
+    });
+});
+
+describe('metadata icon ownership', () => {
+    const validate = body => validateGeneratedPluginFiles([{path: '/index.ts', content: `
+        const tools = [{icon: "fa-solid fa-code"}];
+        // icon: "fa-solid fa-bug"
+        class Workbench extends FDO_SDK { ${body} }
+        export default Workbench;
+        new Workbench();
+    `}]).errors.filter(error => error.includes('metadata.icon'));
+    test.each([
+        'private _metadata = {icon: "cog"}; get metadata() { return this._metadata; }',
+        'metadata = {icon: "code"};',
+        'private details = {icon: "cog"}; get metadata() { return this.details; }',
+        'get metadata() { return {icon: "cog"}; }',
+        'get metadata() { const details = {icon: "cog"}; return details; }',
+    ])('ignores catalog and comment icons for valid metadata: %s', body => {
+        expect(validate(body)).toEqual([]);
+    });
+    test.each([
+        'private _metadata = {icon: "fa-solid fa-code"};',
+        'get metadata() { return {icon: "fa-solid fa-code"}; }',
+        'private details = {icon: "fa-solid fa-code"}; get metadata() { return this.details; }',
+    ])('still rejects Font Awesome in actual plugin metadata: %s', body => {
+        expect(validate(body)).toEqual([expect.stringContaining('metadata.icon "fa-solid fa-code"')]);
     });
 });

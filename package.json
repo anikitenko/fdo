@@ -5,7 +5,7 @@
   "description": "FDO (Flex DevOps) is a modular, plugin-driven DevOps platform built with ElectronJS and React. It empowers developers and SREs to extend core functionality using secure, versioned plugins, offering tools for automation, deployment, monitoring, and workflow customization — all from a unified desktop environment.",
   "main": "dist/main/index.js",
   "sideEffects": [
-    "./src/utils/installStdioErrorHandlers.js",
+    "./src/utils/system/installStdioErrorHandlers.js",
     "*.css",
     "*.scss",
     "src/renderer.js",
@@ -54,9 +54,11 @@
     "test:ai:transport": "node scripts/diagnose-electron-transport.cjs",
     "test:ai:probe": "node scripts/diagnose-ai-provider.cjs",
     "test:ai:reliability": "node scripts/test-ai-reliability.cjs",
-    "test:ai:safety": "jest tests/unit/coding-workspace-generation.test.js tests/unit/ai-billing.test.js tests/components/AiUsagePopover.test.jsx tests/unit/ai-model-capabilities.test.js tests/unit/gemini-provider.test.js tests/unit/anthropic-provider-policy.test.js tests/unit/ai-provider-client.test.js tests/unit/native-provider-contracts.test.js tests/unit/cloudflare-structured-output.test.js tests/unit/provider-structured-output.test.js tests/unit/coding-llm-request.test.js tests/unit/cloudflare-provider.test.js tests/components/editor/AiCodingAgentPanel.test.jsx tests/components/AIAssistantsPanel.ollama.test.jsx tests/unit/ollama-provider.test.js tests/unit/coding-ollama-stream.test.js tests/unit/coding-first-content-deadline.test.js tests/unit/coding-llm-stream.test.js tests/unit/ai-coding-output-recovery.test.js tests/unit/ai-coding-transient-recovery.test.js tests/unit/ai-coding-agent-plugin-scope.test.js tests/unit/ai-coding-agent-issue-scope.test.js tests/unit/ai-coding-agent-timeouts.test.js tests/unit/live-ai-lifecycle.test.js tests/unit/live-ai-transport-log.test.js tests/unit/stdio-errors.test.js tests/unit/ipc-reply-target.test.js tests/unit/live-ai-reliability.test.js tests/unit/live-ai-test-budget.test.js --runInBand",
+    "test:ai:safety": "jest tests/unit/cursor-provider.test.js tests/unit/coding-workspace-generation.test.js tests/unit/workspace-type-import-repair.test.js tests/unit/generated-module-exports.test.js tests/unit/workspace-css-composition.test.js tests/unit/generated-workspace-imports.test.js tests/unit/ai-billing.test.js tests/components/AiUsagePopover.test.jsx tests/unit/ai-model-capabilities.test.js tests/unit/gemini-provider.test.js tests/unit/anthropic-provider-policy.test.js tests/unit/ai-provider-client.test.js tests/unit/native-provider-contracts.test.js tests/unit/openrouter-provider.test.js tests/unit/opencode-provider.test.js tests/unit/cloudflare-structured-output.test.js tests/unit/provider-structured-output.test.js tests/unit/coding-llm-request.test.js tests/unit/cloudflare-provider.test.js tests/components/editor/AiCodingAgentPanel.test.jsx tests/components/AIAssistantsPanel.ollama.test.jsx tests/unit/ollama-provider.test.js tests/unit/coding-ollama-stream.test.js tests/unit/coding-first-content-deadline.test.js tests/unit/coding-llm-stream.test.js tests/unit/ai-coding-output-recovery.test.js tests/unit/ai-coding-transient-recovery.test.js tests/unit/ai-coding-agent-plugin-scope.test.js tests/unit/ai-coding-agent-issue-scope.test.js tests/unit/ai-coding-agent-timeouts.test.js tests/unit/live-ai-lifecycle.test.js tests/unit/live-ai-transport-log.test.js tests/unit/stdio-errors.test.js tests/unit/ipc-reply-target.test.js tests/unit/live-ai-reliability.test.js tests/unit/live-ai-test-budget.test.js --runInBand",
     "test:ai:isolation": "node scripts/check-plugin-assistant-isolation.cjs",
-    "test:ai:live:codex": "FDO_E2E_LIVE_AI=1 node scripts/evaluate-plugin-assistant.cjs"
+    "test:ai:live:codex": "FDO_E2E_LIVE_AI=1 node scripts/evaluate-plugin-assistant.cjs",
+    "test:ai:hardening": "jest tests/unit/workspace-sdk-dom-repair.test.js tests/unit/generated-workspace-calls.test.js tests/unit/generated-workspace-options.test.js tests/unit/ai-workspace-candidate.test.js tests/unit/ai-workspace-apply.test.js tests/unit/ai-release-gate.test.js tests/components/editor/AiCodingAgentPanel.test.jsx tests/components/editor/utils/VirtualFS.test.js --runInBand",
+    "test:ai:release": "node scripts/check-ai-release.cjs"
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",
@@ -128,12 +130,13 @@
     "@blueprintjs/core": "^6.11.3",
     "@blueprintjs/icons": "^6.8.0",
     "@blueprintjs/select": "^6.1.8",
+    "@cursor/sdk": "1.0.37",
     "@dnd-kit/core": "^6.3.1",
     "@expo/sudo-prompt": "^9.3.2",
-    "@google/gemini-cli": "^0.60.0",
     "@google/genai": "2.23.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@monaco-editor/react": "^4.7.0",
-    "@openai/codex": "^0.154.0",
+    "@openai/codex": "^0.162.1",
     "@rjsf/core": "^5.24.13",
     "@rjsf/utils": "^5.24.13",
     "@rjsf/validator-ajv8": "^5.24.13",
@@ -155,6 +158,7 @@
     "html-tags": "^5.1.0",
     "ignore": "^7.0.5",
     "jimp": "^1.6.1",
+    "js-yaml": "3.15.2",
     "lodash": "^4.17.21",
     "lookpath": "^1.2.3",
     "lz-string": "^1.5.0",
@@ -183,6 +187,7 @@
     "split-grid": "^1.0.11",
     "stylis": "^4.3.6",
     "tributejs": "^5.1.3",
+    "typescript": "5.9.3",
     "unique-names-generator": "^4.7.1",
     "uuid": "^11.1.0",
     "vscode-icons-js": "^11.6.1"
@@ -203,6 +208,12 @@
     "asar": {
       "smartUnpack": false
     },
+    "asarUnpack": [
+      "dist/main/node_modules/@cursor/**/*",
+      "dist/main/node_modules/@bufbuild/**/*",
+      "dist/main/node_modules/@connectrpc/**/*",
+      "dist/main/node_modules/@statsig/**/*"
+    ],
     "compression": "maximum",
     "buildDependenciesFromSource": false,
     "nodeGypRebuild": false,
@@ -221,7 +232,9 @@
       "!dist/**/*.test.*",
       "!dist/**/*.spec.*",
       "!dist/**/__tests__/**/*",
-      "!dist/**/*.md"
+      "!dist/**/*.md",
+      "!dist/main/node_modules/@google/gemini-cli/**/*",
+      "!dist/main/node_modules/@google/gemini-cli-core/**/*"
     ],
     "extraResources": [
       {
@@ -239,10 +252,6 @@
       {
         "from": "dist/main/node_modules/@openai",
         "to": "app.asar.unpacked/dist/main/node_modules/@openai"
-      },
-      {
-        "from": "dist/main/node_modules/@google",
-        "to": "app.asar.unpacked/dist/main/node_modules/@google"
       }
     ],
     "protocols": [
@@ -344,6 +353,7 @@
       "vendor": "AleXvWaN",
       "category": "Utility"
     },
-    "afterPack": "./scripts/fix-bundled-binary-permissions.js"
+    "afterPack": "./scripts/fix-bundled-binary-permissions.js",
+    "beforePack": "./scripts/check-bundled-codex-runtime.cjs"
   }
 }

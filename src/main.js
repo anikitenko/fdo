@@ -1,9 +1,12 @@
-import './utils/installStdioErrorHandlers';
+import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
+import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
 import {app, BrowserWindow, dialog, nativeTheme, protocol} from 'electron';
+import {installAssistantWindowPolicy} from './utils/desktop/assistantWindowPolicy';
 import nodeUrl from 'node:url';
 import started from 'electron-squirrel-startup';
-import PluginManager from "./utils/PluginManager";
+import PluginManager from "./utils/plugins/runtime/PluginManager";
+import {pluginTray} from './utils/plugins/runtime/pluginTray';
 import fs, {existsSync, mkdirSync} from "node:fs";
 import {createInterface} from "node:readline/promises";
 
@@ -11,32 +14,32 @@ import nodePath from "node:path";
 
 import {styleText} from 'node:util';
 
-import {settings} from "./utils/store";
-import {Certs} from "./utils/certs";
+import {settings} from "./utils/persistence/store";
+import {Certs} from "./utils/system/certs";
 
 import {registerNotificationHandlers} from "./ipc/notifications";
 import {registerSystemHandlers} from "./ipc/system";
 import {buildUsingEsbuild, registerPluginHandlers} from "./ipc/plugin";
 import {interruptAllCodexAuthProcesses, registerSettingsHandlers} from "./ipc/settings";
-import {NotificationCenter} from "./utils/NotificationCenter";
+import {NotificationCenter} from "./utils/desktop/NotificationCenter";
 import {readFile} from "node:fs/promises";
 
 import mime from 'mime';
 import {Command} from 'commander';
-import {getIgnoreInstance} from "./utils/getIgnoreInstance";
-import { hasCliCommand, hasCliOnlyCommand, getCleanCliArgs } from "./utils/cliCommands.js";
-import {getAllFilesWithIgnorance} from "./utils/getAllFilesWithIgnorance";
-import ensureAndWrite from "./utils/ensureAndWrite";
+import {getIgnoreInstance} from "./utils/filesystem/getIgnoreInstance";
+import { hasCliCommand, hasCliOnlyCommand, getCleanCliArgs } from "./utils/system/cliCommands.js";
+import {getAllFilesWithIgnorance} from "./utils/filesystem/getAllFilesWithIgnorance";
+import ensureAndWrite from "./utils/filesystem/ensureAndWrite";
 
-import PluginORM from "./utils/PluginORM";
+import PluginORM from "./utils/persistence/PluginORM";
 import generatePluginName from "./components/editor/utils/generatePluginName";
 import {PluginChannels} from "./ipc/channels";
-import {checkPathAccess} from "./utils/pathHelper";
-import {getSdkMigrationExitCode, runSdkMigration} from "./utils/sdkMigrationCli";
+import {checkPathAccess} from "./utils/filesystem/pathHelper";
+import {getSdkMigrationExitCode, runSdkMigration} from "./utils/sdk/sdkMigrationCli";
 
 import log from 'electron-log/main';
-import {extractMetadata} from "./utils/extractMetadata";
-import {initMetrics, logMetric, logStartupError, checkSlowStartupWarning} from "./utils/startupMetrics";
+import {extractMetadata} from "./utils/plugins/runtime/extractMetadata";
+import {initMetrics, logMetric, logStartupError, checkSlowStartupWarning} from "./utils/system/startupMetrics";
 import {ipcMain} from 'electron';
 import {StartupChannels} from "./ipc/channels";
 import {registerAiChatHandlers} from "./ipc/ai/ai_chat";
@@ -581,6 +584,7 @@ const createWindow = async () => {
             spellcheck: false,
         },
     });
+    installAssistantWindowPolicy(mainWindow);
     recordE2EWindowLifecycle("window-created", {windowId: mainWindow.id});
 
     if (isDev) {
@@ -926,6 +930,7 @@ app.whenReady().then(async () => {
     registerAiUsageHandlers();
     registerAiChatHandlers();
     registerAiCodingAgentHandlers();
+    registerAiCodingActivityHandlers({rendererUrl: MAIN_WINDOW_WEBPACK_ENTRY});
 
     const skipE2ECertBootstrap = process.env.FDO_E2E === "1" && process.env.FDO_E2E_MULTI_INSTANCE === "1";
     if (!skipE2ECertBootstrap) {
@@ -992,6 +997,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+    pluginTray.dispose();
     isAppShuttingDown = true;
     recordE2EWindowLifecycle("app-before-quit");
     interruptAllCodexAuthProcesses();

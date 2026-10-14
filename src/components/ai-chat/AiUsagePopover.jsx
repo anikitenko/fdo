@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import {Button, Callout, FormGroup, InputGroup, Popover, Spinner} from '@blueprintjs/core';
-import {rateKey} from '../../utils/aiBilling/pricing';
+import {Button, Callout, Dialog, FormGroup, InputGroup, Spinner} from '@blueprintjs/core';
+import {rateKey} from '../../utils/ai/billing/pricing';
 import './AiUsagePopover.css';
 
 export const formatCost = value => typeof value === 'number' && Number.isFinite(value)
@@ -62,9 +62,10 @@ export default function AiUsagePopover({surface, sessionId}) {
     const known = groups.reduce((sum, group) => sum + group.knownCost, 0);
     const priced = groups.reduce((sum, group) => sum + group.priced, 0);
     const unknown = groups.reduce((sum, group) => sum + group.unknown + group.external + group.pending, 0);
-    return <Popover isOpen={open} onInteraction={setOpen} popoverClassName="ai-usage-overlay" placement="bottom-end" content={
+    return <>
+        <Button small minimal icon="chart" aria-label="Usage and cost" onClick={() => setOpen(true)}>Usage &amp; cost</Button>
+        <Dialog isOpen={open} onClose={() => setOpen(false)} title="Usage & cost" className="ai-usage-dialog">
         <section className="ai-usage-popover" aria-label="AI usage and cost">
-            <h4>Usage &amp; cost</h4>
             <p>{surface === 'chat' && sessionId ? 'This chat' : surface === 'coding' ? 'Coding activity on this device' : 'Chat activity on this device'}</p>
             {error && <Callout intent="warning">{error}</Callout>}
             {snapshot?.persistenceError && <Callout intent="warning">Usage is available in memory but could not be saved to disk.</Callout>}
@@ -102,11 +103,23 @@ export default function AiUsagePopover({surface, sessionId}) {
                         <div>{entry.cost.status === 'external' ? 'External billing' : entry.cost.status === 'local' ? 'Local inference: $0 API cost' : formatCost(entry.cost.totalCost)}</div>
                         {entry.cost.reason && <small>{entry.cost.reason}</small>}
                         {entry.cost.pricing && <small>Rates verified {entry.cost.pricing.verifiedAt} · {entry.cost.pricing.source.startsWith('https://')
-                            ? <a href={entry.cost.pricing.source} target="_blank" rel="noreferrer">Pricing source</a> : entry.cost.pricing.source}</small>}
+                            ? <a href={entry.cost.pricing.source} rel="noreferrer"
+                                onClick={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    window.electron.system.openExternal(entry.cost.pricing.source);
+                                }}
+                                onAuxClick={event => {
+                                    if (event.button !== 1) return;
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    window.electron.system.openExternal(entry.cost.pricing.source);
+                                }}>Pricing source</a> : entry.cost.pricing.source}</small>}
                     </article>)}
                 </details>
                 <small>Retains the latest {snapshot.retainedLimit.toLocaleString()} requests on this device; shows up to 100 details. This is not a provider invoice.</small>
             </>}
         </section>
-    }><Button small minimal icon="chart" aria-label="Usage and cost">Usage &amp; cost</Button></Popover>;
+        </Dialog>
+    </>;
 }

@@ -19,11 +19,39 @@ export function mergeCssStyleMaps(...maps) {
     // A state selector may live in a different file from its base class.
     // Attach it once the imported maps have supplied that base class.
     for (const [key, value] of Object.entries(result)) {
-        const match = /^([\w-]+)([:\[].*|\s+.+)$/.exec(key);
+        const match = /^([\w-]+)([.:\[].*|\s+.+)$/.exec(key);
         if (!match || !Object.hasOwn(result, match[1]) || !isStyleObject(result[match[1]]) || !isStyleObject(value)) continue;
-        const suffix = key.includes(' ') ? match[2] : `&${match[2]}`;
+        const suffix = /^\s/.test(match[2]) ? match[2] : `&${match[2]}`;
         result[match[1]] = mergeCssStyleMaps(result[match[1]], {[suffix]: value});
         delete result[key];
+    }
+    return result;
+}
+
+// Global conditional blocks must accompany each registered class. Keeping
+// only map['@media ...'] would require every plugin to implement this adapter.
+// Retain the original blocks for consumers that inspect the selector inventory.
+export function attachCssConditionalRules(map) {
+    const result = mergeCssStyleMaps(map);
+    const visit = (block, conditions) => {
+        for (const [selector, value] of Object.entries(block)) {
+            if (!isStyleObject(value)) continue;
+            if (/^@(media|supports|container)\b/i.test(selector)) {
+                visit(value, [...conditions, selector]);
+                continue;
+            }
+            const match = /^([\w-]+)([.:\[].*|\s+.+)?$/.exec(selector);
+            if (!match) continue;
+            const [, base, suffix] = match;
+            let style = suffix ? {[ /^\s/.test(suffix) ? suffix : `&${suffix}` ]: value} : value;
+            for (const condition of [...conditions].reverse()) style = {[condition]: style};
+            const previous = Object.hasOwn(result, base) && isStyleObject(result[base]) ? result[base] : {};
+            Object.defineProperty(result, base, {value: mergeCssStyleMaps(previous, style),
+                enumerable: true, configurable: true, writable: true});
+        }
+    };
+    for (const [key, value] of Object.entries(map)) {
+        if (/^@(media|supports|container)\b/i.test(key) && isStyleObject(value)) visit(value, [key]);
     }
     return result;
 }

@@ -1,7 +1,7 @@
 // src/main/ai/ai_chat_core.js
-import LLM from "../../utils/aiProviderClient";
-import {currentTurnUsage} from "../../utils/aiBilling/ledger";
-import { settings } from "../../utils/store.js";
+import LLM from "../../utils/ai/providers/aiProviderClient";
+import {currentTurnUsage} from "../../utils/ai/billing/ledger";
+import { settings } from "../../utils/persistence/store.js";
 import { AiChatChannels } from "../channels.js";
 import { recordAnswerMetrics, recordTokenUsage, recordToolUsage } from "./metrics.js";
 import { getObservabilityPromptVersion } from "./observability.js";
@@ -27,13 +27,13 @@ import {Jimp} from "jimp";
 import * as os from "node:os";
 import path from "node:path";
 import crypto from "crypto";
-import { normalizeAsciiEmoticons } from "../../utils/emoticons.js";
-import { getAiChatText, normalizeAiChatUiLanguage } from "../../utils/aiChatI18n.js";
+import { normalizeAsciiEmoticons } from "../../utils/presentation/emoticons.js";
+import { getAiChatText, normalizeAiChatUiLanguage } from "../../utils/ai/assistant/aiChatI18n.js";
 import {
     applyCompressedUsageCap,
     computeModelUsageStats,
     estimateTokenCount,
-} from "../../utils/aiChatStats.js";
+} from "../../utils/ai/assistant/aiChatStats.js";
 
 const BASE_SYSTEM_PROMPT = `You are Junie, the AI assistant inside FlexDevOps (FDO).
 

@@ -1,12 +1,12 @@
-const {liveAiBudgetPolicy} = require("./src/utils/liveAiTestPolicy.cjs");
+const {liveAiBudgetPolicy, liveAiTimeoutPolicy} = require("./src/utils/ai/testing/liveAiTestPolicy.cjs");
 const base = require('./playwright.config');
 const path = require('node:path');
 // IDE and direct Playwright launches preserve the same budget policy as the npm runner.
 process.env.FDO_TEST_AI_MAX_REQUESTS = liveAiBudgetPolicy().envValue;
 const artifactDir = process.env.FDO_E2E_LIVE_AI_ARTIFACT_DIR || 'artifacts/live-ai';
-// This bounds the whole scenario. FDO_TEST_AI_FIRST_RESPONSE_TIMEOUT_MS
+// This starts the scenario allowance; validated progress can extend it.
+// FDO_TEST_AI_FIRST_RESPONSE_TIMEOUT_MS
 // separately configures the native assistant first-answer deadline (10–600s).
-const configuredLiveTimeout = Number(process.env.FDO_E2E_LIVE_AI_TIMEOUT_MS || 180000);
 const configuredCodingOutputTokens = Number(process.env.FDO_E2E_CODING_MAX_OUTPUT_TOKENS || 16384);
 const liveCodingOutputTokens = Number.isFinite(configuredCodingOutputTokens)
     ? Math.max(4096, Math.min(32768, Math.floor(configuredCodingOutputTokens)))
@@ -17,12 +17,7 @@ process.env.FDO_E2E_CODING_MAX_OUTPUT_TOKENS = String(liveCodingOutputTokens);
 // A provider-backed workspace scenario can make an initial generation request
 // and one validation-repair request before compile/deploy begins. Never let a
 // low inherited timeout close Electron while that flow is still active.
-const liveTimeout = Math.max(
-    Number.isFinite(configuredLiveTimeout) && configuredLiveTimeout >= 60000
-        ? configuredLiveTimeout
-        : 180000,
-    600000,
-);
+const liveTimeout = liveAiTimeoutPolicy().initialMs;
 const isListingTests = process.argv.includes("--list");
 
 module.exports = {

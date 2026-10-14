@@ -1,5 +1,23 @@
-import {validatePluginWorkspaceSdkContract} from "../../src/utils/pluginWorkspaceSdkContract.js";
+import {validatePluginWorkspaceSdkContract} from "../../src/utils/sdk/pluginWorkspaceSdkContract.js";
 const {createRenderOnLoadActionsSource} = require("@anikitenko/fdo-sdk");
+
+test.each(['createSpanText', 'createPText', 'createHText'])('rejects reversed SDK %s arguments before candidate tests', method => {
+    const prefix = method === 'createHText' ? '2, ' : '';
+    const content = `import {DOMText as Text} from "@anikitenko/fdo-sdk";
+        const text = new Text(); const options = {customAttributes: {class: "brand"}};
+        export const html = text.${method}(${prefix}options, "wrench");`;
+    const validate = source => validatePluginWorkspaceSdkContract({'/dashboard.ts': source}, {runtimeExports: ['DOMText']});
+    expect(validate(content)).toEqual([expect.stringContaining('receives an options object in its text argument')]);
+    expect(validate(content.replace('options, "wrench"', '"wrench", options'))).toEqual([]);
+    expect(validate(content.replace('@anikitenko/fdo-sdk', 'custom-dom'))).toEqual([]);
+    expect(validate(content.replace('const text = new Text();', 'const text = new Text(); function custom(text) { return text.createSpanText({}, "ok"); }')
+        .replace('options, "wrench"', '"wrench", options'))).toEqual([]);
+    const {DOMText} = require('@anikitenko/fdo-sdk');
+    const args = method === 'createHText' ? [2, 'A & B', {customAttributes: {class: 'brand'}}] : ['A & B', {customAttributes: {class: 'brand'}}];
+    const html = new DOMText()[method](...args);
+    expect(html).toContain('A &amp; B');
+    expect(html).not.toContain('[object Object]');
+});
 
 describe("validatePluginWorkspaceSdkContract", () => {
     const actionOptions = {runtimeExports: ["defineRenderOnLoadActions"], createActionSource: createRenderOnLoadActionsSource};

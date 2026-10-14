@@ -4,7 +4,7 @@ import {
     getCodexJsonModeCooldownState,
     markCodexJsonModeCooldown,
     shouldUseCodexJsonMode,
-} from "../../src/utils/codexCliJsonModePreference.js";
+} from "../../src/utils/ai/codex/codexCliJsonModePreference.js";
 
 describe("codex CLI JSON mode preference", () => {
     const preference = {

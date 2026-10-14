@@ -54,7 +54,7 @@ This feature eliminates hardcoded paths from the FDO CLI installer, enabling cro
 - Must work across different FDO installation methods (DMG, NSIS, AppImage, portable)
 
 **Scale/Scope**: 
-- Single utility module modification (`src/utils/installFDOCLI.js`)
+- Single utility module modification (`src/utils/system/installFDOCLI.js`)
 - 2 functions: `installFDOCLI()` and `removeFDOCLI()`
 - Support 3 major platforms with 2-3 fallback paths each
 - ~300-400 lines of code (including error handling and logging)
@@ -174,7 +174,7 @@ tests/
     └── installFDOCLI.test.js  # NEW: Test suite for CLI installation (CREATE)
 ```
 
-**Structure Decision**: Single project structure (desktop application). This feature modifies existing utility functions in the main process. The primary file is `src/utils/installFDOCLI.js` (~150 lines currently), which will be refactored to eliminate hardcoded paths and add dynamic detection logic. No new architecture needed; implementation is a targeted improvement to an existing module.
+**Structure Decision**: Single project structure (desktop application). This feature modifies existing utility functions in the main process. The primary file is `src/utils/system/installFDOCLI.js` (~150 lines currently), which will be refactored to eliminate hardcoded paths and add dynamic detection logic. No new architecture needed; implementation is a targeted improvement to an existing module.
 
 ## Complexity Tracking
 

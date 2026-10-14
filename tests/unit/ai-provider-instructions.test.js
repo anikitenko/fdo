@@ -4,7 +4,7 @@ import {
     getAiProviderInstructions,
     MAX_AI_PROVIDER_INSTRUCTION_LENGTH,
     normalizeAiProviderInstructionMap,
-} from "../../src/utils/aiProviderInstructions";
+} from "../../src/utils/ai/assistant/aiProviderInstructions";
 
 describe("AI provider instructions", () => {
     test("keeps instructions only for supported providers and normalizes their values", () => {

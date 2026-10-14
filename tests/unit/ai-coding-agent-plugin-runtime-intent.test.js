@@ -1,6 +1,10 @@
 import {detectAiPluginRuntimeIntent} from "../../src/components/editor/utils/aiCodingAgentPluginRuntimeIntent.js";
+import {WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT} from '../../src/components/editor/utils/aiCodingAgentReview';
 
 describe("detectAiPluginRuntimeIntent", () => {
+    test.each([WORKSPACE_REVIEW_PROMPT, WORKSPACE_REPAIR_PROMPT])('workspace review never invokes deployed plugin lifecycle actions', prompt => {
+        for (const action of Object.values(detectAiPluginRuntimeIntent(prompt))) expect(action).toBe(false);
+    });
     test.each([
         "Please rename this plugin to Quasar Quill. Update the plugin metadata name in /index.ts and make /render.tsx show the same visible heading. Apply the changes in the current plugin workspace only. If you change multiple files, return executable workspace file sections.",
         "Read the plugin source and explain its metadata.",

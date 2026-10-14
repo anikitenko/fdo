@@ -24,7 +24,7 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginORM", () => ({
+jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
         getAllPlugins() {
@@ -38,7 +38,7 @@ jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
     default: jest.fn(() => "generated-plugin-name"),
 }));
 
-jest.mock("../../src/utils/UserORM", () => ({
+jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
     default: class UserORMMock {
         activatePlugin() {}
@@ -49,7 +49,7 @@ jest.mock("../../src/utils/UserORM", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginManager", () => ({
+jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
     __esModule: true,
     default: {
         loadPlugin: jest.fn(async () => ({success: true})),
@@ -63,28 +63,28 @@ jest.mock("../../src/utils/PluginManager", () => ({
     },
 }));
 
-jest.mock("../../src/utils/ensureAndWrite", () => ({
+jest.mock("../../src/utils/filesystem/ensureAndWrite", () => ({
     __esModule: true,
     default: jest.fn(async () => undefined),
 }));
 jest.mock("../../src/utils/esbuild/plugins/virtual-fs", () => ({
     EsbuildVirtualFsPlugin: jest.fn(() => ({name: "virtual-fs"})),
 }));
-jest.mock("../../src/utils/certs", () => ({
+jest.mock("../../src/utils/system/certs", () => ({
     Certs: {
         signPlugin: jest.fn(() => ({success: true})),
         verifyPlugin: jest.fn(async () => ({success: true})),
     },
 }));
-jest.mock("../../src/utils/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
-jest.mock("../../src/utils/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
-jest.mock("../../src/utils/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
-jest.mock("../../src/utils/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
-jest.mock("../../src/utils/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
-jest.mock("../../src/utils/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
-jest.mock("../../src/utils/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
-jest.mock("../../src/utils/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
-jest.mock("../../src/utils/hostPrivilegedActions", () => ({
+jest.mock("../../src/utils/plugins/runtime/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
+jest.mock("../../src/utils/desktop/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
+jest.mock("../../src/utils/desktop/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
+jest.mock("../../src/utils/filesystem/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
+jest.mock("../../src/utils/filesystem/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
+jest.mock("../../src/utils/plugins/runtime/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
+jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
+jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
+jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     HOST_PRIVILEGED_HANDLER: "__host.privilegedAction",
     executeHostPrivilegedAction: jest.fn(),
 }));
@@ -307,7 +307,7 @@ describe("plugin IPC UI bridge", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
 
         PluginManager.getLoadedPlugin.mockReturnValue(createLoadedPluginWithResponse(backendResponse));
 
@@ -329,7 +329,7 @@ describe("plugin IPC UI bridge", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
 
         PluginManager.getLoadedPlugin.mockReturnValue(createLoadedPluginWithResponse({
             error: "Handler crashed while preparing request",
@@ -357,7 +357,7 @@ describe("plugin IPC UI bridge", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
 
         const staleChild = new EventEmitter();
         staleChild.postMessage = jest.fn(() => {
@@ -414,7 +414,7 @@ describe("plugin IPC UI bridge", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
 
         PluginManager.getLoadedPlugin.mockReturnValue(createLoadedPluginWithResponse(null, {
             diagnosticsResponse: {
@@ -453,11 +453,11 @@ describe("plugin IPC UI bridge", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         const {
             executeHostPrivilegedAction,
             HOST_PRIVILEGED_HANDLER,
-        } = require("../../src/utils/hostPrivilegedActions");
+        } = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
         executeHostPrivilegedAction.mockResolvedValueOnce({
             ok: false,
@@ -504,11 +504,11 @@ describe("plugin IPC UI bridge", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
         const {
             executeHostPrivilegedAction,
             HOST_PRIVILEGED_HANDLER,
-        } = require("../../src/utils/hostPrivilegedActions");
+        } = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
         executeHostPrivilegedAction.mockRejectedValueOnce(new Error("unexpected host runner crash"));
         PluginManager.getLoadedPlugin.mockReturnValue({

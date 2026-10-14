@@ -10,7 +10,7 @@ This feature removes hardcoded paths from the FDO CLI installer, enabling it to 
 
 ## Current Problem
 
-The existing CLI installer (`src/utils/installFDOCLI.js`) uses hardcoded paths:
+The existing CLI installer (`src/utils/system/installFDOCLI.js`) uses hardcoded paths:
 - macOS: `/Applications/FDO (FlexDevOPs).app/...`
 - Windows: `C:\Program Files\FDO\FDO.exe`
 - Linux: `/opt/fdo/FDO`
@@ -157,7 +157,7 @@ const appPath = process.execPath;
 
 ## Files Modified
 
-**Primary**: `src/utils/installFDOCLI.js`
+**Primary**: `src/utils/system/installFDOCLI.js`
 - Remove hardcoded paths
 - Add dynamic detection
 - Implement fallback logic

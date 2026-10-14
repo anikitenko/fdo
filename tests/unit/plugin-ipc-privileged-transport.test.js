@@ -24,7 +24,7 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginORM", () => ({
+jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
         getAllPlugins() { return []; }
@@ -36,7 +36,7 @@ jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
     default: jest.fn(() => "generated-plugin-name"),
 }));
 
-jest.mock("../../src/utils/UserORM", () => ({
+jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
     default: class UserORMMock {
         activatePlugin() {}
@@ -50,7 +50,7 @@ jest.mock("../../src/utils/UserORM", () => ({
     },
 }));
 
-jest.mock("../../src/utils/PluginManager", () => ({
+jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
     __esModule: true,
     default: {
         loadPlugin: jest.fn(async () => ({success: true})),
@@ -64,28 +64,28 @@ jest.mock("../../src/utils/PluginManager", () => ({
     },
 }));
 
-jest.mock("../../src/utils/ensureAndWrite", () => ({
+jest.mock("../../src/utils/filesystem/ensureAndWrite", () => ({
     __esModule: true,
     default: jest.fn(async () => undefined),
 }));
 jest.mock("../../src/utils/esbuild/plugins/virtual-fs", () => ({
     EsbuildVirtualFsPlugin: jest.fn(() => ({name: "virtual-fs"})),
 }));
-jest.mock("../../src/utils/certs", () => ({
+jest.mock("../../src/utils/system/certs", () => ({
     Certs: {
         signPlugin: jest.fn(() => ({success: true})),
         verifyPlugin: jest.fn(async () => ({success: true})),
     },
 }));
-jest.mock("../../src/utils/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
-jest.mock("../../src/utils/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
-jest.mock("../../src/utils/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
-jest.mock("../../src/utils/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
-jest.mock("../../src/utils/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
-jest.mock("../../src/utils/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
-jest.mock("../../src/utils/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
-jest.mock("../../src/utils/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
-jest.mock("../../src/utils/hostPrivilegedActions", () => ({
+jest.mock("../../src/utils/plugins/runtime/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
+jest.mock("../../src/utils/desktop/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
+jest.mock("../../src/utils/desktop/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
+jest.mock("../../src/utils/filesystem/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
+jest.mock("../../src/utils/filesystem/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
+jest.mock("../../src/utils/plugins/runtime/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
+jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
+jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
+jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     HOST_PRIVILEGED_HANDLER: "__host.privilegedAction",
     executeHostPrivilegedAction: jest.fn(async (_request, ctx) => ({
         ok: true,
@@ -104,9 +104,9 @@ describe("plugin IPC privileged action transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
-        const {NotificationCenter} = require("../../src/utils/NotificationCenter");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
+        const {NotificationCenter} = require("../../src/utils/desktop/NotificationCenter");
 
         const postMessage = jest.fn();
         PluginManager.getLoadedPlugin.mockReturnValue({
@@ -149,9 +149,9 @@ describe("plugin IPC privileged action transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
-        const {NotificationCenter} = require("../../src/utils/NotificationCenter");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
+        const {NotificationCenter} = require("../../src/utils/desktop/NotificationCenter");
 
         const postMessage = jest.fn();
         PluginManager.getLoadedPlugin.mockReturnValue({
@@ -193,9 +193,9 @@ describe("plugin IPC privileged action transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
-        const {NotificationCenter} = require("../../src/utils/NotificationCenter");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
+        const {NotificationCenter} = require("../../src/utils/desktop/NotificationCenter");
 
         const postMessage = jest.fn();
         PluginManager.getLoadedPlugin.mockReturnValue({
@@ -256,8 +256,8 @@ describe("plugin IPC privileged action transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
         const postMessage = jest.fn();
         PluginManager.getLoadedPlugin.mockReturnValue({
@@ -296,8 +296,8 @@ describe("plugin IPC privileged action transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
         executeHostPrivilegedAction.mockResolvedValueOnce({
             ok: true,
@@ -354,8 +354,8 @@ describe("plugin IPC privileged action transport", () => {
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/PluginManager").default;
-        const {executeHostPrivilegedAction} = require("../../src/utils/hostPrivilegedActions");
+        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
         executeHostPrivilegedAction.mockResolvedValueOnce({
             ok: true,

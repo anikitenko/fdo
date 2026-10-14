@@ -1,5 +1,18 @@
+import {generationRecoveryReducer, initialGenerationRecovery} from './utils/aiGenerationRecoveryState';
+import AiCodingConfidence from '../ai/AiCodingConfidence';
+import {isClassificationOnly} from '../../utils/ai/assistant/aiCodingClassification';
+import {aiCodingConfidence, pluginTestsVerificationCheck} from '../../utils/ai/assistant/aiCodingConfidence';
+import {assistantInputCapabilities, imageSupportLabel, imageSupportOptionSuffix} from '../../utils/ai/assistant/aiAssistantInputCapabilities';
+import {hasStrictTestRepairProgress} from './utils/aiTestRepairProgress';
+import {stagePendingFiles, startPendingFiles, updatePendingFiles} from './utils/aiPendingFiles';
+import {runCandidateTests} from './utils/runCandidateTests';
+import {assertValidationRecoveryCurrent, retainValidationRecovery} from './utils/aiValidationRecovery';
 import AiUsagePopover from "../ai-chat/AiUsagePopover";
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import {repairGeneratedUnusedImports} from '../../utils/plugins/validation/generatedUnusedImports';
+import FdoAiMark from "../ai/FdoAiMark";
+import AiTimeEstimate from '../ai/AiTimeEstimate';
+import {createCodingEstimator} from '../../utils/ai/assistant/aiCodingEstimate';
+import React, {useEffect, useMemo, useReducer, useRef, useState} from "react";
 import {historyStorageKey, normalizeHistory, readHistory, writeHistory, buildHistoryContext} from "./utils/aiCodingAgentHistory";
 import {
     Button,
@@ -13,7 +26,6 @@ import {
     Menu,
     MenuItem,
     NonIdealState,
-    ProgressBar,
     Spinner,
     Tag,
     TextArea,
@@ -24,8 +36,11 @@ import * as styles2 from "../ai-chat/MarkdownRenderer.module.scss";
 import Markdown from "markdown-to-jsx";
 import virtualFS from "./utils/VirtualFS";
 import {createVirtualFile} from "./utils/createVirtualFile";
-import {formatSdkKnowledgeContext, shouldUseFdoSdkKnowledge} from "../../utils/fdoSdkKnowledge.js";
-import {formatExternalReferenceContext, shouldUseExternalReferenceKnowledge} from "../../utils/externalReferenceKnowledge.js";
+import {validateAiWorkspaceCandidate} from './utils/validateAiWorkspaceCandidate';
+import {readWorkspaceRepairScope} from '../../utils/plugins/validation/workspaceRepairScope';
+import {applyAiWorkspaceFiles} from './utils/applyAiWorkspaceFiles';
+import {formatSdkKnowledgeContext, shouldUseFdoSdkKnowledge} from "../../utils/sdk/fdoSdkKnowledge.js";
+import {formatExternalReferenceContext, shouldUseExternalReferenceKnowledge} from "../../utils/ai/assistant/externalReferenceKnowledge.js";
 import {getAiCodingAgentIdleTimeoutMs} from "./utils/aiCodingAgentTimeouts.js";
 import {shouldIncludeProjectContext} from "./utils/aiCodingAgentContextPolicy.js";
 import {
@@ -41,9 +56,10 @@ import {
     recordAiCodingStreamText,
     formatAiCodingElapsedShort,
     upsertAiCodingRequestStatus,
-} from "../../utils/aiCodingAgentProgress.js";
+} from "../../utils/ai/assistant/aiCodingAgentProgress.js";
 import {
     isQuestionLikeAiCodingPrompt,
+    isDocumentationLookupPrompt,
     isNewPluginCreationRequest,
     mergeAiCodingRouteDecision,
     resolveAiCodingAgentAction,
@@ -53,9 +69,12 @@ import {buildProjectFilePlanPrompt, extractProjectFileTargets, shouldCreateProje
 import {extractWorkspaceFileReferences, formatWorkspaceReferenceContext, resolveWorkspaceFileReferences} from "./utils/aiCodingAgentWorkspaceRefs.js";
 import {buildAiCodingAgentRequestContexts} from "./utils/aiCodingAgentRequestContext.js";
 import {buildWorkspaceExecutionPlanPrompt, shouldExecuteWorkspacePlan} from "./utils/aiCodingAgentExecutionIntent.js";
-import {normalizeReservedHostBindingMarkers, validateGeneratedPluginFiles} from "./utils/validateGeneratedPluginFiles.js";
+import {findWorkspaceStyleIssues, normalizeReservedHostBindingMarkers, validateGeneratedPluginFiles} from "./utils/validateGeneratedPluginFiles.js";
+import {normalizeGeneratedModuleExports} from "../../utils/plugins/validation/generatedModuleExports";
+import {repairWorkspaceSdkDom} from '../../utils/plugins/validation/workspaceSdkDomRepair';
 import {parseAiWorkspacePlanResponse, shouldApplyAiResponseToWorkspace} from "./utils/aiCodingAgentPlanResponse.js";
-import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt} from "./utils/aiCodingAgentPlanRepair.js";
+import {extractAiCodeToApply} from "./utils/aiCodingAgentSingleFileApply";
+import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt, getProblemsRepairPaths, getValidationRepairPaths, mergeValidationRepairResponse} from "./utils/aiCodingAgentPlanRepair.js";
 import {buildAiCodingProblemsContext} from "./utils/aiCodingAgentProblems.js";
 import {buildAiCodingBuildOutputContext} from "./utils/aiCodingAgentBuildOutput.js";
 import {applyAiMetadataBlockResponse, decideAiSingleFileApplyStrategy} from "./utils/aiCodingAgentSingleFileApply.js";
@@ -63,6 +82,7 @@ import {applyAiSearchReplaceBlocks, parseAiSearchReplaceResponse} from "./utils/
 import {buildSingleFileApplyRetryPrompt} from "./utils/aiCodingAgentSingleFileRepair.js";
 import {classifyAiCodingIssueScope, shouldIncludeIssueDiagnosis} from "./utils/aiCodingAgentIssueScope.js";
 import {applyWorkspaceMention, detectWorkspaceMention, getWorkspaceMentionItems} from "./utils/aiCodingAgentMentions.js";
+import {applyCodexSkillMention, detectCodexSkillMention, getCodexSkillMentionItems} from './utils/aiCodingSkillMentions';
 import {detectAiPluginRuntimeIntent} from "./utils/aiCodingAgentPluginRuntimeIntent.js";
 import {buildAiCodingRouteJudgeStatus} from "./utils/aiCodingAgentRouteJudgeStatus.js";
 import {
@@ -71,16 +91,16 @@ import {
     validateAiCodingPluginScopeResponse,
 } from "./utils/aiCodingAgentPluginScope.js";
 import {isAiCodingFastLocalEditPrompt} from "./utils/aiCodingAgentFastPath.js";
-import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT} from "./utils/aiCodingAgentReview.js";
-import runPluginTests from "./utils/runTests.js";
+import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT, parseWorkspaceReviewReport, formatWorkspaceReviewReport, workspaceStyleReviewContext, includeWorkspaceStyleFindings} from "./utils/aiCodingAgentReview.js";
+import runHostPluginTests from "./utils/runTests.js";
 
 import hljs from "../../assets/js/hljs/highlight.min"
 import "../../assets/css/hljs/xt256.min.css"
 
 import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
-import {isAiCodingOutputLimitError} from "../../utils/aiCodingOutputRecovery";
-export {isAiCodingOutputLimitError} from "../../utils/aiCodingOutputRecovery";
+import {isAiCodingOutputLimitError} from "../../utils/ai/assistant/aiCodingOutputRecovery";
+export {isAiCodingOutputLimitError} from "../../utils/ai/assistant/aiCodingOutputRecovery";
 
 if (typeof hljs?.configure === "function") {
     hljs.configure({ ignoreUnescapedHTML: true });
@@ -126,7 +146,7 @@ export function getRequestProgressStage(phase = "", hasResponse = false, attempt
     return attempt > 1 ? `${stage} · attempt ${attempt}` : stage;
 }
 
-function AiCodingRequestProgress({elapsedMs, entries, hasResponse, attempt, streamStatus, workspaceStage}) {
+function AiCodingRequestProgress({elapsedMs, entries, hasResponse, attempt, streamStatus, workspaceStage, estimate, estimateDetails, estimateProgress, confidence}) {
     const latest = entries[entries.length - 1];
     const stage = getRequestProgressStage(latest?.metadata?.phase, hasResponse, attempt, workspaceStage);
     const activity = streamStatus || latest?.message || buildAiCodingWaitingStatus({elapsedMs});
@@ -141,7 +161,7 @@ function AiCodingRequestProgress({elapsedMs, entries, hasResponse, attempt, stre
         >
             <div className={styles["request-progress-header"]}>
                 <div className={styles["request-progress-heading"]}>
-                    <Spinner size={16} />
+                    <FdoAiMark size={24} active phase={hasResponse ? 'responding' : 'waiting'} />
                     <div>
                         <strong>{stage}</strong>
                         <span>Live work status</span>
@@ -151,11 +171,13 @@ function AiCodingRequestProgress({elapsedMs, entries, hasResponse, attempt, stre
                     Overall: {formatAiCodingElapsedShort(elapsedMs)} elapsed
                 </Tag>
             </div>
-            <ProgressBar className={styles["request-progress-bar"]} intent="primary" animate stripes />
+            <div className={styles["request-progress-bar"]} aria-hidden="true" />
             <p className={styles["request-progress-activity"]}>{activity}</p>
+            <AiTimeEstimate text={estimate} details={estimateDetails} progress={estimateProgress}/>
+            <AiCodingConfidence confidence={confidence}/>
             {entries.length > 1 && (
                 <details className={styles["request-progress-details"]}>
-                    <summary>{entries.length} completed work steps</summary>
+                    <summary>Recent activity ({entries.length - 1})</summary>
                     <div className={styles["request-status-list"]}>
                         {entries.slice(0, -1).map((entry) => (
                             <p key={entry.id} className={styles["request-status-item"]}>{entry.message}</p>
@@ -350,6 +372,7 @@ function buildPartialApplySummary({
 }
 
 export function isInformationalOnlyPrompt(prompt = "") {
+    if (isDocumentationLookupPrompt(prompt)) return true;
     const normalizedPrompt = String(prompt || "").trim().toLowerCase();
     const hasExplicitChangeIntent = /\b(create|build|generate|implement|scaffold|add|edit|refactor|rewrite|update|fix|patch|replace|modify|apply|proceed|continue|make|change|rename|set|use|choose|pick)\b/.test(normalizedPrompt);
     const hasScaffoldIntent = /\bplugin\s+like\b/.test(normalizedPrompt)
@@ -648,10 +671,12 @@ export function buildSmartModeGuidance({
     };
 }
 
-export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange }) {
+export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange, onShowTests, eventDocument = document }) {
+    const scheduleUiFrame = callback => (eventDocument.defaultView || window).requestAnimationFrame(callback);
     const historyKey = historyStorageKey(virtualFS.sandboxName);
     const [conversation, setConversation] = useState(() => readHistory(localStorage, historyKey));
     const conversationRef = useRef(conversation);
+    const workspaceReviewInProgressRef = useRef(false);
     const requestSnapshotRef = useRef(null);
     const appliedSnapshotRef = useRef(null);
     const assertSnapshotUnchanged = () => {
@@ -681,6 +706,10 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         setResponse(latest);
     }, [historyKey]);
     useEffect(() => virtualFS.notifications?.subscribe?.("snapshotSwitched", ({from, to}) => {
+        preparedRecoveryRef.current = null;
+        applyingGenerationCheckpointRef.current = null;
+        dispatchGenerationRecovery({type: 'reset'});
+        refreshGenerationCheckpoint();
         saveConversation([...conversationRef.current, {role: "snapshot", snapshot: to,
             content: `Switched from snapshot ${from} to ${to}. Earlier edits may have been rolled back; use the restored files for the next request.`}]);
         setResponse("");
@@ -714,17 +743,78 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     // Phase completion must not reset its clock or remove its status trigger.
     const [isOperationActive, setIsOperationActive] = useState(false);
     const isLoading = isPhaseLoading || isOperationActive;
+    const preservePendingFilesOnRetryRef = useRef(false);
+    useEffect(() => {
+        if (!isLoading) updatePendingFiles({activePath: '', status: 'stopped'});
+    }, [isLoading]);
+
+    useEffect(() => {
+        window.electron?.aiCodingAgent?.setActivity?.(isLoading);
+    }, [isLoading]);
+    useEffect(() => () => {
+        window.electron?.aiCodingAgent?.setActivity?.(false);
+    }, []);
     const [error, setError] = useState(null);
     const [autoApply, setAutoApply] = useState(true);
     const [assistants, setAssistants] = useState([]);
     const [selectedAssistant, setSelectedAssistant] = useState(null);
+    const [mentionSkills, setMentionSkills] = useState([]);
+    const skillMentionLoadRef = useRef(0);
+    const refreshMentionSkills = async () => {
+        const sequence = ++skillMentionLoadRef.current;
+        if (selectedAssistant?.provider !== 'codex-cli' || !window.electron.settings.ai.getExtensions) {setMentionSkills([]); return;}
+        try {
+            const result = await window.electron.settings.ai.getExtensions();
+            if (sequence === skillMentionLoadRef.current) setMentionSkills(result.skills || []);
+        } catch {if (sequence === skillMentionLoadRef.current) setMentionSkills([]);}
+    };
+    useEffect(() => {
+        setMentionSkills([]); setMentionState(null);
+        const refresh = () => {setMentionState(null); refreshMentionSkills();};
+        refresh();
+        window.electron.settings.ai.on?.extensionsUpdated?.(refresh);
+        return () => {skillMentionLoadRef.current++; window.electron.settings.ai.off?.extensionsUpdated?.(refresh);};
+    }, [selectedAssistant?.id, selectedAssistant?.provider]);
+    const [selectedInputCapabilities, setSelectedInputCapabilities] = useState(null);
+    const inputCapabilities = assistantInputCapabilities(selectedAssistant || {}, selectedInputCapabilities || selectedAssistant?.inputCapabilities || {});
+    useEffect(() => {
+        let cancelled = false;
+        setSelectedInputCapabilities(null);
+        if (!selectedAssistant
+            || assistantInputCapabilities(selectedAssistant).source === 'integration'
+            || typeof window.electron?.settings?.ai?.getInputCapabilities !== 'function') return;
+        window.electron.settings.ai.getInputCapabilities(selectedAssistant).then(result => {
+            if (!cancelled) setSelectedInputCapabilities(result);
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [selectedAssistant]);
     const [loadingAssistants, setLoadingAssistants] = useState(true);
+    const [refreshingAssistants, setRefreshingAssistants] = useState(false);
+    const [assistantLoadError, setAssistantLoadError] = useState('');
+    const assistantLoadSequence = useRef(0);
     const [composerMode, setComposerMode] = useState(null);
+    const [savedGenerationCheckpoint, setSavedGenerationCheckpoint] = useState(null);
+    const [checkpointError, setCheckpointError] = useState('');
+    const preparedRecoveryRef = useRef(null);
+    const applyingGenerationCheckpointRef = useRef(null);
+    const checkpointSequenceRef = useRef(0);
+    const [generationRecovery, dispatchGenerationRecovery] = useReducer(generationRecoveryReducer, initialGenerationRecovery);
+    const recoveryFailure = generationRecovery.status === 'failed' ? generationRecovery.failure : null;
     const [uploadedImage, setUploadedImage] = useState(null);
+    const [verificationReports, setVerificationReports] = useState([]);
+    const verificationSequence = useRef(0);
+    const [confidenceAttemptFloor, setConfidenceAttemptFloor] = useState(0);
+    const [skillReview, setSkillReview] = useState(null);
+    const [skillReviewError, setSkillReviewError] = useState('');
+    const [skillReviewAction, setSkillReviewAction] = useState(null);
+    const [skillReviewFeedback, setSkillReviewFeedback] = useState('');
+    const skillReviewActionRef = useRef(null);
+    useEffect(() => { if (!isLoading) setSkillReview(null); }, [isLoading]);
     const [imagePreview, setImagePreview] = useState(null);
     const [imageName, setImageName] = useState("");
     const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
     const [operationSummary, setOperationSummary] = useState(null);
+    const [responseApplied, setResponseApplied] = useState(false);
     const [requestStatusEntries, setRequestStatusEntries] = useState([]);
     const [requestElapsedMs, setRequestElapsedMs] = useState(0);
     const [stageElapsedMs, setStageElapsedMs] = useState(0);
@@ -734,6 +824,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const streamContentBufferRef = useRef("");
     const streamProgressRef = useRef(createAiCodingStreamProgress());
     const [workspaceStage, setWorkspaceStage] = useState("");
+    const [repairNotice, setRepairNotice] = useState(null);
+    const [validationRecovery, setValidationRecovery] = useState(null);
+    const validationRecoveryRef = useRef(null);
+    const updateValidationRecovery = value => {validationRecoveryRef.current = value; setValidationRecovery(value);};
+    useEffect(() => {updateValidationRecovery(null);}, [historyKey]);
+    const estimatorRef = useRef(null);
     const streamContentFlushTimerRef = useRef(null);
     const timeoutRef = useRef(null);
     const streamingRequestIdRef = useRef(null);
@@ -745,6 +841,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const planRetryInFlightRef = useRef(false);
     const applyActionRef = useRef("");
     const currentRequestRef = useRef(null);
+    const blockIncompleteGeneration = !!recoveryFailure || (['failed', 'cancelled'].includes(generationRecovery.status) && (currentRequestRef.current?.action === 'plan' || !!savedGenerationCheckpoint));
     const singleFileRetryInFlightRef = useRef(false);
     const multiFileRetryInFlightRef = useRef(false);
     const scopeRetryInFlightRef = useRef(false);
@@ -756,7 +853,42 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const [mentionState, setMentionState] = useState(null);
     const lastPluginTraceToastRef = useRef({key: "", at: 0});
 
+    const runPluginTests = async () => {
+        const attempt = ++verificationSequence.current;
+        const publish = check => setVerificationReports(previous => [...previous.filter(report => report.attempt !== attempt),
+            {attempt, changedPaths: [], checks: [check]}].slice(-10));
+        publish({id: 'tests', label: 'Plugin tests', status: 'running'});
+        try {
+            const result = await runHostPluginTests();
+            publish(pluginTestsVerificationCheck(result));
+            return result;
+        } catch (error) {
+            publish(pluginTestsVerificationCheck({success: false, error: error.message}));
+            throw error;
+        }
+    };
+
+    const refreshGenerationCheckpoint = async () => {
+        const sequence = ++checkpointSequenceRef.current;
+        const workspaceId = virtualFS.sandboxName;
+        if (!workspaceId || !window.electron.aiCodingAgent.getGenerationCheckpoint) return;
+        try {
+            const result = await window.electron.aiCodingAgent.getGenerationCheckpoint({workspaceId, workspaceFiles: getAllProjectFiles()});
+            if (sequence !== checkpointSequenceRef.current || workspaceId !== virtualFS.sandboxName) return;
+            setSavedGenerationCheckpoint(result.checkpoint || null);
+            setCheckpointError(result.success ? '' : result.error);
+        } catch (error) {if (sequence === checkpointSequenceRef.current && workspaceId === virtualFS.sandboxName) setCheckpointError(error.message);}
+    };
+    useEffect(() => {
+        if (!isLoading) refreshGenerationCheckpoint();
+        return () => {checkpointSequenceRef.current += 1;};
+    }, [isLoading, selectedAssistant?.id, historyKey]);
+
     const beginStreamingRequest = (requestId) => {
+        let estimateStorage;
+        try { estimateStorage = window.localStorage; } catch { /* Optional history. */ }
+        estimatorRef.current = createCodingEstimator({assistant: selectedAssistant || {}, storage: estimateStorage});
+        dispatchGenerationRecovery({type: 'start', requestId});
         streamingRequestIdRef.current = requestId;
         streamProgressRef.current = createAiCodingStreamProgress();
         setWorkspaceStage("");
@@ -783,7 +915,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         streamContentBufferRef.current = "";
         if (!buffered) return;
         responseRef.current += buffered;
-        setResponse(responseRef.current);
+        if (!workspaceReviewInProgressRef.current) setResponse(responseRef.current);
     };
 
     const scheduleStreamContentFlush = () => {
@@ -808,10 +940,29 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         clear: isMacPlatform ? "cmd + shift + k" : "alt + c",
     }), [isMacPlatform]);
 
+    // Mirror UI request-status transitions into the main-process E2E lifecycle
+    // so auto-retry phases (and their reasons) are still readable from the
+    // artifact after the editor page is torn down on a timeout.
+    const recordCodingLifecycle = (event, details = {}) => {
+        try {
+            const pending = window.electron?.aiCodingAgent?.recordLifecycle?.({
+                event,
+                requestId: streamingRequestIdRef.current || currentRequestRef.current?.requestId || "",
+                details,
+            });
+            // Diagnostics only: never let a rejected IPC invoke surface as an
+            // unhandled rejection or disturb the request flow.
+            pending?.catch?.(() => {});
+        } catch {
+            // Diagnostics only; never disturb the request flow.
+        }
+    };
+
     const pushRequestStatus = (message, metadata = {}) => {
         const normalizedMessage = String(message || "").trim();
         if (!normalizedMessage) return;
         setRequestStatusEntries((existing) => upsertAiCodingRequestStatus(existing, normalizedMessage, metadata));
+        recordCodingLifecycle("request-status", {message: normalizedMessage, phase: metadata?.phase || ""});
     };
 
     const scrollPanelToBottomIfNearEnd = () => {
@@ -832,6 +983,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             const activeRequestId = streamingRequestIdRef.current;
             if (activeRequestId) {
                 timedOutRequestIdsRef.current.add(activeRequestId);
+                dispatchGenerationRecovery({type: 'cancel', requestId: activeRequestId});
                 cancelledRequestIdsRef.current.add(activeRequestId);
                 Promise.resolve(window.electron.aiCodingAgent.cancelRequest?.({requestId: activeRequestId})).catch(() => {});
             }
@@ -843,26 +995,43 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         }, timeoutMs);
     };
 
-    // Load available coding assistants
-    useEffect(() => {
-        async function loadAssistants() {
-            try {
-                setLoadingAssistants(true);
-                const allAssistants = await window.electron.settings.ai.getAssistants();
-                const codingAssistants = allAssistants.filter(a => a.purpose === 'coding');
-                setAssistants(codingAssistants);
-                
-                // Select default or first assistant
-                const defaultAssistant = codingAssistants.find(a => a.default);
-                setSelectedAssistant(defaultAssistant || codingAssistants[0] || null);
-            } catch (err) {
-                console.error('Failed to load assistants:', err);
-                setError('Failed to load AI assistants. Please check your settings.');
-            } finally {
+    const applyAssistants = allAssistants => {
+        const codingAssistants = allAssistants.filter(a => a.purpose === 'coding');
+        setAssistants(codingAssistants);
+        setSelectedAssistant(current => codingAssistants.find(a => a.id === current?.id)
+            || codingAssistants.find(a => a.default) || codingAssistants[0] || null);
+    };
+    const reloadAssistants = async () => {
+        const sequence = ++assistantLoadSequence.current;
+        setRefreshingAssistants(true);
+        setAssistantLoadError('');
+        try {
+            const allAssistants = await window.electron.settings.ai.getAssistants();
+            if (sequence === assistantLoadSequence.current) applyAssistants(allAssistants);
+        } catch (err) {
+            if (sequence === assistantLoadSequence.current) setAssistantLoadError('Could not reload AI assistants. Try again or check Settings.');
+        } finally {
+            if (sequence === assistantLoadSequence.current) {
                 setLoadingAssistants(false);
+                setRefreshingAssistants(false);
             }
         }
-        loadAssistants();
+    };
+    // Settings notifications and the explicit reload share selection behavior.
+    useEffect(() => {
+        const handleUpdate = (_, allAssistants) => {
+            ++assistantLoadSequence.current;
+            applyAssistants(allAssistants);
+            setLoadingAssistants(false);
+            setRefreshingAssistants(false);
+            setAssistantLoadError('');
+        };
+        window.electron.settings.ai.on?.updated?.(handleUpdate);
+        reloadAssistants();
+        return () => {
+            ++assistantLoadSequence.current;
+            window.electron.settings.ai.off?.updated?.(handleUpdate);
+        };
     }, []);
 
     // Keep autoApplyRef in sync with autoApply state
@@ -895,7 +1064,20 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
 
     const hasResponse = !!response;
     const latestProgressPhase = requestStatusEntries[requestStatusEntries.length - 1]?.metadata?.phase;
+    const confidence = useMemo(() => aiCodingConfidence(verificationReports.filter(report => report.attempt > confidenceAttemptFloor).at(-1), error,
+        {active: isLoading, hasResponse: !!response}), [verificationReports, confidenceAttemptFloor, error, isLoading, response]);
     const progressStage = getRequestProgressStage(latestProgressPhase, hasResponse, requestAttempt, workspaceStage);
+    const estimateData = isLoading && !workspaceStage.startsWith('Checking') ? estimatorRef.current?.estimate() : null;
+    const estimateDetails = estimateData?.details || '';
+    const estimateProgress = estimateData?.progress || '';
+    const finishEstimate = !isLoading ? '' : workspaceStage.startsWith('Checking')
+        ? 'Checking the workspace. Any required repairs may add time.'
+        : estimateData?.text || 'Finish estimate unavailable until file generation is underway.';
+    useEffect(() => {
+        if (isLoading) window.electron?.aiCodingAgent?.setActivity?.(true, {
+            stage: progressStage, progress: estimateProgress, estimate: finishEstimate,
+        });
+    }, [isLoading, progressStage, estimateProgress, finishEstimate]);
     // Reset for a new visible work stage, not for heartbeat text, token counts,
     // or opening the popover. The operation clock above keeps running.
     useEffect(() => {
@@ -920,6 +1102,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         const latestEntry = requestStatusEntries[requestStatusEntries.length - 1];
         const latestStatus = streamStatus || latestEntry?.message || "";
         onActivityChange({
+            guideReviewPending: !!skillReview,
             isLoading,
             hasResponse,
             error: error || "",
@@ -927,8 +1110,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             stage: isLoading ? progressStage : operationSummary?.title || "Request finished",
             elapsedMs: requestElapsedMs,
             stageElapsedMs,
+            estimate: finishEstimate,
+            estimateDetails,
+            estimateProgress,
+            confidence,
         });
-    }, [onActivityChange, isLoading, requestStatusEntries, hasResponse, streamStatus, error, requestElapsedMs, stageElapsedMs, progressStage, operationSummary]);
+    }, [onActivityChange, skillReview, isLoading, requestStatusEntries, hasResponse, streamStatus, error, requestElapsedMs, stageElapsedMs, progressStage, operationSummary, finishEstimate, estimateDetails, estimateProgress, confidence]);
 
     // Store handlers in refs to ensure proper cleanup and prevent duplicates
     const handlersRef = useRef({
@@ -951,27 +1138,53 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 return;
             }
 
+            if (data.type === 'generation-checkpoint') {
+                if (data.checkpoint.workspaceId !== virtualFS.sandboxName) return;
+                setSavedGenerationCheckpoint(data.checkpoint);
+                applyingGenerationCheckpointRef.current = data.checkpoint.id;
+                return;
+            }
+            if (data.type === 'skill-review') {
+                clearRequestTimeout();
+                skillReviewActionRef.current = null;
+                setSkillReviewAction(null);
+                setSkillReviewFeedback('');
+                setSkillReview({requestId: data.requestId, content: data.content, report: data.report, proposal: data.proposal});
+                setSkillReviewError(data.errors ? Object.entries(data.errors).map(([key, value]) => `${key}: ${value}`).join('\n') : '');
+                setWorkspaceStage(data.proposal ? 'Plugin guide proposal needs attention' : 'Waiting for plugin guide approval');
+                return;
+            }
             if (data.type === "heartbeat") {
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
                 return;
             }
 
+            if (data.type === 'estimate-complete') {
+                estimatorRef.current?.complete(data.path);
+                return;
+            }
+
             if (data.type === "stage") {
+                if (Object.prototype.hasOwnProperty.call(data, 'estimate')) {
+                    estimatorRef.current?.stage(data.estimate);
+                }
                 if (streamContentFlushTimerRef.current) clearTimeout(streamContentFlushTimerRef.current);
                 streamContentFlushTimerRef.current = null;
                 streamContentBufferRef.current = "";
                 streamProgressRef.current = createAiCodingStreamProgress();
+                stagePendingFiles(data.content, data.estimate?.path || '');
                 setWorkspaceStage(data.label || "Generating workspace files");
                 // These are pending files, not applied edits. STREAM_DONE is
                 // emitted only after every file completed successfully.
                 responseRef.current = data.content ? `${data.content}\n\n` : "";
-                setResponse(responseRef.current);
-                setRequestStatusEntries([]);
+                if (!workspaceReviewInProgressRef.current) setResponse(responseRef.current);
+                pushRequestStatus(data.label || "Generating workspace files", {phase: 'workspace-stage'});
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
                 return;
             }
 
             if (data.type === "reset") {
+                estimatorRef.current?.resetAttempt();
                 if (streamContentFlushTimerRef.current) {
                     clearTimeout(streamContentFlushTimerRef.current);
                     streamContentFlushTimerRef.current = null;
@@ -1000,6 +1213,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 data.content.length > 0) {
                 // Whitespace-only chunks can contain significant code indentation.
                 recordAiCodingStreamText(streamProgressRef.current, data.content);
+                estimatorRef.current?.chunk(data.content);
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
                 streamContentBufferRef.current += data.content;
                 scheduleStreamContentFlush();
@@ -1025,13 +1239,15 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             flushStreamContent();
             streamProgressRef.current = createAiCodingStreamProgress();
             setWorkspaceStage("");
+            estimatorRef.current?.stage(null);
             console.log('[AI Coding Agent] Timeout cleared');
             console.log('[AI Coding Agent] Stream done', { requestId: data.requestId, streamingRequestId: streamingRequestIdRef.current });
 
             console.log('[AI Coding Agent] Completing stream');
-            setRequestStatusEntries([]);
+            // Keep the activity trail through validation and scoped repairs.
             responseRef.current = data.fullContent;
-            setResponse(data.fullContent);
+            if (/^### File:/m.test(data.fullContent || '')) stagePendingFiles(data.fullContent);
+            if (!workspaceReviewInProgressRef.current) setResponse(data.fullContent);
             // Stream completion precedes IPC completion and workspace application.
             if (!submitInFlightRef.current) setIsLoading(false);
 
@@ -1047,6 +1263,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
                 return;
             }
             if (data.requestId === streamingRequestIdRef.current) {
+                dispatchGenerationRecovery({type: 'failed', requestId: data.requestId, failure: data.failure, originalPrompt: currentRequestRef.current?.userPrompt});
                 setError(data.error);
                 setIsOperationActive(false);
                 setIsLoading(false);
@@ -1063,6 +1280,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             if (!timedOut && !cancelledRequestIdsRef.current.has(data.requestId) && data.requestId !== streamingRequestIdRef.current) {
                 return;
             }
+            dispatchGenerationRecovery({type: 'cancel', requestId: data.requestId});
             timedOutRequestIdsRef.current.delete(data.requestId);
             clearRequestTimeout();
             if (data.requestId === streamingRequestIdRef.current) {
@@ -1189,8 +1407,9 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     };
 
     const updateMentionSuggestions = (text, cursorIndex) => {
-        const mention = detectWorkspaceMention(text, cursorIndex);
-        if (!mention || !mention.query.trim()) {
+        const skillMention = detectCodexSkillMention(text, cursorIndex);
+        const mention = skillMention || detectWorkspaceMention(text, cursorIndex);
+        if (!mention || (!skillMention && !mention.query.trim())) {
             setMentionState(null);
             return;
         }
@@ -1199,7 +1418,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         const currentFilePath = currentFileModel && typeof virtualFS.getFileName === "function"
             ? virtualFS.getFileName(currentFileModel) || ""
             : "";
-        const suggestions = getWorkspaceMentionItems(getAllProjectFiles(), mention.query, currentFilePath);
+        const suggestions = skillMention ? getCodexSkillMentionItems(mentionSkills, selectedAssistant, mention.query)
+            : getWorkspaceMentionItems(getAllProjectFiles(), mention.query, currentFilePath);
         if (suggestions.length === 0) {
             setMentionState(null);
             return;
@@ -1215,9 +1435,9 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     };
 
     const renderMentionTitle = (item) => {
-        if (item.type === "special") {
+        if (item.type === "special" || item.type === 'skill') {
             const titleText = String(item.title || "");
-            const marker = titleText.startsWith("@") ? "@" : "";
+            const marker = /^[\@$]/.test(titleText) ? titleText[0] : "";
             const body = marker ? titleText.slice(1) : titleText;
             return (
                 <span className={styles["mention-token"]}>
@@ -1240,7 +1460,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         if (message.startsWith(validationPrefix)) {
             const details = message
                 .slice(validationPrefix.length)
-                .split(/\s*;\s*/)
+                .split(/\s*;\s*(?=\/[^:\n]+:)/)
                 .map((item) => item.trim())
                 .filter(Boolean);
 
@@ -1277,10 +1497,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
 
     const applyMentionSuggestion = (insertText) => {
         if (!mentionState || !insertText) return;
-        const applied = applyWorkspaceMention(prompt, mentionState, insertText);
+        const applied = mentionState.kind === 'skill'
+            ? applyCodexSkillMention(prompt, mentionState, insertText, mentionState.suggestions)
+            : applyWorkspaceMention(prompt, mentionState, insertText);
         setPrompt(applied.value);
         setMentionState(null);
-        requestAnimationFrame(() => {
+        scheduleUiFrame(() => {
             const input = promptInputRef.current;
             if (!input) return;
             input.focus();
@@ -1723,6 +1945,13 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             const created = virtualFS.fs.create(previousVersion, tabs, { quiet: true });
             if (!created.error) {
                 appliedSnapshotRef.current = created.version;
+                const checkpointId = applyingGenerationCheckpointRef.current;
+                if (checkpointId && window.electron.aiCodingAgent.discardGenerationCheckpoint) {
+                    applyingGenerationCheckpointRef.current = null;
+                    window.electron.aiCodingAgent.discardGenerationCheckpoint({workspaceId: virtualFS.sandboxName, id: checkpointId})
+                        .then(result => {if (result.success) {checkpointSequenceRef.current += 1; setSavedGenerationCheckpoint(current => current?.id === checkpointId ? null : current);} else setCheckpointError(result.error);})
+                        .catch(error => setCheckpointError(error.message));
+                }
                 if (!submitInFlightRef.current) {
                     const messages = [...conversationRef.current];
                     const last = messages.length - 1;
@@ -2271,14 +2500,15 @@ Rules:
                                 afterSnapshot: persisted?.version,
                             })}`,
                     });
-                    setError(null);
+                    setError(execution.errorCount ? execution.errorDetails.join('; ') : null);
+                    return {success: execution.errorCount === 0, mode: 'workspace'};
                 } else {
                     setError(`Auto-apply could not update workspace files. Errors: ${execution.errorDetails.join('; ')}`);
                 }
             } catch (err) {
                 setError(err.message || "Failed to auto-apply workspace changes.");
             }
-            return { success: true, mode: "workspace" };
+            return { success: false, mode: "workspace" };
         }
 
         if (expectWorkspaceApplyRef.current) {
@@ -2384,6 +2614,7 @@ Rules:
             })}`,
         });
         setError(null);
+        setResponseApplied(true);
         return insertResult;
     };
 
@@ -2397,7 +2628,7 @@ Rules:
         const draftPrompt = buildAiCodingFollowUpDraft(response);
         setPrompt(draftPrompt);
         clearPromptBlurTimeout();
-        requestAnimationFrame(() => {
+        scheduleUiFrame(() => {
             const input = promptInputRef.current;
             if (!input) return;
             input.focus();
@@ -2412,6 +2643,54 @@ Rules:
         });
     };
 
+    const handleSmallerScopeRetry = () => {
+        if (isLoading || submitInFlightRef.current) return;
+        const recovery = recoveryFailure || (savedGenerationCheckpoint && {path: savedGenerationCheckpoint.path});
+        if (!recovery || (savedGenerationCheckpoint && !savedGenerationCheckpoint.canResume)) return;
+        const originalPrompt = savedGenerationCheckpoint?.requirements || generationRecovery.originalPrompt || currentRequestRef.current?.userPrompt || prompt || '';
+        const retryGoal = 'For this retry, build a smaller working version of the core workflow. Keep the design simple, defer optional enhancements, and explain what was deferred.';
+        const retryPrompt = originalPrompt.endsWith(retryGoal) ? originalPrompt : `${originalPrompt.trim()}\n\n${retryGoal}`;
+        if (/^### File:/m.test(responseRef.current || '')) stagePendingFiles(responseRef.current);
+        clearResponse({preserveRecovery: true});
+        preservePendingFilesOnRetryRef.current = true;
+        preparedRecoveryRef.current = {
+            ...(savedGenerationCheckpoint?.canResume ? {checkpointId: savedGenerationCheckpoint.id} : {}),
+            recoveryMode: 'smaller-scope', recoveryPath: recovery.path,
+        };
+        dispatchGenerationRecovery({type: 'prepare-checkpoint', originalPrompt: retryPrompt});
+        if (streamContentFlushTimerRef.current) clearTimeout(streamContentFlushTimerRef.current);
+        streamContentFlushTimerRef.current = null;
+        streamContentBufferRef.current = '';
+        streamingRequestIdRef.current = null;
+        setAction('plan');
+        setPrompt(retryPrompt);
+        handleSubmit({prompt: retryPrompt, action: 'plan'});
+    };
+
+    const handleResumeGenerationCheckpoint = () => {
+        if (!savedGenerationCheckpoint?.canResume) return;
+        const checkpoint = savedGenerationCheckpoint;
+        clearResponse();
+        preparedRecoveryRef.current = {checkpointId: checkpoint.id, recoveryMode: 'resume'};
+        preservePendingFilesOnRetryRef.current = true;
+        dispatchGenerationRecovery({type: 'prepare-checkpoint', originalPrompt: checkpoint.requirements});
+        setAction('plan'); setPrompt(checkpoint.requirements);
+        setOperationSummary({intent: 'primary', title: 'Resume prepared', message: 'Submit to resume unfinished generation using the saved plan. To change requirements, choose Retry with smaller scope instead. The saved guide will be reviewed again before implementation continues.'});
+        scheduleUiFrame(() => promptInputRef.current?.focus());
+    };
+    const handleDiscardGenerationCheckpoint = async () => {
+        if (isLoading) return;
+        const workspaceId = virtualFS.sandboxName;
+        try {
+            const result = await window.electron.aiCodingAgent.discardGenerationCheckpoint({workspaceId, id: savedGenerationCheckpoint?.id || null});
+            if (!result.success) throw new Error(result.error);
+            if (workspaceId !== virtualFS.sandboxName) return;
+            checkpointSequenceRef.current += 1;
+            setSavedGenerationCheckpoint(null); applyingGenerationCheckpointRef.current = null; setCheckpointError('');
+            preparedRecoveryRef.current = null; dispatchGenerationRecovery({type: 'reset'});
+        } catch (error) {setCheckpointError(error.message);}
+    };
+
     const handleRetryTruncatedResponse = () => {
         if (!response) return;
         const draftPrompt = "Restart the interrupted answer as a compact, complete, self-contained response. Include every required plugin workspace file section, including files that were complete before interruption. Do not rely on or refer to the partial response.";
@@ -2419,7 +2698,7 @@ Rules:
         setPrompt(draftPrompt);
         setError(null);
         clearPromptBlurTimeout();
-        requestAnimationFrame(() => {
+        scheduleUiFrame(() => {
             const input = promptInputRef.current;
             if (!input) return;
             input.focus();
@@ -2428,6 +2707,10 @@ Rules:
     };
 
     const handleImageUpload = (event) => {
+        if (inputCapabilities.imageSupport === 'unsupported') {
+            setError(`${imageSupportLabel(inputCapabilities)}. Select an image-capable assistant for screenshots.`);
+            return;
+        }
         const file = event.target.files[0];
         if (!file) return;
 
@@ -2465,7 +2748,7 @@ Rules:
     };
 
     const handlePanelKeyDown = (event) => {
-        if (mentionState?.suggestions?.length) {
+        if (!isLoading && mentionState?.suggestions?.length && (mentionState.kind !== 'skill' || event.target === promptInputRef.current)) {
             if (event.key === "ArrowDown") {
                 event.preventDefault();
                 setMentionState((existing) => existing ? {
@@ -2482,7 +2765,7 @@ Rules:
                 } : existing);
                 return;
             }
-            if ((event.key === "Enter" || event.key === "Tab") && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+            if ((event.key === "Tab" || (event.key === "Enter" && mentionState.kind !== 'skill')) && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
                 event.preventDefault();
                 const selectedItem = mentionState.suggestions[mentionState.selectedIndex] || mentionState.suggestions[0];
                 applyMentionSuggestion(selectedItem?.insertText || "");
@@ -2492,7 +2775,7 @@ Rules:
 
         if (event.key === "Escape") {
             event.preventDefault();
-            if (mentionState) {
+            if (!isLoading && mentionState) {
                 setMentionState(null);
                 return;
             }
@@ -2581,9 +2864,9 @@ Rules:
                 }
             },
         },
-    ]), [shortcutCombos, isLoading, prompt, selectedAssistant, response, autoApply, action]);
+    ]), [shortcutCombos, isLoading, prompt, selectedAssistant, response, autoApply, action, blockIncompleteGeneration, eventDocument]);
 
-    const { handleKeyDown: handleHotkeyKeyDown, handleKeyUp: handleHotkeyKeyUp } = useHotkeys(hotkeyConfigs);
+    const { handleKeyDown: handleHotkeyKeyDown, handleKeyUp: handleHotkeyKeyUp } = useHotkeys(hotkeyConfigs, {document: eventDocument});
 
     const handlePanelKeyDownWithHotkeys = (event) => {
         handlePanelKeyDown(event);
@@ -2598,7 +2881,10 @@ Rules:
             return;
         }
 
+        dispatchGenerationRecovery({type: 'cancel', requestId: activeRequestId});
         cancelledRequestIdsRef.current.add(activeRequestId);
+        skillReviewActionRef.current = null;
+        setSkillReviewAction(null);
         setIsOperationActive(false);
         setIsLoading(false);
         clearRequestTimeout();
@@ -2624,14 +2910,65 @@ Rules:
         }
     };
 
-    const handleCopyPlan = () => {
-        if (!response) return;
-        navigator.clipboard.writeText(response);
-        console.log('[AI Coding Agent] Plan copied to clipboard');
+    const handleGuideReviewAction = async action => {
+        if (!skillReview || skillReviewActionRef.current) return;
+        const review = skillReview;
+        const operation = {};
+        skillReviewActionRef.current = operation;
+        setSkillReviewAction(action);
+        setSkillReviewError('');
+        setSkillReviewFeedback('');
+        try {
+            const payload = action === 'retry'
+                ? {requestId: review.requestId, action: 'retry'}
+                : {requestId: review.requestId, content: review.content, ...(action === 'check' ? {checkOnly: true} : {})};
+            const result = await window.electron.aiCodingAgent.reviewSkill(payload);
+            // A stopped request must not update a later review.
+            if (streamingRequestIdRef.current !== review.requestId) return;
+            if (action === 'check' || !result.success) {
+                setSkillReview(current => current === review ? {...current, report: result.report || null} : current);
+                if (result.success) setSkillReviewFeedback(review.proposal
+                    ? 'Proposal check passed. Validate the proposal to continue to guide approval.'
+                    : 'Compatibility check passed. Review the guide, then approve to continue. This does not verify plugin behavior.');
+                else setSkillReviewError(result.error || 'The guide could not be validated. Try again.');
+                return;
+            }
+            setSkillReview(current => current === review ? null : current);
+            scheduleRequestTimeout(selectedAssistant?.provider || '');
+        } catch (error) {
+            if (streamingRequestIdRef.current === review.requestId) setSkillReviewError(error.message || 'The guide request failed. Try again.');
+        } finally {
+            if (skillReviewActionRef.current === operation) {
+                skillReviewActionRef.current = null;
+                setSkillReviewAction(null);
+            }
+        }
     };
 
-    const handleExecutePlan = async () => {
+    const handleCopyPlan = async () => {
         if (!response) return;
+        try { await (eventDocument.defaultView || window).navigator.clipboard.writeText(response); }
+        catch {setError('The response could not be copied. Select its text and copy it manually.');}
+    };
+
+    const checkSavedGenerationBeforeApply = async () => {
+        if (!savedGenerationCheckpoint || applyingGenerationCheckpointRef.current !== savedGenerationCheckpoint.id) return true;
+        const workspaceId = virtualFS.sandboxName;
+        const before = getAllProjectFiles();
+        const key = files => JSON.stringify(files.slice().sort((a, b) => a.path.localeCompare(b.path)));
+        const result = await window.electron.aiCodingAgent.getGenerationCheckpoint({workspaceId, workspaceFiles: before});
+        if (!result.success || result.checkpoint?.id !== savedGenerationCheckpoint.id || !result.checkpoint.canResume
+            || workspaceId !== virtualFS.sandboxName || key(before) !== key(getAllProjectFiles())) {
+            setError(result.error || result.checkpoint?.reason || 'The workspace or saved proposal changed. Refresh recovery before applying.');
+            return false;
+        }
+        return true;
+    };
+    const handleExecutePlan = async () => {
+        if (blockIncompleteGeneration) return;
+        try {if (!await checkSavedGenerationBeforeApply()) return;} catch (error) {setError(error.message); return;}
+        if (!response) return;
+        setRepairNotice(null);
 
         console.log('[AI Coding Agent] Executing plan...');
         setIsOperationActive(true);
@@ -2658,7 +2995,7 @@ Rules:
                         ? `${message} ${execution.errorDetails.join(' ; ')}`
                         : message,
                 });
-                setError(null);
+                setError(execution.errorCount > 0 ? `Plan application failed: ${execution.errorDetails.join('; ')}` : null);
                 handleRemoveImage();
             } else {
                 setError(`Failed to create any files from the plan. Errors: ${execution.errorDetails.join('; ')}`);
@@ -2677,6 +3014,9 @@ Rules:
         {
             createSnapshot = true,
             allowValidationRetry = true,
+            allowTestRetry = true,
+            previousTestResults = null,
+            allowProgressTestRetry = true,
             allowProblemsRetry = true,
         } = {},
     ) => {
@@ -2689,10 +3029,35 @@ Rules:
             }
         }
 
+        const verificationAttempt = ++verificationSequence.current;
+        if (createSnapshot) setVerificationReports([]);
+        const publishVerification = report => {
+            setVerificationReports(previous => [...previous.filter(item => item.attempt !== verificationAttempt),
+                {...report, attempt: verificationAttempt}].slice(-10));
+            recordCodingLifecycle('workspace-verification', {attempt: verificationAttempt, ...report});
+        };
         const parsedPlan = parseAiWorkspacePlanResponse(planResponse);
-        const {files, normalizedPaths} = normalizeReservedHostBindingMarkers(parsedPlan.files);
+        stagePendingFiles(planResponse);
+        updatePendingFiles({activePath: '', status: 'validating'});
+        const normalizedImports = parsedPlan.files.map(file => ({...file, ...repairGeneratedUnusedImports(file)}));
+        const unusedImportFiles = normalizedImports.filter(file => file.names.length);
+        if (unusedImportFiles.length) pushRequestStatus(`Removed unused import bindings in ${unusedImportFiles.map(file => file.path).join(', ')}; preserved module side effects.`, {phase: 'validation'});
+        const normalizedDom = normalizedImports.map(file => ({...file, ...repairWorkspaceSdkDom(file)}));
+        const normalizedExports = normalizedDom.map(file => ({file, ...normalizeGeneratedModuleExports(file)}));
+        const sdkDomPaths = normalizedDom.filter(file => file.repaired).map(file => file.path);
+        if (sdkDomPaths.length) pushRequestStatus(`Corrected SDK DOM usage in ${sdkDomPaths.join(', ')}.`, {phase: 'validation'});
+        const {files, normalizedPaths} = normalizeReservedHostBindingMarkers(normalizedExports.map(({file, content}) => ({...file, content})));
         const {invalidPaths} = parsedPlan;
-        const pluginValidation = validateGeneratedPluginFiles(files);
+        const repairScope = currentRequestRef.current?.repairPaths;
+        if (repairScope && files.some(file => !repairScope.includes(file.path))) {
+            throw new Error('Repair response changed files outside the requested scope. No generated files were applied.');
+        }
+        const pluginValidation = validateGeneratedPluginFiles(files, {workspaceFiles: getAllProjectFiles()});
+        const correctedExportPaths = normalizedExports.filter(item => item.names.length).map(item => item.file.path);
+        if (correctedExportPaths.length) {
+            pushRequestStatus(`Removed redundant export wrappers in ${correctedExportPaths.join(', ')}; retained their implementations.`,
+                {phase: "module-export-repair", paths: correctedExportPaths});
+        }
         if (files.length === 0) {
             const invalidDetail = invalidPaths.length > 0
                 ? ` Invalid paths: ${invalidPaths.join(', ')}`
@@ -2705,24 +3070,90 @@ Rules:
                 {phase: "reserved-binding-marker-repair", paths: normalizedPaths},
             );
         }
+        if (invalidPaths.length) {
+            throw new Error(`Generated plan contains invalid workspace paths: ${invalidPaths.join(', ')}. No generated files were applied.`);
+        }
+        const sourceCheck = {id: 'source', label: 'Generated source rules', status: pluginValidation.errors.length ? 'failed' : 'passed',
+            detail: pluginValidation.errors.join('\n')};
+        publishVerification({changedPaths: files.map(file => file.path), checks: [sourceCheck]});
+        let candidateTestsFailed = false;
+        let candidateTestResults = null;
+        {
+            const candidateRequestId = streamingRequestIdRef.current;
+            setWorkspaceStage(`Checking ${files.length} generated files`);
+            pushRequestStatus('Compiling proposed workspace changes before applying them.', {phase: 'validation'});
+            pluginValidation.errors.push(...await validateAiWorkspaceCandidate({
+                files, workspaceFiles: getAllProjectFiles(), readWorkspace: getAllProjectFiles,
+                staticOnly: pluginValidation.errors.length > 0,
+                build: window.electron.plugin?.build,
+                typecheck: window.electron.plugin?.typecheck,
+                runTests: window.electron.plugin?.runTests ? data => runCandidateTests(data, window.electron.plugin.runTests) : undefined,
+                onVerification: report => publishVerification({...report, checks: [sourceCheck, ...report.checks]}),
+                onTestFailure: results => { candidateTestsFailed = true; candidateTestResults = results; },
+                onTestStart: () => {
+                    updatePendingFiles({activePath: '', status: 'testing'});
+                    onShowTests?.();
+                    setWorkspaceStage('Running candidate workspace tests');
+                    pushRequestStatus('Running generated and retained tests before applying workspace changes.', {phase: 'validation-tests'});
+                },
+                assertActive: () => {
+                    assertSnapshotUnchanged();
+                    if (candidateRequestId && cancelledRequestIdsRef.current.has(candidateRequestId)) {
+                        throw new Error('AI request stopped during validation. No generated files were applied.');
+                    }
+                },
+            }));
+        }
         if (pluginValidation.errors.length > 0) {
-            if (allowValidationRetry && selectedAssistant?.id) {
+            updateValidationRecovery(retainValidationRecovery({previous: validationRecoveryRef.current, files,
+                workspaceFiles: getAllProjectFiles(), diagnostics: pluginValidation.errors,
+                originalPrompt: currentRequestRef.current?.prompt || prompt || '',
+                workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0, repairScope}));
+            const progressRetry = candidateTestsFailed && !allowTestRetry && allowProgressTestRetry
+                && hasStrictTestRepairProgress(previousTestResults, candidateTestResults);
+            if ((candidateTestsFailed ? (allowTestRetry || progressRetry) : allowValidationRetry) && selectedAssistant?.id) {
+                const candidateFiles = [...new Map([...getAllProjectFiles(), ...files].map(file => [file.path, file])).values()];
+                const validationRepairPaths = getValidationRepairPaths(pluginValidation.errors, candidateFiles);
+                if (!validationRepairPaths.length) {
+                    throw new Error(`Automatic repair stopped: validation errors could not be mapped to specific candidate workspace files. No additional AI request was sent and no generated files were applied. Review these diagnostics before requesting a broader change: ${pluginValidation.errors.join(' ; ')}`);
+                }
+                if (repairScope && validationRepairPaths.some(path => !repairScope.includes(path))) {
+                    throw new Error(`Automatic repair stopped: validation requires changes outside your explicit repair scope (${validationRepairPaths.filter(path => !repairScope.includes(path)).join(', ')}). No additional AI request was sent and no generated files were applied. ${pluginValidation.errors.join(' ; ')}`);
+                }
+                const generatedRepairCount = files.filter(file => validationRepairPaths.includes(file.path)).length;
+                const retainedRepairCount = validationRepairPaths.length - generatedRepairCount;
+                const repairDescription = retainedRepairCount
+                    ? `Repairing ${retainedRepairCount} existing workspace file(s) named by the diagnostics${generatedRepairCount ? ` and ${generatedRepairCount} generated file(s)` : ''}; retaining ${files.length - generatedRepairCount} generated files unchanged.`
+                    : `Repairing ${generatedRepairCount} of ${files.length} generated files; retaining ${files.length - generatedRepairCount} unchanged.`;
                 const retryPrompt = buildValidationRepairPlanPrompt({
                     originalPrompt: currentRequestRef.current?.prompt || prompt || "",
                     invalidResponse: planResponse,
                     validationErrors: pluginValidation.errors,
+                    repairPaths: validationRepairPaths,
                 });
                 const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 beginStreamingRequest(retryRequestId);
+                setRepairNotice({
+                    message: `${progressRetry ? "Test failures decreased without new failures. One final scoped repair is available. " : ""}Validation found ${pluginValidation.errors.length} error(s). ${repairDescription} This additional AI pass uses tokens to correct the errors below.`,
+                    diagnostics: pluginValidation.errors,
+                    paths: validationRepairPaths,
+                });
+                setWorkspaceStage(`Repairing ${validationRepairPaths.length} files after validation`);
                 responseRef.current = "";
                 setResponse("");
                 scheduleRequestTimeout(selectedAssistant?.provider || "");
                 pushRequestStatus(
-                    "Generated plan failed plugin validation. Requesting corrected plugin-local files and node:test-compatible tests.",
+                    `Repairing validation errors in ${validationRepairPaths.join(', ')}; retaining the other generated files.`,
                     { phase: "plan-retry-validation" },
                 );
+                recordCodingLifecycle("plan-retry-validation", {
+                    phase: "plan-retry-validation",
+                    fileCount: files.length,
+                    validationErrors: pluginValidation.errors,
+                });
                 const retryResult = await window.electron.aiCodingAgent.planCode({
-                    workspaceFiles: getAllProjectFiles(),
+                    workspaceFiles: candidateFiles,
+                    repairPaths: validationRepairPaths,
                     requestId: retryRequestId,
                     prompt: retryPrompt,
                     image: uploadedImage,
@@ -2730,11 +3161,16 @@ Rules:
                     assistantId: selectedAssistant.id,
                 });
                 if (retryResult?.success && retryResult?.content) {
-                    return await executePlanResponse(retryResult.content, {
+                    return await executePlanResponse(mergeValidationRepairResponse(files, retryResult.content, validationRepairPaths), {
                         createSnapshot: false,
-                        allowValidationRetry: false,
+                        allowValidationRetry: candidateTestsFailed ? allowValidationRetry : false,
+                        allowTestRetry: candidateTestsFailed ? false : allowTestRetry,
+                        previousTestResults: candidateTestsFailed ? candidateTestResults : previousTestResults,
+                        allowProgressTestRetry: progressRetry ? false : allowProgressTestRetry,
+                        allowProblemsRetry,
                     });
                 }
+                throw new Error(`Validation repair failed: ${retryResult?.error || 'The assistant returned no corrected files.'} No generated files were applied.`);
             }
             throw new Error(`Generated plugin files failed validation: ${pluginValidation.errors.join(' ; ')}`);
         }
@@ -2762,36 +3198,42 @@ Rules:
         let errorCount = 0;
         const errorDetails = [];
 
-        for (const file of files) {
-            assertSnapshotUnchanged();
-            try {
-                createVirtualFile(file.path, file.content);
-                successCount++;
-            } catch (err) {
-                errorCount++;
-                errorDetails.push(`${file.path}: ${err.message}`);
-            }
-        }
+        successCount = applyAiWorkspaceFiles({files, existingFiles: getAllProjectFiles(),
+            write: createVirtualFile, remove: path => virtualFS.deleteFile(path, {exact: true}),
+            assertScope: assertSnapshotUnchanged});
+        updatePendingFiles({files: [], activePath: '', status: 'applied'});
 
         if (invalidPaths.length > 0) {
             errorCount += invalidPaths.length;
             errorDetails.push(...invalidPaths.map((filePath) => `${filePath}: invalid workspace path`));
         }
         if (pluginValidation.warnings.length > 0) {
-            errorDetails.push(...pluginValidation.warnings);
+        pluginValidation.warnings.forEach(warning => pushRequestStatus(warning, {phase: 'validation-warning'}));
         }
 
+        setWorkspaceStage('Checking editor diagnostics');
         const problemsContext = await waitForProblemsContext({errorsOnly: true});
         if (problemsContext) {
             if (allowProblemsRetry && selectedAssistant?.id) {
+                const repairWorkspace = getAllProjectFiles();
+                const repairPaths = getProblemsRepairPaths(problemsContext, repairWorkspace);
+                if (!repairPaths.length) {
+                    throw new Error(`Automatic repair stopped: editor errors could not be mapped to specific workspace files. Generated files remain applied. No additional AI request was sent. Review these diagnostics before requesting a broader change: ${problemsContext}`);
+                }
                 const retryPrompt = buildProblemsRepairPlanPrompt({
                     originalPrompt: currentRequestRef.current?.prompt || prompt || "",
                     previousResponse: planResponse,
                     problemsContext,
-                    workspaceFiles: getAllProjectFiles(),
+                    workspaceFiles: repairWorkspace,
                 });
                 const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 beginStreamingRequest(retryRequestId);
+                setRepairNotice({
+                    message: `Editor checks found errors after applying the generated files. Repairing ${repairPaths.length} workspace files; retaining all other files. This additional AI pass uses tokens to correct the errors below.`,
+                    diagnostics: [problemsContext],
+                    paths: repairPaths,
+                });
+                setWorkspaceStage(`Repairing ${repairPaths.length} files after editor checks`);
                 responseRef.current = "";
                 setResponse("");
                 setIsLoading(true);
@@ -2800,18 +3242,28 @@ Rules:
                     "Problems panel found generated-code errors. Requesting one plugin-local correction.",
                     {phase: "plan-retry-problems"},
                 );
+                recordCodingLifecycle("plan-retry-problems", {
+                    phase: "plan-retry-problems",
+                    problemsContext: String(problemsContext || "").slice(0, 500),
+                });
                 const retryResult = await window.electron.aiCodingAgent.planCode({
-                    workspaceFiles: getAllProjectFiles(),
+                    workspaceFiles: repairWorkspace,
                     requestId: retryRequestId,
+                    repairPaths,
                     prompt: retryPrompt,
-                    image: uploadedImage,
+                    image: null,
                     context: "",
                     assistantId: selectedAssistant.id,
                 });
                 if (retryResult?.success && retryResult?.content) {
-                    return await executePlanResponse(retryResult.content, {
+                    const repaired = mergeValidationRepairResponse(
+                        repairWorkspace.filter(file => repairPaths.includes(file.path)), retryResult.content, repairPaths);
+                    return await executePlanResponse(repaired, {
                         createSnapshot: false,
                         allowValidationRetry: false,
+                        allowTestRetry,
+                        previousTestResults,
+                        allowProgressTestRetry,
                         allowProblemsRetry: false,
                     });
                 }
@@ -2821,13 +3273,68 @@ Rules:
             errorDetails.push(`Problems panel still reports generated-code errors: ${problemsContext.replace(/\s+/g, " ").slice(0, 500)}`);
         }
 
+        if (successCount > 0 && errorCount === 0) {setResponseApplied(true); updateValidationRecovery(null);}
         return { successCount, errorCount, errorDetails };
     };
     
+    const handleRepairFailedValidation = async () => {
+        const retained = validationRecoveryRef.current;
+        if (!retained || submitInFlightRef.current || isLoading || !selectedAssistant) return;
+        try {assertValidationRecoveryCurrent(retained, {files: getAllProjectFiles(), workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0});}
+        catch (failure) {setError(failure.message); return;}
+        submitInFlightRef.current = true;
+        setIsOperationActive(true); setIsLoading(true); setError(null); setOperationSummary(null);
+        pendingAutoFileCreateRef.current = false; expectWorkspaceApplyRef.current = false;
+        setRequestStatusEntries([]); setResponseApplied(false);
+        responseRef.current = ''; setResponse('');
+        updateValidationRecovery({...retained, attempts: retained.attempts + 1});
+        requestSnapshotRef.current = {revision: retained.revision, workspace: retained.workspace};
+        const retryPrompt = buildValidationRepairPlanPrompt({originalPrompt: retained.originalPrompt,
+            validationErrors: retained.diagnostics, repairPaths: retained.paths});
+        currentRequestRef.current = {...currentRequestRef.current, prompt: retained.originalPrompt, repairPaths: retained.repairScope};
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        beginStreamingRequest(requestId); scheduleRequestTimeout(selectedAssistant.provider);
+        pushRequestStatus(`Repair attempt ${retained.attempts + 1}: retaining the latest candidate and correcting its validation failures.`, {phase: 'validation-repair'});
+        saveConversation([...conversationRef.current, {role: 'user', content: 'Repair failed validation.', snapshot: virtualFS.fs.version()?.version ?? ''}]);
+        try {
+            const result = await window.electron.aiCodingAgent.planCode({requestId, assistantId: selectedAssistant.id,
+                workspaceFiles: retained.candidate, repairPaths: retained.paths, prompt: retryPrompt,
+                context: currentRequestRef.current?.context || '', image: uploadedImage});
+            if (cancelledRequestIdsRef.current.has(requestId) || result?.cancelled) return;
+            assertValidationRecoveryCurrent(retained, {files: getAllProjectFiles(), workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0});
+            if (!result?.success || !result.content) throw new Error(result?.error || 'The assistant returned no corrected files.');
+            const merged = mergeValidationRepairResponse(retained.files, result.content, retained.paths);
+            const execution = await executePlanResponse(merged, {createSnapshot: false, allowValidationRetry: false,
+                allowTestRetry: false, allowProgressTestRetry: false, allowProblemsRetry: false});
+            if (execution.errorCount || !execution.successCount) throw new Error(execution.errorDetails.join('\n') || 'No validated files were applied.');
+            const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || '');
+            if (!persisted || persisted.error) throw new Error('Repair applied, but its snapshot could not be saved.');
+            const summary = `Validation repair completed. ${execution.successCount} files applied after candidate validation.`;
+            responseRef.current = summary; setResponse(summary);
+            setOperationSummary({intent: 'success', title: 'Validation Repair Complete', message: summary});
+            saveConversation([...conversationRef.current, {role: 'assistant', content: summary,
+                snapshot: virtualFS.fs.version()?.version ?? '', appliedSnapshot: appliedSnapshotRef.current}]);
+        } catch (failure) {
+            if (!cancelledRequestIdsRef.current.has(requestId)) {
+                setError(failure.message);
+                setOperationSummary({intent: 'warning', title: 'Validation Repair Needs Another Attempt',
+                    message: 'The latest candidate and diagnostics are retained. You can repair again or select another assistant.'});
+            }
+        } finally {
+            clearRequestTimeout(); streamingRequestIdRef.current = null;
+            submitInFlightRef.current = false; setIsOperationActive(false); setIsLoading(false);
+        }
+    };
+
     const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride} = {}) => {
         if (submitInFlightRef.current) return;
         const requestPrompt = String(promptOverride ?? prompt).trim();
-        const requestAction = actionOverride ?? action;
+        const reviewRequest = isWorkspaceQualityReviewPrompt(requestPrompt);
+        const requestAction = reviewRequest ? "smart" : (actionOverride ?? action);
+        let reviewTests = null;
+        let reviewChangesApplied = false;
+        let reviewReport = null;
+        let requestSucceeded = false;
         const requestAutoApply = typeof autoApplyOverride === "boolean" ? autoApplyOverride : autoApplyRef.current;
         if (!requestPrompt) return;
         
@@ -2836,21 +3343,26 @@ Rules:
             setError("No coding assistant selected. Please select one from the dropdown or add one in Settings.");
             return;
         }
+        if (uploadedImage && inputCapabilities.imageSupport === 'unsupported') {
+            setError(`${imageSupportLabel(inputCapabilities)}. Remove the image or select an image-capable assistant.`);
+            return;
+        }
 
         const projectFiles = getAllProjectFiles();
+        const previousResponse = isClassificationOnly(response) ? '' : response;
         const followUpMode = shouldTreatAsAiCodingFollowUp({
             prompt: requestPrompt,
-            previousResponse: response,
-            forceFollowUp: composerMode === "refine",
+            previousResponse: preparedRecoveryRef.current ? '' : previousResponse,
+            forceFollowUp: !preparedRecoveryRef.current && composerMode === "refine",
         });
         const createProjectFilesCandidate = shouldCreateProjectFiles({
             prompt: requestPrompt,
-            previousResponse: response,
+            previousResponse,
             workspaceFiles: projectFiles,
         });
         const executeWorkspacePlanCandidate = shouldExecuteWorkspacePlan({
             prompt: requestPrompt,
-            previousResponse: response,
+            previousResponse,
             workspaceFiles: projectFiles,
         });
         if (followUpMode) {
@@ -2858,6 +3370,16 @@ Rules:
         }
 
         submitInFlightRef.current = true;
+        updateValidationRecovery(null);
+        // Initialize once per submitted operation, before any async routing or
+        // loading phase can change. Internal repairs retain their file previews.
+        startPendingFiles(preservePendingFilesOnRetryRef.current);
+        preservePendingFilesOnRetryRef.current = false;
+        // Reset once for the user's operation, not for internal repair requests.
+        setConfidenceAttemptFloor(verificationSequence.current);
+        workspaceReviewInProgressRef.current = reviewRequest;
+        setMentionState(null);
+        setRepairNotice(null);
         setIsOperationActive(true);
         requestAttemptRef.current = 0;
         setRequestAttempt(0);
@@ -2870,6 +3392,7 @@ Rules:
         setError(null);
         setResponse("");
         setRequestStatusEntries([]);
+        setResponseApplied(false);
         responseRef.current = "";
         setOperationSummary(null);
         scopeRetryInFlightRef.current = false;
@@ -2879,7 +3402,10 @@ Rules:
         try {
             const selectedCode = getSelectedCode();
             const refreshedProjectFiles = getAllProjectFiles();
-            const derivedFailingFile = !selectedCode
+            const requestedRepairPaths = readWorkspaceRepairScope(requestPrompt, refreshedProjectFiles);
+            const requestWantsFailureDiagnosis = requestAction === 'fix' || shouldRunTestsBeforeAiRequest(requestPrompt)
+                || /\b(?:fix|repair|debug|diagnos\w*|investigat\w*|troubleshoot\w*)\b|\b(?:tests? (?:are |is )?failing|build failed|current problems|not working)\b/i.test(requestPrompt);
+            const derivedFailingFile = !selectedCode && requestWantsFailureDiagnosis
                 ? (
                     findLikelyFailingWorkspaceFile(refreshedProjectFiles)
                     || (
@@ -2932,7 +3458,7 @@ Rules:
                 reason: "deterministic",
             };
             if (
-                shouldUseAiRoutingJudge({
+                !reviewRequest && !requestedRepairPaths && shouldUseAiRoutingJudge({
                     requestedAction: requestAction,
                     prompt: requestPrompt,
                     selectedCode: effectiveSelectedCode,
@@ -2974,6 +3500,8 @@ Rules:
                 }
             }
 
+            if (requestedRepairPaths) routingDecision = {action: 'plan', createProjectFiles: false, executeWorkspacePlan: false};
+            if (reviewRequest) routingDecision = {action: "smart", createProjectFiles: false, executeWorkspacePlan: false};
             const createProjectFiles = routingDecision.createProjectFiles && routingDecision.action === "plan";
             const executeWorkspacePlan = routingDecision.executeWorkspacePlan && routingDecision.action === "plan";
             let finalPrompt = buildAiCodingFollowUpPrompt({
@@ -2981,6 +3509,7 @@ Rules:
                 previousResponse: safePreviousResponse,
                 forceFollowUp: composerMode === "refine",
             });
+            if (reviewRequest) finalPrompt = requestPrompt;
             if (createProjectFiles) {
                 finalPrompt = buildProjectFilePlanPrompt({
                     prompt: requestPrompt,
@@ -2999,7 +3528,7 @@ Rules:
             const effectiveAction = isInformationalOnlyPrompt(finalPrompt) && routingDecision.action !== "plan"
                 ? "smart"
                 : routingDecision.action;
-            pendingAutoFileCreateRef.current = requestAutoApply && (createProjectFiles || executeWorkspacePlan || effectiveAction === "plan");
+            pendingAutoFileCreateRef.current = !reviewRequest && requestAutoApply && (createProjectFiles || executeWorkspacePlan || effectiveAction === "plan");
             expectWorkspaceApplyRef.current = effectiveAction === "plan";
             applyActionRef.current = effectiveAction;
             let testsAlreadyRun = false;
@@ -3011,7 +3540,7 @@ Rules:
                 );
             }
 
-            if (shouldRunTestsBeforeAiRequest(finalPrompt) && requestAutoApply && !createProjectFiles && !executeWorkspacePlan) {
+            if (!reviewRequest && !requestedRepairPaths && shouldRunTestsBeforeAiRequest(finalPrompt) && requestAutoApply && !createProjectFiles && !executeWorkspacePlan) {
                 pushRequestStatus("Running plugin tests before diagnosing errors.", { phase: "tests" });
                 const testRepairComplete = await runIterativeTestRepairFlow({
                     basePrompt: finalPrompt,
@@ -3023,9 +3552,10 @@ Rules:
                 if (testRepairComplete) return;
             }
 
-            if (shouldRunTestsBeforeAiRequest(finalPrompt) && !testsAlreadyRun) {
+            if (!requestedRepairPaths && (reviewRequest || shouldRunTestsBeforeAiRequest(finalPrompt)) && !testsAlreadyRun) {
                 pushRequestStatus("Running plugin tests before diagnosing errors.", { phase: "tests" });
                 const testRunResult = await runPluginTests();
+                if (reviewRequest) reviewTests = testRunResult;
                 if (testRunResult?.success) {
                     if (workspaceQualityReview) {
                         pushRequestStatus("Plugin tests passed. Continuing with the requested workspace quality review.", { phase: "tests" });
@@ -3038,7 +3568,7 @@ Rules:
                     return;
                     }
                 }
-                pushRequestStatus("Plugin tests failed. Reviewing the failing output and related workspace files.", { phase: "tests" });
+                if (!testRunResult?.success) pushRequestStatus("Plugin tests failed. Reviewing the failing output and related workspace files.", { phase: "tests" });
             }
 
             console.log('[AI Coding Agent] Submit started', {
@@ -3128,8 +3658,8 @@ Rules:
             });
             const fastLocalEdit = isAiCodingFastLocalEditPrompt(finalPrompt, effectiveAction);
             const requestContexts = buildAiCodingAgentRequestContexts({
-                includeProjectContext,
-                projectFiles: refreshedProjectFiles,
+                includeProjectContext: reviewRequest || includeProjectContext,
+                projectFiles: reviewRequest ? getAllProjectFiles() : refreshedProjectFiles,
                 currentFileContext,
                 currentFilePath,
                 prompt: finalPrompt,
@@ -3146,8 +3676,9 @@ Rules:
             });
             const conversationContext = `Current plugin snapshot: ${userMessage.snapshot}.\n` + buildHistoryContext(priorConversation, content =>
                 validateAiCodingPluginScopeResponse({text: content, workspaceFiles: refreshedProjectFiles}).ok);
-            requestContexts.projectContext = conversationContext + requestContexts.projectContext;
-            requestContexts.referenceContext = conversationContext + requestContexts.referenceContext;
+            const styleReviewContext = reviewRequest ? `\n${workspaceStyleReviewContext(getAllProjectFiles())}` : '';
+            requestContexts.projectContext = conversationContext + requestContexts.projectContext + styleReviewContext;
+            requestContexts.referenceContext = conversationContext + requestContexts.referenceContext + styleReviewContext;
             const enhancedContext = requestContexts.projectContext;
             const diagnosisContext = includeIssueDiagnosis && issueScope.summary
                 ? `${issueScope.summary}\nThis is a preliminary ${issueScope.kind} classification, not a confirmed root cause. Verify the specific diagnostic and its relevance to the current workspace before proposing changes.\n\n`
@@ -3179,7 +3710,9 @@ Rules:
             const resolvedTargetFilePath = derivedFailingFilePath || defaultPluginTargetFile;
             currentRequestRef.current = {
                 action: effectiveAction,
+                userPrompt: requestPrompt,
                 prompt: finalPrompt,
+                repairPaths: requestedRepairPaths,
                 code: effectiveSelectedCode,
                 language,
                 context: requestContexts.referenceContext,
@@ -3203,6 +3736,7 @@ Rules:
 
             // Generate requestId upfront so we can track streaming events
             const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            currentRequestRef.current = {...currentRequestRef.current, requestId, generationBaseline: JSON.stringify(getAllProjectFiles().slice().sort((a, b) => a.path.localeCompare(b.path)))};
             beginStreamingRequest(requestId);
             console.log('[AI Coding Agent] Request ID set', requestId);
             // Start the inactivity timeout only when the actual AI request begins.
@@ -3309,7 +3843,11 @@ Rules:
                     break;
                 case "plan":
                     result = await window.electron.aiCodingAgent.planCode({
+                        workspaceId: virtualFS.sandboxName,
+                        ...(preparedRecoveryRef.current || {}),
+                        userRequirements: requestPrompt,
                         workspaceFiles: getAllProjectFiles(),
+                        ...(requestedRepairPaths ? {repairPaths: requestedRepairPaths} : {}),
                         requestId,
                         prompt: finalPrompt,
                         image: uploadedImage, // base64 image if uploaded
@@ -3340,6 +3878,8 @@ Rules:
                     workspaceFiles: getAllProjectFiles(),
                     requestId: retryRequestId,
                     prompt: retryPrompt,
+                    userRequirements: requestPrompt,
+                    ...(requestedRepairPaths ? {repairPaths: requestedRepairPaths} : {}),
                     image: uploadedImage,
                     context: requestContexts.referenceContext,
                     assistantId: selectedAssistant.id,
@@ -3361,12 +3901,91 @@ Rules:
                 return;
             }
 
+            if (reviewRequest && !result?.success) throw new Error(result?.error || "The workspace review could not complete.");
+            if (result?.success && isClassificationOnly(result.content || responseRef.current)) {
+                throw Object.assign(new Error('The provider returned only a safety classification, with no answer or implementation. Select a coding-capable model and submit again. No changes were applied.'),
+                    {code: 'AI_PROVIDER_CLASSIFICATION_ONLY'});
+            }
             if (result && result.success && result.requestId) {
+                requestSucceeded = true;
+                if (effectiveAction === 'plan' && currentRequestRef.current?.generationBaseline !== JSON.stringify(getAllProjectFiles().slice().sort((a, b) => a.path.localeCompare(b.path)))) throw new Error('The workspace changed during generation. No generated files were applied. Review your newer edits before recovering the saved proposal.');
+                dispatchGenerationRecovery({type: 'ready', requestId: result.requestId});
                 console.log('[AI Coding Agent] Request successful, streaming complete', { requestId: result.requestId });
                 // Request ID already set before IPC call, streaming events should have flowed
                 // Verify requestId matches
                 if (result.requestId !== requestId) {
                     console.warn('[AI Coding Agent] RequestId mismatch in result', { expected: requestId, received: result.requestId });
+                }
+
+                if (reviewRequest) {
+                    assertSnapshotUnchanged();
+                    const report = includeWorkspaceStyleFindings(
+                        parseWorkspaceReviewReport(result.content || responseRef.current, getAllProjectFiles()), getAllProjectFiles());
+                    reviewReport = report;
+                    if (report.status === "completed" && (!reviewTests?.success || reviewTests?.skipped)) {
+                        report.status = "partial";
+                        report.limitations.push(reviewTests?.skipped ? "No plugin tests were available to verify behavior."
+                            : "Host plugin tests did not pass or could not complete.");
+                    }
+                    let repairSummary = "";
+                    const testSummary = value => value?.skipped ? "Tests: no plugin tests were found."
+                        : value?.success ? "Tests: the host ran plugin tests successfully."
+                            : "Tests: plugin tests did not pass or could not complete. See the Tests output.";
+                    const publishReport = () => {
+                        responseRef.current = formatWorkspaceReviewReport(report, {
+                            repairSummary, tests: testSummary(reviewTests), changed: reviewChangesApplied,
+                        });
+                        setResponse(responseRef.current);
+                    };
+                    publishReport();
+                    if (requestAutoApply && report.status !== "blocked" && report.findings.length) {
+                        const repairPaths = [...new Set(report.findings.map(finding => finding.file))];
+                        assertSnapshotUnchanged();
+                        const repairRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                        beginStreamingRequest(repairRequestId);
+                        scheduleRequestTimeout(selectedAssistant?.provider || "");
+                        pushRequestStatus(`Repairing confirmed issues in ${repairPaths.length} workspace files.`, {phase: "review-repair"});
+                        const repaired = await window.electron.aiCodingAgent.planCode({
+                            requestId: repairRequestId,
+                            assistantId: selectedAssistant.id,
+                            workspaceFiles: getAllProjectFiles(),
+                            repairPaths,
+                            prompt: `Repair only these confirmed plugin-local findings. Preserve working behavior and public SDK contracts. Return complete changed files for the approved paths.\n${JSON.stringify(report.findings)}`,
+                            context: requestContexts.referenceContext,
+                            image: null,
+                        });
+                        if (!repaired?.success) throw new Error(repaired?.error || "The workspace repair could not complete.");
+                        const scopedRepair = mergeValidationRepairResponse(
+                            getAllProjectFiles().filter(file => repairPaths.includes(file.path)), repaired.content, repairPaths);
+                        const execution = await executePlanResponse(scopedRepair, {allowProblemsRetry: true});
+                        reviewChangesApplied = execution.successCount > 0;
+                        if (reviewChangesApplied) {
+                            const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
+                            if (!persisted || persisted.error) throw new Error("Repairs were applied, but the resulting snapshot could not be saved.");
+                        }
+                        reviewTests = await runPluginTests();
+                        const remainingStyleIssues = findWorkspaceStyleIssues(getAllProjectFiles());
+                        if (remainingStyleIssues.length) {
+                            report.status = 'partial';
+                            report.limitations.push('Style registration is still missing after repair.', ...remainingStyleIssues.map(issue => `${issue.file}: ${issue.issue}`));
+                        }
+                        repairSummary = `Repair: ${execution.successCount} file(s) updated.`;
+                        if (execution.errorCount || !reviewTests?.success) {
+                            report.status = "partial";
+                            report.limitations.push(...execution.errorDetails);
+                            if (!reviewTests?.success) report.limitations.push("Repairs are not verified by passing plugin tests.");
+                        }
+                        publishReport();
+                    } else if (requestAutoApply) {
+                        repairSummary = report.status === "blocked" ? "No repairs were attempted because the review was blocked." : "No confirmed issues were identified for automatic repair.";
+                        publishReport();
+                    }
+                    setOperationSummary({intent: report.status === "completed" ? "success" : "warning",
+                        title: report.status === "completed" ? "Workspace Review Complete" : "Workspace Review Needs Attention",
+                        message: repairSummary || report.summary});
+                    streamingRequestIdRef.current = null;
+                    clearRequestTimeout();
+                    return;
                 }
 
                 if (
@@ -3471,7 +4090,7 @@ Rules:
                 ) {
                     const allowSingleFileAutoApply = shouldAutoApplySingleFileResponse({
                         action: effectiveAction,
-                        prompt: currentRequestRef.current?.prompt || finalPrompt,
+                        prompt: requestPrompt,
                         selectedCode: currentRequestRef.current?.code || "",
                         targetFilePath: currentRequestRef.current?.targetFilePath || "",
                     });
@@ -3501,8 +4120,8 @@ Rules:
                                 title: "Files Created",
                                 message,
                             });
-                            setError(null);
-                            if (workspaceQualityReview) {
+                            setError(execution.errorCount > 0 ? `Plan application failed: ${execution.errorDetails.join('; ')}` : null);
+                            if (workspaceQualityReview && execution.errorCount === 0) {
                                 pushRequestStatus("Workspace review changes were applied. Running plugin tests to verify the final workspace.", { phase: "tests" });
                                 const verification = await runPluginTests();
                                 setOperationSummary({
@@ -3528,6 +4147,7 @@ Rules:
                 // This prevents any late/duplicate done events from matching
                 streamingRequestIdRef.current = null;
             } else if (result && result.error) {
+                dispatchGenerationRecovery({type: 'failed', requestId: result.requestId || currentRequestRef.current?.requestId || generationRecovery.requestId, failure: result.failure, originalPrompt: requestPrompt});
                 console.error('[AI Coding Agent] Error in result', result.error);
                 setError(result.error);
                 setIsLoading(false);
@@ -3543,7 +4163,18 @@ Rules:
                 expectWorkspaceApplyRef.current = false;
             }
         } catch (err) {
+            requestSucceeded = false;
+            if (reviewRequest) {
+                const failedReport = reviewReport ? {...reviewReport, status: 'partial',
+                    limitations: [...reviewReport.limitations, err.message || 'Repairs could not complete.']}
+                    : {status: 'blocked', summary: 'Workspace quality remains unverified.', findings: [],
+                        limitations: [err.message || 'The review could not complete.']};
+                responseRef.current = formatWorkspaceReviewReport(failedReport, {changed: reviewChangesApplied});
+                setResponse(responseRef.current);
+                setOperationSummary({intent: 'warning', title: reviewReport ? 'Workspace Repair Could Not Complete' : 'Workspace Review Could Not Complete', message: err.message});
+            }
             console.error('[AI Coding Agent] Exception in handleSubmit', err);
+            dispatchGenerationRecovery({type: 'failed', requestId: streamingRequestIdRef.current || currentRequestRef.current?.requestId, failure: err.failure, originalPrompt: requestPrompt});
             setError(err.message || "An error occurred");
             setIsLoading(false);
             clearRequestTimeout();
@@ -3554,12 +4185,14 @@ Rules:
             scopeRetryInFlightRef.current = false;
         }
         finally {
-            if (responseRef.current.trim()) {
+            workspaceReviewInProgressRef.current = false;
+            preparedRecoveryRef.current = null;
+            if (responseRef.current.trim() && !isClassificationOnly(responseRef.current)) {
                 const stale = requestSnapshotRef.current?.revision !== (virtualFS.fs.snapshotSwitchRevision || 0)
                     || requestSnapshotRef.current?.workspace !== virtualFS.sandboxName;
                 if (!stale) saveConversation([...conversationRef.current, {role: "assistant", content: responseRef.current,
                     snapshot: userMessage.snapshot, ...(appliedSnapshotRef.current != null ? {appliedSnapshot: appliedSnapshotRef.current} : {})}]);
-                setPrompt("");
+                if (requestSucceeded) setPrompt("");
             }
             submitInFlightRef.current = false;
             setIsOperationActive(false);
@@ -3570,19 +4203,20 @@ Rules:
     const handleWorkspaceReview = (repair = false) => {
         const reviewPrompt = repair ? WORKSPACE_REPAIR_PROMPT : WORKSPACE_REVIEW_PROMPT;
         setPrompt(reviewPrompt);
-        setAction(repair ? "plan" : "smart");
+        setAction("smart");
         setAutoApply(repair);
         // The ref is read by response handlers that can run before React has
         // committed the state update triggered above.
         autoApplyRef.current = repair;
         handleSubmit({
             prompt: reviewPrompt,
-            action: repair ? "plan" : "smart",
+            action: "smart",
             autoApply: repair,
         });
     };
 
     const handlePromptChange = (event) => {
+        if (isLoading) return;
         const nextValue = event.target.value;
         const selectionStart = typeof event.target.selectionStart === "number" ? event.target.selectionStart : nextValue.length;
         setPrompt(nextValue);
@@ -3590,12 +4224,16 @@ Rules:
     };
 
     const handlePromptCursorActivity = (event) => {
+        if (isLoading) return;
+        if (event.type === 'keyup' && ['Escape', 'Enter', 'Tab', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
         const nextValue = event.target.value;
         const selectionStart = typeof event.target.selectionStart === "number" ? event.target.selectionStart : nextValue.length;
         updateMentionSuggestions(nextValue, selectionStart);
     };
 
     const handleApplyResponse = async () => {
+        if (blockIncompleteGeneration) return;
+        try {if (!await checkSavedGenerationBeforeApply()) return;} catch (error) {setError(error.message); return;}
         setIsOperationActive(true);
         setIsLoading(true);
         try { await autoInsertCodeIntoEditor(); }
@@ -3817,7 +4455,10 @@ Rules:
         };
     };
 
-    const clearResponse = () => {
+    const clearResponse = ({preserveRecovery = false} = {}) => {
+        preservePendingFilesOnRetryRef.current = false;
+        if (!preserveRecovery) {dispatchGenerationRecovery({type: 'reset'}); preparedRecoveryRef.current = null; updateValidationRecovery(null);}
+        setRepairNotice(null);
         setResponse("");
         setRequestStatusEntries([]);
         responseRef.current = "";
@@ -3924,7 +4565,16 @@ Rules:
             composerMode,
         })
         : null;
-    const mentionMenuVisible = !!mentionState?.suggestions?.length;
+    const mentionMenuVisible = !isLoading && !!mentionState?.suggestions?.length;
+    const responseIsReviewReport = /^\*\*Workspace review (?:completed|partially completed|could not complete)\*\*/.test(response || "");
+    const responseHasWorkspaceFiles = shouldApplyAiResponseToWorkspace(response || '');
+    const responseRequestsChanges = shouldAutoApplySingleFileResponse({
+        action: currentRequestRef.current?.action,
+        prompt: currentRequestRef.current?.userPrompt || currentRequestRef.current?.prompt || '',
+    });
+    const responseHasUnappliedCode = !responseApplied && (responseHasWorkspaceFiles
+        || (responseRequestsChanges && (parseAiSearchReplaceResponse(response || '').blocks.length > 0
+            || extractAiCodeToApply(response || '').blocksFound > 0)));
 
     // Show loading state while fetching assistants
     if (loadingAssistants) {
@@ -3953,14 +4603,22 @@ Rules:
                             <div>
                                 <p>No AI coding assistants found.</p>
                                 <p>Please add a coding assistant in Settings → AI Assistants.</p>
+                                {assistantLoadError && <p>{assistantLoadError}</p>}
                             </div>
                         }
+                        action={<Button text="Reload AI assistants" icon="refresh" loading={refreshingAssistants}
+                            onClick={() => reloadAssistants()} />}
                     />
                 </div>
             </div>
         );
     }
 
+    const requestProgress = <AiCodingRequestProgress
+        elapsedMs={requestElapsedMs} entries={requestStatusEntries} hasResponse={!!response}
+        attempt={requestAttempt} streamStatus={streamStatus} workspaceStage={workspaceStage}
+        estimate={finishEstimate} estimateDetails={estimateDetails} estimateProgress={estimateProgress}
+        confidence={confidence}/>;
     return (
         <div
             className={styles["ai-coding-agent-panel"]}
@@ -3969,8 +4627,8 @@ Rules:
             onKeyUp={handleHotkeyKeyUp}
             tabIndex={0}
         >
+            {isLoading && eventDocument !== document && <div className={styles['floating-progress']}>{requestProgress}</div>}
             <div className={styles["panel-header"]}>
-                <h3>AI Coding Agent</h3>
                 <AiUsagePopover surface="coding" />
                 <Button
                     small
@@ -3992,11 +4650,21 @@ Rules:
             <div className={styles["panel-content"]}>
             <section aria-label="Conversation history" data-testid="ai-conversation-history" className={styles["conversation-history"]}>
 
-                <p>Saved on this device for this plugin. Your recent conversation is included in follow-up requests.</p>
+                <details className={styles['request-help']} open={eventDocument === document}>
+                <summary>Conversation history{conversation.length ? ` (${conversation.length})` : ''}</summary>
+                <p className={styles["conversation-note"]}>FDO keeps this plugin’s chat on this computer so you can return to it later. Recent messages are sent to your selected AI assistant with follow-up requests.</p>
                 {historyWarning && <Callout intent="warning">{historyWarning}</Callout>}
                 {conversation.map((message, index) => message.role === "assistant" && index === conversation.length - 1 && message.content === response ? null : (
-                    <details key={index} open={message.role === "user"}>
-                        <summary>{message.role === "snapshot" ? "Snapshot switch" : message.role === "user" ? "You" : "Assistant"}: {message.content.replace(/\s+/g, " ").slice(0, 90)}</summary>
+                    <details key={index} open={message.role === "user"} className={styles["conversation-message"]}>
+                        <summary>
+                            <span className={styles["message-heading"]}>
+                                <strong>{message.role === "snapshot" ? "Snapshot switch" : message.role === "user" ? "You" : "Assistant"}</strong>
+                                <span className={styles["message-expand"]}>Show message</span>
+                                <span className={styles["message-collapse"]}>Collapse</span>
+                            </span>
+                            <span className={styles["message-preview"]}>{message.content.replace(/\s+/g, " ")}</span>
+                        </summary>
+                        <div className={styles["message-content"]}>
                         {message.snapshot != null && (
                             <div>
                                 <Button
@@ -4012,11 +4680,15 @@ Rules:
                             </div>
                         )}
                         <Markdown options={{disableParsingRawHTML: true}}>{message.content}</Markdown>
+                        </div>
                     </details>
                 ))}
+                </details>
             </section>
 
                 <FormGroup label="AI Assistant" labelFor="assistant-select">
+                    <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                    <div style={{flex: 1, minWidth: 0}}>
                     <HTMLSelect
                         id="assistant-select"
                         value={selectedAssistant?.id || ""}
@@ -4028,24 +4700,36 @@ Rules:
                     >
                         {assistants.map(assistant => (
                             <option key={assistant.id} value={assistant.id}>
-                                {assistant.name} ({assistant.provider} - {assistant.model})
+                                {assistant.name} ({assistant.provider} - {assistant.model}){imageSupportOptionSuffix(assistant.id === selectedAssistant?.id ? inputCapabilities : assistantInputCapabilities(assistant))}
                                 {assistant.default ? ' ★' : ''}
                             </option>
                         ))}
                     </HTMLSelect>
+                    </div>
+                    <Button text="Reload" icon="refresh" aria-label="Reload AI assistants" title="Reload AI assistants from Settings"
+                        disabled={isLoading || refreshingAssistants} loading={refreshingAssistants}
+                        onClick={() => reloadAssistants()} />
+                    </div>
+                    {assistantLoadError && <Callout intent="warning" style={{marginTop: '8px'}}>{assistantLoadError}</Callout>}
+                    <p style={{marginTop: '8px'}}>Screenshots: {imageSupportLabel(inputCapabilities)}</p>
+                    {inputCapabilities.imageSupport === 'unknown' && <p>{selectedAssistant?.provider === 'cursor'
+                        ? 'Attach screenshots or mockups to your request.'
+                        : 'You can attach an image. The provider will check whether the selected model accepts it.'}</p>}
                 </FormGroup>
 
                 <FormGroup label="Action" labelFor="action-select">
                     <HTMLSelect
                         id="action-select"
                         value={action}
-                        onChange={(e) => setAction(e.target.value)}
+                        onChange={(e) => {setAction(e.target.value); if (preparedRecoveryRef.current) {preparedRecoveryRef.current = null; dispatchGenerationRecovery({type: 'reset'}); setOperationSummary(null);}}}
                         options={AI_ACTIONS}
                         fill
                     />
                 </FormGroup>
 
                 {smartModeGuidance && !mentionMenuVisible && (
+                    <details className={styles['request-help']} open={eventDocument === document || ['warning', 'danger'].includes(smartModeGuidance.intent)}>
+                    <summary>Smart Mode guidance</summary>
                     <Callout
                         intent={smartModeGuidance.intent}
                         icon={smartModeGuidance.icon}
@@ -4067,6 +4751,7 @@ Rules:
                             </div>
                         </div>
                     </Callout>
+                    </details>
                 )}
 
                 {action === "plan" && (
@@ -4083,7 +4768,7 @@ Rules:
                                 icon="camera"
                                 text="Upload Image"
                                 onClick={() => fileInputRef.current?.click()}
-                                disabled={isLoading}
+                                disabled={isLoading || inputCapabilities.imageSupport === 'unsupported'}
                             />
                             {imagePreview && (
                                 <div style={{ flex: 1 }}>
@@ -4129,8 +4814,11 @@ Rules:
                     </FormGroup>
                 )}
 
-                <FormGroup label={promptLabel} labelFor="prompt-input">
-                    <div className={styles["prompt-input-wrap"]}>
+                <FormGroup label={isLoading ? "Current request" : promptLabel} labelFor="prompt-input"
+                    labelInfo={isLoading ? "In progress" : undefined}
+                    helperText={!isLoading && selectedAssistant?.provider === 'codex-cli' && mentionSkills.some(skill => skill.enabled && skill.assistantIds?.includes(selectedAssistant.id))
+                        ? 'Type $ to choose an assigned skill. Ordinary $variables remain plain text.' : undefined}>
+                    <div className={classnames(styles["prompt-input-wrap"], isLoading && styles["prompt-running"])}>
                         <TextArea
                             id="prompt-input"
                             inputRef={promptInputRef}
@@ -4148,14 +4836,18 @@ Rules:
                             placeholder={promptPlaceholder}
                             fill
                             rows={4}
-                            disabled={isLoading}
+                            readOnly={isLoading}
+                            aria-describedby={isLoading ? "prompt-running-hint" : undefined}
                         />
-                        {mentionState?.suggestions?.length > 0 && (
+                        {isLoading && <p id="prompt-running-hint" className={styles["prompt-running-hint"]}>
+                            Your request is running. You can select and copy the text. Stop the run to edit it.
+                        </p>}
+                        {!isLoading && mentionState?.suggestions?.length > 0 && (
                             <div className={styles["mention-menu-shell"]}>
                                 <div
                                     className={styles["mention-menu-a11y"]}
                                     role="listbox"
-                                    aria-label="Workspace file suggestions"
+                                    aria-label={mentionState.kind === 'skill' ? 'Codex skill suggestions' : 'Workspace file suggestions'}
                                 >
                                     <Menu className={styles["mention-menu"]}>
                                         {mentionState.suggestions.map((item, index) => (
@@ -4166,9 +4858,14 @@ Rules:
                                                 aria-label={item.title}
                                             >
                                                 <MenuItem
-                                                    icon={item.type === "special" ? "citation" : "document"}
-                                                    text={renderMentionTitle(item)}
-                                                    labelElement={item.subtitle ? (
+                                                    icon={item.type === 'skill' ? 'learning' : item.type === "special" ? "citation" : "document"}
+                                                    multiline={item.type === 'skill'}
+                                                    className={item.type === 'skill' ? styles['skill-menu-item'] : undefined}
+                                                    text={item.type === 'skill' ? <span className={styles['skill-menu-content']}>
+                                                        <span className={styles['skill-menu-name']}>{renderMentionTitle(item)}</span>
+                                                        {item.subtitle && <span className={styles['skill-menu-description']}>{item.subtitle}</span>}
+                                                    </span> : renderMentionTitle(item)}
+                                                    labelElement={item.type !== 'skill' && item.subtitle ? (
                                                         <span className={styles["mention-menu-path"]}>
                                                             {item.subtitle}
                                                         </span>
@@ -4183,6 +4880,7 @@ Rules:
                                             </div>
                                         ))}
                                     </Menu>
+                                    {mentionState.kind === 'skill' && <p style={{fontSize: 12, padding: '4px 8px', margin: 0}}>Tab or click to insert a skill · Esc to dismiss. Variables remain plain text.</p>}
                                 </div>
                             </div>
                         )}
@@ -4190,6 +4888,8 @@ Rules:
                 </FormGroup>
 
                 {selectionGuidance && !mentionMenuVisible && (
+                    <details className={styles['request-help']} open={eventDocument === document || ['warning', 'danger'].includes(selectionGuidance.intent)}>
+                    <summary>Code selection guidance</summary>
                     <Callout
                         intent={selectionGuidance.intent}
                         icon={selectionGuidance.icon}
@@ -4200,6 +4900,7 @@ Rules:
                             {selectionGuidance.message}
                         </div>
                     </Callout>
+                    </details>
                 )}
 
                 {intentHint && !mentionMenuVisible && (
@@ -4251,6 +4952,8 @@ Rules:
                     </div>}
                 </FormGroup>
 
+                <details className={styles['request-help']} open={eventDocument === document}>
+                <summary>Keyboard shortcuts</summary>
                 {!mentionMenuVisible && (
                 <Callout intent="primary" icon="key-command" className={styles["shortcut-hint"]}>
                     <div className={styles["shortcut-list"]}>
@@ -4265,7 +4968,32 @@ Rules:
                 </Callout>
                 )}
 
-                <div className={styles["action-buttons"]}>
+                </details>
+                {savedGenerationCheckpoint && !isLoading && <Callout intent={savedGenerationCheckpoint.canResume ? 'primary' : 'warning'} title="Saved generation work" data-testid="saved-generation-checkpoint">
+                    <p>{savedGenerationCheckpoint.completedFileCount} validated files saved · {savedGenerationCheckpoint.pendingFileCount} unfinished files. These files are separate from your workspace.</p>
+                    {savedGenerationCheckpoint.requiresImage && <p>Resume requires the original reference image. Reattach it after restarting FDO, or replan using your current reference.</p>}
+                    {savedGenerationCheckpoint.reason && <p>{savedGenerationCheckpoint.reason}</p>}
+                    <Button text={savedGenerationCheckpoint.pendingFileCount ? "Resume unfinished generation" : "Recover saved proposal"} disabled={!savedGenerationCheckpoint.canResume} onClick={handleResumeGenerationCheckpoint}/>
+                    <Button text="Retry with smaller scope using saved helpers" disabled={!savedGenerationCheckpoint.canResume} onClick={handleSmallerScopeRetry}/>
+                    <Button text="Discard saved generation work" onClick={handleDiscardGenerationCheckpoint}/>
+                </Callout>}
+                {checkpointError && <Callout intent="danger" role="alert">{checkpointError}{!savedGenerationCheckpoint && !isLoading && <Button text="Discard unreadable checkpoint" onClick={handleDiscardGenerationCheckpoint}/>}</Callout>}
+                {['prepared', 'retrying'].includes(generationRecovery.status) && <Callout data-testid="generation-recovery-state" intent="primary" title={generationRecovery.status === 'prepared' ? 'Recovery prompt ready for review' : preparedRecoveryRef.current?.recoveryMode === 'resume' ? 'Resuming saved generation' : 'Generating the smaller-scope retry'}>
+                    {generationRecovery.status === 'prepared' ? 'Edit the prompt and Submit when ready. No provider request has been sent.' : 'A new generation attempt is running against your current workspace. You can stop it at any time.'}
+                    {generationRecovery.status === 'prepared' && <Button text="Discard recovery draft" onClick={() => {setPrompt(''); clearResponse();}}/>}
+                </Callout>}
+                {verificationReports.length > 0 && <details data-testid="workspace-verification-report">
+                    <summary>Verification · {verificationReports.length} attempt(s)</summary>
+                    {verificationReports.map((report, index) => <section key={report.attempt} aria-label={`Verification attempt ${index + 1}`}>
+                        <strong>Attempt {index + 1}</strong>
+                        <p>Changed files: {report.changedPaths.join(', ')}</p>
+                        <ul>{report.checks.map(check => <li key={check.id}>
+                            {check.label}: <strong>{check.status}</strong>
+                            {check.detail && <details><summary>Details</summary><pre style={{whiteSpace: 'pre-wrap'}}>{check.detail}</pre></details>}
+                        </li>)}</ul>
+                    </section>)}
+                </details>}
+                <div className={`${styles["action-buttons"]} ${eventDocument !== document ? styles['floating-actions'] : ''}`}>
                     <Button
                         intent="primary"
                         text={isLoading ? "Processing..." : composerMode === "refine" ? "Continue Thread" : "Submit"}
@@ -4284,7 +5012,7 @@ Rules:
                             title={shortcutCombos.stop}
                         />
                     )}
-                    {response && (action === "plan" || expectWorkspaceApplyRef.current) && (
+                    {response && !blockIncompleteGeneration && !responseIsReviewReport && !responseApplied && (action === "plan" || expectWorkspaceApplyRef.current || responseHasWorkspaceFiles) && (
                         <>
                             <Button
                                 text="Copy Plan"
@@ -4301,7 +5029,8 @@ Rules:
                             />
                         </>
                     )}
-                    {response && !autoApply && action !== "plan" && !expectWorkspaceApplyRef.current && (
+                    {response && !blockIncompleteGeneration && !responseIsReviewReport && action !== "plan" && !expectWorkspaceApplyRef.current && !responseHasWorkspaceFiles
+                        && ((!autoApply && !responseApplied) || responseHasUnappliedCode) && (
                         <Button
                             text="Apply proposed changes"
                             icon="insert"
@@ -4309,6 +5038,10 @@ Rules:
                             disabled={isLoading}
                             title={shortcutCombos.insert}
                         />
+                    )}
+                    {responseIsReviewReport && (
+                        <Button text="Review again" icon="refresh" disabled={isLoading}
+                            onClick={() => handleWorkspaceReview(false)} />
                     )}
                     {response && (
                         <Button
@@ -4330,10 +5063,27 @@ Rules:
                     )}
                 </div>
 
+                {validationRecovery && <Callout intent="warning" title="Unapplied proposal needs repair" data-testid="validation-recovery">
+                    <p>The latest candidate and validation diagnostics are kept in this session. Each click requests one focused repair, then validates it before applying changes. You can repeat after a failure or select another assistant.</p>
+                    <Button text="Repair failed validation" icon="wrench" loading={isLoading} disabled={isLoading || !selectedAssistant}
+                        onClick={handleRepairFailedValidation}/>
+                    <Button text="Discard retained proposal" minimal disabled={isLoading} onClick={() => updateValidationRecovery(null)}/>
+                    <p><small>{validationRecovery.attempts} user-requested repair attempt(s). Repair requests use your selected provider and may incur costs.</small></p>
+                    <details><summary>Files and latest diagnostics</summary>
+                        <p>{validationRecovery.paths.join(', ')}</p>
+                        <pre style={{whiteSpace: 'pre-wrap', overflowWrap: 'anywhere'}}>{validationRecovery.diagnostics.join('\n')}</pre>
+                    </details>
+                </Callout>}
                 {error && (
                     <div data-testid="ai-coding-error" role="alert" className={styles["error-message"]}>
-                        {renderErrorContent(error)}
-                        {isAiCodingOutputLimitError(error) && response && (
+                        {recoveryFailure ? <Callout intent="warning" title="Generation stopped before changes were applied">
+                            <p>The assistant could not complete <code>{recoveryFailure.path}</code> {recoveryFailure.code === 'WORKSPACE_DEPENDENCY_SPLIT_EXHAUSTED' ? 'because stylesheet dependencies remained unresolved after automatic splitting.' : 'within its response limits, even after automatic recovery.'}</p>
+                            <p>Your existing workspace is unchanged. {recoveryFailure.resumable ? 'Validated progress is saved in a checkpoint. Resume or replan using Saved generation work.' : 'This attempt has no resumable checkpoint.'} Partial output is not a complete proposal and cannot be applied.</p>
+                            <Button text="Retry with smaller scope" icon="refresh" disabled={isLoading || !!(savedGenerationCheckpoint && !savedGenerationCheckpoint.canResume)} onClick={handleSmallerScopeRetry}/>
+                            <p><small>This prepares an editable Plan Code prompt. Review which features to keep or defer, then Submit to start a new attempt. You can also select another assistant before submitting.</small></p>
+                            <details><summary>Technical details</summary><p>Code: {recoveryFailure.code} · Stage: {recoveryFailure.stage}</p><p>{recoveryFailure.completedFileCount ?? 0} files completed in memory; {recoveryFailure.resumable ? 'these are saved separately for recovery and have not been applied.' : 'these were not applied or saved as a resumable checkpoint.'}</p><pre>{error}</pre></details>
+                        </Callout> : renderErrorContent(error)}
+                        {!recoveryFailure && isAiCodingOutputLimitError(error) && response && (
                             <Button
                                 small
                                 icon="refresh"
@@ -4354,20 +5104,23 @@ Rules:
                     </div>
                 )}
 
-                {isLoading && !onActivityChange && (
-                    <AiCodingRequestProgress
-                        elapsedMs={requestElapsedMs}
-                        entries={requestStatusEntries}
-                        hasResponse={!!response}
-                        attempt={requestAttempt}
-                        streamStatus={streamStatus}
-                        workspaceStage={workspaceStage}
-                    />
+                {isLoading && !onActivityChange && eventDocument === document && requestProgress}
+
+                {repairNotice && (
+                    <Callout className={styles["repair-notice"]} intent="warning" icon="wrench" title={isLoading ? "Why another AI pass?" : "Repair pass details"} data-testid="ai-coding-repair-notice">
+                        <p>{repairNotice.message}</p>
+                        <p>Repair scope: {repairNotice.paths.join(', ')}</p>
+                        <details>
+                            <summary>Errors that triggered this repair</summary>
+                            <pre>{repairNotice.diagnostics.join('\n')}</pre>
+                        </details>
+                    </Callout>
                 )}
 
                 {response && (
                     <div className={styles["response-container"]}>
                         <h4>Response:</h4>
+                        <AiCodingConfidence confidence={confidence}/>
                         {conversation[conversation.length - 1]?.appliedSnapshot != null && <p>Applied as snapshot {conversation[conversation.length - 1].appliedSnapshot}</p>}
                         <Card data-testid="ai-coding-response" className={styles["response-card"]}>
                             <AiCodingResponse content={response} streaming={isLoading} />
@@ -4407,6 +5160,44 @@ Rules:
                     It does not delete files, snapshots, or provider-side data.
                 </p>
             </Alert>
+            <Dialog isOpen={!!skillReview} title={skillReview?.proposal ? "Fix plugin guide draft" : "Review plugin guide"} canEscapeKeyClose={false} canOutsideClickClose={false} isCloseButtonShown={false} className={styles["guide-review-dialog"]}>
+                <div className={styles["guide-review-body"]}>
+                    {skillReview?.proposal ? <Callout intent="warning" title="The guide draft needs correction">
+                        The assistant could not create a valid guide draft. This JSON is an intermediate format, not SKILL.md. FDO converts its purpose, modules, conventions, verified examples, and acceptance criteria into the Markdown guide. After correction, you will review the actual SKILL.md and approve it before implementation continues.
+                    </Callout> : <Callout intent="primary" title="Your approval is needed">Review or edit SKILL.md, the plugin’s implementation guide. The assistant is paused until you approve. Compatibility checks cover SDK contracts; approval confirms your intended behavior.</Callout>}
+                    {skillReview?.proposal && <p data-testid="guide-proposal-recovery">Valid sections have been preserved. Ask the assistant to fix the failed sections, or edit the JSON using the field-specific errors below. Validating this draft does not approve SKILL.md.</p>}
+                    <label htmlFor="plugin-guide-editor"><strong>{skillReview?.proposal ? "Structured guide draft (JSON)" : "SKILL.md"}</strong></label>
+                    <textarea id="plugin-guide-editor" disabled={!!skillReviewAction} aria-label="Plugin guide" value={skillReview?.content || ''} rows={18} maxLength={skillReview?.proposal ? 20000 : 16000}
+                        style={{width: '100%', fontFamily: 'monospace'}}
+                        onChange={event => { setSkillReviewError(''); setSkillReviewFeedback(''); setSkillReview(current => ({...current, content: event.target.value, report: null})); }} />
+                    {skillReview?.report ? <section aria-label="Guide compatibility report">
+                        <h4>SDK compatibility</h4><details><summary>Contract details</summary><p>Contract source: <code>{skillReview.report.source}</code></p>
+                        <p>SDK {skillReview.report.sdkVersion || 'version unavailable'} · {skillReview.report.migrationRequired ? 'Guide migration / first approval required' : 'Guide matches this SDK'}</p>
+                        {skillReview.report.fingerprint && <p>Contract fingerprint: <code>{skillReview.report.fingerprint}</code></p>}</details>
+                        {skillReview.report.acceptanceCriteria?.length > 0 && <section aria-label="Acceptance criteria">
+                            <strong>Approval includes these acceptance criteria</strong>
+                            <ul>{skillReview.report.acceptanceCriteria.map(item => <li key={item.id}>{item.description} — {item.testFile}: {item.testName}</li>)}</ul>
+                        </section>}
+                        <p>{skillReview.report.unchecked}</p>
+                        <ul>{(skillReview.report.findings || []).map((finding, index) => <li key={index}>
+                            <strong>{finding.status === 'verified' ? 'API exists' : finding.status === 'conflict' ? 'Conflict' : 'Not verified'}: {finding.reference}</strong>
+                            {finding.line && ` (line ${finding.line})`} — {finding.message} {finding.correction}
+                        </li>)}</ul>
+                    </section> : !skillReviewFeedback && <p>{skillReview?.proposal ? 'Draft validation checks its structure, planned paths, and SDK contracts.' : 'Current edits have not been checked. Approval will validate them again.'}</p>}
+                </div>
+                <div className={styles["guide-review-footer"]}>
+                    {skillReviewAction && <p role="status">{skillReviewAction === 'check' ? 'Checking compatibility…' : skillReviewAction === 'retry' ? 'Requesting another attempt…' : 'Validating your approval…'}</p>}
+                    {skillReviewFeedback && <Callout intent="success" role="status">{skillReviewFeedback}</Callout>}
+                    {skillReviewError && <Callout intent="danger" role="alert" className={styles["guide-review-error"]}>{skillReviewError}</Callout>}
+                    <div className={styles["guide-review-actions"]}>
+                        <Button disabled={!!skillReviewAction} loading={skillReviewAction === 'check'} onClick={() => handleGuideReviewAction('check')}>{skillReview?.proposal ? 'Check draft' : 'Check compatibility'}</Button>
+                        {skillReview?.proposal && <Button disabled={!!skillReviewAction} loading={skillReviewAction === 'retry'} onClick={() => handleGuideReviewAction('retry')}>Retry failed step</Button>}
+                        <Button onClick={handleStopRequest}>Stop and revise request</Button>
+                        <Button intent="primary" disabled={!!skillReviewAction} loading={skillReviewAction === 'approve'} data-testid="approve-plugin-guide" onClick={() => handleGuideReviewAction('approve')}>{skillReview?.proposal ? "Validate edited proposal" : "Approve and continue"}</Button>
+                    </div>
+                    <small>Checking keeps this review open. Stopping returns you to your request. {skillReview?.proposal ? 'Validating continues to guide approval.' : 'Approving resumes implementation with this guide.'}</small>
+                </div>
+            </Dialog>
             <Dialog
                 isOpen={isImagePreviewOpen}
                 onClose={() => setIsImagePreviewOpen(false)}

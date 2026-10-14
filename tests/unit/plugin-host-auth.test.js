@@ -4,7 +4,7 @@ import {
     handleHostAuthBrokerRefreshRequest,
     handleHostAuthBrokerStartRequest,
     handleHostSessionRequest,
-} from "../../src/utils/pluginHostAuth";
+} from "../../src/utils/plugins/runtime/pluginHostAuth";
 
 function createMockResponse({ok = true, status = 200, statusText = "OK", jsonData = null, textData = "", headers = {}} = {}) {
     const headerMap = new Map(Object.entries(headers));

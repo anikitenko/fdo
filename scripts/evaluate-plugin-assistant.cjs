@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const {spawn} = require('node:child_process');
 const esbuild = require('esbuild');
+const {readEvaluationSdkContext, EVALUATION_SDK_DECLARATIONS} = require('./lib/plugin-assistant-sdk-context.cjs');
 function load(file) {
     const module = {exports: {}};
     new Function('require', 'module', 'exports', esbuild.transformSync(fs.readFileSync(file, 'utf8'), {format: 'cjs'}).code)(require, module, module.exports);
@@ -24,9 +25,9 @@ async function run(command, args, options, input = '') {
 }
 (async () => {
     if (process.env.FDO_E2E_LIVE_AI !== '1') throw new Error('Set FDO_E2E_LIVE_AI=1 to authorize live requests.');
-    const {createPluginAssistantIsolation} = load('src/utils/pluginAssistantIsolation.js');
-    const {PLUGIN_ASSISTANT_EVALUATIONS, evaluatePluginAssistantResponse} = load('src/utils/pluginAssistantEvaluation.js');
-    const {extractCodexJsonEventText, extractCodexFailure} = load('src/utils/codexCliJson.js');
+    const {createPluginAssistantIsolation} = load('src/utils/plugins/security/pluginAssistantIsolation.js');
+    const {PLUGIN_ASSISTANT_EVALUATIONS, evaluatePluginAssistantResponse} = load('src/utils/ai/testing/pluginAssistantEvaluation.js');
+    const {extractCodexJsonEventText, extractCodexFailure} = load('src/utils/ai/codex/codexCliJson.js');
     const platform = `codex-${process.platform}-${process.arch}`;
     const vendor = path.resolve('node_modules/@openai', platform, 'vendor');
     const triple = fs.readdirSync(vendor)[0];
@@ -41,7 +42,8 @@ async function run(command, args, options, input = '') {
         const permitted = await run(isolation.command, [...isolation.args.slice(0, 2), '/bin/echo', 'plugin-context-available'], isolation.options);
         report.isolation.processStarted = permitted.code === 0 && permitted.stdout.trim() === 'plugin-context-available';
         if (!report.isolation.hostReadDenied || !report.isolation.processStarted) throw new Error('Isolation checks failed; live requests were not sent.');
-        const types = ['index.d.ts', 'PluginRegistry.d.ts'].map(file => fs.readFileSync(path.join('node_modules/@anikitenko/fdo-sdk/dist/@types', file), 'utf8')).join('\n');
+        const types = readEvaluationSdkContext(path.resolve('node_modules/@anikitenko/fdo-sdk/dist/@types'));
+        report.sdkDeclarationFiles = EVALUATION_SDK_DECLARATIONS;
         for (const scenario of PLUGIN_ASSISTANT_EVALUATIONS) {
             const args = [...isolation.args, 'exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--json', '--ignore-user-config', '--ignore-rules', '--ephemeral'];
             if (process.env.FDO_E2E_LIVE_AI_MODEL) args.push('--model', process.env.FDO_E2E_LIVE_AI_MODEL);
@@ -54,6 +56,11 @@ async function run(command, args, options, input = '') {
             if (result.code !== 0) entry.error = extractCodexFailure(result.stdout, result.stderr) || `Process ended: ${result.signal || result.code}`;
             report.scenarios.push(entry);
             console.log(`${scenario.id}: ${entry.error ? 'provider error' : entry.assessment.checks.filter(c => c.passed).length + '/' + entry.assessment.checks.length + ' heuristic checks'}`);
+            for (const check of entry.assessment.checks.filter(check => !check.passed)) {
+                console.log(`  Missing heuristic criterion: ${check.criterion}`);
+            }
+            if (entry.assessment.scopeViolation) console.log('  Scope violation detected; inspect the saved response.');
+            if (entry.error) console.log(`  Provider error: ${entry.error}`);
             if (entry.error) break;
         }
     } finally {

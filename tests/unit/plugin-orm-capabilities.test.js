@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import PluginORM from "../../src/utils/PluginORM";
+import PluginORM from "../../src/utils/persistence/PluginORM";
 
 describe("PluginORM capability persistence", () => {
     test("normalizes missing capabilities to empty array and preserves explicit grants", () => {

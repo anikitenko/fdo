@@ -4,7 +4,7 @@ import {
     getCleanCliArgs,
     hasCliCommand,
     hasCliOnlyCommand,
-} from "../../src/utils/cliCommands";
+} from "../../src/utils/system/cliCommands";
 
 describe("CLI command routing", () => {
     test("registers sdk command as recognized CLI command", () => {

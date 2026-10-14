@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "contract": "Defines the five category contracts, stable category identities, descriptions, and shared result-state types.",
+      "path": "/features/tools/model.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Implements deterministic JSON, text, URL, HTML, SVG, data URL, and social-preview transformations.",
+      "path": "/features/tools/logic.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Renders the deep-teal dashboard, pastel folder categories, quick-access controls, and anchored footer.",
+      "path": "/features/dashboard/render.ts",
+      "visualReference": true
+    },
+    {
+      "contract": "Renders the ivory JSON Formatter workspace with ready, success, and error result states.",
+      "path": "/features/json/render.ts",
+      "visualReference": true
+    },
+    {
+      "contract": "Renders the search-driven category library overlay with filters, quick-access rows, and close control.",
+      "path": "/features/library/render.ts",
+      "visualReference": true
+    },
+    {
+      "contract": "Renders the dimmed personal-space sheet with sections, saved tools, favourites, and a privacy note.",
+      "path": "/features/space/render.ts",
+      "visualReference": true
+    },
+    {
+      "contract": "Renders one reusable category workspace card with the required input, action, result, and back controls.",
+      "path": "/features/tools/render.ts",
+      "visualReference": true
+    },
+    {
+      "contract": "Implements self-contained declarative click handlers for dashboard, library, workspace, and space controls.",
+      "path": "/features/actions.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Declares all iframe click bindings and composes the complete render-on-load action module.",
+      "path": "/features/actions.module.ts",
+      "visualReference": false
+    },
+    {
+      "contract": "Defines shared shell, typography, cards, controls, surfaces, and responsive foundations for the workbench.",
+      "path": "/styles/base.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines the two-column dashboard, folder grid, bottom dock, narrow layout, and reduced-motion behavior.",
+      "path": "/styles/dashboard.css",
+      "visualReference": true
+    },
+    {
+      "contract": "Defines the ivory JSON Formatter layout, editor surfaces, result states, and narrow responsive layout.",
+      "path": "/styles/workspace.css",
+      "visualReference": true
+    }
+  ]
+}

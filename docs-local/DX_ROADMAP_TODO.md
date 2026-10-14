@@ -8,7 +8,7 @@ Baseline commit: `84c4d2a`
 - `P1.1` -> complete (2026-04-15)  
   Evidence: Plugin Doctor contract wiring + panel model rendering + blocking/non-blocking tests.  
   References:
-  - [src/utils/pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/pluginDoctor.js:105)
+  - [src/utils/plugins/runtime/pluginDoctor.js](/Users/alexvwan/dev/fdo/src/utils/plugins/runtime/pluginDoctor.js:105)
   - [src/Home.jsx](/Users/alexvwan/dev/fdo/src/Home.jsx:3051)
   - [tests/unit/plugin-doctor.test.js](/Users/alexvwan/dev/fdo/tests/unit/plugin-doctor.test.js:246)
   - Test output: `npx jest --detectOpenHandles tests/unit/plugin-doctor.test.js` (PASS)
@@ -35,9 +35,9 @@ Baseline commit: `84c4d2a`
 - `P2.2` -> complete (2026-04-15)  
   Evidence: handshake compatibility evaluation, status gating, exact-fix mapping, and status outcome tests.
   References:
-  - [src/utils/pluginHandshakeCompatibility.js](/Users/alexvwan/dev/fdo/src/utils/pluginHandshakeCompatibility.js:266)
+  - [src/utils/sdk/pluginHandshakeCompatibility.js](/Users/alexvwan/dev/fdo/src/utils/sdk/pluginHandshakeCompatibility.js:266)
   - [src/ipc/plugin.js](/Users/alexvwan/dev/fdo/src/ipc/plugin.js:1973)
-  - [src/utils/diagnosticFixTemplates.js](/Users/alexvwan/dev/fdo/src/utils/diagnosticFixTemplates.js:222)
+  - [src/utils/plugins/validation/diagnosticFixTemplates.js](/Users/alexvwan/dev/fdo/src/utils/plugins/validation/diagnosticFixTemplates.js:222)
   - [tests/unit/plugin-handshake-compatibility.test.js](/Users/alexvwan/dev/fdo/tests/unit/plugin-handshake-compatibility.test.js:10)
   - Test output: `npx jest --detectOpenHandles tests/unit/plugin-doctor.test.js tests/unit/plugin-handshake-compatibility.test.js` (PASS)
 

@@ -37,9 +37,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [x] T005 [P] Create window validation helper function in /Users/onikiten/dev/fdo/src/utils/editorWindow.js
-- [x] T006 [P] Create cleanup handler function for IPC listeners in /Users/onikiten/dev/fdo/src/utils/editorWindow.js
-- [x] T007 [P] Add window validity check types (isDestroyed, null check) in /Users/onikiten/dev/fdo/src/utils/editorWindow.js
+- [x] T005 [P] Create window validation helper function in /Users/onikiten/dev/fdo/src/utils/desktop/editorWindow.js
+- [x] T006 [P] Create cleanup handler function for IPC listeners in /Users/onikiten/dev/fdo/src/utils/desktop/editorWindow.js
+- [x] T007 [P] Add window validity check types (isDestroyed, null check) in /Users/onikiten/dev/fdo/src/utils/desktop/editorWindow.js
 - [x] T008 Review IPC security boundaries in /Users/onikiten/dev/fdo/src/preload.js (verify no changes needed)
 
 **Checkpoint**: ✅ Foundation ready - user story implementation can now begin in parallel

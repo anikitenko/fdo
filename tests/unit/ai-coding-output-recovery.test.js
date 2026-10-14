@@ -1,4 +1,4 @@
-import {isAiCodingOutputLimitError, withCodingOutputRecovery} from "../../src/utils/aiCodingOutputRecovery";
+import {isAiCodingOutputLimitError, withCodingOutputRecovery} from "../../src/utils/ai/assistant/aiCodingOutputRecovery";
 
 const limit = new Error("Assistant stream response.incomplete: max_output_tokens");
 test("restarts once from the original task and returns only the complete replacement", async () => {

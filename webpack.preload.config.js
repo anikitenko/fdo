@@ -1,11 +1,11 @@
 const path = require("path");
 
 module.exports = {
-    entry: './src/preload.js',
+    entry: {preload: './src/preload.js', 'assistant-preload': './src/preload_assistant.js'},
     target: 'electron-preload',
     output: {
         path: path.resolve(__dirname, 'dist/main'),
-        filename: 'preload.js',
+        filename: '[name].js',
     },
     externals: {
         electron: "commonjs electron",

@@ -1,41 +1,44 @@
+import {typecheckPluginWorkspace} from '../utils/sdk/pluginWorkspaceTypecheck';
+import {normalizePluginDoctorPresentation} from './pluginDoctorPresentation';
 import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
+import {pluginTray, PLUGIN_TRAY_HANDLER} from '../utils/plugins/runtime/pluginTray';
 import ValidatePlugin from "../components/plugin/ValidatePlugin";
 import {rmSync, chmodSync, existsSync, statSync} from "node:fs";
 import {readFile, readdir, stat} from 'node:fs/promises';
 import Module from 'node:module';
-import PluginORM from "../utils/PluginORM";
+import PluginORM from "../utils/persistence/PluginORM";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "../main.js";
 import generatePluginName from "../components/editor/utils/generatePluginName";
 import path from "node:path";
-import UserORM from "../utils/UserORM";
-import PluginManager from "../utils/PluginManager";
+import UserORM from "../utils/persistence/UserORM";
+import PluginManager from "../utils/plugins/runtime/PluginManager";
 import {PluginChannels} from "./channels";
-import ensureAndWrite from "../utils/ensureAndWrite";
+import ensureAndWrite from "../utils/filesystem/ensureAndWrite";
 import {EsbuildVirtualFsPlugin} from "../utils/esbuild/plugins/virtual-fs";
-import {Certs} from "../utils/certs";
-import {syncPluginDir} from "../utils/syncPluginDir";
-import {NotificationCenter} from "../utils/NotificationCenter";
-import {editorWindow} from "../utils/editorWindow";
-import {getIgnoreInstance} from "../utils/getIgnoreInstance";
-import {getAllFilesWithIgnorance} from "../utils/getAllFilesWithIgnorance";
+import {Certs} from "../utils/system/certs";
+import {syncPluginDir} from "../utils/plugins/runtime/syncPluginDir";
+import {NotificationCenter} from "../utils/desktop/NotificationCenter";
+import {editorWindow} from "../utils/desktop/editorWindow";
+import {getIgnoreInstance} from "../utils/filesystem/getIgnoreInstance";
+import {getAllFilesWithIgnorance} from "../utils/filesystem/getAllFilesWithIgnorance";
 import * as stream from "node:stream";
 
 import {v4 as uuidv4} from 'uuid';
 
 import archiver from "archiver"
-import {extractMetadata} from "../utils/extractMetadata";
-import {normalizeAndValidatePluginMetadata} from "../utils/pluginMetadataContract";
-import {runPluginWorkspaceTests} from "../utils/pluginTestRunner";
-import {validatePluginWorkspaceSdkContract} from "../utils/pluginWorkspaceSdkContract";
-import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/pluginRuntimeSecurity";
-import {HANDSHAKE_API_INCOMPATIBLE} from "../utils/pluginHandshakeCompatibility";
+import {extractMetadata} from "../utils/plugins/runtime/extractMetadata";
+import {normalizeAndValidatePluginMetadata} from "../utils/plugins/runtime/pluginMetadataContract";
+import {runPluginWorkspaceTests} from "../utils/plugins/runtime/pluginTestRunner";
+import {validatePluginWorkspaceSdkContract} from "../utils/sdk/pluginWorkspaceSdkContract";
+import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/plugins/security/pluginRuntimeSecurity";
+import {HANDSHAKE_API_INCOMPATIBLE} from "../utils/sdk/pluginHandshakeCompatibility";
 import {
     executeHostPrivilegedAction,
     HOST_PRIVILEGED_HANDLER,
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_WRITE,
     HOST_PRIVILEGED_ACTION_SYSTEM_PROCESS_EXEC,
-} from "../utils/hostPrivilegedActions";
+} from "../utils/plugins/security/hostPrivilegedActions";
 import {
     getAllHostFilesystemScopePolicies,
     getHostPluginCustomFilesystemScopes,
@@ -45,8 +48,8 @@ import {
     sanitizeCustomFilesystemScopeId,
     setHostPluginCustomFilesystemScopes,
     setHostSharedFilesystemScopes,
-} from "../utils/privilegedFsScopeRegistry";
-import {getAllHostNetworkScopePolicies} from "../utils/networkScopeRegistry";
+} from "../utils/plugins/security/privilegedFsScopeRegistry";
+import {getAllHostNetworkScopePolicies} from "../utils/plugins/security/networkScopeRegistry";
 import {
     getAllHostProcessScopePolicies,
     getHostPluginCustomProcessScopes,
@@ -56,9 +59,9 @@ import {
     sanitizeCustomProcessScopeId,
     setHostPluginCustomProcessScopes,
     setHostSharedProcessScopes,
-} from "../utils/privilegedProcessScopeRegistry";
-import {getPluginTrustTier, summarizePrivilegedRuntime} from "../utils/pluginTrustTier";
-import {buildCapabilityDeclarationSummary, extractCapabilityDeclarationComparison} from "../utils/pluginCapabilityDeclaration";
+} from "../utils/plugins/security/privilegedProcessScopeRegistry";
+import {getPluginTrustTier, summarizePrivilegedRuntime} from "../utils/plugins/security/pluginTrustTier";
+import {buildCapabilityDeclarationSummary, extractCapabilityDeclarationComparison} from "../utils/plugins/security/pluginCapabilityDeclaration";
 import {
     NETWORK_CAPABILITY,
     NETWORK_DNS_CAPABILITY,
@@ -69,13 +72,13 @@ import {
     NETWORK_WEBSOCKET_CAPABILITY,
     STORAGE_CAPABILITY,
     STORAGE_JSON_CAPABILITY
-} from "../utils/pluginCapabilities";
+} from "../utils/plugins/security/pluginCapabilities";
 import {
     FDO_AI_LIST_ASSISTANTS_HANDLER_ID,
     FDO_AI_REQUEST_HANDLER_ID,
     handleHostAiAssistantsListRequest,
     handleHostAiRequest,
-} from "../utils/pluginHostAi";
+} from "../utils/plugins/runtime/pluginHostAi";
 import {
     FDO_AUTH_LOGOUT_HANDLER_ID,
     FDO_AUTH_REFRESH_HANDLER_ID,
@@ -85,8 +88,8 @@ import {
     handleHostAuthBrokerRefreshRequest,
     handleHostAuthBrokerStartRequest,
     handleHostSessionRequest,
-} from "../utils/pluginHostAuth";
-import {FDO_BROWSER_OPEN_HANDLER_ID, handleHostBrowserOpenRequest} from "../utils/pluginHostBrowser";
+} from "../utils/plugins/runtime/pluginHostAuth";
+import {FDO_BROWSER_OPEN_HANDLER_ID, handleHostBrowserOpenRequest} from "../utils/plugins/runtime/pluginHostBrowser";
 
 function buildHostPluginMessage(message, content = undefined) {
     const envelope = { message };
@@ -876,6 +879,11 @@ async function getPluginLogTrace(pluginId, options = {}) {
 }
 
 export function registerPluginHandlers() {
+    pluginTray.configure({
+        getPlugin: id => PluginManager.getLoadedPlugin(id),
+        invoke: (id, plugin, content) => dispatchPluginUiMessageAndAwaitResult(id, plugin, content),
+        reportError: (id, error) => NotificationCenter.addNotification({title: `${id}: tray action failed`, message: error, type: 'danger'}),
+    });
     const userORM = new UserORM(USER_CONFIG_FILE);
     const syncScopeRegistries = () => {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
@@ -1899,6 +1907,7 @@ export function registerPluginHandlers() {
                     loaded: !!PluginManager.getLoadedPlugin(id),
                     ready: !!PluginManager.getLoadedPluginReady(id),
                     inited: !!PluginManager.getLoadedPluginInited(id),
+                    uiExtensions: PluginManager.getLoadedPlugin(id)?.uiExtensions || null,
                     diagnosticsLastError: typeof diagnostics?.health?.lastErrorMessage === "string"
                         ? diagnostics.health.lastErrorMessage
                         : "",
@@ -2093,6 +2102,7 @@ export function registerPluginHandlers() {
         if (!plugin.ready) {
             return {success: false, error: `Plugin "${id}" is not ready`};
         }
+        if (content?.handler === PLUGIN_TRAY_HANDLER) return pluginTray.request(id, content?.content);
         const sessionId = getPluginRuntimeSessionId(id, plugin);
         console.info("[PLUGIN_UI_MESSAGE_RESOLVE]", JSON.stringify({
             pluginId: id,
@@ -2227,6 +2237,12 @@ export function registerPluginHandlers() {
         return await dispatchPluginUiMessageAndAwaitResult(id, plugin, content);
     })
 
+    ipcMain.handle(PluginChannels.GET_DOCTOR_PRESENTATION, (_event, diagnostics, options) => normalizePluginDoctorPresentation(diagnostics, options));
+
+    ipcMain.handle(PluginChannels.TYPECHECK, async (_event, data) => {
+        try { return typecheckPluginWorkspace(data?.latestContent); }
+        catch (error) { return {success: false, error: error.message}; }
+    });
     ipcMain.handle(PluginChannels.BUILD, async (event, data) => {
         try {
             const latestContent = data?.latestContent || {};
@@ -2424,6 +2440,7 @@ export function registerPluginHandlers() {
                     }
                 } else {
                     loadedPlugin.grantedCapabilities = nextGrantedCapabilities;
+                    if (!nextGrantedCapabilities.includes('system.tray')) pluginTray.remove(id);
                 }
                 if (typeof PluginManager.clearPrivilegedApprovalSession === "function") {
                     PluginManager.clearPrivilegedApprovalSession(id);

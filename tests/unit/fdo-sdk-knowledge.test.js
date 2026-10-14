@@ -4,7 +4,7 @@ import {
     formatSdkKnowledgeContext,
     searchFdoSdkKnowledge,
     shouldUseFdoSdkKnowledge,
-} from "../../src/utils/fdoSdkKnowledge.js";
+} from "../../src/utils/sdk/fdoSdkKnowledge.js";
 
 describe("fdo sdk knowledge indexing", () => {
     const files = [

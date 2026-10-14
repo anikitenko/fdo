@@ -49,3 +49,15 @@ test('chat turn tooltip labels partial totals without hiding unpriced requests',
     expect(screen.getByText('Known subtotal: $0.00600 + unknown')).toBeInTheDocument();
     expect(screen.getByText('This turn: 3 request(s), including routing and follow-ups.')).toBeInTheDocument();
 });
+
+test('Cursor exposes the same custom-rate controls as other API providers', async () => {
+    window.electron.aiUsage.get.mockResolvedValue({...unknown, groups: [{...unknown.groups[0], provider: 'cursor', model: 'composer-fixture'}]});
+    render(<AiUsagePopover surface="coding"/>);
+    fireEvent.click(screen.getByRole('button', {name: 'Usage and cost'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Edit rates'}));
+    fireEvent.change(await screen.findByLabelText('Input'), {target: {value: '2'}});
+    fireEvent.change(screen.getByLabelText('Output'), {target: {value: '10'}});
+    fireEvent.change(screen.getByLabelText('Cached input'), {target: {value: '.2'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Save rates'}));
+    await waitFor(() => expect(window.electron.aiUsage.saveRate).toHaveBeenCalledWith({provider: 'cursor', model: 'composer-fixture', rate: {input: 2, output: 10, cached: .2}}));
+});

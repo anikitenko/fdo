@@ -164,7 +164,7 @@ const handleElectronClose = () => {
 - Flag resets on cancel: Allows retries
 - Flag doesn't reset on confirm: Component unmounts
 
-#### 3. `src/utils/editorWindow.js` (Window Manager)
+#### 3. `src/utils/desktop/editorWindow.js` (Window Manager)
 
 **Additions**:
 ```javascript
@@ -480,7 +480,7 @@ try {
 ### Key Files
 
 - Main process: `src/ipc/system.js`
-- Window manager: `src/utils/editorWindow.js`
+- Window manager: `src/utils/desktop/editorWindow.js`
 - Renderer UI: `src/components/editor/EditorPage.jsx`
 - IPC channels: `src/ipc/channels.js`
 

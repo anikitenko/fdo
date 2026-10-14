@@ -3,10 +3,10 @@ describe("plugin doctor presentation", () => {
         apiVersion: "1.0.0",
         pluginId: "plugin-doctor-test",
         handshake: {
-            contractVersion: "1",
+            contractVersion: "1.0.0",
             sdkVersion: "1.4.0",
             apiVersion: "1.0.0",
-            capabilitySchemaVersion: "1",
+            capabilitySchemaVersion: "1.0.0",
             featureFlags: {
                 pluginDoctorReport: true,
             },
@@ -66,7 +66,7 @@ describe("plugin doctor presentation", () => {
     });
 
     test("degraded diagnostics map to degraded status with error findings shown", () => {
-        const {__setOptionalSdkModuleForTests, createPluginDoctorPresentation} = require("../../src/utils/pluginDoctor");
+        const {__setOptionalSdkModuleForTests, createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
         const sdkModule = require("@anikitenko/fdo-sdk");
         __setOptionalSdkModuleForTests({
             createPluginDoctorReport: sdkModule.createPluginDoctorReport,
@@ -86,7 +86,7 @@ describe("plugin doctor presentation", () => {
     });
 
     test("missing declared capability produces warning with remediation", () => {
-        const {__setOptionalSdkModuleForTests, createPluginDoctorPresentation} = require("../../src/utils/pluginDoctor");
+        const {__setOptionalSdkModuleForTests, createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
         const sdkModule = require("@anikitenko/fdo-sdk");
         __setOptionalSdkModuleForTests({
             createPluginDoctorReport: sdkModule.createPluginDoctorReport,
@@ -107,7 +107,7 @@ describe("plugin doctor presentation", () => {
     });
 
     test("API mismatch produces incompatible handshake status", () => {
-        const {createPluginDoctorPresentation} = require("../../src/utils/pluginDoctor");
+        const {createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
 
         const result = createPluginDoctorPresentation({
             ...diagnosticsFixture,
@@ -127,13 +127,13 @@ describe("plugin doctor presentation", () => {
     });
 
     test("schema mismatch produces warning but remains boot-compatible", () => {
-        const {createPluginDoctorPresentation} = require("../../src/utils/pluginDoctor");
+        const {createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
 
         const result = createPluginDoctorPresentation({
             ...diagnosticsFixture,
             handshake: {
                 ...diagnosticsFixture.handshake,
-                capabilitySchemaVersion: "2",
+                capabilitySchemaVersion: "2.0.0",
             },
         });
 
@@ -147,7 +147,7 @@ describe("plugin doctor presentation", () => {
     });
 
     test("missing required feature flag produces warning with remediation", () => {
-        const {createPluginDoctorPresentation} = require("../../src/utils/pluginDoctor");
+        const {createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
 
         const result = createPluginDoctorPresentation({
             ...diagnosticsFixture,
@@ -203,7 +203,7 @@ describe("plugin doctor presentation", () => {
         const {
             __setOptionalSdkModuleForTests,
             createPluginDoctorPresentation,
-        } = require("../../src/utils/pluginDoctor");
+        } = require("../../src/utils/plugins/runtime/pluginDoctor");
 
         __setOptionalSdkModuleForTests({
             createPluginDoctorReport,
@@ -277,7 +277,7 @@ describe("plugin doctor presentation", () => {
         const {
             __setOptionalSdkModuleForTests,
             createPluginDoctorPresentation,
-        } = require("../../src/utils/pluginDoctor");
+        } = require("../../src/utils/plugins/runtime/pluginDoctor");
         __setOptionalSdkModuleForTests({
             createPluginDoctorReport,
             createPluginDoctorPanelModel,
@@ -298,7 +298,7 @@ describe("plugin doctor presentation", () => {
     });
 
     test("absent handshake stays usable in legacy warning mode", () => {
-        const {createPluginDoctorPresentation} = require("../../src/utils/pluginDoctor");
+        const {createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
 
         const result = createPluginDoctorPresentation({
             ...diagnosticsFixture,

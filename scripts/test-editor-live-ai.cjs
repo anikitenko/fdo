@@ -9,19 +9,14 @@ const config = readLiveAiConfig(cli.env);
 const args = cli.args;
 const {provider, limit} = config;
 console.log(config.requestBudgetMode === 'adaptive'
-    ? `Live AI request budget: adaptive to pending work (absolute ceiling ${limit}; scenario deadline and bounded retries apply).`
+    ? `Live AI request budget: starts at ${limit}; ${config.requestProgressAllowance ? `each distinct validated file earns one request, up to ${config.maximumRequestLimit} total` : `explicit absolute ceiling ${limit}`}; scenario deadline and bounded retries apply.`
     : `Live AI request budget: fixed ${limit} (--max-requests).`);
 if (cli.ignoredInheritedLimit) console.log('Automatic budgeting replaces the inherited FDO_TEST_AI_MAX_REQUESTS value for this run. Use --max-requests to select a fixed cap.');
-const configuredLiveTimeout = Number(process.env.FDO_E2E_LIVE_AI_TIMEOUT_MS || 180000);
 // Keep the command-line runner aligned with playwright.live-ai.config.js.
 // Passing this explicitly prevents an inherited 60-second base-config timeout
 // from closing Electron during compile, deploy, or a validation repair pass.
-const liveTimeout = Math.max(
-    Number.isFinite(configuredLiveTimeout) && configuredLiveTimeout >= 60000
-        ? configuredLiveTimeout
-        : 180000,
-    600000,
-);
+const liveTimeout = config.timeoutPolicy.initialMs;
+console.log(`Live AI timeout: ${config.timeoutPolicy.mode}, starts at ${liveTimeout}ms; ${config.timeoutPolicy.perFileMs}ms per distinct validated file, maximum ${config.timeoutPolicy.maximumMs}ms.`);
 if (!args.includes("--list")) await preflightLiveAi(config, cli.grep);
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const build = spawnSync(npmCommand, ['run', 'build'], {

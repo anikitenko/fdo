@@ -1,4 +1,4 @@
-import { settings } from "../../utils/store.js";
+import { settings } from "../../utils/persistence/store.js";
 import crypto from "crypto";
 
 const LANGFUSE_INGEST_PATH = "/api/public/ingestion";

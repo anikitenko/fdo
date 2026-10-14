@@ -378,7 +378,7 @@ npm ci
 You can use the update system programmatically in Node.js:
 
 ```javascript
-const { updatePackages } = require('./src/utils/packageUpdater');
+const { updatePackages } = require('./src/utils/packages/update');
 
 async function main() {
   const result = await updatePackages({
@@ -403,7 +403,7 @@ main();
 Process batches separately with custom logic:
 
 ```javascript
-const { processBatch } = require('./src/utils/packageUpdater/batchProcessor');
+const { processBatch } = require('./src/utils/packages/update/batchProcessor');
 
 const batch = {
   id: 'custom-batch',
@@ -423,7 +423,7 @@ const result = await processBatch(batch, {
 Generate reports from existing update state:
 
 ```javascript
-const { generateReports } = require('./src/utils/packageUpdater');
+const { generateReports } = require('./src/utils/packages/update');
 
 const reports = await generateReports({
   updated: [/* ... */],
@@ -480,10 +480,10 @@ node scripts/updatePackages.js --target patch
 node scripts/updatePackages.js --help
 
 # Check for breaking changes without updating
-node -e "require('./src/utils/packageUpdater').detectBreakingChanges().then(console.log)"
+node -e "require('./src/utils/packages/update').detectBreakingChanges().then(console.log)"
 
 # Check for deprecated packages
-node -e "require('./src/utils/packageUpdater').detectDeprecations().then(console.log)"
+node -e "require('./src/utils/packages/update').detectDeprecations().then(console.log)"
 
 # Run security audit
 npm audit

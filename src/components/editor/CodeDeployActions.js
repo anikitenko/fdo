@@ -175,9 +175,9 @@ const CodeDeployActions = ({
         setPrettyVersionDate(formatDistanceToNow(new Date(ver.date), {addSuffix: true}))
     }
 
-    const triggerBuild = async () => {
+    const triggerBuild = async ({showOutput = false} = {}) => {
         setBuildInProgress(true)
-        if (currentSelectedTabId !== "ai-agent") {
+        if (showOutput || currentSelectedTabId !== "ai-agent") {
             setSelectedTabId("output")
         }
         try {
@@ -187,9 +187,9 @@ const CodeDeployActions = ({
         }
     }
 
-    const triggerRunTests = async () => {
+    const triggerRunTests = async ({showOutput = false} = {}) => {
         setTestsInProgress(true)
-        if (currentSelectedTabId !== "ai-agent") {
+        if (showOutput || currentSelectedTabId !== "ai-agent") {
             setSelectedTabId("tests")
         }
         try {
@@ -243,47 +243,64 @@ const CodeDeployActions = ({
 
     const triggerSaveAndClose = async () => {
         setSaveAndCloseInProgress(true)
-        const name = virtualFS.treeObject[0].label
+        try {
+            const name = virtualFS.treeObject[0].label
 
-        let selectedLabel = await handleRootCertificateSelection()
+            const compiled = await triggerBuild();
+            if (compiled?.success === false) {
+                return;
+            }
+            let selectedLabel = await handleRootCertificateSelection()
 
-        if (!selectedLabel) {
-            setDeployInProgress(false)
-            return
-        }
-
-        const content = []
-        virtualFS.listModels().forEach((model) => {
-            const modelUri = model.uri.toString(true).replace("file://", "")
-            if (modelUri.includes("/node_modules/")) {
+            if (!selectedLabel) {
                 return
             }
-            content.push({
-                path: modelUri,
-                content: model.getValue(),
+
+            const content = []
+            virtualFS.listModels().forEach((model) => {
+                const modelUri = model.uri.toString(true).replace("file://", "")
+                if (modelUri.includes("/node_modules/")) {
+                    return
+                }
+                content.push({
+                    path: modelUri,
+                    content: model.getValue(),
+                })
             })
-        })
 
-        const metadata = await virtualFS.build.getMetadata()
-        if (!metadata) {
-            (await AppToaster).show({message: `No metadata found.`, intent: "danger"});
-            return
-        }
+            const entrypoint = virtualFS.build.getEntrypoint();
+            const artifactPath = `/${entrypoint}`;
+            const runtimeBundle = virtualFS.build.getContent();
+            if (typeof runtimeBundle !== "string" || !runtimeBundle.trim()) throw new Error("Compilation returned no runtime bundle.");
+            const artifactIndex = content.findIndex(file => file.path === artifactPath);
+            if (artifactIndex >= 0) content[artifactIndex] = {path: artifactPath, content: runtimeBundle};
+            else content.push({path: artifactPath, content: runtimeBundle});
 
-        const result = await window.electron.plugin.saveAndCloseFromEditor({
-            name,
-            sandbox: virtualFS.sandboxName,
-            entrypoint: virtualFS.build.getEntrypoint(),
-            metadata,
-            dir: pluginDirectory,
-            rootCert: selectedLabel,
-            content
-        })
-        if (!result.success) {
-            (await AppToaster).show({message: `${result.error}`, intent: "danger"});
+            const metadata = await virtualFS.build.getMetadata()
+            if (!metadata) {
+                (await AppToaster).show({message: `No metadata found.`, intent: "danger"});
+                return
+            }
+
+            const result = await window.electron.plugin.saveAndCloseFromEditor({
+                name,
+                sandbox: virtualFS.sandboxName,
+                entrypoint,
+                metadata,
+                dir: pluginDirectory,
+                rootCert: selectedLabel,
+                content
+            })
+            if (!result.success) {
+                (await AppToaster).show({message: `${result.error}`, intent: "danger"});
+                return;
+            }
+            localStorage.removeItem("sandbox_" + name)
+        } catch (error) {
+            (await AppToaster).show({message: `Save failed: ${error.message}`, intent: "danger"});
+        } finally {
+            setSaveAndCloseInProgress(false);
         }
-        localStorage.removeItem("sandbox_" + name)
-        setSaveAndCloseInProgress(false)
     }
 
     useEffect(() => {
@@ -464,9 +481,9 @@ const CodeDeployActions = ({
                 <div>
                 <ButtonGroup fill={true} vertical={true}>
                   <Button text="Run Tests" intent="warning" icon="endorsed" loading={testsInProgress} disabled={deployInProgress || buildInProgress || saveAndCloseInProgress}
-                          onClick={async () => await triggerRunTests()} />
+                          onClick={async () => await triggerRunTests({showOutput: true})} />
                   <Button text="Compile" intent="primary" icon="build" loading={buildInProgress} disabled={deployInProgress || testsInProgress || saveAndCloseInProgress}
-                          onClick={async () => await triggerBuild()} />
+                          onClick={async () => await triggerBuild({showOutput: true})} />
                   <Button text="Deploy" intent="success" icon="share" loading={deployInProgress} disabled={buildInProgress || testsInProgress || saveAndCloseInProgress}
                           onClick={async () => await triggerDeploy()} />
                   <Button text="Save & Close" icon="cross" loading={saveAndCloseInProgress} disabled={deployInProgress || buildInProgress || testsInProgress}

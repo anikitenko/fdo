@@ -1,7 +1,7 @@
 import {
     CODEX_JSON_EARLY_RETRY_MS,
     shouldRetryCodexWithoutJsonEarly,
-} from "../../src/utils/codexCliRetryPolicy.js";
+} from "../../src/utils/ai/codex/codexCliRetryPolicy.js";
 
 describe("codex CLI retry policy", () => {
     test("switches away from JSON mode after 15 seconds of progress-only events", () => {
@@ -25,4 +25,9 @@ describe("codex CLI retry policy", () => {
             hasJsonEventStream: true,
         })).toBe(false);
     });
+});
+
+
+test('does not restart an active turn just because reasoning has produced no visible answer',()=>{
+    expect(shouldRetryCodexWithoutJsonEarly({jsonMode:true,generationActive:true,elapsedMs:240000,progressEventCount:8,hasJsonEventStream:true})).toBe(false);
 });

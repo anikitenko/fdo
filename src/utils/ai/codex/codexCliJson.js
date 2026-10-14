@@ -1,0 +1,171 @@
+function stripAnsi(text = "") {
+    return String(text || "").replace(/\x1B\[[0-9;]*[A-Za-z]/g, "");
+}
+
+function isObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function collectText(node, out = []) {
+    if (!node) return out;
+    if (typeof node === "string") {
+        const value = node.trim();
+        if (value) out.push(value);
+        return out;
+    }
+    if (Array.isArray(node)) {
+        node.forEach((item) => collectText(item, out));
+        return out;
+    }
+    if (typeof node === "object") {
+        if (typeof node.text === "string") collectText(node.text, out);
+        if (typeof node.content === "string") collectText(node.content, out);
+        if (typeof node.delta === "string") collectText(node.delta, out);
+        if (node.message) collectText(node.message, out);
+        if (node.content && typeof node.content !== "string") collectText(node.content, out);
+        if (node.delta && typeof node.delta !== "string") collectText(node.delta, out);
+    }
+    return out;
+}
+
+function extractAssistantItemText(parsed) {
+    if (!isObject(parsed)) return "";
+    const type = String(parsed.type || "").toLowerCase();
+    if (type === "item.completed" || type === "item.delta") {
+        const item = parsed.item;
+        if (!isObject(item)) return "";
+        const itemType = String(item.type || "").toLowerCase().replace(/_/g, "");
+        if (itemType === "agentmessage" || itemType === "assistantmessage") {
+            return collectText(item.text || item.content || item.delta).join("\n").trim();
+        }
+        return "";
+    }
+    if (type === "content" || type === "message" || type === "assistant.message") {
+        return collectText(parsed.content || parsed.message || parsed.delta || parsed.text).join("\n").trim();
+    }
+    return "";
+}
+
+function summarizeCommand(command = "") {
+    const normalized = String(command || "").trim();
+    if (!normalized) return "";
+
+    if (/rg .*fdo-sdk|@anikitenko\/fdo-sdk|domtable|dominput|fdointerface/i.test(normalized)) {
+        return "Inspecting bundled FDO SDK files and examples.";
+    }
+    if (/rg --files .*dev\/fdo|sed -n .*package\.json|package-lock\.json/i.test(normalized)) {
+        return "Inspecting current workspace files and package metadata.";
+    }
+    if (/sed -n .*examples\//i.test(normalized)) {
+        return "Reading bundled SDK example plugins.";
+    }
+    if (/rg .*todo|readme|changelog|plan\.md|spec\.md/i.test(normalized)) {
+        return "Inspecting referenced workspace task files.";
+    }
+    return "Inspecting workspace context.";
+}
+
+export function isCodexJsonTurnStarted(line = '') {
+    try {return JSON.parse(stripAnsi(line).trim()).type === 'turn.started';}
+    catch {return false;}
+}
+
+export function extractCodexJsonReasoningActivity(line = '') {
+    try {
+        const event = JSON.parse(stripAnsi(line).trim());
+        if (!['item.started', 'item.completed', 'item.delta'].includes(event.type) || event.item?.type !== 'reasoning') return null;
+        return {id: typeof event.item.id === 'string' ? event.item.id : '', started: event.type === 'item.started', completed: event.type === 'item.completed'};
+    } catch {return null;}
+}
+
+export function extractCodexJsonToolActivity(line = '') {
+    try {
+        const event = JSON.parse(stripAnsi(line).trim());
+        const item = event.item;
+        if (!['item.started', 'item.completed'].includes(event.type) || String(item?.type || '').toLowerCase().replace(/_/g, '') !== 'mcptoolcall'
+            || typeof item.id !== 'string' || !item.id || item.id.length > 256) return null;
+        return {id: item.id, started: event.type === 'item.started'};
+    } catch {return null;}
+}
+
+export function extractCodexJsonProgress(line = "") {
+    const raw = stripAnsi(line).trim();
+    if (!raw || !raw.startsWith("{")) {
+        return "";
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        const type = String(parsed?.type || "").toLowerCase();
+        if (type === "thread.started") {
+            return "Codex session started.";
+        }
+        if (type === "turn.started") {
+            return "Codex is analyzing the request and workspace.";
+        }
+        if (type === "item.started" || type === "item.completed") {
+            const item = parsed?.item;
+            const itemType = String(item?.type || "").toLowerCase().replace(/_/g, "");
+            if (itemType === 'mcptoolcall') {
+                const server = String(item?.server || 'MCP server').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 128);
+                const tool = String(item?.tool || 'tool').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 128);
+                if (type === 'item.started') return `MCP: calling ${server} / ${tool}.`;
+                return item?.error || item?.status === 'failed' || item?.result?.isError
+                    ? `MCP: ${server} / ${tool} failed.` : `MCP: ${server} / ${tool} completed.`;
+            }
+            if (itemType === "commandexecution") {
+                const summary = summarizeCommand(item?.command || "");
+                return type === "item.started"
+                    ? summary
+                    : "";
+            }
+            if (itemType === "agentmessage" && typeof item?.text === "string" && item.text.trim()) {
+                return "Codex is preparing the first answer.";
+            }
+        }
+        return "";
+    } catch {
+        return "";
+    }
+}
+
+export function extractCodexJsonEventText(line = "") {
+    const raw = stripAnsi(line).trim();
+    if (!raw || !raw.startsWith("{")) {
+        return "";
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        return extractAssistantItemText(parsed);
+    } catch {
+        return "";
+    }
+}
+
+export function isLikelyCodexJsonEventStream(text = "") {
+    const lines = stripAnsi(text)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    if (lines.length === 0) return false;
+    const jsonLikeCount = lines.filter((line) => line.startsWith("{") && line.endsWith("}")).length;
+    return jsonLikeCount >= Math.max(2, Math.ceil(lines.length / 2));
+}
+
+export function extractCodexFailure(stdout = "", stderr = "") {
+    const failures = [];
+    for (const line of String(stdout).split(/\r?\n/)) {
+        try {
+            const event = JSON.parse(line);
+            if (event.type === "turn.failed" || event.type === "error") {
+                const message = typeof event.error === "string" ? event.error : event.error?.message || event.message;
+                if (typeof message === "string" && message.trim()) failures.push(message.trim());
+            }
+        } catch (_) { /* Non-JSON output is handled as stderr below. */ }
+    }
+    if (failures.length) return failures[failures.length - 1];
+    return stripAnsi(stderr).split(/\r?\n/)
+        .filter(line => !/^Reading (?:additional input|prompt) from stdin\.{3}\s*$/i.test(line.trim()))
+        .join("\n").trim();
+}

@@ -1,11 +1,44 @@
 /** @jest-environment node */
-import AiProviderClient from '../../src/utils/aiProviderClient';
-import {sendCodingLlmRequest} from '../../src/utils/codingLlmRequest';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
+import {sendCodingLlmRequest} from '../../src/utils/ai/generation/codingLlmRequest';
 import {probeProvider} from '../../scripts/diagnose-ai-provider.cjs';
-import {isAiCodingTransientError, isAiCodingProviderTimeoutError} from '../../src/utils/aiCodingTransientRecovery';
+import {isAiCodingTransientError, isAiCodingProviderTimeoutError} from '../../src/utils/ai/assistant/aiCodingTransientRecovery';
+import {withCodingTransientRecovery} from '../../src/utils/ai/assistant/aiCodingTransientRecovery';
 
 const sse = (events, ending = '') => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + ending, {headers: {'content-type': 'text/event-stream'}});
 const cfOptions = {service: 'cloudflare', model: '@cf/qwen/qwen3.8-27b', accountId: 'a'.repeat(32), apiKey: 'test-secret'};
+
+test.each(['openai', 'anthropic', 'cloudflare', 'gemini', 'ollama', 'opencode', 'openrouter'])(
+    '%s preserves a safe Retry-After value when an SDK drops response headers', async service => {
+        const client = new AiProviderClient({...cfOptions, service});
+        client.options.fetchImpl = async () => new Response('', {status: 429,
+            headers: {'Retry-After': '60', 'private-header': 'test-secret'}});
+        await client.clientConfig().fetch('https://example.invalid');
+        const error = client.normalizeError(new Error('Provider returned error test-secret'));
+        expect(error).toMatchObject({status: 429, retryAfterMs: 60000});
+        expect(error.message).toContain('server requests a wait of 60 seconds');
+        expect(error.message).toContain('[REDACTED]');
+        expect(error.headers).toBeUndefined();
+        expect(JSON.stringify(error)).not.toContain('test-secret');
+        expect(isAiCodingTransientError(error)).toBe(true);
+    });
+
+test('OpenRouter HTTP 429 preserves Retry-After through its native SDK and the shared bounded retry', async () => {
+    const fetchImpl = jest.fn().mockImplementationOnce(async () => Response.json({error: {code: 429,
+        message: 'Provider returned error', metadata: {raw: 'private upstream body test-secret'}}},
+    {status: 429, headers: {'retry-after': '45', 'private-header': 'test-secret'}}))
+        .mockImplementationOnce(async () => sse([{choices: [{delta: {content: 'complete'}}]},
+            {choices: [{delta: {}, finish_reason: 'stop'}]}], 'data: [DONE]\n\n'));
+    const wait = jest.fn().mockResolvedValue();
+    const run = async () => {
+        const client = new AiProviderClient({service: 'openrouter', model: 'test-model', apiKey: 'test-secret', fetchImpl});
+        return consume(await client.chat('Build', {stream: true}));
+    };
+    const result = await withCodingTransientRecovery({run, wait, onRetry: jest.fn(), random: () => 0});
+    expect(result.complete.content).toBe('complete');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(wait.mock.calls[0][0]).toBe(45000);
+});
 
 test.each([[3008, false, false, undefined], [3046, true, true, undefined], [3046, false, false, 'false']])(
     'native error normalization preserves retry control metadata for code %s', async (code, transient, timeout, shouldRetry) => {
@@ -37,10 +70,12 @@ test.each([true, false])('Cloudflare progress reflects buffered=%s while headers
     const headers = new Promise(resolve => { releaseHeaders = resolve; });
     const client = new AiProviderClient({...cfOptions, fetchImpl: () => { notifyFetch(); return headers; }});
     expect(client.describeTransport()).toBe('Preparing the Cloudflare request.');
-    const response = await client.chat('Generate', {stream: true,
+    const onResponseMode = jest.fn();
+    const response = await client.chat('Generate', {stream: true, onResponseMode,
         ...(buffered ? {responseSchema: {type: 'object'}} : {})});
     const pending = consume(response);
     await dispatched;
+    expect(onResponseMode).toHaveBeenCalledWith(buffered ? 'buffered' : 'streaming');
     expect(client.describeTransport()).toBe(buffered
         ? 'Waiting for the complete response from Cloudflare. This request returns its answer all at once.'
         : 'Waiting for a response from Cloudflare.');

@@ -1,11 +1,11 @@
 /** @jest-environment node */
 import fs from 'fs/promises';
 import {getModelCapabilities} from '../../src/ipc/ai/model_capabilities';
-import {inspectGeminiModel} from '../../src/utils/geminiProvider.cjs';
+import {inspectGeminiModel} from '../../src/utils/ai/providers/geminiProvider.cjs';
 
 jest.mock('fs/promises', () => ({readFile: jest.fn(), writeFile: jest.fn().mockResolvedValue(undefined)}));
 jest.mock('electron', () => ({app: {getPath: () => '/tmp/fdo-capabilities-test'}}));
-jest.mock('../../src/utils/geminiProvider.cjs', () => ({inspectGeminiModel: jest.fn()}));
+jest.mock('../../src/utils/ai/providers/geminiProvider.cjs', () => ({inspectGeminiModel: jest.fn()}));
 jest.mock('../../src/ipc/ai/model_capabilities/fetchers/openai_fetcher', () => ({fetchOpenAICapabilities: jest.fn()}));
 jest.mock('../../src/ipc/ai/model_capabilities/fetchers/anthropic_fetcher', () => ({fetchAnthropicCapabilities: jest.fn()}));
 

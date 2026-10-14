@@ -2,14 +2,15 @@ const {readLiveAiConfig, findLiveCodingAssistant} = require("../../scripts/lib/l
 const { test, expect, _electron: electron } = require("@playwright/test");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const {observeLiveAiPage, describeLiveAiWaitFailure, readLiveAiMainProcess} = require("./helpers/liveAiLifecycle.cjs");
-const {waitForAssistantUiToSettle} = require("./helpers/assistantRequestWait.cjs");
+const {observeLiveAiPage, describeLiveAiWaitFailure, readLiveAiMainProcess, summarizeLiveAiWaitFailure} = require("./helpers/liveAiLifecycle.cjs");
+const {waitForAssistantUiToSettle, createLiveAiTimeoutMonitor} = require("./helpers/assistantRequestWait.cjs");
+const {liveAiTimeoutPolicy} = require("../../src/utils/ai/testing/liveAiTestPolicy.cjs");
 const {evaluatePluginCode} = require("./helpers/pluginBestPractices.cjs");
 const {pluginHeading} = require("./helpers/pluginHeading.cjs");
 const {evaluateJsonInspectorScenario, evaluateRoseCalculatorScenario, evaluateWebToolsWorkbenchScenario} = require("./helpers/pluginScenarioRubric.cjs");
 const {runJsonInspectorLiveScenario} = require("./live-ai-scenarios/json-inspector.cjs");
 const {runRoseCalculatorLiveScenario} = require("./live-ai-scenarios/rose-calculator.cjs");
-const {runWebToolsWorkbenchLiveScenario} = require("./live-ai-scenarios/web-tools-workbench.cjs");
+const {runWebToolsWorkbenchLiveScenario, runWebToolsWorkbenchContractScenario} = require("./live-ai-scenarios/web-tools-workbench.cjs");
 const {
   activatePlugin,
   removePlugin,
@@ -33,7 +34,7 @@ new Function("module", "exports", require("esbuild").transformSync(
 
 const scenarioCatalogModule = {exports: {}};
 new Function("module", "exports", require("esbuild").transformSync(
-  require("node:fs").readFileSync(require("node:path").resolve("src/utils/pluginAuthoringScenarioCatalog.js"), "utf8"),
+  require("node:fs").readFileSync(require("node:path").resolve("src/utils/plugins/authoring/pluginAuthoringScenarioCatalog.js"), "utf8"),
   {format: "cjs"},
 ).code)(scenarioCatalogModule, scenarioCatalogModule.exports);
 
@@ -48,10 +49,9 @@ const LIVE_MULTI_FILE_PROMPT = process.env.FDO_E2E_LIVE_AI_MULTI_FILE_PROMPT
     "If you change multiple files, return executable workspace file sections.",
   ].join(" ");
 const LIVE_TIMEOUT_MS = Number(process.env.FDO_E2E_LIVE_AI_TIMEOUT_MS || 180000);
-// A full four-file scenario may make one automatic validation-repair request.
-// Keep it bounded, but do not let the normal per-request budget end a valid
-// two-request flow midway through workspace application.
-const LIVE_SCENARIO_TIMEOUT_MS = Math.max(LIVE_TIMEOUT_MS, 600000);
+// Start with the shared scenario allowance. Host-validated file progress
+// extends the test and UI wait together without restarting either clock.
+const LIVE_SCENARIO_TIMEOUT_MS = liveAiTimeoutPolicy().initialMs;
 const LIVE_PROVIDER = process.env.FDO_TEST_AI_PROVIDER || "openai";
 const LIVE_API_KEY = LIVE_PROVIDER === "ollama" ? "" : process.env.FDO_TEST_AI_API_KEY || "";
 const LIVE_MODEL = process.env.FDO_TEST_AI_MODEL || "";
@@ -77,6 +77,7 @@ let liveLifecycleEvents = [];
 let stopObservingPage;
 let liveWaitFailure;
 let liveRequestConfiguration;
+let liveTestStartedAt;
 
 function recordLiveLifecycle(event, details = {}) {
   liveLifecycleEvents.push({event, at: new Date().toISOString(), ...details});
@@ -440,10 +441,13 @@ async function waitForWebToolsWorkbenchVisualState(window, pluginName, timeout =
   return readState();
 }
 
-async function waitForAssistantRequestToSettle(timeout = LIVE_TIMEOUT_MS) {
+async function waitForAssistantRequestToSettle(timeout = LIVE_TIMEOUT_MS, {afterResponseCount} = {}) {
   const testInfo = test.info();
   try {
-    await waitForAssistantUiToSettle(editorWindow, timeout);
+    await waitForAssistantUiToSettle(editorWindow, timeout, {afterResponseCount, approvePluginGuide: true, remainingMs: createLiveAiTimeoutMonitor({
+      testInfo, initialTimeout: LIVE_SCENARIO_TIMEOUT_MS, startedAt: liveTestStartedAt,
+      readBudget: () => electronApp.evaluate(() => globalThis.__FDO_E2E_LIVE_AI_BUDGET__ || null),
+    })});
   } catch (error) {
     const state = await editorWindow.evaluate(() => ({
       response: document.querySelector('[data-testid="ai-coding-response"]')?.textContent || "",
@@ -459,10 +463,13 @@ async function waitForAssistantRequestToSettle(timeout = LIVE_TIMEOUT_MS) {
       url: page.url(),
       isOriginalEditorPage: page === editorWindow,
     }))).catch((readError) => ({readError: String(readError?.message || readError)}));
-    const failure = describeLiveAiWaitFailure(editorWindow?.isClosed(), mainProcess, testInfo.status === "timedOut");
+    const failure = error.code === 'ASSISTANT_START_TIMEOUT' && testInfo.status !== 'timedOut'
+      ? 'The submitted repair did not start or produce a new response within the startup wait. The adaptive scenario deadline was not reached.'
+      : describeLiveAiWaitFailure(editorWindow?.isClosed(), mainProcess, testInfo.status === "timedOut", error);
     liveWaitFailure = {failure, state, lifecycle: [...liveLifecycleEvents], mainProcess, playwrightPages,
+      cause: {name: error.name, code: error.code, message: String(error.message).slice(0, 2000)},
       runner: {node: process.version, playwright: require("@playwright/test/package.json").version}};
-    throw new Error(`${failure} ${JSON.stringify(liveWaitFailure).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]")}`, {cause: error});
+    throw new Error(summarizeLiveAiWaitFailure(liveWaitFailure).split(LIVE_API_KEY || "[unused-secret]").join("[REDACTED]"));
   }
 }
 
@@ -482,6 +489,7 @@ test.describe("AI Coding Agent Live Provider", () => {
   }, LIVE_TIMEOUT_MS);
 
   test.beforeEach(async () => {
+    liveTestStartedAt = Date.now();
     liveLifecycleEvents = [];
     liveWaitFailure = null;
     liveRequestConfiguration = null;
@@ -513,8 +521,10 @@ test.describe("AI Coding Agent Live Provider", () => {
       response: document.querySelector('[data-testid="ai-coding-response"]')?.textContent || "",
       error: document.querySelector('[data-testid="ai-coding-error"]')?.textContent || "",
       backendResponses: window.__liveAiResponses || [],
-      files: Object.fromEntries(["/index.ts", "/render.tsx", "/render.test.ts"].map(file =>
-        [file, window.__editorTestApi?.getFileContent(file) || ""])),
+      files: Object.fromEntries((window.__editorTestApi?.getState().filesKeys || [])
+        .filter(path => !path.startsWith('/node_modules/') && !path.startsWith('/dist/'))
+        .map(path => [path, window.__editorTestApi.getFileContent(path)])
+        .filter(([, content]) => typeof content === 'string')),
     })).catch(error => ({readError: String(error.message || error)}));
     const requestBudget = await electronApp?.evaluate(() => globalThis.__FDO_E2E_LIVE_AI_BUDGET__ || null).catch(() => null);
     const codingLifecycle = await electronApp?.evaluate(() => globalThis.__FDO_E2E_CODING_LIFECYCLE__ || []).catch(() => []);
@@ -638,7 +648,9 @@ test.describe("AI Coding Agent Live Provider", () => {
     await expect(editorWindow.locator('#assistant-select')).toHaveValue(selectedAssistant.id);
     liveRequestConfiguration = {provider: selectedAssistant.provider, model: selectedAssistant.model,
       thinkingMode: selectedAssistant.defaultThinkingMode, firstResponseTimeoutMs: selectedAssistant.firstResponseTimeoutMs,
-      requestLimit: config.limit, requestBudgetMode: config.requestBudgetMode};
+      requestLimit: config.limit, requestBudgetMode: config.requestBudgetMode,
+      maximumRequestLimit: config.maximumRequestLimit, requestProgressAllowance: config.requestProgressAllowance,
+      timeoutPolicy: config.timeoutPolicy};
     console.log(`Live AI request configuration: ${JSON.stringify(liveRequestConfiguration)}`);
     return { promptInput, actionSelect, assistants: resolvedAssistants };
   };
@@ -876,8 +888,8 @@ test.describe("AI Coding Agent Live Provider", () => {
   });
 
   test.describe("Web Tools Workbench live scenario", () => {
-    test("live scenario: builds, deploys, and screenshots a local webmaster-tools workbench", async ({}, testInfo) => {
-      await runWebToolsWorkbenchLiveScenario(webToolsWorkbenchScenarioDeps(), testInfo);
+    test(process.env.FDO_LIVE_WORKBENCH_CONTRACT === "1" ? "contract regression: prescribed Workbench implementation" : "realistic user request: builds and exercises a local webmaster-tools workbench", async ({}, testInfo) => {
+      await (process.env.FDO_LIVE_WORKBENCH_CONTRACT === "1" ? runWebToolsWorkbenchContractScenario : runWebToolsWorkbenchLiveScenario)(webToolsWorkbenchScenarioDeps(), testInfo);
     });
   });
 

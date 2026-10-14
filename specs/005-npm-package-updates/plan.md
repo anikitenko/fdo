@@ -119,7 +119,7 @@ package-lock.json        # MODIFIED: Lock file regenerated
 .gitignore              # Ensure reports/ is tracked
 ```
 
-**Structure Decision**: This is a single-project Electron desktop application. The package update functionality will be implemented as a utility module (`src/utils/packageUpdater.js`) and a standalone CLI script (`scripts/updatePackages.js`). Generated reports will be stored in `specs/005-npm-package-updates/reports/` for version control tracking. The implementation does not require modifying core plugin architecture, keeping with FDO's separation of infrastructure from features.
+**Structure Decision**: This is a single-project Electron desktop application. The package update functionality will be implemented as a utility module (`src/utils/packages/packageUpdater.js`) and a standalone CLI script (`scripts/updatePackages.js`). Generated reports will be stored in `specs/005-npm-package-updates/reports/` for version control tracking. The implementation does not require modifying core plugin architecture, keeping with FDO's separation of infrastructure from features.
 
 ## Complexity Tracking
 

@@ -13,6 +13,15 @@ function isPoliteMutationQuestion(prompt = "") {
     return /\b(make|change|rename|set|update|fix|edit|add|create|build|generate|implement|replace|modify|use|choose|pick)\b/.test(normalizedPrompt);
 }
 
+export function isDocumentationLookupPrompt(prompt = '') {
+    const text = normalizeText(prompt);
+    const lookup = /\b(?:documentation|docs|references?)\b/.test(text)
+        && /\b(?:find|search|retrieve|look up|explain|summarize|research|compare)\b/.test(text);
+    const implementation = /\b(?:create|build|generate|write|add|modify|update|edit|change|fix|refactor|implement|replace)\b[^.!?\n]{0,80}\b(?:code|function|class|plugin|file|component|button|handler|tests?)\b/.test(text)
+        || /\b(?:apply|implement) (?:it|this|that|the changes)\b/.test(text);
+    return lookup && !implementation;
+}
+
 export function normalizeAiCodingAction(value = "") {
     const normalized = normalizeText(value);
     return ["smart", "generate", "edit", "explain", "fix", "plan"].includes(normalized)
@@ -72,6 +81,14 @@ export function isNewPluginCreationRequest(prompt = "") {
     const metadataOnlyEditIntent = metadataEditIntent && !creationIntent;
 
     return mentionsPlugin && creationIntent && !existingPluginIntent && !troubleshootingIntent && !explicitScaffoldIntent && !metadataOnlyEditIntent;
+}
+
+export function isExistingPluginFeatureRequest({prompt = '', workspaceFiles = [], selectedCode = ''} = {}) {
+    if (String(selectedCode || '').trim() || !workspaceFiles.length || isNewPluginCreationRequest(prompt)) return false;
+    // A concrete feature request can follow conversational praise. Questions
+    // about how the user could implement it remain informational.
+    return /\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:add|introduce|extend|enable)\b/i.test(prompt)
+        || /^(?:please\s+)?(?:add|introduce|extend|enable)\b/i.test(String(prompt).trim());
 }
 
 export function shouldUseAiRoutingJudge({
@@ -264,9 +281,10 @@ export function resolveAiCodingAgentAction({
         return normalizedAction || "smart";
     }
 
+    if (isDocumentationLookupPrompt(prompt)) return "explain";
     const normalizedPrompt = normalizeText(prompt);
     const hasSelectedCode = !!(selectedCode && selectedCode.trim());
-    const pragmaticIntent = detectAiCodingPragmaticIntent({ prompt, previousResponse });
+    const pragmaticIntent = detectAiCodingPragmaticIntent({ prompt });
     const crossesHostAppBoundary = hasHostAppFileReference([prompt, previousResponse].filter(Boolean).join("\n"), workspaceFiles);
     const newPluginCreation = isNewPluginCreationRequest(prompt);
     const isAdvisoryTestQuestion =
@@ -416,6 +434,8 @@ export function resolveAiCodingAgentAction({
     if (crossesHostAppBoundary) {
         return "smart";
     }
+
+    if (isExistingPluginFeatureRequest({prompt, workspaceFiles, selectedCode})) return "plan";
 
     if (!isAdvisoryTestQuestion && failureDrivenFixSignals.some((signal) => normalizedPrompt.includes(signal))) {
         return "fix";

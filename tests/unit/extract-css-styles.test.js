@@ -3,6 +3,49 @@ import {extractCssStyles} from "../../src/components/editor/utils/extractCssStyl
 import {resolveCssImports, mergeCssStyleMaps} from "../../src/components/editor/utils/resolveCssImports";
 
 describe("plugin CSS style-map transform", () => {
+    test('grouped classes and focus selectors become independent style entries', () => {
+        expect(extractCssStyles('.control, .textarea, .select { color: red; } .control:focus-visible, .textarea:focus-visible { outline: 2px solid blue; }'))
+            .toEqual({control: {color: 'red', '&:focus-visible': {outline: '2px solid blue'}},
+                textarea: {color: 'red', '&:focus-visible': {outline: '2px solid blue'}}, select: {color: 'red'}});
+    });
+    test('commas in selector functions and quoted values are not split or rewritten', () => {
+        const map = extractCssStyles('.panel { content: "a,  b"; background: linear-gradient(red, blue); } .panel:is(:hover, :focus), .panel[data-label="a,b"] { color: green; }');
+        expect(map.panel).toEqual({content: '"a,  b"', background: 'linear-gradient(red, blue)',
+            '&:is(:hover, :focus)': {color: 'green'}, '&[data-label="a,b"]': {color: 'green'}});
+    });
+    test('repeated selectors merge nested rules and retain declaration priority', () => {
+        expect(extractCssStyles('.panel { color: red; &:hover { opacity: .8; } } .panel { color: blue !important; &:hover { color: green; } }'))
+            .toEqual({panel: {color: 'blue !important', '&:hover': {opacity: '.8', color: 'green'}}});
+    });
+    test('retains standalone compound-class state registration', () => {
+        expect(extractCssStyles('.panel.active { color: green; }'))
+            .toEqual({panel: {'&.active': {color: 'green'}}});
+    });
+    test('imported global conditional rules emit through normal SDK class registration', async () => {
+        const map = await compose({
+            '/styles.css': '@import "./base.css"; @media (max-width: 600px) { .control, .textarea { width: 100%; } .control:focus { outline: 2px solid blue; } } @supports (display: grid) { @media (prefers-reduced-motion: reduce) { .control { transition: none; } } }',
+            '/base.css': '.control, .textarea { padding: 8px; }',
+        });
+        expect(map.control['@media (max-width: 600px)']).toEqual({width: '100%', '&:focus': {outline: '2px solid blue'}});
+        expect(map.textarea['@media (max-width: 600px)']).toEqual({width: '100%'});
+        const dom = new DOM();
+        const cls = dom.createClassFromStyle(map.control);
+        const html = dom.renderHTML(`<input class="${cls}">`);
+        expect(html).toContain(`.${cls}:focus`);
+        expect(html).toContain('@media (max-width: 600px)');
+        expect(html).toContain('@supports (display: grid)');
+        expect(html).toContain('@media (prefers-reduced-motion: reduce)');
+    });
+    test('conditional declarations retain source order across imports and local rules', async () => {
+        const result = await compose({
+            '/styles.css': '@import "./base.css"; @import "./feature.css"; @media (max-width: 600px) { .panel { color: purple; } }',
+            '/base.css': '.panel { color: black; } @media (max-width: 600px) { .panel { color: red; padding: 4px; } }',
+            '/feature.css': '.panel { @media (max-width: 600px) { color: blue; } }',
+        });
+        expect(result.panel['@media (max-width: 600px)']).toEqual({color: 'purple', padding: '4px'});
+        const reversed = await compose({'/styles.css': '@media (max-width: 600px) { .panel { color: red; } } .panel { @media (max-width: 600px) { color: blue; } }'});
+        expect(reversed.panel['@media (max-width: 600px)']).toEqual({color: 'blue'});
+    });
     test("preserves classes, CSS-style nesting, and keyframes as goober style maps", () => {
         const styles = extractCssStyles(`
             .panel { color: #123; }

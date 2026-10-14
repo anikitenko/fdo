@@ -117,6 +117,13 @@ export function EsbuildVirtualFsPlugin(latestContent) {
                 normalizedBasePath = normalizeVirtualPath(normalizedBasePath);
 
                 // Possible file resolutions
+                // TypeScript's NodeNext convention writes './module.js' for a
+                // './module.ts' source: when the literal path is absent, swap
+                // the written extension onto its TypeScript counterpart
+                // (esbuild's native resolver does the same) before failing.
+                const substitutionBases = /\.(?:[cm]?js|jsx)$/i.test(normalizedBasePath)
+                    ? normalizedBasePath.replace(/\.[cm]?jsx?$|\.jsx$/i, "")
+                    : null;
                 const possibleFiles = [
                     normalizedBasePath,
                     `${normalizedBasePath}.js`,
@@ -127,6 +134,10 @@ export function EsbuildVirtualFsPlugin(latestContent) {
                     `${normalizedBasePath}.tsx`,
                     `${normalizedBasePath}.mts`,
                     `${normalizedBasePath}.cts`,
+                    ...(substitutionBases
+                        ? [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]
+                            .map(ext => `${substitutionBases}${ext}`)
+                        : []),
                     `${normalizedBasePath}/index.js`,
                     `${normalizedBasePath}/index.jsx`,
                     `${normalizedBasePath}/index.mjs`,
@@ -174,6 +185,9 @@ export function EsbuildVirtualFsPlugin(latestContent) {
             build.onLoad({filter: /\.css$/}, async (args) => {
                 const classMap = extractCssStyles(latestContent[args.path])
                 const importsResolved = await resolveCssImports(classMap, args.path, latestContent, extractCssStyles)
+                // Entries already include grouped states and scoped conditional
+                // rules from the CSS parser. Preserve their nested objects and
+                // declaration order when composing imports for SDK registration.
                 const merged = mergeCssStyleMaps(importsResolved, classMap)
                 return {
                     contents: `export default ${JSON.stringify(merged)};`,

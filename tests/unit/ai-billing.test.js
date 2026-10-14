@@ -1,9 +1,9 @@
 /** @jest-environment node */
-import {estimateCost, rateKey, validateRate} from '../../src/utils/aiBilling/pricing';
-import {UsageLedger, configureUsageLedger, runWithUsageContext, currentTurnUsage} from '../../src/utils/aiBilling/ledger';
-import AiProviderClient from '../../src/utils/aiProviderClient';
+import {estimateCost, rateKey, validateRate} from '../../src/utils/ai/billing/pricing';
+import {UsageLedger, configureUsageLedger, runWithUsageContext, currentTurnUsage} from '../../src/utils/ai/billing/ledger';
+import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
 import {consume, responseFor} from '../helpers/aiProviderWire';
-import {tokenUsage} from '../../src/utils/aiProviders/messages';
+import {tokenUsage} from '../../src/utils/ai/providers/messages';
 
 const at = '2026-09-20T12:00:00.000Z';
 const price = (provider, usage, extra = {}) => estimateCost({provider, model: 'test-model', at, usage,
@@ -105,4 +105,10 @@ test('chat turn totals include routing and follow-ups but exclude other turns an
     expect(runWithUsageContext(scope, currentTurnUsage)).toMatchObject({usageRequests: 3, totalCost: undefined,
         inputTokens: undefined, knownCost: .006, costStatus: 'partial'});
     expect(currentTurnUsage()).toEqual({});
+});
+
+test('Cursor charges normalized cache categories without billing reasoning a second time', () => {
+    expect(price('cursor', {input_tokens: 1500, output_tokens: 100, cached_input_tokens: 200, cache_write_tokens: 300, reasoning_tokens: 40}))
+        .toMatchObject({status: 'estimated', inputCost: .00279, outputCost: .001, totalCost: .00379});
+    expect(estimateCost({provider: 'cursor', model: 'unpriced', usage: {input_tokens: 10, output_tokens: 1}})).toMatchObject({status: 'unknown'});
 });

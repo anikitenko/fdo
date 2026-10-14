@@ -1,4 +1,4 @@
-import {handleHostBrowserOpenRequest} from "../../src/utils/pluginHostBrowser";
+import {handleHostBrowserOpenRequest} from "../../src/utils/plugins/runtime/pluginHostBrowser";
 
 describe("plugin host browser broker", () => {
     test("opens allowed https url via host shell bridge", async () => {
