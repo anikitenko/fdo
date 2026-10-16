@@ -19,7 +19,11 @@ for (const mode of ['slow-runtime', 'slow-host-document']) {
                 }
                 new ColdPlugin();
             `});
-            await home.evaluate(id => window.electron.plugin.deactivate(id), pluginName);
+            // Use the same explicit deselection path as the UI. Direct IPC
+            // unloads during startup are intentionally treated as unexpected
+            // and can retain/recover the frame during the grace period.
+            expect(await home.evaluate(id => window.__homeTestApi.deselectPluginById(id), pluginName)).toBe(true);
+            await expect.poll(() => home.evaluate(() => window.__homeTestApi.getActivePluginIds())).not.toContain(pluginName);
             await expect(home.locator(`iframe[data-plugin-id="${pluginName}"]`)).toHaveCount(0);
             await home.evaluate(({id, mode}) => {
                 const originalFetch = window.fetch;

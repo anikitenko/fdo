@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {execFileSync} from 'node:child_process';
 import * as Babel from '@babel/standalone';
+import {installPluginGlobalEvents} from '../../src/components/plugin/utils/pluginGlobalEvents';
 import {
     PLUGIN_AUTHORING_GUIDE_VERSION,
     PLUGIN_RUNTIME_CATALOG,
@@ -42,11 +43,21 @@ process.stdout.write(result.renderView());`;
 
     test("keeps public helpers aligned with the plugin host contract", () => {
         const source = fs.readFileSync(path.resolve("src/components/plugin/PluginPage.jsx"), "utf8");
-        for (const helper of PLUGIN_UI_HELPERS) {
-            const name = helper.match(/window\.([A-Za-z]+)/)?.[1];
-            expect(name).toBeTruthy();
-            expect(source).toContain(`window.${name}`);
-        }
+        const target = new EventTarget();
+        const events = installPluginGlobalEvents(target);
+        try {
+            for (const helper of PLUGIN_UI_HELPERS) {
+                const names = [...helper.matchAll(/window\.([A-Za-z]+)/g)].map(match => match[1]);
+                expect(names.length).toBeGreaterThan(0);
+                for (const name of names) {
+                    if (name === 'addGlobalEventListener' || name === 'removeGlobalEventListener') {
+                        expect(typeof target[name]).toBe('function');
+                    } else {
+                        expect(source).toContain(`window.${name}`);
+                    }
+                }
+            }
+        } finally {events.dispose();}
     });
 
     test("documents the actual virtual stylesheet loader rather than inventing Sass support", () => {
