@@ -79,10 +79,14 @@ test('catalog cards contain long names and generated SDK async actions deploy wi
         await selectPluginOpen(home,pluginName);
         const frame=home.frameLocator(`iframe[data-plugin-id="${pluginName}"]`);
         const root=frame.locator('#fdo-async-action-button');
+        // Markup exists before asynchronous renderOnLoad setup attaches handlers.
+        // The SDK publishes aria-busy only once the controller is mounted.
+        await expect(root).toHaveAttribute('aria-busy','false');
         await root.getByRole('button',{name:'Run action',exact:true}).click();
         await expect(frame.locator('[data-fdo-result="visual-result-1"]')).toHaveText('Saved <safe>');
         await expect(root).toHaveAttribute('data-fdo-state','success');
         const backendRoot=frame.locator('#fdo-async-action-button-2');
+        await expect(backendRoot).toHaveAttribute('aria-busy','false');
         const runBackend=backendRoot.locator('button[data-fdo-action="run"]');
         await frame.locator('[data-fdo-input="visual-input-1"]').fill('{"nested":{"value":42}}');
         await runBackend.click();
@@ -114,6 +118,7 @@ test('catalog cards contain long names and generated SDK async actions deploy wi
         await expect(frame.locator('[data-role="status"]')).toContainText('is running');
         await home.evaluate(id=>window.electron.plugin.render(id),pluginName);
         await expect(root).toHaveAttribute('data-fdo-state','idle');
+        await expect(root).toHaveAttribute('aria-busy','false');
         await root.getByRole('button',{name:'Run action',exact:true}).click();
         await expect(root).toHaveAttribute('data-fdo-state','success');
         await expect(frame.locator('[data-fdo-result="visual-result-1"]')).toHaveText('Saved <safe>');

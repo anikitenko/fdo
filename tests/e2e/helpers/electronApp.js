@@ -85,6 +85,7 @@ async function launchElectronApp(electron, options = {}) {
   appUserDataDirs.set(app, {
     path: userDataDir,
     isolated: isolatedUserDataDir,
+    child: app.process(),
   });
   const firstWindow = await app.firstWindow();
   if (options.keepDisplayAwake === true) {
@@ -235,7 +236,7 @@ async function closeElectronApp(app) {
     } finally {clearTimeout(traceDeadline);}
   }
   await appUserData?.powerGuard?.release();
-  const child = app.process();
+  const child = appUserData?.child || app.process();
   // A lost browser connection can make app.close() return without terminating
   // Electron, leaving its Node inspector (and test worker) alive. Bound graceful
   // cleanup and wait for the owned process to exit before removing its profile.

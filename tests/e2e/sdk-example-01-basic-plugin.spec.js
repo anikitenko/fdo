@@ -103,7 +103,7 @@ function createFaultInjectedEntry(baseEntry, mode) {
     );
     updatedSource = updatedSource.replace(
       "this.error(error as Error);",
-      `this.error(error as Error);\n      this.__e2eInitCatchReached = true;\n      this.log("${INIT_CATCH_SENTINEL}");`,
+      `this.error(error as Error);\n      this.__e2eInitCatchReached = true;\n      this.error(new Error("${INIT_CATCH_SENTINEL}"));`,
     );
     updatedSource = updatedSource.replace(
       "<h1>Welcome to ${this._metadata.name}</h1>",
@@ -116,7 +116,7 @@ function createFaultInjectedEntry(baseEntry, mode) {
     );
     updatedSource = updatedSource.replace(
       "this.error(error as Error);\n      \n      return `",
-      `this.error(error as Error);\n      this.log("${RENDER_CATCH_SENTINEL}");\n      return \``,
+      `this.error(error as Error);\n      this.error(new Error("${RENDER_CATCH_SENTINEL}"));\n      return \``,
     );
   } else {
     throw new Error(`Unknown injection mode: ${mode}`);
@@ -296,11 +296,12 @@ test.describe("SDK example 01-basic-plugin: live E2E line proof", () => {
       expect(matchedFallback).toBeTruthy();
 
       const uiState = await getPluginUiState(window, pluginName);
-      const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 18000 });
-      const tailText = toTailText(logTail);
       const combinedUi = `${String(uiState?.iframeText || "")}\n${String(uiState?.iframeHtml || "")}`;
 
-      expect(String(tailText)).toContain(RENDER_CATCH_SENTINEL);
+      // Error-level evidence stays separate from verbose diagnostics traffic;
+      // wait for the logger's buffered write before asserting the catch ran.
+      await expect.poll(async () => toTailText(await getPluginLogTail(window, pluginName,
+        {maxFiles: 4, maxChars: 40000})), {timeout: 10000}).toContain(RENDER_CATCH_SENTINEL);
       expect(combinedUi).toContain("Error rendering plugin");
       expect(combinedUi).toContain("An error occurred while rendering the plugin UI. Check the console for details.");
     } finally {

@@ -35,6 +35,12 @@ describe("plugin runtime security", () => {
         expect(result.homeWrite).toBe("allowed");
     });
 
+    test("recognizes SDK internals with Windows and POSIX paths while denying plugin imports", () => {
+        const result = runBootstrapPolicy("storage.json");
+        expect(result.sdkImports).toEqual({windows: "allowed", posix: "allowed", plugin: "blocked"});
+        expect(result.childProcess).toBe("blocked");
+    });
+
     test("allows privileged module import with sudo capability while still blocking writes to PLUGIN_CODE_HOME", () => {
         const result = runBootstrapPolicy("storage.json,sudo.prompt");
         expect(result.childProcess).toBe("allowed");
@@ -153,6 +159,14 @@ function runBootstrapPolicy(capabilitiesCsv) {
 const fs = require("node:fs");
 const path = require("node:path");
 const result = {};
+result.sdkImports = Object.fromEntries(Object.entries({
+  windows: "C:/host/node_modules/@anikitenko/fdo-sdk/dist/fdo-sdk.bundle.js".replaceAll("/", String.fromCharCode(92)),
+  posix: "/host/node_modules/@anikitenko/fdo-sdk/dist/fdo-sdk.bundle.js",
+  plugin: "C:/plugins/example/index.cjs".replaceAll("/", String.fromCharCode(92)),
+}).map(([name, filename]) => {
+  try { globalThis.__testHostImport(filename); return [name, "allowed"]; }
+  catch { return [name, "blocked"]; }
+}));
 
 try {
     require("node:child_process");
@@ -257,7 +271,15 @@ try {
 process.stdout.write(JSON.stringify(result));
 `, "utf8");
 
-    const execution = spawnSync(process.execPath, [bootstrapPath], {
+    // This driver supplies synthetic parent filenames to the real patched
+    // loader, exercising Windows policy decisions on every host platform.
+    const driverPath = path.join(tempRoot, "driver.cjs");
+    fs.writeFileSync(driverPath, `
+const Module = require("node:module");
+globalThis.__testHostImport = filename => Module._load("node:child_process", {filename}, false);
+require(${JSON.stringify(bootstrapPath)});
+`, "utf8");
+    const execution = spawnSync(process.execPath, [driverPath], {
         encoding: "utf8",
         env: {
             ...process.env,

@@ -79,27 +79,11 @@ test.describe('Snapshots E2E', () => {
     await createSnapshotFromToolbar(win);
 
     // Open Snapshot toolbar Recent menu and capture current index
-    const recentBtn = await win.waitForSelector('button:has-text("Recent")');
-    let menuOpened = false;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await dismissBlueprintOverlays(win).catch(() => {});
-      await recentBtn.scrollIntoViewIfNeeded().catch(() => {});
-      await recentBtn.focus().catch(() => {});
-      await recentBtn.click({ force: true }).catch(() => {});
-      // Fallback interaction path for occasional blueprint popover trigger misses.
-      if (!menuOpened) {
-        await win.keyboard.press('Enter').catch(() => {});
-      }
-      try {
-        await win.waitForFunction(() => document.querySelectorAll('.bp6-menu .bp6-menu-item').length >= 2, null, { timeout: 2200 });
-        menuOpened = true;
-        break;
-      } catch (_) {}
-    }
-    if (!menuOpened) {
-      throw new Error('Failed to open Recent snapshot menu after retries.');
-    }
-    const itemsLocator = win.locator('.bp6-menu .bp6-menu-item');
+    await win.getByRole('button', {name: 'Recent', exact: true}).click();
+    const menu = win.getByTestId('recent-menu');
+    await expect(menu).toBeVisible();
+    const itemsLocator = menu.locator('.bp6-menu-item');
+    await expect.poll(() => itemsLocator.count()).toBeGreaterThanOrEqual(2);
     const textsBefore = [];
     const count = await itemsLocator.count();
     for (let i = 0; i < count; i++) {
@@ -110,7 +94,7 @@ test.describe('Snapshots E2E', () => {
     const targetIdx = currentIdx === 0 ? 1 : 0;
     await itemsLocator.nth(targetIdx).click();
     // Menu should close and a toast should appear
-    await win.waitForSelector('.bp6-menu', { state: 'detached', timeout: 2000 }).catch(() => {});
+    await expect(menu).toBeHidden();
     await win.waitForSelector('.bp6-toast', { timeout: 5000 });
   });
 
