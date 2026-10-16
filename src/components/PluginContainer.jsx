@@ -183,6 +183,7 @@ export const PluginContainer = ({
     const [content, setContent] = useState("");
     const [iframeLoaded, setIframeLoaded] = useState(false);
     const [iframeHello, setIframeHello] = useState(false);
+    const [iframeDocumentVersion, setIframeDocumentVersion] = useState(0);
     const [iframeLayoutReady, setIframeLayoutReady] = useState(false);
     const [iframeMounted, setIframeMounted] = useState(false);
     // Runtime polling can supply a new array with the same permissions.
@@ -564,6 +565,13 @@ export const PluginContainer = ({
             }
 
             if (event.data.type === "PLUGIN_HELLO") {
+                // contentWindow survives a srcdoc navigation. A new document
+                // needs the render payload even when its content is unchanged.
+                lastPostedRenderSignatureRef.current = null;
+                renderMountedAtRef.current = 0;
+                setIframeMounted(false);
+                setIframeLayoutReady(false);
+                setIframeDocumentVersion((version) => version + 1);
                 setIframeHello(true);
                 setDebugStage("iframe-ready");
                 return;
@@ -747,7 +755,7 @@ export const PluginContainer = ({
                 onLoad: normalized.onLoad,
             },
         }, "*");
-    }, [content, iframeLoaded, iframeReady, renderAttempt]);
+    }, [content, iframeLoaded, iframeReady, iframeDocumentVersion, renderAttempt]);
 
     useEffect(() => {
         if (!hostError || !hostError.trim()) return;
@@ -809,7 +817,7 @@ export const PluginContainer = ({
             setRenderAttempt((prev) => prev + 1);
         }, 2200);
         return () => window.clearTimeout(timer);
-    }, [hostError, iframeLoaded, iframeReady, content, plugin]);
+    }, [hostError, iframeLoaded, iframeReady, iframeDocumentVersion, content, plugin]);
 
     useEffect(() => {
         if (hostError || content?.render || iframeMounted) {
