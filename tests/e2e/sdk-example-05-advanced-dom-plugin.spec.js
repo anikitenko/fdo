@@ -118,7 +118,7 @@ async function waitForLogContains(window, pluginName, needle, timeoutMs = 12000)
 
 async function getAdvancedDomSnapshot(window, pluginName) {
   return await window.evaluate(({ pluginName }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     const byId = (id) => doc?.getElementById(id);

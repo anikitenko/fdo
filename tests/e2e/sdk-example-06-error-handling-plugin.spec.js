@@ -181,7 +181,7 @@ async function waitForHandlersRegistered(window, pluginName, requiredHandlers, t
 
 async function clickButtonAndReadOutput(window, buttonSelector, outputSelector, timeoutMs = 8000) {
   return await window.evaluate(async ({ buttonSelector, outputSelector, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
     const button = doc.querySelector(buttonSelector);

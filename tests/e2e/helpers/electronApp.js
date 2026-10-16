@@ -26,19 +26,19 @@ async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
     const anyOverlay = await page.$('.bp6-dialog, .bp6-alert, .bp6-overlay-open');
     if (!anyOverlay) break;
 
-    const primary = page.locator('.bp6-dialog .bp6-button.bp6-intent-primary, .bp6-alert .bp6-button.bp6-intent-primary');
-    if (await primary.count()) {
-      await primary.first().click({ trial: false }).catch(() => {});
-      await page.waitForTimeout(50);
-      continue;
-    }
+    // Dismiss the topmost overlay before looking for an acknowledgement.
+    // A primary button may save capabilities behind another dialog; clicking
+    // it can hang on pointer interception and leak dialogs into the next test.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(50);
+    if (!await page.$('.bp6-dialog:visible, .bp6-alert:visible, .bp6-overlay-open:visible')) break;
 
-    const labels = ['OK', 'Confirm', 'Switch', 'Close', 'Dismiss'];
+    const labels = ['Close', 'Dismiss', 'Cancel', 'OK', 'Confirm', 'Switch'];
     let clicked = false;
     for (const label of labels) {
-      const btn = page.locator(`.bp6-dialog button:has-text("${label}"), .bp6-alert button:has-text("${label}")`).first();
+      const btn = page.locator(`.bp6-dialog button:visible:has-text("${label}"), .bp6-alert button:visible:has-text("${label}")`).last();
       if (await btn.count()) {
-        await btn.click().catch(() => {});
+        await btn.click({timeout: Math.max(1, timeout - (Date.now() - start))}).catch(() => {});
         clicked = true;
         await page.waitForTimeout(50);
         break;

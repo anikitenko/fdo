@@ -23,7 +23,7 @@ function buildPluginFiles(options = {}) {
   const readyDelayMs = Number(options.readyDelayMs || 0);
   const displayName = options.displayName || PLUGIN_DISPLAY;
   const description = options.description || PLUGIN_DESCRIPTION;
-  const indexCjs = `"use strict";
+  return `"use strict";
 
 const { FDO_SDK } = require("@anikitenko/fdo-sdk");
 
@@ -55,7 +55,6 @@ if (${readyDelayMs} > 0) {
   bootstrap();
 }
 `;
-  return indexCjs;
 }
 
 async function installSignedE2EPlugin(window, options = {}) {
@@ -182,11 +181,11 @@ async function deselectPlugin(window, pluginName = PLUGIN_NAME) {
 }
 
 async function expectPluginUiVisible(window, pluginName = PLUGIN_NAME) {
-  await expect(window.locator('iframe[title="Plugin Container ID"]')).toHaveCount(1, { timeout: 10000 });
-  const startedAt = Date.now();
+  await expect(window.locator(`iframe[data-plugin-id="${pluginName}"][data-plugin-active="true"]`)).toHaveCount(1, { timeout: 10000 });
   try {
-    await window.waitForFunction(({ pluginName, since }) => {
-      const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    await window.waitForFunction(pluginName => {
+      const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-active="true"]'))
+        .find(node => node.dataset.pluginId === pluginName);
       const doc = iframe?.contentDocument;
       if (doc?.body) {
         const root = doc.querySelector('#plugin-root, [data-plugin-root="true"], #root');
@@ -197,8 +196,8 @@ async function expectPluginUiVisible(window, pluginName = PLUGIN_NAME) {
         }
       }
       return false;
-    }, { pluginName, since: startedAt }, { timeout: 5500 });
-  } catch (error) {
+    }, pluginName, { timeout: 5500 });
+  } catch {
     const diag = await window.evaluate(async ({ pluginName }) => {
       const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]);
       const selected = window.__homeTestApi?.getSelectedPlugin?.() || "";
@@ -228,7 +227,7 @@ async function expectPluginUiVisible(window, pluginName = PLUGIN_NAME) {
 }
 
 async function expectPluginUiHidden(window) {
-  await expect(window.locator('iframe[title="Plugin Container ID"]')).toHaveCount(0, { timeout: 10000 });
+  await expect(window.locator('iframe[data-plugin-id][data-plugin-active="true"]')).toHaveCount(0, { timeout: 10000 });
 }
 
 async function assertNoPluginErrorToast(window) {
@@ -248,7 +247,7 @@ async function assertNoPluginStageBanner(window) {
 }
 
 async function clickInsidePluginIframe(window) {
-  const iframeElement = await window.waitForSelector('iframe[title="Plugin Container ID"]', { timeout: 10000 });
+  const iframeElement = await window.waitForSelector('iframe[data-plugin-id][data-plugin-active="true"]', { timeout: 10000 });
   const frame = await iframeElement.contentFrame();
   if (!frame) {
     throw new Error("Plugin iframe content frame was not available.");

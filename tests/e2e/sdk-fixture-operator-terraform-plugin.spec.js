@@ -119,7 +119,7 @@ async function getSourceCoverageMetrics(window, pluginName, sourceAbsPath) {
 
 async function getFixtureUiSnapshot(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     return {
       text: String(doc?.body?.innerText || "").trim(),
@@ -143,7 +143,7 @@ async function waitForFixtureUiReady(window, timeoutMs = 30000) {
 
 async function clickButtonAndWaitOutput(window, buttonId, timeoutMs = 12000) {
   return await window.evaluate(async ({ buttonId, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const button = doc?.getElementById(buttonId);
     const output = doc?.getElementById("terraform-workflow-result");

@@ -37,7 +37,7 @@ test('workspace keeps app background visible when no plugin is active', async ()
   });
 
   await expect.poll(async () => {
-    return await window.evaluate(() => document.querySelectorAll('iframe[title^="Plugin Container ID"]').length);
+    return await window.evaluate(() => document.querySelectorAll('iframe[data-plugin-id]').length);
   }, { timeout: 10000 }).toBe(0);
 
   const visualState = await window.evaluate(() => {
@@ -81,17 +81,22 @@ test('command search includes FDO and plugin-management actions by default', asy
   await expect(window.getByText('Settings', {exact: true})).toBeVisible();
   await expect(window.getByText('Manage Plugins', {exact: true})).toBeVisible();
   await window.locator('.bp6-omnibar input').fill('plugin');
-  await window.waitForTimeout(200);
-  await window.keyboard.press('Enter');
-  await expect(window.getByText('Create Plugin', {exact: true})).toBeVisible();
-  await window.keyboard.press('Escape');
+  await window.getByRole('menuitem', {name: /Create Plugin/}).click();
+  const createDialog = window.getByRole('dialog', {name: 'Create Plugin', exact: true});
+  await expect(createDialog).toBeVisible();
+  // This dialog intentionally disables Escape dismissal. Close it through its
+  // own control so its backdrop cannot intercept the following resize test.
+  await createDialog.getByRole('button', {name: 'Close', exact: true}).click();
+  await expect(createDialog).toBeHidden();
+  await expect(window.locator('.bp6-omnibar')).toBeHidden();
 });
 
 test('command search stays usable and clear of centered navigation after a resize', async () => {
   const window = await electronApp.firstWindow();
 
   await electronApp.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(1024, 700);
+    // Resize the web content: Windows window borders consume outer width.
+    BrowserWindow.getAllWindows()[0]?.setContentSize(1024, 700);
   });
   await expect.poll(() => window.evaluate(() => window.innerWidth)).toBe(1024);
 

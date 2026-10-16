@@ -121,7 +121,7 @@ async function waitForStorageUiReady(window, pluginName, timeoutMs = 30000) {
 
 async function clickFixtureButton(window, buttonId) {
   return await window.evaluate(({ buttonId }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const button = doc?.getElementById(buttonId);
     if (!button) return false;
@@ -132,7 +132,7 @@ async function clickFixtureButton(window, buttonId) {
 
 async function readFixtureOutput(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const output = doc?.getElementById("storage-output");
     return String(output?.textContent || "").trim();
@@ -204,7 +204,7 @@ test.describe("SDK fixture storage-plugin: live E2E line proof", () => {
       expect(firstUiState?.hostOverlayVisible).toBe(false);
 
       const controlsPresent = await window.evaluate(() => {
-        const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+        const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
         const doc = iframe?.contentDocument;
         return {
           refresh: !!doc?.getElementById("storage-refresh"),

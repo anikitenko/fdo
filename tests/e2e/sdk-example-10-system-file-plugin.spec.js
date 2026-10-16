@@ -136,7 +136,7 @@ async function restartPlugin(window, pluginId) {
 
 async function get10UiSnapshot(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const output = String(doc?.getElementById("system-file-result")?.innerText || "").trim();
     const runButton = doc?.getElementById("run-system-file-action");
@@ -164,7 +164,7 @@ async function waitFor10UiReady(window, timeoutMs = 30000) {
 
 async function clickRunAndWait(window, matcherExpr, timeoutMs = 10000) {
   return await window.evaluate(async ({ matcherExpr, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
     const runButton = doc.getElementById("run-system-file-action");

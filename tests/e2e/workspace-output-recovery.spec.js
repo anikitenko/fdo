@@ -21,7 +21,9 @@ for (const repeated of [false, true]) {
                     const body = JSON.parse(init.body);
                     globalThis.__outputRequests.push(body);
                     const attempt = globalThis.__outputRequests.length;
-                    const path = body.response_format.json_schema.properties.path?.enum[0];
+                    const schema = body.response_format?.json_schema;
+                    const path = schema?.properties?.path?.enum?.[0]
+                        || JSON.stringify(body.messages).match(/Generate ONLY (\/[^\s]+)\. Its contract:/)?.[1];
                     const truncated = [2, 4, 5, 7].includes(attempt) || (repeated && attempt === 8);
                     const content = !path ? {files: attempt === 1 ? [
                         {path: '/styles.css', contract: 'Styles'}, {path: '/index.ts', contract: 'Entry'},
@@ -30,8 +32,16 @@ for (const repeated of [false, true]) {
                             : path === '/styles/surfaces.css' ? ['.surface { color: red; }']
                                 : path === '/styles/components.css' ? ['@import "./surfaces.css";']
                                     : path === '/styles.css' ? ['@import "./styles/components.css";'] : ['export {};']};
-                    return Response.json({result: {choices: [{message: {content: JSON.stringify(content)}, finish_reason: truncated ? 'length' : 'stop'}],
-                        usage: {prompt_tokens: 100, completion_tokens: 20}}});
+                    const text = path && !schema ? `\`\`\`\n${content.lines.join('\n')}\n\`\`\`` : JSON.stringify(content);
+                    const finishReason = truncated ? 'length' : 'stop';
+                    const usage = {prompt_tokens: 100, completion_tokens: 20};
+                    if (body.stream) return new Response([
+                        {choices: [{delta: {content: text}}]},
+                        {choices: [{delta: {}, finish_reason: finishReason}]},
+                        {choices: [], usage},
+                    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n',
+                    {headers: {'content-type': 'text/event-stream'}});
+                    return Response.json({result: {choices: [{message: {content: text}, finish_reason: finishReason}], usage}});
                 };
             }, repeated);
             const observed = await page.evaluate(async () => {
@@ -47,11 +57,13 @@ for (const repeated of [false, true]) {
                 return {result, done, errors, stages};
             });
             const requests = await app.evaluate(() => globalThis.__outputRequests);
-            expect(requests.map(body => body.max_tokens)).toEqual([2048, 3072, 2048, 1536, 3072, 2048, 1024, 2048,
-                ...(repeated ? [] : [1024, 1536, 6144])]);
+            // A depth-two CSS retry gets its single expansion to the complete-file
+            // ceiling (3072); a validated response teaches that allowance onward.
+            expect(requests.map(body => body.max_tokens)).toEqual([2048, 3072, 2048, 1536, 3072, 2048, 1024, 3072,
+                ...(repeated ? [] : [3072, 1536, 6144])]);
             expect(observed.result.success).toBe(!repeated);
             expect(observed.done).toHaveLength(repeated ? 0 : 1);
-            expect(observed.stages.some(stage => stage.label === 'Retrying complete file: /styles/surfaces.css (2048 output tokens)')).toBe(true);
+            expect(observed.stages.some(stage => stage.label === 'Retrying complete file: /styles/surfaces.css (3072 output tokens)')).toBe(true);
             expect(JSON.stringify(observed)).not.toContain('DISCARDED_TRUNCATED_SOURCE');
             if (repeated) expect(observed.result.error).toContain('after bounded file splitting');
             else {

@@ -248,7 +248,7 @@ async function runUiInteractionChecks(window, pluginName, checks = []) {
     const timeoutMs = Number(check?.timeoutMs || 5000);
     const output = await window.evaluate(async ({ check, timeoutMs }) => {
       const waitUntil = Date.now() + timeoutMs;
-      const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+      const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
       const doc = iframe?.contentDocument;
       if (!doc?.body) {
         return { ok: false, reason: "iframe_not_ready", text: "" };
@@ -422,12 +422,14 @@ for (const entry of contractEntries) {
       }
 
       if (expectedInitLogs.length > 0) {
-        const preInvokeTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 120000 });
-        const preInvokeText = tailText(preInvokeTail);
-        const matchedInitLog = expectedInitLogs.find((token) => preInvokeText.includes(String(token)))
-          || (preInvokeText.includes("plugin.init.success") ? "plugin.init.success" : "");
-        testRecord.matchedInitLog = matchedInitLog || "";
-        expect(!!matchedInitLog).toBe(true);
+        await expect.poll(async () => {
+          const preInvokeTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 120000 });
+          const preInvokeText = tailText(preInvokeTail);
+          const matchedInitLog = expectedInitLogs.find((token) => preInvokeText.includes(String(token)))
+            || (preInvokeText.includes("plugin.init.success") ? "plugin.init.success" : "");
+          testRecord.matchedInitLog = matchedInitLog || "";
+          return !!matchedInitLog;
+        }, {timeout: 12000, message: `Init log evidence for ${entry.relativePath}`}).toBe(true);
       }
 
       for (const handler of actualHandlers) {

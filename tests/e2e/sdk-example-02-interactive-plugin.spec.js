@@ -168,7 +168,7 @@ async function waitForLogContains(window, pluginName, needle, timeoutMs = 12000)
 
 async function clickInIframeAndRead(window, pluginName, options) {
   return await window.evaluate(async ({ pluginName, buttonSelector, targetSelector, waitMs }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     if (!iframe) return { ok: false, reason: "plugin_iframe_not_found", text: "" };
@@ -203,7 +203,7 @@ async function clickInIframeAndRead(window, pluginName, options) {
 
 async function submitFormInIframe(window, pluginName, options) {
   return await window.evaluate(async ({ pluginName, inputSelector, inputValue, submitSelector, targetSelector, waitMs, expectTextContains }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     if (!iframe) return { ok: false, reason: "plugin_iframe_not_found", text: "" };

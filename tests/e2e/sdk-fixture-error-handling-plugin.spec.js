@@ -101,7 +101,7 @@ async function getSourceCoverageMetrics(window, pluginName, sourceAbsPath) {
 
 async function getFixtureUiSnapshot(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     return {
       text: String(doc?.body?.innerText || "").trim(),
@@ -125,7 +125,7 @@ async function waitForFixtureUiReady(window, timeoutMs = 30000) {
 
 async function clickFixtureButtonAndWait(window, buttonId, matcherExpr, timeoutMs = 9000) {
   return await window.evaluate(async ({ buttonId, matcherExpr, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", output: "" };
     const button = doc.getElementById(buttonId);

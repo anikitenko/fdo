@@ -105,7 +105,7 @@ async function restartPlugin(window, pluginId) {
 
 async function get09UiSnapshot(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const output = String(doc?.getElementById("operator-result-box")?.innerText || "").trim();
     const runButton = doc?.getElementById("run-docker-status");
@@ -133,7 +133,7 @@ async function waitFor09UiReady(window, timeoutMs = 30000) {
 
 async function clickRunAndWait(window, matcherExpr, timeoutMs = 10000) {
   return await window.evaluate(async ({ matcherExpr, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
     const runButton = doc.getElementById("run-docker-status");

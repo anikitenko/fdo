@@ -12,56 +12,26 @@ const PLUGIN_NAME = `e2e-cap-manage-${pluginToken}`;
 const PLUGIN_DISPLAY = `E2E Capability Manage ${pluginToken}`;
 
 function buildPluginCode() {
+  // Use the real SDK lifecycle and diagnostics bridge. A hand-written worker
+  // that ignores UI_MESSAGE stalls host diagnostics during capability refresh.
   return `"use strict";
-const metadata = Object.freeze({
-  name: "${PLUGIN_DISPLAY}",
-  version: "1.0.0",
-  author: "E2E",
-  description: "Capability management UX test plugin",
-  icon: "cog",
-});
-
-const parentPort = process && process.parentPort ? process.parentPort : null;
-const send = (payload) => {
-  if (parentPort && typeof parentPort.postMessage === "function") {
-    parentPort.postMessage(payload);
-    return;
-  }
-  if (process && typeof process.send === "function") {
-    process.send(payload);
-  }
-};
-
-const onMessage = (handler) => {
-  if (parentPort && typeof parentPort.on === "function") {
-    parentPort.on("message", handler);
-    return;
-  }
-  if (process && typeof process.on === "function") {
-    process.on("message", handler);
-  }
-};
-
-onMessage((incoming) => {
-  const payload = incoming && typeof incoming === "object" && incoming.data ? incoming.data : incoming;
-  if (payload?.message === "PLUGIN_READY") {
-    send({ type: "PLUGIN_READY", response: { metadata } });
-    return;
-  }
-  if (payload?.message === "PLUGIN_INIT") {
-    send({ type: "PLUGIN_INIT", response: {} });
-    return;
-  }
-  if (payload?.message === "PLUGIN_RENDER") {
-    send({
-      type: "PLUGIN_RENDER",
-      response: {
-        render: JSON.stringify("<div><h3>Capability Management E2E</h3></div>"),
-        onLoad: JSON.stringify("() => {}"),
-      },
+const { FDO_SDK } = require("@anikitenko/fdo-sdk");
+class CapabilityManagementPlugin extends FDO_SDK {
+  get metadata() {
+    return Object.freeze({
+      name: "${PLUGIN_DISPLAY}",
+      version: "1.0.0",
+      author: "E2E",
+      description: "Capability management UX test plugin",
+      icon: "cog",
     });
   }
-});
+  init() {}
+  render() {
+    return "<div><h3>Capability Management E2E</h3></div>";
+  }
+}
+new CapabilityManagementPlugin();
 `;
 }
 
@@ -114,7 +84,7 @@ async function installPlugin(window) {
 }
 
 test.beforeAll(async () => {
-  electronApp = await launchElectronApp(electron);
+  electronApp = await launchElectronApp(electron, {isolatedUserDataDir: true});
 });
 
 test.afterAll(async () => {
@@ -139,7 +109,8 @@ test('manage plugins shows friendly capability labels and dependency recovery', 
 
   await installPlugin(window);
   await window.evaluate(async ({ pluginName }) => {
-    await window.electron.plugin.setCapabilities(pluginName, ["system.fs.scope.etc-hosts"]);
+    const result = await window.electron.plugin.setCapabilities(pluginName, ["system.fs.scope.etc-hosts"]);
+    if (!result?.success) throw new Error(result?.error || 'Failed to seed scope grant');
   }, { pluginName: PLUGIN_NAME });
   await window.reload();
   await window.waitForLoadState('domcontentloaded');
@@ -161,4 +132,6 @@ test('manage plugins shows friendly capability labels and dependency recovery', 
   await window.getByRole('button', { name: 'Save Capabilities' }).click();
 
   await expect(window.getByRole('button', { name: 'Saved' })).toBeVisible({ timeout: 10000 });
+  const persisted = await window.evaluate(id => window.electron.plugin.get(id), PLUGIN_NAME);
+  expect(persisted.plugin.capabilities).toEqual(expect.arrayContaining(['system.host.write', 'system.fs.scope.etc-hosts']));
 });

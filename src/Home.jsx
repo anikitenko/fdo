@@ -2660,7 +2660,7 @@ export const Home = () => {
         <HotkeysTarget
             hotkeys={[
                 {
-                    combo: "cmd + k",
+                    combo: "mod + k",
                     global: true,
                     label: "Show Command Bar",
                     onKeyDown: () => setShowCommandSearch(true),
@@ -2704,7 +2704,7 @@ export const Home = () => {
                             leftIcon={"search"} placeholder={"Search..."} inputClassName={styles["header-search"]}
                             aria-label={"Open command search"}
                             rightElement={<Tag minimal={true} className={"bp6-monospace-text"}
-                                               style={{fontSize: "0.6rem", background: "black"}}>Cmd+K</Tag>}
+                                               style={{fontSize: "0.6rem", background: "black"}}>{navigator.platform.toLowerCase().includes("mac") ? "Cmd+K" : "Ctrl+K"}</Tag>}
                             onClick={() => setShowCommandSearch(true)}
                             value=""
                             onKeyDown={() => setShowCommandSearch(true)}

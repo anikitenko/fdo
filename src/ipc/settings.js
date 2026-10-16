@@ -451,7 +451,7 @@ export function registerSettingsHandlers() {
 
         if (provider === "codex-cli") {
             const invocation = await resolveCodexCliInvocation({requireBundled: true,configuredPath: executablePath, preferBundled: true});
-            return await listCodexModels(invocation);
+            return listCodexModels(invocation);
         }
         if (provider === "gemini-cli") {
             return await fetchGeminiCliModels();

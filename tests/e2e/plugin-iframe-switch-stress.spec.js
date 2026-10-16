@@ -117,7 +117,7 @@ async function waitForSelectedPluginVisibleWithNonZeroLayout(window, pluginId) {
     const selected = window.__homeTestApi?.getSelectedPlugin?.() || "";
     if (selected !== pluginId) return false;
 
-    const iframe = document.querySelector("iframe[title='Plugin Container ID']");
+    const iframe = document.querySelector("iframe[data-plugin-id][data-plugin-active='true']");
     const doc = iframe?.contentDocument;
     if (!iframe || !doc?.body) return false;
 

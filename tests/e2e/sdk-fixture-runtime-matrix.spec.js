@@ -148,12 +148,19 @@ function isSupportedUiMessagePayload(payload) {
 
 async function invokeUiHandlerViaCreateBackendReq(window, pluginId, handler, content = {}) {
   return await window.evaluate(async ({ pluginId, handler, content }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
-    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginId && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
-      || null;
-    const pluginWindow = iframe?.contentWindow;
+    // Titles are presentation labels. Probe only the requested plugin's visible
+    // frame so another active plugin cannot make a broken target look healthy.
+    // Wait here so bridge lookup and invocation happen in the same evaluation;
+    // poll availability only, never resend a handler request.
+    const deadline = performance.now() + 15000;
+    let pluginWindow;
+    do {
+      const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+        .find((node) => node?.dataset?.pluginId === pluginId && node?.getAttribute("aria-hidden") !== "true");
+      pluginWindow = iframe?.contentWindow;
+      if (pluginWindow && typeof pluginWindow.createBackendReq === "function") break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } while (performance.now() < deadline);
     if (!pluginWindow || typeof pluginWindow.createBackendReq !== "function") {
       return {
         contractError: true,
@@ -371,16 +378,23 @@ async function runFixtureLifecycle(entry, matrixCase) {
       await expectPluginUiVisible(window, record.pluginName);
       await waitForPluginUiRendered(window, record.pluginName, 20000);
 
-      const uiState = await getPluginUiState(window, record.pluginName);
+      // The host can refresh its iframe after the first render-ready sample.
+      // Assert the current frame eventually settles, rather than retaining a
+      // single snapshot taken during that refresh.
+      await expect(async () => {
+        const uiState = await getPluginUiState(window, record.pluginName);
+        expect(uiState?.iframePresent).toBe(true);
+        expect(uiState?.runtimeStatus?.loading).toBe(false);
+        expect(uiState?.hostOverlayVisible).toBe(false);
+        expect(String(uiState?.iframeHtml || "")).not.toBe("");
+        expect(String(uiState?.iframeText || "")).not.toMatch(/Failed to render UI|Plugin UI failed to load/i);
+        expect(String(uiState?.iframeHtml || "")).not.toContain("plugin-page-loader");
+      }).toPass({ timeout: 20000 });
       const logTail = await getPluginLogTail(window, record.pluginName, { maxFiles: 4, maxChars: 40000 });
       const logText = toCombinedLogText(logTail);
       const toastLog = await getToastLog(window);
       const toastText = toastLog.map((item) => String(item?.text || "")).join("\n");
 
-      expect(uiState?.runtimeStatus?.loading).toBe(false);
-      expect(uiState?.hostOverlayVisible).toBe(false);
-      expect(String(uiState?.iframeText || "")).not.toMatch(/Failed to render UI|Plugin UI failed to load/i);
-      expect(String(uiState?.iframeHtml || "")).not.toContain("plugin-page-loader");
       expect(logText).not.toMatch(/contains blocked .*?This is only a fail-fast guard/i);
       expect(logText).not.toMatch(/plugin\.render\.error|plugin\.init\.error|Error executing onLoad/i);
       expect(toastText).not.toMatch(/Failed to render UI|Plugin UI failed to load|blocked/i);
@@ -510,16 +524,6 @@ async function runFixtureLifecycle(entry, matrixCase) {
         detail: `${matrixCase.probes.uiMessage.length} handler probe(s)`,
       };
     }
-  } catch (error) {
-    markFailure(record, error, {
-      initStatus: "failed",
-      renderStatus: "failed",
-      renderOnLoadStatus: "failed",
-      renderPrepStatus: "failed",
-      diagnosticsStatus: "failed",
-      uiMessageStatus: "failed",
-    });
-    throw error;
   } finally {
     if (window) {
       try {
