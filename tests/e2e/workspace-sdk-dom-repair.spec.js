@@ -33,8 +33,17 @@ test('styles and renderer survive SDK constructor repair', () => {
                     result: [{name: '@cf/test/model', task: {name: 'Text Generation'}}]});
                 if (!String(url).endsWith('/run/@cf/test/model')) throw new Error(`Unexpected request: ${url}`);
                 const body = JSON.parse(init.body);
-                if (body.response_format?.json_schema?.properties?.path?.enum?.[0] !== '/render.tsx') throw new Error('Unexpected inventory request');
-                return Response.json({result: {choices: [{message: {content: JSON.stringify({path: '/render.tsx', lines: source.split('\n')})}, finish_reason: 'stop'}]}});
+                const path = body.response_format?.json_schema?.properties?.path?.enum?.[0]
+                    || JSON.stringify(body.messages).match(/Generate ONLY (\/[^\s]+)\. Its contract:/)?.[1];
+                if (path !== '/render.tsx') throw new Error('Unexpected inventory request');
+                const content = body.response_format ? JSON.stringify({path, lines: source.split('\n')})
+                    : `\`\`\`tsx\n${source}\n\`\`\``;
+                if (body.stream) return new Response([
+                    {choices: [{delta: {content}}]},
+                    {choices: [{delta: {}, finish_reason: 'stop'}]},
+                ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n',
+                {headers: {'content-type': 'text/event-stream'}});
+                return Response.json({result: {choices: [{message: {content}, finish_reason: 'stop'}]}});
             };
         }, recorded.content);
         const result = await page.evaluate(async files => {

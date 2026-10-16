@@ -56,6 +56,7 @@ test('bundled frontend UI mounts under plugin CSP, restores focus and disposes p
         page.on('console',message=>{if (/Blocked autofocusing/i.test(message.text())) autofocusWarnings.push(message.text());});
         const errors = [];
         page.on('console', message => {if (message.type() === 'error') errors.push(message.text());});
+        page.on('pageerror', error => errors.push(error.message));
         const build = await page.evaluate(latestContent => window.electron.plugin.build({latestContent}), {'/index.ts': source, '/package.json': JSON.stringify({name:'sdk-ui-components',version:'1.0.0',author:'FDO',description:'SDK components',main:'index.ts'})});
         expect(build.success, build.error).toBe(true);
         fs.writeFileSync(path.join(root, 'index.ts'), source);
@@ -68,7 +69,13 @@ test('bundled frontend UI mounts under plugin CSP, restores focus and disposes p
         await expect(page.locator(`iframe[data-plugin-id="${pluginName}"]`)).toHaveAttribute('sandbox','allow-scripts');
         const frame = page.frameLocator(`iframe[data-plugin-id="${pluginName}"]`);
         try {await expect.poll(()=>frame.locator('main').evaluate(()=>window.__sdkUiTest?.setups)).toBeGreaterThanOrEqual(1);}
-        catch(error) {throw new Error(error.message + '\nConsole: ' + errors.join(' | '));}
+        catch(error) {
+            // Console output misses utility-process failures. Preserve the host's
+            // unload reason and worker stderr before cleanup removes the plugin.
+            const trace = await page.evaluate(id => window.electron.plugin.getLogTrace(id, {maxLifecycleEvents: 40}), pluginName)
+                .catch(diagnosticError => ({error: diagnosticError.message}));
+            throw new Error(error.message + '\nConsole: ' + errors.join(' | ') + '\nPlugin runtime: ' + JSON.stringify(trace));
+        }
         await expect(frame.locator('[autofocus]')).toHaveCount(0);
         await frame.getByRole('textbox',{name:'Autofocus probe',exact:true}).evaluate(node=>node.focus());
         await expect(frame.getByRole('textbox',{name:'Autofocus probe',exact:true})).toBeFocused();

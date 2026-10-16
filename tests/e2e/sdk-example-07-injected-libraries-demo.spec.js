@@ -125,7 +125,7 @@ async function restartPlugin(window, pluginId) {
 
 async function get07RuntimeSnapshot(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const computed = (selector, property) => {
       const el = doc?.querySelector(selector);
@@ -180,7 +180,7 @@ async function waitFor07UiReady(window, timeoutMs = 30000) {
 
 async function clickButtonAndWaitFor(window, buttonId, predicateExpr, timeoutMs = 8000) {
   return await window.evaluate(async ({ buttonId, predicateExpr, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready" };
     const button = doc.getElementById(buttonId);

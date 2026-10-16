@@ -49,8 +49,10 @@ const EXPECTED = {
 };
 
 const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
-  // Known non-critical/unreachable in the base path due current example structure and sourcemap mapping.
-  13, 22, 89, 103, 115, 136, 137, 160, 161, 188, 189, 314, 315,
+  // Istanbul records esbuild output coordinates. Keep these aligned with the
+  // installed SDK/compiler: export helpers, missing-data return and catch paths
+  // (handler/render catches are exercised by the fault-injection tests below).
+  13, 22, 92, 106, 118, 139, 140, 162, 163, 190, 191, 316, 317,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 70,
@@ -161,7 +163,7 @@ async function waitForAnyLogContains(window, pluginName, needles, timeoutMs = 12
 
 async function setInputValueInIframe(window, pluginName, selector, value) {
   return await window.evaluate(async ({ pluginName, selector, value }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     if (!iframe) return false;
@@ -182,7 +184,7 @@ async function setInputValueInIframe(window, pluginName, selector, value) {
 
 async function setCheckboxInIframe(window, pluginName, selector, checked) {
   return await window.evaluate(async ({ pluginName, selector, checked }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     if (!iframe) return false;
@@ -203,7 +205,7 @@ async function setCheckboxInIframe(window, pluginName, selector, checked) {
 
 async function clickAndReadInIframe(window, pluginName, options) {
   return await window.evaluate(async ({ pluginName, buttonSelector, targetSelector, waitMs, expectTextContains }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     if (!iframe) return { ok: false, reason: "plugin_iframe_not_found", text: "" };
@@ -239,7 +241,7 @@ async function clickAndReadInIframe(window, pluginName, options) {
 
 async function getTextInIframe(window, pluginName, selector) {
   return await window.evaluate(async ({ pluginName, selector }) => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     if (!iframe) return "";

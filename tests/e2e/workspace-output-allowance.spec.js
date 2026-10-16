@@ -33,13 +33,18 @@ for (const provider of ['openrouter', 'cloudflare']) {
                     if (index === 1) content = plan(['/styles.css']);
                     else if (index === 3) content = plan(['/a.css', '/b.css']);
                     else {
-                        const schema = body.response_format.json_schema.schema || body.response_format.json_schema;
-                        const path = schema.properties.path.enum[0];
+                        const schema = body.response_format?.json_schema?.schema || body.response_format?.json_schema;
+                        const path = schema?.properties?.path?.enum?.[0]
+                            || JSON.stringify(body.messages).match(/Generate ONLY (\/[^\s]+)\. Its contract:/)?.[1];
+                        if (!path) throw new Error('File request did not identify its target');
                         if (index === 2 || path !== '/styles.css' && body.max_tokens < 3072) {
                             content = '';
                             finishReason = 'length';
-                        } else content = JSON.stringify({path, lines: [path === '/styles.css'
-                            ? '@import "./a.css"; @import "./b.css";' : '.panel { color: teal; }']});
+                        } else {
+                            const source = path === '/styles.css'
+                                ? '@import "./a.css"; @import "./b.css";' : '.panel { color: teal; }';
+                            content = schema ? JSON.stringify({path, lines: [source]}) : `\`\`\`css\n${source}\n\`\`\``;
+                        }
                     }
                     const usage = {prompt_tokens: 100, completion_tokens: 30};
                     if (body.stream) return new Response([

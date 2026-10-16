@@ -122,7 +122,7 @@ async function runUiInteractionChecks(window, checks = [], timeoutMs = 5000) {
   for (const check of list) {
     const output = await window.evaluate(async ({ check, timeoutMs }) => {
       const waitUntil = Date.now() + timeoutMs;
-      const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+      const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
       const doc = iframe?.contentDocument;
       if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
 

@@ -8,6 +8,16 @@ function workspaceTreeIdsFrom(state) {
   return raw.filter((id) => typeof id === 'string' && !id.startsWith('/node_modules') && !id.startsWith('/dist'));
 }
 
+async function createSnapshotFromToolbar(win) {
+  await win.getByRole('button', {name: 'Snapshot', exact: true}).click();
+  const toast = win.locator('.bp6-toast').filter({hasText: /Snapshot .+ created/}).first();
+  await expect(toast).toBeVisible();
+  // Blueprint pauses expiry while hovered. A new toast can cover the toolbar
+  // under the pointer, so acknowledge it before the next toolbar interaction.
+  await toast.getByRole('button', {name: 'Close', exact: true}).click();
+  await expect(toast).toBeHidden();
+}
+
 // These tests require the app to be built: npm run build
 // Then run with: npx playwright test
 
@@ -33,35 +43,40 @@ test.describe('Snapshots E2E', () => {
     await closeElectronApp(app);
   });
 
-  test('Recent menu renders quickly (<100ms)', async () => {
+  test('Recent menu paints within 700ms of its click', async () => {
     const win = await openEditorWithMockedIPC(app);
 
     // Measure Recent menu open -> first item visible (initial snapshot exists after workspace init)
     const recentBtn = await win.waitForSelector('button:has-text("Recent")', { timeout: 15000 });
-    const start = Date.now();
+    // Measure in the renderer so IPC, Playwright actionability waits and trace
+    // screenshots do not count toward the menu's rendering budget.
+    await recentBtn.evaluate(button => {
+      window.__recentMenuPaint = new Promise(resolve => {
+        button.addEventListener('click', () => {
+          const started = performance.now();
+          const sample = () => {
+            const item = document.querySelector('[data-testid="recent-menu"] .bp6-menu-item');
+            if (item?.getClientRects().length && getComputedStyle(item).visibility !== 'hidden') {
+              requestAnimationFrame(() => resolve(performance.now() - started));
+            } else if (performance.now() - started >= 2000) {
+              resolve(performance.now() - started);
+            } else requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        }, {once: true});
+      });
+    });
     await recentBtn.click();
-    // Wait for either role-based or class-based menu rendering, favoring role selector first
-    try {
-      await win.waitForSelector('div[role="menu"] .bp6-menu-item', { timeout: 300 });
-    } catch {
-      await win.waitForSelector('.bp6-menu .bp6-menu-item', { timeout: 800 });
-    }
-    const elapsed = Date.now() - start;
-
-    // CI-friendly SLA: first paint of menu item within 700ms
+    await expect(win.getByTestId('recent-menu')).toBeVisible();
+    const elapsed = await win.evaluate(() => window.__recentMenuPaint);
     expect(elapsed).toBeLessThanOrEqual(700);
   });
 
   test('Switch via toolbar Recent menu shows a toast and updates state', async () => {
     const win = await openEditorWithMockedIPC(app);
     // Ensure at least two snapshots
-    const snapshotBtn = win.locator('.bp6-button.bp6-intent-success:has-text("Snapshot")');
-    await snapshotBtn.first().waitFor();
-    await expect(snapshotBtn.first()).toBeEnabled();
-    await snapshotBtn.click();
-    await win.waitForSelector('.bp6-toast', { timeout: 5000 });
-    await snapshotBtn.click();
-    // no strict wait on second toast to avoid selector ambiguity
+    await createSnapshotFromToolbar(win);
+    await createSnapshotFromToolbar(win);
 
     // Open Snapshot toolbar Recent menu and capture current index
     const recentBtn = await win.waitForSelector('button:has-text("Recent")');
@@ -131,7 +146,7 @@ test.describe('Snapshots E2E', () => {
       if (!window.__e2eOriginalLocalStorageSetItem) {
         window.__e2eOriginalLocalStorageSetItem = window.localStorage.setItem.bind(window.localStorage);
       }
-      window.localStorage.setItem = function(k, v) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; };
+      window.localStorage.setItem = function() { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; };
     });
 
     const snapshotBtn = await win.waitForSelector('button:has-text("Snapshot")');
@@ -293,12 +308,8 @@ dialogTest.describe('Snapshots E2E - Dialog/Popup Stability', () => {
   dialogTest('No stray Blueprint overlays block interactions after snapshot flows', async () => {
     const win = await openEditorWithMockedIPC(app);
     // Create two snapshots and perform a switch
-    const snapshotBtn = win.locator('.bp6-button.bp6-intent-success:has-text("Snapshot")');
-    await snapshotBtn.first().waitFor();
-    await snapshotBtn.click();
-    await win.waitForSelector('.bp6-toast', { timeout: 5000 });
-    await snapshotBtn.click();
-    await win.waitForSelector('.bp6-toast', { timeout: 5000 });
+    await createSnapshotFromToolbar(win);
+    await createSnapshotFromToolbar(win);
 
     const recentBtn = await win.waitForSelector('button:has-text("Recent")');
     await recentBtn.click();

@@ -96,7 +96,7 @@ async function waitForUiMarker(window, pluginName, markers, timeout = 12000) {
     if (!status?.loaded || !status?.ready || !status?.inited || status?.loading) {
       return false;
     }
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const text = String(iframe?.contentDocument?.body?.innerText || "").trim();
     if (!text || /Error rendering plugin|Failed to render UI|Starting plugin frame/i.test(text)) {
       return false;

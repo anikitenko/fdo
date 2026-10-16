@@ -151,7 +151,7 @@ test.describe("packaged plugin iframe layout smoke", () => {
     await selectPlugin(window);
 
     const geometry = await window.waitForFunction(() => {
-      const iframe = document.querySelector("iframe[title='Plugin Container ID']");
+      const iframe = document.querySelector("iframe[data-plugin-id][data-plugin-active='true']");
       const doc = iframe?.contentDocument;
       if (!iframe || !doc?.body) return null;
       const iframeRect = iframe.getBoundingClientRect();

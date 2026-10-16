@@ -107,7 +107,7 @@ async function restartPlugin(window, pluginId) {
 
 async function get08UiSnapshot(window) {
   return await window.evaluate(() => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     const resultText = String(doc?.getElementById("result-box")?.innerText || "").trim();
     const runButton = doc?.getElementById("run-privileged-action");
@@ -135,7 +135,7 @@ async function waitFor08UiReady(window, timeoutMs = 30000) {
 
 async function clickRunDryRunAndWait(window, matcherExpr, timeoutMs = 10000) {
   return await window.evaluate(async ({ matcherExpr, timeoutMs }) => {
-    const iframe = document.querySelector('iframe[title="Plugin Container ID"]');
+    const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
     const doc = iframe?.contentDocument;
     if (!doc?.body) return { ok: false, reason: "iframe_not_ready", text: "" };
     const runButton = doc.getElementById("run-privileged-action");

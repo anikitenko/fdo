@@ -364,8 +364,6 @@ async function expectPluginUiVisible(window, pluginName) {
     const status = runtimeStatus?.statuses?.[0];
     const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === id && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
       || null;
     const doc = iframe?.contentDocument;
     if (!status?.loaded || !status?.ready || !status?.inited) {
@@ -441,7 +439,6 @@ async function getPluginIframeText(window) {
   return await window.evaluate(() => {
     const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
       || null;
     const doc = iframe?.contentDocument;
     if (!doc?.body) {

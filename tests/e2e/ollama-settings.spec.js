@@ -53,7 +53,10 @@ test('Ollama assistant settings survive native IPC persistence and an app restar
         expect(reloaded.filter(item => item.name === 'Local regression')).toEqual([
             expect.objectContaining({id: stored.id, provider: 'ollama', baseUrl, contextLength: 32768, apiKey: ''}),
         ]);
-        expect(requests).toEqual(['/api/show', '/api/show', '/api/show']);
+        // Saving validates model support and discovers input capabilities.
+        // Renderer metadata refreshes may add probes; no inference is allowed.
+        expect(requests.length).toBeGreaterThanOrEqual(4);
+        expect(new Set(requests)).toEqual(new Set(['/api/show']));
     } finally {
         if (app) await closeElectronApp(app);
         await new Promise(resolve => server.close(resolve));
