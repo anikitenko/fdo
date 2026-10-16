@@ -786,7 +786,7 @@ async function getPluginLogTrace(pluginId, options = {}) {
     }));
 
     const pluginToken = String(pluginId || "").toLowerCase();
-    const relatedNotifications = NotificationCenter.getAllNotifications()
+    const relatedNotifications = (await NotificationCenter.getAllNotifications())
         .filter((item) => {
             const title = String(item?.title || "").toLowerCase();
             const message = String(item?.message || "").toLowerCase();

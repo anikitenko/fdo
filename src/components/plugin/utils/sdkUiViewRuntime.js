@@ -32,8 +32,16 @@ export function createSdkUiViewRuntime(ui, getRoot, target = window) {
     const bindToastButtons=()=>{
         const scope=getRoot(),groups=new Map(),claimed=new Set();
         if(!scope) return;
-        const find=id=>Array.from(scope.querySelectorAll('[id]')).filter(node=>node.id===id);
-        for(const button of scope.querySelectorAll('button[data-fdo-ui-toast-region]')) {
+        const buttons=scope.querySelectorAll('button[data-fdo-ui-toast-region]');
+        // Validate against one snapshot before mounting controllers mutates the
+        // DOM. Keep every match so duplicate IDs still fail validation.
+        const identities=new Map();
+        if(buttons.length) for(const node of scope.querySelectorAll('[id]')) {
+            const matches=identities.get(node.id) || [];
+            matches.push(node);identities.set(node.id,matches);
+        }
+        const find=id=>identities.get(id) || [];
+        for(const button of buttons) {
             // Validation failures intentionally share this boundary with operation failures.
             try {
                 const read=name=>button.getAttribute('data-fdo-ui-toast-'+name);

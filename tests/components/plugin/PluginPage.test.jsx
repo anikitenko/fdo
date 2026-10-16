@@ -1,5 +1,5 @@
 import React from "react";
-import {render, screen, waitFor} from "@testing-library/react";
+import {act, render, screen, waitFor} from "@testing-library/react";
 import {PluginPage} from "../../../src/components/plugin/PluginPage.jsx";
 
 describe("PluginPage host contract", () => {
@@ -32,6 +32,21 @@ describe("PluginPage host contract", () => {
         postMessageSpy.mockRestore();
     });
 
+    test("installs the request bridge before readiness and releases it on unmount", async () => {
+        const previous = window.createBackendReq;
+        const postMessageSpy = jest.spyOn(window.parent, "postMessage").mockImplementation((message) => {
+            if (message.type === "PLUGIN_HELLO") expect(window.createBackendReq).toEqual(expect.any(Function));
+        });
+        const {unmount} = render(<PluginPage />);
+        const request = window.createBackendReq;
+        const unfinished = request("echo", {});
+        unmount();
+        await expect(unfinished).resolves.toMatchObject({success: false, error: expect.stringContaining("disposed")});
+        expect(window.createBackendReq).toBe(previous);
+        await expect(request("echo", {})).resolves.toMatchObject({success: false});
+        postMessageSpy.mockRestore();
+    });
+
     test("registers the message listener before announcing readiness so a fast parent render message is not missed", async () => {
         const addEventListenerSpy = jest.spyOn(window, "addEventListener");
         const postMessageSpy = jest.spyOn(window.parent, "postMessage").mockImplementation((message) => {
@@ -56,7 +71,7 @@ describe("PluginPage host contract", () => {
         await waitFor(() => {
             expect(window.electron.notifications.add).toHaveBeenCalledWith(
                 "Error rendering plugin",
-                expect.any(String),
+                expect.not.stringContaining("before initialization"),
                 "danger",
             );
         });
@@ -66,6 +81,19 @@ describe("PluginPage host contract", () => {
             "*",
         );
         expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_HELLO" }, "*");
+    });
+
+    test("keeps waiting for a cold plugin instead of failing before the parent's initialization deadline", () => {
+        jest.useFakeTimers();
+        jest.spyOn(window.parent, 'postMessage').mockImplementation(() => {});
+        try {
+            const {container, unmount} = render(<PluginPage/>);
+            act(() => {jest.advanceTimersByTime(6500);});
+            expect(container.querySelector('.plugin-page-loader')).toBeInTheDocument();
+            expect(screen.queryByText('Plugin failed to load')).not.toBeInTheDocument();
+            expect(window.electron.notifications.add).not.toHaveBeenCalled();
+            unmount();
+        } finally {jest.useRealTimers();}
     });
 
     test("shows an in-iframe error state when plugin render import fails", async () => {

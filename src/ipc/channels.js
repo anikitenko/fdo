@@ -72,6 +72,8 @@ export const SettingsChannels = withPrefix('settings', {
 
 export const AiChatChannels = withPrefix('ai-chat', {
     SESSIONS_GET: 'sessions-get',
+    SESSIONS_LIST: 'sessions-list',
+    SESSION_GET: 'session-get',
     SESSION_CREATE: 'session-create',
     SESSION_RENAME: 'session-rename',
     SEND_MESSAGE: 'send-message',

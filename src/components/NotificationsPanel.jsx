@@ -1,8 +1,9 @@
-import {Button, ButtonGroup, Callout, Drawer, DrawerSize, Icon, InputGroup, NonIdealState} from "@blueprintjs/core";
-import {formatDistanceToNow} from 'date-fns';
+import {Button, ButtonGroup, Drawer, DrawerSize, InputGroup, NonIdealState} from "@blueprintjs/core";
 
 import PropTypes from "prop-types";
 import {useMemo, useState} from "react";
+
+import {NotificationList} from './NotificationList';
 
 import * as styles from "./css/NotificationsPanel.module.css";
 
@@ -10,12 +11,12 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
     const [searchTerm, setSearchTerm] = useState("");
 
     const filteredNotifications = useMemo(() => {
-        if (!notifications || notifications.length === 0) return [];
+        if (!notificationsShow || !notifications || notifications.length === 0) return [];
+        const lcSearch = searchTerm.toLowerCase();
 
         return [...notifications]
             .filter((n) => {
                 if (!searchTerm) return true;
-                const lcSearch = searchTerm.toLowerCase();
                 return (
                     n.title?.toLowerCase().includes(lcSearch) ||
                     n.message?.toLowerCase().includes(lcSearch)
@@ -25,7 +26,7 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
                 (a.read === b.read ? 0 : a.read ? 1 : -1) ||
                 new Date(b.createdAt) - new Date(a.createdAt)
             );
-    }, [notifications, searchTerm]);
+    }, [notificationsShow, notifications, searchTerm]);
 
     return (
         <Drawer icon={"notifications"} isOpen={notificationsShow} onClose={() => setNotificationsShow(false)}
@@ -51,42 +52,17 @@ export const NotificationsPanel = ({notificationsShow, setNotificationsShow, not
                     fill={true}
                 />
             </div>
-            <div className={styles.panelContent}>
-                {filteredNotifications.length > 0 ? (
-                    filteredNotifications.map((notification) => (
-                        <Callout
-                            key={notification.id}
-                            intent={notification.type}
-                            title={
-                                <div className={styles.titleRow}>
-                                    <span className={!notification.read ? styles.unreadTitle : undefined}>
-                                        {notification.title} <span
-                                        className={"bp6-text-small bp6-text-muted bp6-running-text"}>{formatDistanceToNow(new Date(notification.createdAt), {addSuffix: true})}</span>
-                                    </span>
-                                    <Icon
-                                        icon="cross"
-                                        className={styles.dismissIcon}
-                                        onClick={() => {
-                                            window.electron.notifications.remove(notification.id)
-                                        }}
-                                        tabIndex={0}
-                                    />
-                                </div>
-                            }
-                            className={styles.callout}
-                        >
-                            {notification.message}
-                        </Callout>
-                    ))
-                ) : (
-                    <NonIdealState
-                        icon="notifications"
-                        title="No notifications"
-                        description="You're all caught up!"
-                        layout="vertical"
-                    />
-                )}
-            </div>
+            {notificationsShow && (filteredNotifications.length > 0 ? (
+                <NotificationList key={searchTerm} notifications={filteredNotifications}/>
+            ) : (
+                <div className={styles.panelContent}>
+                    <NonIdealState icon="notifications" title="No notifications"
+                                   description="You're all caught up!" layout="vertical"/>
+                </div>
+            ))}
+            {filteredNotifications.length > 0 && <div className={styles.notificationCount} role="status">
+                {filteredNotifications.length} {filteredNotifications.length === 1 ? 'notification' : 'notifications'}
+            </div>}
         </Drawer>
     );
 };

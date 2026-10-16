@@ -243,11 +243,6 @@ function deriveSessionTitleFromText(text = "", uiLanguage = "en") {
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
-function isUntouchedEmptySession(session = {}) {
-    const messages = Array.isArray(session?.messages) ? session.messages : [];
-    return messages.length === 0;
-}
-
 function upsertSessionListItem(list = [], session = {}) {
     const nextItem = {
         id: session.id,
@@ -844,20 +839,9 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         });
     };
 
-    const sessionCreate = async (name, list, { preferReuseEmpty = true } = {}) => {
-        const requestedName = name || t("newChat");
-        const allSessions = await window.electron.aiChat.getSessions();
-        const existingEmpty = preferReuseEmpty
-            ? [...(allSessions || [])]
-                .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-                .find((item) => isUntouchedEmptySession(item))
-            : null;
-
-        const resolved = existingEmpty
-            ? (existingEmpty.name === requestedName
-                ? existingEmpty
-                : await window.electron.aiChat.renameSession(existingEmpty.id, requestedName) || existingEmpty)
-            : await window.electron.aiChat.createSession(requestedName);
+    const sessionCreate = async (name, list) => {
+        // SQLite atomically reuses the latest empty draft. No history scan is needed.
+        const resolved = await window.electron.aiChat.createSession(name || t("newChat"));
 
         setSession(resolved);
         setSessionList((prev) => upsertSessionListItem(list || prev || [], resolved));
@@ -881,12 +865,12 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         (async () => {
             try {
                 // sessions
-                const sessions = await window.electron.aiChat.getSessions();
+                const sessions = await window.electron.aiChat.listSessions();
                 if (sessions && sessions.length > 0) {
                     const mostRecent = sessions.reduce((latest, current) => {
                         return new Date(current.updatedAt) > new Date(latest.updatedAt) ? current : latest;
                     });
-                    setSession(mostRecent);
+                    setSession(await window.electron.aiChat.getSession(mostRecent.id));
                     const list = sessions.map(({id, name, updatedAt}) => ({
                         id,
                         name,
@@ -1397,8 +1381,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     };
 
     const onSessionChange = async (id) => {
-        const sessions = await window.electron.aiChat.getSessions();
-        const session = sessions.find(s => s.id === id);
+        const session = await window.electron.aiChat.getSession(id);
         if (session) {
             setSession(session);
             setReplyTo(null);
@@ -1410,7 +1393,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     const onNewConversationFromSelection = async () => {
         const selectedText = selectedQuoteText || getSelectedTextInDialog(chatContentRef.current);
         if (!selectedText || sending) return;
-        await sessionCreate(deriveSessionTitleFromText(selectedText, uiLanguage), null, { preferReuseEmpty: true });
+        await sessionCreate(deriveSessionTitleFromText(selectedText, uiLanguage));
         setInput(selectedText);
     };
 
@@ -1543,8 +1526,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
     };
 
     const onOpenFromSession = async (id) => {
-        const sessions = await window.electron.aiChat.getSessions();
-        const session = sessions.find(s => s.id === id);
+        const session = sessionList.find(item => item.id === id);
+        if (!session) return;
         const newAttachmentsList = [...attachments, {
             name: session.name,
             path: session.id,

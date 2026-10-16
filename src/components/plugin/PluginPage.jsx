@@ -2,12 +2,15 @@ import React, {useEffect, useRef, useState} from "react";
 import {FDO_AI_MARK_STYLES} from '../../utils/ai/assistant/fdoAiIdentity';
 import * as sdkUi from '@anikitenko/fdo-sdk/ui';
 import {withoutPluginAutofocus} from './utils/pluginAutofocus';
+import {waitForPluginAssets} from './utils/pluginAssetReadiness';
+import {installPluginGlobalEvents} from './utils/pluginGlobalEvents';
+import {createPluginElementWaiter} from './utils/pluginElementWaiter';
+import {createPluginRequestBridge} from './utils/pluginRequestBridge';
 import {pluginOnLoadInvocation} from './utils/pluginOnLoadInvocation';
 import {createSdkUiViewRuntime} from './utils/sdkUiViewRuntime';
 import {
     isTrustedParentPluginEvent,
     isValidPluginRenderMessage,
-    isValidPluginUiResponseEvent,
 } from "./utils/pluginRenderSecurity";
 import {buildRuntimeSecurityPolicy} from "../../utils/plugins/security/pluginCapabilities";
 import {isNetworkTargetAllowed} from "../../utils/plugins/security/networkScopeRegistry";
@@ -327,6 +330,9 @@ export const PluginPage = () => {
     }, []);
 
     useEffect(() => {
+        const bridge = createPluginRequestBridge(window);
+        const previousRequest = window.createBackendReq;
+        window.createBackendReq = bridge.request;
         const reportStage = (stage, message = "") => {
             window.parent.postMessage({ type: "PLUGIN_STAGE", stage, message }, "*");
         };
@@ -396,6 +402,7 @@ export const PluginPage = () => {
         };
 
         const showPluginError = (message) => {
+            bridge.reset();
             activeUiViewRef.current?.dispose();
             activeUiViewRef.current = null;
             const normalizedMessage = String(message || "The plugin failed to load.").trim();
@@ -419,7 +426,6 @@ export const PluginPage = () => {
 
             if (isValidPluginRenderMessage(event.data)) {
                 try {
-                    clearTimeout(pluginTimeout);
                     reportStage("iframe-render-message-received");
                     setPluginLoadError("");
                     const moduleURL = createESModule(event.data.content.code, event.data.content.onLoad);
@@ -434,8 +440,8 @@ export const PluginPage = () => {
                     import(/* webpackIgnore: true */ moduleURL).then((pluginModule) => {
                         if (activeModuleUrlRef.current !== moduleURL) return;
                         if (pluginModule.default) {
-                            clearTimeout(pluginTimeout);
                             reportStage("iframe-module-imported");
+                            bridge.reset();
                             activeUiViewRef.current?.dispose();
                             activeUiViewRef.current = null;
                             SetPluginComponent(() => {
@@ -542,13 +548,15 @@ export const PluginPage = () => {
             }, 120);
         }
 
-        // Set timeout to auto-fail plugin after 5 seconds
-        const pluginTimeout = setTimeout(() => {
-            reportStage("iframe-load-timeout");
-            showPluginError("The plugin failed to load. You might find more details in the notification panel.");
-        }, 5000);
+        // The parent owns runtime/init/render deadlines. This iframe can be
+        // ready well before a cold plugin has produced its first render.
 
         return () => {
+            bridge.dispose();
+            if (window.createBackendReq === bridge.request) {
+                if (previousRequest === undefined) delete window.createBackendReq;
+                else window.createBackendReq = previousRequest;
+            }
             activeUiViewRef.current?.dispose();
             activeUiViewRef.current = null;
             window.removeEventListener("message", handleMessage);
@@ -558,7 +566,6 @@ export const PluginPage = () => {
             window.removeEventListener("keydown", handleKeyDownBridge, true);
             document.removeEventListener("click", blockPluginNavigation, true);
             document.removeEventListener("submit", blockPluginFormSubmit, true);
-            clearTimeout(pluginTimeout);
             if (layoutReadyInterval) {
                 window.clearInterval(layoutReadyInterval);
                 layoutReadyInterval = null;
@@ -635,67 +642,24 @@ function createESModule(pluginCode, onLoad) {
                 uiViewRef.current = view;
                 registerUiView(view);
                 view.bindMarkupOpeners();
+                const elements = (${createPluginElementWaiter.toString()})(document, window);
+                const previousWaitForElement = window.waitForElement;
+                window.waitForElement = elements.wait;
+                const events = (${installPluginGlobalEvents.toString()})(window);
                 return () => {
+                    // Plugin-provided cleanups may still use the public helpers.
                     view.dispose();
+                    events.dispose();
+                    elements.dispose();
+                    if (window.waitForElement === elements.wait) {
+                        if (previousWaitForElement === undefined) delete window.waitForElement;
+                        else window.waitForElement = previousWaitForElement;
+                    }
                     if (window.loadFdoUi === load) delete window.loadFdoUi;
                 };
             }, []);
             window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-component-invoked", message: "" }, "*");
 
-            window.createBackendReq = function(type, data) {
-                return new Promise((resolve) => {
-                    const requestId = "ui-message-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-                    const normalizedMessage = (
-                        type === "UI_MESSAGE" &&
-                        data &&
-                        typeof data === "object"
-                    )
-                        ? {
-                            handler: (typeof data.handler === "string" && data.handler.trim()) ? data.handler.trim() : "requestPrivilegedAction",
-                            content: Object.prototype.hasOwnProperty.call(data, "content") ? data.content : data,
-                        }
-                        : {
-                            handler: type,
-                            content: data,
-                        };
-                    const message = { type: "UI_MESSAGE_REQUEST", requestId, message: normalizedMessage };
-                    window.parent.postMessage(message, "*");
-    
-                    const listener = (event) => {
-                        if (!(${isTrustedParentPluginEvent.toString()})(event, window.parent)) {
-                            return;
-                        }
-                        if (!(${isValidPluginUiResponseEvent.toString()})(event.data, requestId)) {
-                            return;
-                        }
-                        window.removeEventListener("message", listener);
-                        if (event.data.error) {
-                            resolve({ success: false, error: event.data.error });
-                            return;
-                        }
-                        resolve(event.data.content);
-                    };
-                    window.addEventListener("message", listener);
-                });
-            };
-            
-            // Function to check if the element exists
-            window.waitForElement = function(selector, callback, timeout = 5000) {
-                const start = Date.now();
-                
-                const checkExist = setInterval(() => {
-                    const element = document.querySelector(selector);
-                    if (element && element.parentNode) {
-                        clearInterval(checkExist);
-                        callback(element);
-                    }
-                    if (Date.now() - start > timeout) {
-                        clearInterval(checkExist);
-                        console.error("Timeout: Element not found:", selector);
-                    }
-                }, 100);
-            }
-            
             window.executeInjectedScript = function (scriptContent) {
                 const existingPlaceholder = document.getElementById("plugin-script-placeholder");
                 if (!existingPlaceholder) {
@@ -707,14 +671,6 @@ function createESModule(pluginCode, onLoad) {
                 scriptTag.nonce = "plugin-script-inject";
                 scriptTag.textContent = scriptContent;
                 existingPlaceholder.replaceWith(scriptTag);
-            }
-            
-            window.addGlobalEventListener = function(eventType, callback) {
-                window.addEventListener(eventType, callback);
-            }
-            
-            window.removeGlobalEventListener = function(eventType, callback) {
-                window.removeEventListener(eventType, callback);
             }
             
             window.applyClassToSelector = function(className, selector) {
@@ -729,6 +685,7 @@ function createESModule(pluginCode, onLoad) {
             }, []);
 
             React.useEffect(() => {
+                let cancelled = false;
                 window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-component-mounted", message: "" }, "*");
 
                 const handleDocumentClick = (event) => {
@@ -769,75 +726,10 @@ function createESModule(pluginCode, onLoad) {
                 };
 
                 document.addEventListener("click", handleDocumentClick);
-                const waitForHostWindowLoad = (timeoutMs = 1800) => {
-                    if (document.readyState === "complete") {
-                        return Promise.resolve();
-                    }
-                    return new Promise((resolve) => {
-                        let done = false;
-                        const finish = () => {
-                            if (done) return;
-                            done = true;
-                            window.removeEventListener("load", onWindowLoaded);
-                            resolve();
-                        };
-                        const onWindowLoaded = () => {
-                            finish();
-                        };
-                        window.addEventListener("load", onWindowLoaded, { once: true });
-                        setTimeout(finish, timeoutMs);
-                    });
-                };
-                const waitForHostStylesheets = (timeoutMs = 1400) => {
-                    const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
-                    if (styleLinks.length === 0) {
-                        return Promise.resolve();
-                    }
-                    return new Promise((resolve) => {
-                        let done = false;
-                        const finish = () => {
-                            if (done) return;
-                            done = true;
-                            styleLinks.forEach((linkEl) => {
-                                linkEl.removeEventListener("load", onLinkReady);
-                                linkEl.removeEventListener("error", onLinkReady);
-                            });
-                            resolve();
-                        };
-                        const isLinkReady = (linkEl) => {
-                            if (!linkEl?.sheet) return false;
-                            try {
-                                // Accessing cssRules confirms the sheet is parsed.
-                                void linkEl.sheet.cssRules;
-                                return true;
-                            } catch (_) {
-                                // SecurityError still means stylesheet exists and is loaded.
-                                return true;
-                            }
-                        };
-                        const allReady = () => styleLinks.every(isLinkReady);
-                        const onLinkReady = () => {
-                            if (allReady()) {
-                                finish();
-                            }
-                        };
-                        if (allReady()) {
-                            finish();
-                            return;
-                        }
-                        styleLinks.forEach((linkEl) => {
-                            linkEl.addEventListener("load", onLinkReady);
-                            linkEl.addEventListener("error", onLinkReady);
-                        });
-                        setTimeout(finish, timeoutMs);
-                    });
-                };
-
                 const assetProbeStartedAt = Date.now();
-                Promise.allSettled([
-                    waitForHostWindowLoad(1800),
-                    waitForHostStylesheets(1400),
-                ]).finally(() => {
+                const assets = (${waitForPluginAssets.toString()})(document, window);
+                assets.ready.then(() => {
+                    if (cancelled) return;
                     window.parent.postMessage({
                         type: "PLUGIN_STAGE",
                         stage: "iframe-host-styles-ready",
@@ -850,6 +742,7 @@ function createESModule(pluginCode, onLoad) {
                         console.error("Error executing onLoad:", error);
                     }
                     requestAnimationFrame(() => {
+                        if (cancelled) return;
                         if (document?.documentElement) {
                             document.documentElement.style.setProperty("visibility", "visible", "important");
                             document.documentElement.style.setProperty("opacity", "1", "important");
@@ -946,11 +839,11 @@ function createESModule(pluginCode, onLoad) {
                             document.body.style.setProperty("transform", "translateZ(0)", "important");
                             document.body.style.setProperty("opacity", "0.999", "important");
                             requestAnimationFrame(() => {
-                                if (!document?.body) return;
+                                if (cancelled || !document?.body) return;
                                 document.body.style.setProperty("transform", "none", "important");
                                 document.body.style.setProperty("opacity", "1", "important");
                                 requestAnimationFrame(() => {
-                                    if (!document?.body) return;
+                                    if (cancelled || !document?.body) return;
                                     document.body.style.setProperty("will-change", "auto", "important");
                                 });
                             });
@@ -959,6 +852,8 @@ function createESModule(pluginCode, onLoad) {
                 });
     
                 return () => {
+                    cancelled = true;
+                    assets.dispose();
                     uiViewRef.current?.dispose();
                     document.removeEventListener("click", handleDocumentClick);
                 };

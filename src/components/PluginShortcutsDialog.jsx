@@ -24,16 +24,17 @@ export function PluginShortcutsDialog({isOpen, onClose, actions, sidebarItems, p
             {actions.map(action => <div className={styles.row} key={action.id}>
                 <Switch checked={preferences.pinnedActionIds.includes(action.id)} onChange={() => toggle('pinnedActionIds', action.id)}
                         label={`Pin ${action.name}`}/>
-                <span className={styles.owner}>{action.section}</span>
+                <span className={styles.owner}>Provided by {action.pluginName || action.section || action.pluginId}</span>
             </div>)}
             {pinned.length > 1 && <><h4>Pinned action order</h4>{pinned.map((action, index) => <div className={styles.row} key={action.id}>
-                <span className={styles.name}>{action.name} · {action.section}</span>{moveButtons(pinned, 'pinnedActionIds', action, index)}
+                <span className={styles.name}>{action.name} · {action.pluginName || action.section || action.pluginId}</span>{moveButtons(pinned, 'pinnedActionIds', action, index)}
             </div>)}</>}
             <h3>Sidebar</h3>
             <p>Choose which plugin menus appear in the right sidebar and arrange their order. Use the sidebar toggle in the header to show it.</p>
             {!sidebar.length && <NonIdealState icon="panel-stats" title="No plugin sidebar menus" description="Activate a plugin that registers a side panel."/>}
             {sidebar.map((item, index) => <div className={styles.row} key={item.id}>
                 <Switch checked={!preferences.hiddenSidebarIds.includes(item.id)} onChange={() => toggle('hiddenSidebarIds', item.id)} label={`Show ${item.name}`}/>
+                <span className={styles.owner}>Provided by {item.pluginName || item.id}</span>
                 {moveButtons(sidebar, 'sidebarOrder', item, index)}
             </div>)}
         </DialogBody>
