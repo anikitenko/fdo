@@ -26,9 +26,9 @@ describe("PluginContainer message hardening", () => {
             { success: true, statuses: [{ id: "example-plugin", inited: true }] },
         ];
         window.fetch = jest.fn().mockResolvedValue({
-            text: jest.fn().mockResolvedValue(`
+            text: jest.fn().mockResolvedValue(/* language=TEXT */ `
                 <!DOCTYPE html>
-                <html>
+                <html lang="en">
                     <head>
                         <script defer src="./plugin_host.test.js"></script>
                     </head>
@@ -274,6 +274,38 @@ describe("PluginContainer message hardening", () => {
         } finally {
             jest.useRealTimers();
         }
+    });
+
+    test("replays cached render content when a new iframe document announces readiness", async () => {
+        const {container} = render(<PluginContainer plugin="example-plugin" />);
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledTimes(1));
+        const iframe = container.querySelector("iframe");
+        const iframeWindow = {postMessage: jest.fn()};
+        Object.defineProperty(iframe, "contentWindow", {configurable: true, value: iframeWindow});
+        const announceReady = () => {
+            window.dispatchEvent(new MessageEvent("message", {
+                source: iframeWindow, data: {type: "PLUGIN_HELLO"},
+            }));
+            window.dispatchEvent(new MessageEvent("message", {
+                source: iframeWindow, data: {type: "PLUGIN_LAYOUT_READY", layout: {
+                    docElRect: {width: 800, height: 600}, bodyRect: {width: 800, height: 600},
+                    rootRect: {width: 800, height: 600},
+                }},
+            }));
+        };
+        fireEvent.load(iframe);
+        act(() => {
+            announceReady();
+            renderHandler({id: "example-plugin", content: {html: "<h1>Minimal fixture</h1>"}});
+        });
+        const renderMessages = () => iframeWindow.postMessage.mock.calls.filter(([message]) => message.type === "PLUGIN_RENDER");
+        await waitFor(() => expect(renderMessages()).toHaveLength(1));
+        // Browsers keep the WindowProxy when a srcdoc document is replaced.
+        fireEvent.load(iframe);
+        act(announceReady);
+        await waitFor(() => expect(renderMessages()).toHaveLength(2));
+        expect(renderMessages()[1]).toEqual(renderMessages()[0]);
+        expect(window.electron.plugin.render).toHaveBeenCalledTimes(1);
     });
 
     test("renders error text with explicit high-contrast colors", async () => {

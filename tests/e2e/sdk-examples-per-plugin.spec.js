@@ -266,6 +266,18 @@ for (const entry of entries) {
       record.matchedUiMarker = matchedUiMarker;
       if (uiMarkers.length > 0) expect(!!matchedUiMarker).toBe(true);
 
+      if (entry.relativePath === "fixtures/minimal-plugin.fixture.ts") {
+        await test.step("restores the fixture UI after its iframe document reloads", async () => {
+          const iframe = window.locator(`iframe[data-plugin-id="${pluginName}"]`);
+          const frame = await (await iframe.elementHandle()).contentFrame();
+          const navigation = window.waitForEvent("framenavigated", {predicate: (candidate) => candidate === frame});
+          const hostHtml = await iframe.getAttribute("srcdoc");
+          await iframe.evaluate((node, html) => { node.srcdoc = html; }, hostHtml);
+          await navigation;
+          expect(await waitForUiMarker(window, pluginName, uiMarkers, 20000)).toBe(matchedUiMarker);
+        });
+      }
+
       const diagnostics = await getPluginDiagnostics(window, pluginName, { attempts: 12 });
       expect(diagnostics).toBeTruthy();
       const runtimeHandlers = Array.isArray(diagnostics?.capabilities?.registeredHandlers)
