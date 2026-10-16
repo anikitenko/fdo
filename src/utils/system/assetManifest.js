@@ -53,14 +53,11 @@ export const AssetManifest = {
             loadTrigger: 'route:editor',
         },
         
-        // Live UI route (ReactFlow dependencies ~5 MB)
+        // Live UI source inspector and preview (no legacy graph runtime).
         '/live-ui': {
             components: ['LiveUI.jsx'],
-            dependencies: [
-                'reactflow',            // ~3.6 MB (graph visualization)
-                'elkjs',                // Layout engine
-            ],
-            estimatedSize: '5 MB',
+            dependencies: [],
+            estimatedSize: 'unmeasured',
             loadTrigger: 'route:live-ui',
         },
         
@@ -216,4 +213,3 @@ export function getCriticalSize() {
 export function getLazySize() {
     return '~25 MB';
 }
-

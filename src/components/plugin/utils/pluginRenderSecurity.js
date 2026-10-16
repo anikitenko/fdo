@@ -34,7 +34,8 @@ function executableSource(code, label, requireValidSyntax) {
         });
         // Preserve expressions inside template literals and JSX, but exclude
         // prose, comments, regex bodies, and quoted values from code checks.
-        const ignored = new Set(["string", "regexp", "template", "jsxText", "CommentLine", "CommentBlock"]);
+        // Babel 8 includes template delimiters in its ...${ and ...` text tokens.
+        const ignored = new Set(["string", "regexp", "template", "...${", "...`", "jsxText", "CommentLine", "CommentBlock"]);
         let result = "";
         let offset = 0;
         for (const token of ast.tokens) {

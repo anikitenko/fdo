@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from "react";
-import {Button, Icon, Menu, MenuItem, Popover, Tooltip} from "@blueprintjs/core";
+import {Button, Icon, Menu, MenuItem, PopoverNext as Popover, Tooltip} from "@blueprintjs/core";
 import classNames from "classnames";
 import * as styles from "./css/SideBar.module.css"
 import PropTypes from "prop-types";
@@ -54,23 +54,25 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
         >
             {/* Sidebar Items */}
             <div className={styles["menu"]}>
-                {menuItems.slice(0, visibleItems).map((item, index) => (
-                    <div key={index + 1}>
+                {menuItems.slice(0, visibleItems).map((item) => (
+                    <div key={item.id}>
                         {(item.submenu_list && item.submenu_list.length > 0) && (
                             <Popover
                                 content={
                                     <Menu>
-                                        {item.submenu_list.map((subItem, subIndex) => (
-                                            <MenuItem key={subIndex + 1} text={subItem.name}
+                                        {item.submenu_list.map((subItem) => (
+                                            <MenuItem key={subItem.id} text={subItem.name} disabled={item.disabled || subItem.disabled}
                                                       onClick={() => click(item.id, subItem.id)}/>
                                         ))}
                                     </Menu>
                                 }
-                                position={"left"}
+                                position={position === "left" ? "right" : "left"}
+                                disabled={item.disabled}
                             >
                                 <Tooltip content={item.name}>
-                                    <div className={styles["menu-item"]}>
-                                        <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.icon}>
+                                    <div className={classNames(styles["menu-item"], item.id === activeItemId && styles["menu-item-active"])}
+                                         data-plugin-sidebar-item={item.id} data-plugin-active={item.id === activeItemId ? "true" : "false"}>
+                                        <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.name || item.icon} disabled={item.disabled} loading={item.loading} aria-pressed={item.id === activeItemId}>
                                             {sidebarIcon(item)}
                                         </Button>
                                     </div>
@@ -109,7 +111,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                         ))}
                                     </Menu>
                                 ) : <div/>}
-                                disabled={!Array.isArray(item.popupActions) || item.popupActions.length === 0}
+                                disabled={item.disabled || !Array.isArray(item.popupActions) || item.popupActions.length === 0}
                             >
                                 <Tooltip content={item.tooltip || (item.id === activeItemId ? `${item.name} (active)` : item.name)}>
                                     <div
@@ -122,7 +124,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                         data-plugin-active={item.id === activeItemId ? "true" : "false"}
                                     >
                                         <div className={styles["notification-container"]}>
-                                            <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.icon}
+                                            <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.name || item.icon} disabled={item.disabled}
                                                     onClick={() => {
                                                         const hasPopupActions = Array.isArray(item.popupActions) && item.popupActions.length > 0;
                                                         const isActive = item.id === activeItemId;
@@ -157,8 +159,8 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                             <Menu>
                                 {hiddenItems.map((item, index) => (
                                     <MenuItem key={index + 1} icon={item.id === 'system-ai-chat' ? sidebarIcon(item) : sanitizeBlueprintIcon(item.icon, "dot")} text={item.name}
-                                              onClick={item.submenu_list?.length ? undefined : () => click(item.id)} disabled={item.loading}>
-                                        {item.submenu_list?.map(subItem => <MenuItem key={subItem.id} text={subItem.name}
+                                              onClick={item.submenu_list?.length ? undefined : () => click(item.id)} disabled={item.disabled || item.loading}>
+                                        {item.submenu_list?.map(subItem => <MenuItem key={subItem.id} text={subItem.name} disabled={item.disabled || subItem.disabled}
                                             onClick={() => click(item.id, subItem.id)}/>)}
                                     </MenuItem>
                                 ))}

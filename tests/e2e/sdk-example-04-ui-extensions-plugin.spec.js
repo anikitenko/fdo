@@ -114,6 +114,8 @@ const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   // Known source-map/instrumentation gaps for non-critical paths in this example.
   13, 22, 79, 114, 115, 152, 153, 176, 177, 199, 200,
   222, 223, 245, 246, 268, 269, 291, 292, 320, 321, 333, 334,
+  // SDK 1.7 compiled catch branches; each has a fault-injection test below.
+  175, 197, 198, 219, 220, 241, 242, 263, 264, 285, 286, 327, 328,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 75,
@@ -190,8 +192,10 @@ async function waitForAnyUiMarker(window, pluginName, markers = [], timeoutMs = 
   if (expected.length === 0) return "";
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const state = await getPluginUiState(window, pluginName);
-    const combined = `${String(state?.iframeText || "")}\n${String(state?.iframeHtml || "")}`;
+    // The iframe can have an opaque origin after host reload. Read through
+    // Playwright's frame context rather than parent-page contentDocument.
+    const combined = await window.frameLocator(`iframe[data-plugin-id="${pluginName}"]`).locator('body')
+      .evaluate(body => `${body.innerText}\n${body.innerHTML}`).catch(() => '');
     const match = expected.find((marker) => combined.includes(marker));
     if (match) return match;
     await window.waitForTimeout(180);
@@ -395,6 +399,10 @@ test.describe("SDK example 04-ui-extensions-plugin: live E2E line proof", () => 
   test.beforeAll(async () => {
     process.env.FDO_E2E_SDK_EXAMPLE_COVERAGE = "1";
     electronApp = await launchElectronApp(electron);
+    const storage = await electronApp.evaluate(({app}) => ({expected: process.env.FDO_E2E_USER_DATA_DIR,
+      userData: app.getPath('userData'), sessionData: app.getPath('sessionData')}));
+    expect(storage.userData).toBe(storage.expected);
+    expect(storage.sessionData).toBe(storage.expected);
   });
 
   test.afterAll(async () => {
@@ -475,6 +483,38 @@ test.describe("SDK example 04-ui-extensions-plugin: live E2E line proof", () => 
         || commandBarText.includes("SDK Example: 04-ui-extensions-plugin.ts")
       ).toBe(true);
 
+      // Exercise the actual host controls, not only IPC handler calls.
+      await window.getByRole('button', {name: 'Customize plugin shortcuts', exact: true}).click();
+      const shortcuts = window.getByRole('dialog', {name: 'Plugin shortcuts'});
+      await shortcuts.getByText('Pin Search Plugin Data', {exact: true}).click();
+      await shortcuts.getByText('Pin Create New Item', {exact: true}).click();
+      await shortcuts.getByRole('button', {name: 'Move Create New Item up', exact: true}).click();
+      await shortcuts.getByText('Show UI Extensions', {exact: true}).click();
+      await test.info().attach('Plugin shortcut preferences', {body: await window.screenshot(), contentType: 'image/png'});
+      await shortcuts.getByRole('button', {name: 'Done', exact: true}).click();
+      const showSidebar = window.getByRole('button', {name: 'Show right sidebar', exact: true});
+      if (await showSidebar.count()) await showSidebar.click();
+      await expect(window.getByRole('button', {name: 'UI Extensions', exact: true})).toHaveCount(0);
+      await window.reload();
+      await waitForHomeRegistrations(window);
+      await window.getByRole('button', {name: 'Customize plugin shortcuts', exact: true}).click();
+      await expect(shortcuts.getByLabel('Pin Search Plugin Data', {exact: true})).toBeChecked();
+      await expect(shortcuts.getByLabel('Show UI Extensions', {exact: true})).not.toBeChecked();
+      await shortcuts.getByText('Show UI Extensions', {exact: true}).click();
+      await shortcuts.getByRole('button', {name: 'Done', exact: true}).click();
+      await window.getByPlaceholder('Search...', {exact: true}).click();
+      const omnibar = window.locator('.bp6-omnibar');
+      await expect(omnibar.locator('.bp6-menu-header').first()).toContainText('Pinned plugin actions');
+      await expect(omnibar.getByRole('menuitem').first()).toContainText('Create New Item');
+      await window.getByPlaceholder('Search commands...').fill('Search Plugin Data');
+      await window.getByRole('menuitem', {name: /Search Plugin Data/}).click();
+      const searchMarker = await waitForAnyUiMarker(window, pluginName, ['Search View'], 10000);
+      if (!searchMarker) await test.info().attach('Quickbar view failure', {body: await window.screenshot(), contentType: 'image/png'});
+      expect(searchMarker).toBe('Search View');
+      await window.getByRole('button', {name: 'UI Extensions', exact: true}).click();
+      await window.getByRole('menuitem', {name: 'Reports', exact: true}).click();
+      expect(await waitForAnyUiMarker(window, pluginName, ['Reports View'], 10000)).toBe('Reports View');
+
       expect(hasInitLog).toBe(true);
       for (const marker of EXPECTED.fallbackMarkers) {
         expect(combinedUi).not.toContain(marker);
@@ -503,6 +543,18 @@ test.describe("SDK example 04-ui-extensions-plugin: live E2E line proof", () => 
 
       const coverage = await getSourceCoverageDetails(window, pluginName, entry.absPath);
       assertStrictCoverageWithAllowlist(coverage);
+      // Unloading removes live registrations; preferences survive reactivation.
+      await window.evaluate(id => window.electron.plugin.deactivate(id), pluginName);
+      await expect.poll(async () => (await getHomeRegistrationSnapshot(window)).searchActions.some(action => action.pluginId === pluginName), {timeout: 15000}).toBe(false);
+      await expect(window.getByRole('button', {name: 'UI Extensions', exact: true})).toHaveCount(0);
+      await window.evaluate(id => window.electron.plugin.activate(id), pluginName);
+      await waitForPluginReady(window, pluginName);
+      await waitForHomeRegistrations(window);
+      await window.getByRole('button', {name: 'Customize plugin shortcuts', exact: true}).click();
+      await expect(shortcuts.getByLabel('Pin Search Plugin Data', {exact: true})).toBeChecked();
+      await shortcuts.getByRole('button', {name: 'Reset shortcuts', exact: true}).click();
+      await shortcuts.getByRole('button', {name: 'Done', exact: true}).click();
+
     } finally {
       await removePlugin(window, pluginName);
     }
@@ -537,6 +589,18 @@ test.describe("SDK example 04-ui-extensions-plugin: live E2E line proof", () => 
 
       const result = await invokeHandlerWithRetry(window, pluginName, "quickSearch", { source: "fault-test" });
       expectHandlerFailure(result, "Failed to activate search");
+      // Failure is presented to the user and the action remains retryable.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await clearToastLog(window);
+        await window.getByPlaceholder('Search...', {exact: true}).click();
+        await window.getByPlaceholder('Search commands...').fill('Search Plugin Data');
+        await window.getByRole('menuitem', {name: /Search Plugin Data/}).click();
+        const failureToast = window.locator('.bp6-toast').filter({hasText: 'Failed to activate search'});
+        await expect(failureToast).toBeVisible();
+        await failureToast.getByRole('button', {name: 'Close', exact: true}).click();
+        await expect(failureToast).toHaveCount(0);
+      }
+
     } finally {
       await removePlugin(window, pluginName);
       injected.cleanup();

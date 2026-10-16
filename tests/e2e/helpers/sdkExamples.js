@@ -3,6 +3,7 @@ const path = require("node:path");
 
 const DEFAULT_SDK_EXAMPLES_CANDIDATES = [
   process.env.FDO_SDK_EXAMPLES_PATH,
+  path.resolve(__dirname, "../../../node_modules/@anikitenko/fdo-sdk/examples"),
   path.resolve(__dirname, "../../../external/fdo-sdk/examples"),
   path.resolve(__dirname, "../../../../fdo-sdk/examples"),
   path.resolve(__dirname, "../../../vendor/fdo-sdk/examples"),
@@ -59,11 +60,28 @@ function extractExampleExpectations(absPath) {
   const source = fs.readFileSync(absPath, "utf8");
 
   const handlers = [];
-  const handlerRegex = /registerHandler\(\s*["'`]([^"'`]+)["'`]/g;
+  const ast = require('@babel/parser').parse(source, {sourceType: 'module', plugins: ['typescript', 'jsx', 'decorators-legacy']});
+  const constants = new Map();
+  const traverse = require('@babel/traverse').default;
+  traverse(ast, {ClassProperty(p) {
+    const owner = p.findParent(parent => parent.isClassDeclaration());
+    if (p.node.static && owner?.node.id && p.node.value?.type === 'StringLiteral') {
+      constants.set(`${owner.node.id.name}.${p.node.key.name}`, p.node.value.value);
+    }
+  }});
+  traverse(ast, {CallExpression(p) {
+    const {node} = p;
+    if (node.callee.type !== 'MemberExpression' || node.callee.property.name !== 'registerHandler') return;
+    const arg = node.arguments[0];
+    let name = arg?.type === 'StringLiteral' ? arg.value : undefined;
+    if (arg?.type === 'MemberExpression') name = constants.get(`${arg.object.name}.${arg.property.name}`);
+    if (arg?.type === 'Identifier') {
+      const binding = p.scope.getBinding(arg.name)?.path;
+      if (binding?.isVariableDeclarator() && binding.node.init?.type === 'StringLiteral') name = binding.node.init.value;
+    }
+    if (typeof name === 'string') handlers.push(name);
+  }});
   let match;
-  while ((match = handlerRegex.exec(source)) !== null) {
-    handlers.push(match[1]);
-  }
 
   const initMessages = [];
   const initLogRegex = /this\.(?:log|info)\(\s*["'`]([^"'`]*initialized[^"'`]*)["'`]/gi;
@@ -97,13 +115,37 @@ function extractExampleExpectations(absPath) {
 }
 
 function discoverSdkExampleEntries(examplesRoot = resolveSdkExamplesPath()) {
+  const inheritsSdk = (p, seen = new Set()) => {
+    if (!p?.node || seen.has(p.node)) return false;
+    seen.add(p.node);
+    if (p.isIdentifier()) {
+      if (p.node.name === 'FDO_SDK') return true;
+      const binding = p.scope.getBinding(p.node.name)?.path;
+      if (binding?.isVariableDeclarator()) return inheritsSdk(binding.get('init'), seen);
+      if (binding?.isClassDeclaration()) return inheritsSdk(binding.get('superClass'), seen);
+      return binding?.isImportSpecifier() && binding.node.imported.name === 'FDO_SDK';
+    }
+    if (p.isCallExpression()) return p.get('arguments').some(arg => inheritsSdk(arg, seen));
+    return false;
+  };
   return walkFiles(examplesRoot)
     .filter((absPath) => absPath.endsWith(".ts"))
     .filter((absPath) => !absPath.endsWith("metadata-template.ts"))
+    // The SDK also publishes frontend recipes and helper modules. They are not
+    // executable plugins and must not be deployed as background processes.
+    .filter(absPath => {
+      const ast = require('@babel/parser').parse(fs.readFileSync(absPath, 'utf8'), {sourceType: 'module', plugins: ['typescript', 'jsx', 'decorators-legacy']});
+      let plugin = false;
+      require('@babel/traverse').default(ast, {ClassDeclaration(p) {
+        if (inheritsSdk(p.get('superClass'))) plugin = true;
+      }});
+      return plugin;
+    })
     .map((absPath) => {
       const relativePath = path.relative(examplesRoot, absPath).replace(/\\/g, "/");
       return {
         absPath,
+        examplesRoot,
         relativePath,
         kind: relativePath.startsWith("fixtures/") ? "fixture" : "example",
         slug: slugFromRelativePath(relativePath),
@@ -111,6 +153,26 @@ function discoverSdkExampleEntries(examplesRoot = resolveSdkExamplesPath()) {
       };
     })
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+let compileFixtureCss;
+function sdkExampleCssPlugin(entry, esbuild) {
+  return {name: 'sdk-example-style-maps', setup(build) {
+    build.onLoad({filter: /\.css$/i}, async ({path: filename}) => {
+      if (!compileFixtureCss) {
+        const loaded = {exports: {}};
+        const source = esbuild.buildSync({entryPoints: [path.resolve(__dirname, '../../../src/utils/esbuild/plugins/cssStyleModule.js')],
+          bundle: true, packages: 'external', platform: 'node', format: 'cjs', write: false}).outputFiles[0].text;
+        new Function('require', 'module', 'exports', source)(require, loaded, loaded.exports);
+        compileFixtureCss = loaded.exports.compileCssStyleModule;
+      }
+      const root = fs.realpathSync(entry.examplesRoot || path.dirname(entry.absPath));
+      const virtualPath = file => '/' + path.relative(root, fs.realpathSync(file)).replace(/\\/g, '/');
+      const files = Object.fromEntries(walkFiles(root).filter(file => file.endsWith('.css'))
+        .map(file => [virtualPath(file), fs.readFileSync(file, 'utf8')]));
+      return {contents: await compileFixtureCss(files, virtualPath(filename)), loader: 'js'};
+    });
+  }};
 }
 
 async function compileSdkExample(entry) {
@@ -128,6 +190,7 @@ async function compileSdkExample(entry) {
       target: "node20",
       sourcemap: "inline",
       external: ["@anikitenko/fdo-sdk"],
+      plugins: [sdkExampleCssPlugin(entry, esbuild)],
       logLevel: "silent",
       tsconfigRaw: {
         compilerOptions: {
@@ -161,8 +224,12 @@ async function compileSdkExample(entry) {
       produceSourceMap: false,
       autoWrap: true,
       esModules: false,
+      coverageGlobalScope: "globalThis",
+      coverageGlobalScopeFunc: false,
     });
     compiled = instrumenter.instrumentSync(compiled, entry.absPath);
+    const { isOperationalExample, operationalCoverageSupport } = require("./sdkOperationalCoverage");
+    if (isOperationalExample(entry)) compiled += operationalCoverageSupport(compiled, entry.relativePath.startsWith("12-"));
     compiled += `
 ;(() => {
   try {
@@ -211,7 +278,7 @@ async function ensureRootCertificate(window) {
 
 async function deploySdkExample(window, entry, options = {}) {
   const pluginName = options.pluginName || `sdk-e2e-${entry.slug}`;
-  const compiledContent = await compileSdkExample(entry);
+  const compiledContent = options.compiledContent ?? await compileSdkExample(entry);
   const capabilities = Array.isArray(options.capabilities)
     ? Array.from(new Set(options.capabilities.map((item) => String(item || "").trim()).filter(Boolean)))
     : [];
@@ -295,7 +362,7 @@ async function expectPluginUiVisible(window, pluginName) {
   await window.waitForFunction(async (id) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginId === id && node?.getAttribute("aria-hidden") !== "true")
       || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
       || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
@@ -352,11 +419,8 @@ async function getPluginUiState(window, pluginName) {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0] || null;
     const container = document.querySelector("#plugin-container");
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
-    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
-      || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
-      || null;
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
+    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
     const doc = iframe?.contentDocument;
     const bodyText = String(doc?.body?.innerText || "").trim();
     const bodyHtml = String(doc?.body?.innerHTML || "").trim();
@@ -375,7 +439,7 @@ async function getPluginUiState(window, pluginName) {
 
 async function getPluginIframeText(window) {
   return await window.evaluate(() => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[title^="Plugin Container ID"]'));
+    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
     const iframe = allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
       || allIframes.find((node) => node?.getAttribute("title") === "Plugin Container ID")
       || null;
@@ -458,6 +522,7 @@ module.exports = {
   DEFAULT_SDK_EXAMPLES_CANDIDATES,
   discoverSdkExampleEntries,
   resolveSdkExamplesPath,
+  compileSdkExample,
   deploySdkExample,
   waitForPluginRegistered,
   waitForPluginReady,

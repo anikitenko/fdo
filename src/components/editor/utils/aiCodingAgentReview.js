@@ -7,6 +7,7 @@ export const WORKSPACE_REVIEW_PROMPT = [
     "The host runs plugin tests and supplies their results. Investigate any failing tests in the supplied evidence.",
     "Review the supplied current plugin workspace, build output, and Problems panel evidence.",
     "Inspect the deployed render path and CSS style registration even when tests pass; class-name assertions alone do not verify styling.",
+    "Identify handwritten production UI HTML for migration to installed SDK helpers, including nested/dynamic fragments. Preserve styles, accessibility, escaping and interaction bindings; report unsupported cases.",
     "Report only confirmed plugin-local issues, ordered by severity with the affected file and a concrete repair plan.",
     "Do not modify files in this review-first request.",
 ].join(" ");
@@ -16,6 +17,7 @@ export const WORKSPACE_REPAIR_PROMPT = [
     "The host runs plugin tests and supplies their results. Investigate any failing tests in the supplied evidence.",
     "Review the supplied current plugin workspace, build output, and Problems panel evidence.",
     "Inspect and repair unregistered styles on the deployed render path even when tests pass; preserve the intended visual design.",
+    "Replace all confirmed handwritten production UI HTML with installed SDK helpers, including nested/dynamic fragments, preserving markup behavior, styles, accessibility, escaping and interaction bindings. Report unsupported cases instead of silently skipping them.",
     "Automatically repair confirmed plugin-local issues, preserving working behavior and the public plugin SDK contract.",
     "Re-run plugin tests after each repair and stop when the workspace is clean or when a remaining issue needs a developer decision.",
 ].join(" ");
@@ -59,6 +61,7 @@ export function formatWorkspaceReviewReport(report, {repairSummary = '', tests =
 }
 import {findWorkspaceStyleIssues} from './validateGeneratedPluginFiles';
 import {PLUGIN_STYLE_RENDERING_GUIDANCE} from '../../../utils/plugins/authoring/pluginAuthoringGuide';
+import {findWorkspaceHtmlIssues, PLUGIN_HTML_MIGRATION_GUIDANCE} from '../../../utils/plugins/validation/workspaceHtmlReview';
 
 export function workspaceStyleReviewContext(files) {
     return `STYLESHEET REVIEW CONTRACT\n${PLUGIN_STYLE_RENDERING_GUIDANCE}\nHost source diagnostics (not visual verification):\n${JSON.stringify(findWorkspaceStyleIssues(files))}`;
@@ -74,5 +77,22 @@ export function includeWorkspaceStyleFindings(report, files) {
         }
     }
     if (added) report.summary += ' Host source checks also found unregistered plugin styles requiring repair.';
+    return report;
+}
+
+export function workspaceReviewContext(files) {
+    return `${workspaceStyleReviewContext(files)}\n\n${PLUGIN_HTML_MIGRATION_GUIDANCE}\nHost HTML source diagnostics (migration candidates; verify UI use before rewriting):\n${JSON.stringify(findWorkspaceHtmlIssues(files))}`;
+}
+
+export function includeWorkspaceAuthoringFindings(report, files) {
+    includeWorkspaceStyleFindings(report, files);
+    let added = false;
+    for (const issue of findWorkspaceHtmlIssues(files)) {
+        if (!report.findings.some(finding => finding.file === issue.file && finding.issue === issue.issue)) {
+            report.findings.push(issue);
+            added = true;
+        }
+    }
+    if (added) report.summary += ' Host source checks also found handwritten HTML to review for SDK-helper migration.';
     return report;
 }

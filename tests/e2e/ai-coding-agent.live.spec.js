@@ -27,10 +27,10 @@ const {
 } = require("./helpers/electronApp");
 
 const templateModule = {exports: {}};
-new Function("module", "exports", require("esbuild").transformSync(
-  require("node:fs").readFileSync(require("node:path").resolve("src/components/editor/utils/virtualTemplates.js"), "utf8"),
-  {format: "cjs"},
-).code)(templateModule, templateModule.exports);
+new Function("module", "exports", require("esbuild").buildSync({
+  entryPoints: ["src/components/editor/utils/virtualTemplates.js"],
+  bundle: true, platform: "node", format: "cjs", write: false,
+}).outputFiles[0].text)(templateModule, templateModule.exports);
 
 const scenarioCatalogModule = {exports: {}};
 new Function("module", "exports", require("esbuild").transformSync(
@@ -408,7 +408,7 @@ async function waitForWebToolsWorkbenchVisualState(window, pluginName, timeout =
       },
       visual: {
         darkShell: (nonTransparent(shellStyle?.backgroundColor) || shellStyle?.backgroundImage !== 'none')
-          && /(?:rgb\(\s*(?:[0-7]?\d|8\d)|#(?:0|1|2|3)[0-9a-f]{2})/i.test(`${shellStyle?.backgroundColor || ''} ${shellStyle?.backgroundImage || ''}`),
+          && /rgb\(\s*(?:[0-7]?\d|8\d)|#[0-3][0-9a-f]{2}/i.test(`${shellStyle?.backgroundColor || ''} ${shellStyle?.backgroundImage || ''}`),
         dashboardGrid: dashboardGridStyle?.display === "grid"
           && Number(dashboardGridContainer?.children?.length || 0) >= 2,
         hasDock: !!dock && (dockStyle?.position === 'sticky' || dockStyle?.position === 'fixed'
@@ -559,7 +559,7 @@ test.describe("AI Coding Agent Live Provider", () => {
     await aiAgentTab.click();
     await expect(editorWindow.locator("text=AI Coding Assistant")).toBeVisible({ timeout: 20000 });
 
-    const assistants = await editorWindow.evaluate(async () => {
+    let resolvedAssistants = await editorWindow.evaluate(async () => {
       try {
         return (await window.electron.settings.ai.getAssistants()).map(({apiKey: _secret, ...item}) => item);
       } catch (error) {
@@ -567,7 +567,6 @@ test.describe("AI Coding Agent Live Provider", () => {
       }
     });
 
-    let resolvedAssistants = assistants;
     const config = readLiveAiConfig();
     let selectedAssistant = findLiveCodingAssistant(resolvedAssistants, config, LIVE_ASSISTANT_NAME);
     let provisionedAssistant = false;
@@ -825,7 +824,7 @@ test.describe("AI Coding Agent Live Provider", () => {
   test("live best-practices: reviews broken plugin code without changing files", async () => {
     const {promptInput} = await openAiCodingAssistant();
     const brokenMain = templateModule.exports.BLANK_TEMPLATE_MAIN("Review Fixture")
-      .replace(/PluginRegistry\.registerHandler\("refreshStatus", \(\) => \(\{[\s\S]*?\}\)\);/, 'PluginRegistry.registerHandler("refreshStatus", () => { const status = {success: true}; });\n        document.querySelector("#status");');
+      .replace(/PluginRegistry\.registerHandler\("refreshStatus", \(\) => \(\{[\s\S]*?}\)\);/, 'PluginRegistry.registerHandler("refreshStatus", () => { const status = {success: true}; });\n        document.querySelector("#status");');
     const brokenTests = 'test("status", () => { expect(true).toBe(true); });';
     await editorWindow.evaluate(({main, render, tests}) => {
       window.__editorTestApi.createFile('/index.ts', main, 'typescript');

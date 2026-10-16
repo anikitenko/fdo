@@ -383,7 +383,7 @@ export function registerSettingsHandlers() {
 
     ipcMain.handle(SettingsChannels.certificates.CREATE, async () => {
         const randomName = (Math.random() + 1).toString(36).substring(2)
-        Certs.generateRootCA(randomName);
+        await Certs.generateRootCA(randomName);
     });
 
     ipcMain.handle(SettingsChannels.certificates.RENAME, async (event, oldName, newName) => {
@@ -414,7 +414,7 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.certificates.RENEW, async (event, label) => {
-        Certs.generateRootCA(label, true);
+        await Certs.generateRootCA(label, true);
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.GET, async () => {
@@ -494,10 +494,9 @@ export function registerSettingsHandlers() {
         } else {
             delete data.firstResponseTimeoutMs;
         }
-        const normalizedThinkingMode = ["auto", "on", "off"].includes(String(data?.defaultThinkingMode || "").toLowerCase())
+        data.defaultThinkingMode = ["auto", "on", "off"].includes(String(data?.defaultThinkingMode || "").toLowerCase())
             ? String(data.defaultThinkingMode).toLowerCase()
             : "auto";
-        data.defaultThinkingMode = normalizedThinkingMode;
         let resolvedInvocation = null;
         if (data.provider === "cloudflare") {
             if (data.purpose !== "coding") throw new Error("Cloudflare Workers AI is currently supported for Coding Assistant purpose.");
@@ -515,6 +514,7 @@ export function registerSettingsHandlers() {
             if (data.purpose !== "coding") {
                 throw new Error("Codex CLI is supported only for Coding Assistant purpose.");
             }
+            // Validation failures intentionally share this boundary with operation failures.
             try {
                 const invocation = await resolveCodexCliInvocation({requireBundled: true,
                     configuredPath: data.executablePath,
@@ -538,6 +538,7 @@ export function registerSettingsHandlers() {
                     // Authentication and model discovery are separate from an AI request.
                     const models = await listCodexModels(invocation);
                     if (!models.some(model => model.value === data.model)) {
+                        //noinspection ExceptionCaughtLocallyJS
                         throw new Error(`Model ${data.model || '(empty)'} is not in this Codex runtime's selectable catalog. Reload the model list and select an offered model.`);
                     }
                 }

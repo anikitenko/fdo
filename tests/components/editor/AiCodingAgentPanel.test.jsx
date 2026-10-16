@@ -118,14 +118,25 @@ jest.mock("../../../src/components/AppToaster.jsx", () => ({
     },
 }));
 
-function TestHarness({ codeEditor, onActivityChange }) {
+function TestHarness({ codeEditor, onActivityChange, selectionFocusRequest = 0 }) {
     const [response, setResponse] = React.useState("");
     return (
         <HotkeysProvider>
-            <AiCodingAgentPanel codeEditor={codeEditor} response={response} setResponse={setResponse} onActivityChange={onActivityChange} />
+            <AiCodingAgentPanel codeEditor={codeEditor} response={response} setResponse={setResponse} onActivityChange={onActivityChange} selectionFocusRequest={selectionFocusRequest} />
         </HotkeysProvider>
     );
 }
+
+test('Live UI handoff focuses the existing composer without changing or submitting its prompt', async () => {
+    const {rerender} = render(<TestHarness/>);
+    const prompt = await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(prompt, {target: {value: 'Keep my existing request'}});
+    prompt.blur();
+    rerender(<TestHarness selectionFocusRequest={1}/>);
+    await waitFor(() => expect(prompt).toHaveFocus());
+    expect(prompt).toHaveValue('Keep my existing request');
+    expect(window.electron.aiCodingAgent.smartMode).not.toHaveBeenCalled();
+});
 
 test.each([false, true])('workspace review detects unregistered styles with repair=%s even when tests and AI review pass', async repair => {
     virtualFS.getLatestContent.mockReturnValue({
@@ -278,7 +289,7 @@ test.each([undefined, "another-snapshot"])("keeps historical replies browseable 
 test.each([false, true])("snapshot restore blocks a delayed edit, including switch-back=%s", async (switchBack) => {
     virtualFS.sandboxName = "snapshot-chat";
     let onSwitch;
-    virtualFS.notifications = {subscribe: jest.fn((_event, handler) => { onSwitch = handler; return () => {}; })};
+    virtualFS.notifications = {subscribe: jest.fn((event, handler) => { if (event === 'snapshotSwitched') onSwitch = handler; return () => {}; })};
     let finish;
     const pending = new Promise(resolve => { finish = resolve; });
     const reply = async ({requestId}) => {
@@ -312,6 +323,36 @@ test.each([false, true])("snapshot restore blocks a delayed edit, including swit
     const history = JSON.parse(localStorage.getItem("fdo:plugin-ai-history:v1:snapshot-chat"));
     expect(history.filter(message => message.role === "snapshot")).toHaveLength(switchBack ? 2 : 1);
     expect(history.some(message => message.role === "assistant")).toBe(false);
+});
+
+test('Live UI apply records current-source context and blocks a delayed AI edit', async () => {
+    virtualFS.sandboxName = 'visual-edit-chat';
+    const listeners = {};
+    virtualFS.notifications = {subscribe: jest.fn((event, handler) => {listeners[event] = handler; return () => {};})};
+    let finish;
+    const pending = new Promise(resolve => {finish = resolve;});
+    window.electron.aiCodingAgent.generateCode.mockImplementation(async ({requestId}) => {
+        await pending;
+        const content = '```typescript\n// SOLUTION READY TO APPLY\nexport const value = "Outdated AI edit";\n```';
+        streamHandlers.done?.({requestId, fullContent: content});
+        return {success: true, requestId, content};
+    });
+    const model = {getLanguageId: () => 'typescript', getValue: () => 'export const value = "Current";', getValueInRange: () => '', pushEditOperations: jest.fn()};
+    render(<TestHarness codeEditor={{getSelection: () => null, getModel: () => model}}/>);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText(/Action/i, {selector: 'select'}), {target: {value: 'generate'}});
+    fireEvent.change(document.querySelector('#prompt-input'), {target: {value: 'Update the value in /index.ts'}});
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalled());
+    await act(async () => {
+        virtualFS.fs.snapshotSwitchRevision = 1;
+        listeners.liveUiApplied({historySaved: false, message: {role: 'snapshot', snapshot: 'visual-snapshot', content: 'Live UI applied a text edit. Use current workspace files.'}});
+        finish();
+    });
+    await waitFor(() => expect(screen.queryByRole('button', {name: /Stop/i})).toBeNull());
+    expect(model.pushEditOperations).not.toHaveBeenCalled();
+    expect(window.electron.aiCodingAgent.cancelRequest).toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('fdo:plugin-ai-history:v1:visual-edit-chat')).some(message => message.content.includes('Live UI applied'))).toBe(true);
 });
 
 test("restores plugin conversation and includes it in a follow-up, then clears it", async () => {
@@ -684,7 +725,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         if (mode === "review") {
-            const applyButton = await screen.findByRole("button", {name: "Apply proposed changes"});
+            await screen.findByRole("button", {name: "Apply proposed changes"});
             expect(currentValue).toBe(initialSource);
             expect(model.pushEditOperations).not.toHaveBeenCalled();
             expect(virtualFS.fs.create).not.toHaveBeenCalled();
@@ -2119,7 +2160,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
                     endColumn: 17,
                 })),
                 pushEditOperations: jest.fn(),
-                uri: { toString: () => "file:///index.ts", toString: () => "file:///index.ts" },
+                uri: { toString: () => "file:///index.ts" },
             })),
             focus: jest.fn(),
         };
@@ -3369,8 +3410,7 @@ describe("AiCodingAgentPanel plugin scope enforcement", () => {
             getFullModelRange: () => ({startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1}),
             pushEditOperations: jest.fn(),
         };
-        virtualFS.getLatestContent.mockReturnValue({"/index.ts": initialEntry,
-            "/render.tsx": require("../../../src/components/editor/utils/virtualTemplates").BLANK_TEMPLATE_RENDER("Workbench")});
+        virtualFS.getLatestContent.mockReturnValue(require("../../../src/components/editor/utils/virtualTemplates").createPluginTemplateFiles({name: 'workbench', displayName: 'Workbench'}));
         const files = {
             "/logic.ts": "export const format = (value: unknown) => JSON.stringify(value);",
             "/tests/tools.test.ts": [
@@ -4650,4 +4690,114 @@ test('rechecks saved API image capabilities and enables attachments when fresh m
     await waitFor(() => expect(window.electron.settings.ai.getInputCapabilities).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole('button', {name: 'Upload Image'})).toBeEnabled());
     expect(screen.getByText('Screenshots: Images supported')).toBeVisible();
+});
+
+test('stale SDK guide offers an explicit migration and reruns review with guide-first repair scope', async () => {
+    virtualFS.getLatestContent.mockReturnValue({
+        '/SKILL.md':'# Old guide',
+        '/index.ts':'import {render} from "./view"; export const renderPlugin = render;',
+        '/view.ts':'import css from "./styles.css"; export const render = () => `<div class="panel">Content</div>`;',
+        '/styles.css':'.panel {display:grid}',
+    });
+    runPluginTests.mockResolvedValue({success:true,skipped:false});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId}) => {
+        const content = JSON.stringify({status:'completed',summary:'Reviewed',findings:[],limitations:[]});
+        Promise.resolve().then(()=>streamHandlers.done?.({requestId,fullContent:content}));
+        return {success:true,requestId,content};
+    });
+    window.electron.aiCodingAgent.planCode.mockResolvedValueOnce({success:false,error:'Plugin guide SDK fingerprint is missing or stale.',
+        guideRecovery:{schemaVersion:'1.0.0',code:'PLUGIN_GUIDE_SDK_REVIEW_REQUIRED',path:'/SKILL.md',workspaceChanged:false}})
+        .mockResolvedValueOnce({success:false,error:'Migration test stopped before approval'});
+    render(<TestHarness/>);
+    const review = await screen.findByRole('button',{name:'Review & repair'});
+    await waitFor(()=>expect(review).toBeEnabled());
+    fireEvent.click(review);
+    const recover = await screen.findByRole('button',{name:'Update guide and resume repair'});
+    await waitFor(()=>expect(recover).toBeEnabled());
+    expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+    expect(window.electron.aiCodingAgent.planCode.mock.calls[0][0].repairPaths).not.toContain('/SKILL.md');
+    fireEvent.click(recover);
+    await waitFor(()=>expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2));
+    expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2);
+    const repair = window.electron.aiCodingAgent.planCode.mock.lastCall[0];
+    expect(repair.repairPaths).toEqual(['/SKILL.md','/index.ts','/view.ts']);
+    expect(repair.prompt).toContain('Pause for human guide approval');
+    await screen.findAllByText('Migration test stopped before approval');
+    expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+});
+
+test('Review workspace reports raw HTML even when the assistant and tests report no defects',async()=>{
+    virtualFS.getLatestContent.mockReturnValue({
+        '/view.ts':`export const render = () => '<p id="summary">Ready</p>';`,
+        '/parts/footer.ts':`export const footer = () => '<footer>Local only</footer>';`,
+        '/view.test.ts':`const expected = '<p id="summary">Ready</p>';`,
+    });
+    runPluginTests.mockResolvedValue({success:true,skipped:false});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId})=>{
+        const content = JSON.stringify({status:'completed',summary:'Tests passed',findings:[],limitations:[]});
+        Promise.resolve().then(()=>streamHandlers.done?.({requestId,fullContent:content}));
+        return {success:true,requestId,content};
+    });
+    render(<TestHarness/>);
+    const button = await screen.findByRole('button',{name:'Review workspace'});
+    await waitFor(()=>expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(()=>expect(screen.getByTestId('ai-coding-response')).toHaveTextContent('Handwritten HTML markup needs migration'));
+    const report = screen.getByTestId('ai-coding-response');
+    expect(report).toHaveTextContent('/view.ts'); expect(report).toHaveTextContent('/parts/footer.ts');
+    expect(report).not.toHaveTextContent('/view.test.ts');
+    expect(window.electron.aiCodingAgent.smartMode.mock.lastCall[0].context).toContain('SDK HELPER MIGRATION CONTRACT');
+    expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    expect(virtualFS.createFile).not.toHaveBeenCalled();
+});
+
+test.each([true,false])('Review & Repair checks actual HTML migration after applying a candidate (migrated: %s)',async migrated=>{
+    let sources = {'/view.ts':`export const render = () => '<p id="summary">Ready</p>';`};
+    virtualFS.getLatestContent.mockImplementation(()=>sources);
+    virtualFS.createFile.mockImplementation((path,model)=>{sources = {...sources,[path]:model.getValue()};});
+    runPluginTests.mockResolvedValue({success:true,skipped:false});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId})=>{
+        const content = JSON.stringify({status:'completed',summary:'Tests passed',findings:[],limitations:[]});
+        Promise.resolve().then(()=>streamHandlers.done?.({requestId,fullContent:content}));
+        return {success:true,requestId,content};
+    });
+    const candidate = migrated
+        ? `import {DOM} from '@anikitenko/fdo-sdk'; export function render() {const dom = new DOM(); return dom.renderHTML(dom.createElement('p',{id:'summary'},'Ready'));}`
+        : `export const render = () => '<p id="summary">Ready!</p>';`;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async ({requestId})=>({success:true,requestId,content:'### File: /view.ts\n```typescript\n'+candidate+'\n```'}));
+    render(<TestHarness/>);
+    const button = await screen.findByRole('button',{name:'Review & repair'});
+    await waitFor(()=>expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(()=>expect(virtualFS.createFile).toHaveBeenCalled());
+    await waitFor(()=>expect(screen.getByTestId('ai-coding-response')).toHaveTextContent('Workspace changes were applied.'));
+    expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0].repairPaths).toEqual(['/view.ts']);
+    expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0].context).toContain('SDK HELPER MIGRATION CONTRACT');
+    expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0].prompt).toContain('handler bindings');
+    expect(sources['/view.ts']).toBe(candidate);
+    if(migrated) expect(screen.getByTestId('ai-coding-response')).not.toHaveTextContent('SDK-helper migration still needs attention');
+    else expect(screen.getByTestId('ai-coding-response')).toHaveTextContent('SDK-helper migration still needs attention');
+});
+
+test('a provider result received after unmount cannot create workspace snapshots', async () => {
+    let finish;
+    const deferred = ({requestId}) => new Promise(resolve => {
+        finish = () => resolve({success: true, requestId, content: '// SOLUTION READY TO APPLY\nexport const value = 2;'});
+    });
+    for (const method of ['generateCode', 'smartMode', 'fixCode', 'planCode']) window.electron.aiCodingAgent[method].mockImplementation(deferred);
+    const codeEditor = {getSelection: jest.fn(() => null), getModel: () => ({
+        getValue: () => 'export const value = 1;', getLanguageId: () => 'typescript', getValueInRange: () => '',
+        getFullModelRange: () => ({}), pushEditOperations: jest.fn(),
+    }), focus: jest.fn()};
+    const {unmount} = render(<TestHarness codeEditor={codeEditor}/>);
+    await waitFor(() => expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText('Changes'), {target: {value: 'apply'}});
+    fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {target: {value: 'Change value in /index.ts to 2.'}});
+    await waitFor(() => expect(screen.getByRole('button', {name: /Submit/i})).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', {name: /Submit/i}));
+    await waitFor(() => expect(finish).toBeDefined());
+    unmount();
+    virtualFS.fs.create.mockClear();
+    await act(async () => {finish();});
+    expect(virtualFS.fs.create).not.toHaveBeenCalled();
 });

@@ -29,7 +29,7 @@ for (const outcome of ['success', 'stop', 'edit', 'failure']) {
                 ipcMain.removeHandler('plugin:build');
                 ipcMain.handle('plugin:build', async (event, candidate) => {
                     await new Promise(resolve => {globalThis.__releaseCandidate = resolve;});
-                    return globalThis.__rejectCandidate ? {success: false, error: 'controlled compiler rejection'} : build(event, candidate);
+                    return globalThis.__rejectCandidate ? {success: false, error: 'controlled compiler rejection\n/logic.ts:1:1: controlled compiler rejection'} : build(event, candidate);
                 });
             });
             const page = await openEditorWithMockedIPC(app, {__useRealAssistants: true});

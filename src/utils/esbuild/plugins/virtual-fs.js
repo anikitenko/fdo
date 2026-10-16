@@ -1,7 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
-import {extractCssStyles} from "../../../components/editor/utils/extractCssStyles";
-import {resolveCssImports, mergeCssStyleMaps} from "../../../components/editor/utils/resolveCssImports";
+import {compileCssStyleModule} from './cssStyleModule';
 
 export function EsbuildVirtualFsPlugin(latestContent) {
     const normalizeVirtualPath = (targetPath = "", {preserveRelative = false} = {}) => {
@@ -183,14 +182,8 @@ export function EsbuildVirtualFsPlugin(latestContent) {
                 };
             });
             build.onLoad({filter: /\.css$/}, async (args) => {
-                const classMap = extractCssStyles(latestContent[args.path])
-                const importsResolved = await resolveCssImports(classMap, args.path, latestContent, extractCssStyles)
-                // Entries already include grouped states and scoped conditional
-                // rules from the CSS parser. Preserve their nested objects and
-                // declaration order when composing imports for SDK registration.
-                const merged = mergeCssStyleMaps(importsResolved, classMap)
                 return {
-                    contents: `export default ${JSON.stringify(merged)};`,
+                    contents: await compileCssStyleModule(latestContent, args.path),
                     loader: "js",
                 };
             });

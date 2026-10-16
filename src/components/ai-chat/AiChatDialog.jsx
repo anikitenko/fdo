@@ -12,7 +12,7 @@ import {
     Tooltip,
     Tag,
     Switch,
-    Popover,
+    PopoverNext as Popover,
     Spinner, NonIdealState, Slider, MenuDivider, MenuItem, Menu
 } from "@blueprintjs/core";
 import {AppToaster} from "../AppToaster";
@@ -189,8 +189,7 @@ function detectCodeLikeSelection(text = "") {
     if (looksCodeHeavySnippet(value)) return true;
     if (/^\s{2,}\S/m.test(value)) return true;
     if (/^\$ |\b(ERROR|WARN|INFO|DEBUG)\b/m.test(value)) return true;
-    if (/^ {0,3}[`~]{3,}/m.test(value)) return true;
-    return false;
+    return /^ {0,3}[`~]{3,}/m.test(value);
 }
 
 function formatMarkdownQuote(text = "", sourceLabel = "", uiLanguage = "en") {
@@ -342,12 +341,7 @@ function normalizeComposerPrompt(text = "") {
         .trim();
 }
 
-function stripComposerLead(text = "") {
-    return String(text || "")
-        .replace(/^[\s,.!?-]+|[\s]+$/g, "")
-        .replace(/^(ok|okay|well|yeah|yes|sure)[,.\s]+/i, "")
-        .replace(/^(and\s+)+/i, "");
-}
+
 
 function stripComposerLeadPreserveTail(text = "") {
     return String(text || "")
@@ -1835,8 +1829,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                                         {item.displaySnippet}
                                                                     </div>
                                                                     <div style={{display: "flex", gap: 6, marginTop: 8}}>
-                                                                        <Button small minimal icon="citation" text={t("quote")} onClick={() => onSnippetQuote(item)} />
-                                                                        <Button small minimal icon="comment" text={t("ask")} onClick={() => onSnippetQuote(item, { askFollowUp: true })} />
+                                                                        <Button size="small" variant="minimal" icon="citation" text={t("quote")} onClick={() => onSnippetQuote(item)} />
+                                                                        <Button size="small" variant="minimal" icon="comment" text={t("ask")} onClick={() => onSnippetQuote(item, { askFollowUp: true })} />
                                                                     </div>
                                                                 </div>
                                                             ))}
@@ -1889,8 +1883,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                                             {item.displaySnippet}
                                                                         </div>
                                                                         <div style={{display: "flex", gap: 6, marginTop: 8}}>
-                                                                            <Button small minimal icon="citation" text={t("quote")} onClick={() => onSnippetQuote(item)} />
-                                                                            <Button small minimal icon="comment" text={t("ask")} onClick={() => onSnippetQuote(item, { askFollowUp: true })} />
+                                                                            <Button size="small" variant="minimal" icon="citation" text={t("quote")} onClick={() => onSnippetQuote(item)} />
+                                                                            <Button size="small" variant="minimal" icon="comment" text={t("ask")} onClick={() => onSnippetQuote(item, { askFollowUp: true })} />
                                                                         </div>
                                                                     </div>
                                                                 ))}
@@ -1938,8 +1932,8 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         {!m.skeleton && (
                                             <div style={{display: "flex", justifyContent: "flex-end", marginTop: 10}}>
                                                 <Button
-                                                    small
-                                                    minimal
+                                                    size="small"
+                                                    variant="minimal"
                                                     icon="undo"
                                                     text={t("reply")}
                                                     title={t("replyToThisMessage")}
@@ -1972,7 +1966,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             </div>
                 {showJumpToBottom && (
                     <Button
-                        small
+                        size="small"
                         icon="arrow-down"
                         className={styles.jumpToBottomButton}
                         title={t("jumpToBottom")}
@@ -2010,7 +2004,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                 {restoredDraftNotice.hasReply ? ` ${t("draftReplyRestored")}` : ""}
                             </div>
                         </div>
-                        <Button minimal small icon="cross" onClick={() => setRestoredDraftNotice(null)} />
+                        <Button variant="minimal" size="small" icon="cross" onClick={() => setRestoredDraftNotice(null)} />
                     </div>
                 )}
                 <ControlGroup fill={true} vertical={false} className={styles.composerControlRow}>
@@ -2339,7 +2333,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                     {buildReplyPreview(replyTo)}
                                 </div>
                             </div>
-                            <Button minimal small icon="cross" disabled={sending} onClick={() => setReplyTo(null)} />
+                            <Button variant="minimal" size="small" icon="cross" disabled={sending} onClick={() => setReplyTo(null)} />
                         </div>
                     </div>
                 )}

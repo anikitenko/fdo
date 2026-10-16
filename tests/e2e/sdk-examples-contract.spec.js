@@ -245,7 +245,6 @@ async function runUiInteractionChecks(window, pluginName, checks = []) {
   const results = [];
   for (const check of list) {
     const checkId = String(check?.id || "ui-check");
-    const action = String(check?.action || "").trim();
     const timeoutMs = Number(check?.timeoutMs || 5000);
     const output = await window.evaluate(async ({ check, timeoutMs }) => {
       const waitUntil = Date.now() + timeoutMs;
@@ -415,6 +414,11 @@ for (const entry of contractEntries) {
       if (declaredCapabilities.length > 0) {
         const granted = await setCapabilities(window, pluginName, declaredCapabilities);
         expect(granted?.success).toBe(true);
+        // Storage/network grants can replace the worker. Never invoke a
+        // handler from the pre-grant diagnostics before its new init completes.
+        await waitForPluginReady(window, pluginName);
+        await waitForPluginSettled(window, pluginName);
+        expect(await resolveDiagnosticsWithHandlers(window, pluginName, expectedHandlers)).toBeTruthy();
       }
 
       if (expectedInitLogs.length > 0) {

@@ -1,3 +1,5 @@
+import {rewritePluginHostHtml} from './plugin/utils/pluginHostHtml';
+import {samePluginRenderContent} from './plugin/utils/pluginRenderContent';
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import PropTypes from "prop-types";
 import {Button, Spinner} from "@blueprintjs/core";
@@ -9,16 +11,6 @@ import {
     isValidPluginUiRequestMessage,
     normalizePluginRenderPayload,
 } from "./plugin/utils/pluginRenderSecurity";
-
-function rewritePluginHostHtml(html) {
-    if (typeof html !== "string") {
-        return "";
-    }
-
-    return html.replace(/\b(src|href)="\.\/([^"]+)"/g, (_match, attr, assetPath) => {
-        return `${attr}="static://host/${assetPath}"`;
-    });
-}
 
 function injectPluginCapabilityMetadata(html, capabilities = []) {
     if (typeof html !== "string" || !html) {
@@ -172,8 +164,8 @@ export const PluginContainer = ({
     const contentRef = useRef("");
     const requestedInitRef = useRef(false);
     const lastCapabilityDeniedToastAtRef = useRef(0);
-    const lastPostedRenderSignatureRef = useRef("");
-    const lastIncomingRenderSignatureRef = useRef("");
+    const lastPostedRenderSignatureRef = useRef(null);
+    const lastIncomingRenderSignatureRef = useRef(null);
     const lastIncomingRenderAtRef = useRef(0);
     const renderPostedAtRef = useRef(0);
     const renderMountedAtRef = useRef(0);
@@ -342,8 +334,8 @@ export const PluginContainer = ({
         setPluginCanRender(false);
         setShowRecovery(false);
         requestedInitRef.current = false;
-        lastPostedRenderSignatureRef.current = "";
-        lastIncomingRenderSignatureRef.current = "";
+        lastPostedRenderSignatureRef.current = null;
+        lastIncomingRenderSignatureRef.current = null;
         lastIncomingRenderAtRef.current = 0;
         renderPostedAtRef.current = 0;
         renderMountedAtRef.current = 0;
@@ -474,10 +466,10 @@ export const PluginContainer = ({
                 return;
             }
 
-            const incomingSignature = `${normalizedContent.render.length}:${normalizedContent.onLoad.length}:${normalizedContent.render.slice(0, 128)}:${normalizedContent.onLoad.slice(0, 64)}`;
+            const incomingSignature = normalizedContent;
             const incomingNow = Date.now();
             if (
-                incomingSignature === lastIncomingRenderSignatureRef.current
+                samePluginRenderContent(incomingSignature,lastIncomingRenderSignatureRef.current)
                 && (incomingNow - lastIncomingRenderAtRef.current) < 250
             ) {
                 return;
@@ -517,11 +509,11 @@ export const PluginContainer = ({
             setDebugStage("plugin-render-request-retry-pending");
             scheduledRetryTimer = window.setTimeout(() => {
                 scheduledRetryTimer = null;
-                requestRender("retry");
+                requestRender();
             }, delayMs);
         };
 
-        const requestRender = async (source = "initial") => {
+        const requestRender = async () => {
             if (cancelled || contentRef.current?.render) return;
 
             attempt += 1;
@@ -548,7 +540,7 @@ export const PluginContainer = ({
             }
         };
 
-        requestRender("initial").catch(() => {});
+        requestRender().catch(() => {});
 
         return () => {
             cancelled = true;
@@ -740,8 +732,8 @@ export const PluginContainer = ({
             setDebugStage("plugin-render-validation-failed");
             return;
         }
-        const signature = `${renderAttempt}:${normalized.render.length}:${normalized.onLoad.length}`;
-        if (lastPostedRenderSignatureRef.current === signature) {
+        const signature = {...normalized,attempt:renderAttempt};
+        if (lastPostedRenderSignatureRef.current?.attempt === renderAttempt && samePluginRenderContent(lastPostedRenderSignatureRef.current,signature)) {
             return;
         }
         lastPostedRenderSignatureRef.current = signature;
@@ -907,7 +899,7 @@ export const PluginContainer = ({
             <iframe
                 key={`${plugin}:${renderAttempt}`}
                 ref={iframeRef}
-                title={active ? "Plugin Container ID" : `Plugin Container ID (inactive:${plugin})`}
+                title={active ? plugin : `${plugin} (inactive)`}
                 data-plugin-id={plugin}
                 data-plugin-active={active ? "true" : "false"}
                 aria-hidden={!active}

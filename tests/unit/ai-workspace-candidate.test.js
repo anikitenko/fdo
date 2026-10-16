@@ -1,4 +1,5 @@
 import {validateAiWorkspaceCandidate} from '../../src/components/editor/utils/validateAiWorkspaceCandidate';
+import {getValidationRepairPaths} from '../../src/components/editor/utils/aiCodingAgentPlanRepair';
 
 function context(overrides = {}) {
     const workspaceFiles = [{path: '/logic.ts', content: 'export const value = 1;'},
@@ -45,6 +46,18 @@ test('rejects duplicate paths and missing imports', async () => {
 
 test.each([undefined, {success: false, error: 'Circular CSS import'}, {}])('fails closed on compiler result %j', async result => {
     expect((await validateAiWorkspaceCandidate(context({build: async () => result})))[0]).toContain('build failed');
+});
+
+test.each([
+    ['/logic.ts:3:2: Unexpected token', ['/logic.ts']],
+    ['virtual:/logic.ts:3:2: Unexpected token', ['/logic.ts']],
+    ['See /logic.ts:3:2 for an example', []],
+    ['/logic.ts:3:2: Invalid\n/outside.ts:1:1: Invalid', []],
+])('compiler diagnostics retain only explicit workspace owners: %s', async (error, expected) => {
+    const args = context({build: async () => ({success: false, error})});
+    const errors = await validateAiWorkspaceCandidate(args);
+    expect(getValidationRepairPaths(errors, [...args.workspaceFiles, ...args.files])).toEqual(expected);
+    expect(errors.join('\n')).toContain('Candidate workspace build failed');
 });
 
 test.each(['stop', 'edit', 'snapshot'])('discards candidate when %s happens during compilation', async reason => {

@@ -46,7 +46,7 @@ export function validateGeneratedWorkspaceOptions(files, {sources = files, writa
     const fields = (file, type, seen = new Set(), owners = new Set()) => {
         owners.add(file);
         if (!type) return null;
-        if (type.type === 'TSTypeReference' && type.typeName.type === 'Identifier' && !type.typeParameters) {
+        if (type.type === 'TSTypeReference' && type.typeName.type === 'Identifier' && !type.typeArguments) {
             const resolved = resolve(file, type.typeName.name, new Set(), owners);
             if (!resolved) return null;
             const key = `${resolved.file}:${resolved.node.start}`;
@@ -59,7 +59,7 @@ export function validateGeneratedWorkspaceOptions(files, {sources = files, writa
             const own = fields(file, type.body, seen, owners);
             if (!own) return null;
             for (const parent of type.extends || []) {
-                if (parent.expression.type !== 'Identifier' || parent.typeParameters) return null;
+                if (parent.expression.type !== 'Identifier' || parent.typeArguments) return null;
                 const inherited = fields(file, {type: 'TSTypeReference', typeName: parent.expression}, seen, owners);
                 if (!inherited) return null;
                 inherited.forEach(name => own.add(name));

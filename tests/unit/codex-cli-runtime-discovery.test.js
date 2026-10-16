@@ -55,6 +55,8 @@ test('packaging blocks missing target binaries rather than silently requiring a 
         fs.mkdirSync(path.dirname(binary), {recursive: true}); fs.writeFileSync(binary, 'fixture');
         await expect(check({appDir: root, electronPlatformName: 'win32', arch: 'x64'})).rejects.toThrow('code-mode helper');
         fs.writeFileSync(path.join(path.dirname(binary), 'codex-code-mode-host.exe'), 'host-fixture');
+        const compiler = path.join(root, 'dist/main/node_modules/@typescript/typescript-win32-x64/lib/tsc.exe');
+        fs.mkdirSync(path.dirname(compiler), {recursive: true}); fs.writeFileSync(compiler, 'compiler-fixture');
         await expect(check({appDir: root, electronPlatformName: 'win32', arch: 'x64'})).resolves.toBeUndefined();
     } finally {fs.rmSync(root, {recursive: true, force: true});}
 });

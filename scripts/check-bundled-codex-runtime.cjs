@@ -18,5 +18,10 @@ module.exports = async function checkBundledCodexRuntime(context) {
         const present = fs.existsSync(vendor) && fs.readdirSync(vendor).some(triple => ['bin', 'codex'].some(dir =>
             fs.existsSync(path.join(vendor, triple, dir, executable)) && fs.existsSync(path.join(vendor, triple, dir, hostExecutable))));
         if (!present) throw new Error(`Missing integrated Codex runtime or code-mode helper for ${platform}/${architecture}. Build with dependencies installed on the target OS/architecture, or stage @openai/${packageName} under dist/main/node_modules/@openai before packaging. FDO will not use an external Codex CLI as a fallback.`);
+        const typeScriptBinary = path.join(context.appDir, 'dist', 'main', 'node_modules', '@typescript',
+            `typescript-${platform}-${architecture}`, 'lib', platform === 'win32' ? 'tsc.exe' : 'tsc');
+        if (!fs.existsSync(typeScriptBinary)) {
+            throw new Error(`Missing TypeScript native compiler for ${platform}/${architecture}. Stage @typescript/typescript-${platform}-${architecture} before packaging.`);
+        }
     }
 };

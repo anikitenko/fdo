@@ -1,10 +1,9 @@
 // Minimal Monaco mock sufficient for VirtualFS unit tests and React components
 const models = new Map();
 
-function UriFile(path) {
+function uriFile(path) {
   return {
     toString: () => `file://${path}`,
-    toString: (skipEncoding) => `file://${path}`,
     path,
   };
 }
@@ -27,9 +26,10 @@ const javascriptDefaults = {
 
 const monaco = {
   Uri: {
-    file: (p) => ({ path: p, toString: () => `file://${p}`, toString: (x) => `file://${p}` }),
+    file: uriFile,
   },
   editor: {
+    ShowLightbulbIconMode: {On: "on", Off: "off", OnCode: "onCode"},
     _models: models,
     getModel: (uri) => models.get(uri.toString()) || null,
     createModel: (value, _lang, uri) => {

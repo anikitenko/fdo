@@ -269,7 +269,7 @@ export default function SharedFilesystemScopesPanel() {
                 <div className={classNames("bp6-text-small", "bp6-text-muted")}>
                     Shared filesystem scopes belong to the host, not to any one plugin. Plugins may reference them, but grants still control execution.
                 </div>
-                <Button icon="add" small onClick={openCreate}>Add Shared Filesystem Scope</Button>
+                <Button icon="add" size="small" onClick={openCreate}>Add Shared Filesystem Scope</Button>
             </div>
             <Card style={{marginTop: 12, border: "1px solid #eef0f2", background: "#fafbfc", boxShadow: "none"}}>
                 <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: 4}}>How assignment works</div>
@@ -307,9 +307,9 @@ export default function SharedFilesystemScopesPanel() {
                                                     </div>
                                                 </div>
                                                 <div style={{display: "flex", gap: 6, alignItems: "center"}}>
-                                                    <Button small minimal icon="duplicate" onClick={() => openClone(scope)}>Clone</Button>
-                                                    <Button small minimal icon="edit" onClick={() => openEdit(scope)}>Edit</Button>
-                                                    <Button small minimal intent="danger" icon="trash" onClick={() => handleDelete(scope.scope)}>Delete</Button>
+                                                    <Button size="small" variant="minimal" icon="duplicate" onClick={() => openClone(scope)}>Clone</Button>
+                                                    <Button size="small" variant="minimal" icon="edit" onClick={() => openEdit(scope)}>Edit</Button>
+                                                    <Button size="small" variant="minimal" intent="danger" icon="trash" onClick={() => handleDelete(scope.scope)}>Delete</Button>
                                                 </div>
                                             </div>
                                             <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: 6}}>
@@ -322,7 +322,7 @@ export default function SharedFilesystemScopesPanel() {
                                                 <Tag minimal intent={usedBy.length > 0 ? "primary" : "none"}>Granted to plugins: {usedBy.length}</Tag>
                                             </div>
                                             <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: 8}}>
-                                                Grant path: Manage Plugins -> plugin -> Capabilities -> <code>{`system.fs.scope.${scope.scope}`}</code>
+                                                Grant path: Manage Plugins -&gt; plugin -&gt; Capabilities -&gt; <code>{`system.fs.scope.${scope.scope}`}</code>
                                             </div>
                                             {usedBy.length > 0 ? (
                                                 <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: 8}}>
@@ -414,7 +414,7 @@ export default function SharedFilesystemScopesPanel() {
                         {draft.allowedRoots.length > 0 ? (
                             <div style={{display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8}}>
                                 {draft.allowedRoots.map((token) => (
-                                    <Tag key={`allowed-root-${token}`} minimal interactive rightIcon="cross" onRemove={() => removeRootToken(token)}>
+                                    <Tag key={`allowed-root-${token}`} minimal interactive endIcon="cross" onRemove={() => removeRootToken(token)}>
                                         {token}
                                     </Tag>
                                 ))}
@@ -453,7 +453,7 @@ export default function SharedFilesystemScopesPanel() {
                         Plugin request ID: <code>{requestCapabilityId}</code>. This is a host-managed shared scope reference. Referencing it in plugin code does not grant permission by itself.
                     </div>
                     <div className="bp6-dialog-footer-actions">
-                        <Button minimal onClick={() => {
+                        <Button variant="minimal" onClick={() => {
                             setShowEditor(false);
                             resetDraft();
                         }}>Cancel</Button>

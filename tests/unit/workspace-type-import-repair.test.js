@@ -13,9 +13,7 @@ test('assembled interfaces satisfy imports and strict TypeScript checking of con
     expect(validateGeneratedWorkspaceImports(files)).toEqual([]);
     // Use the same TypeScript service bundled into the editor; no second
     // compiler dependency or generated-code execution is needed.
-    const worker = require('node:fs').readFileSync('node_modules/monaco-editor/esm/vs/language/typescript/ts.worker.js', 'utf8');
-    const ts = new Function(worker.slice(worker.indexOf('var ts ='), worker.indexOf('// src/language/typescript/lib/lib.ts'))
-        + '\nreturn typescript;')();
+    const ts = require('../helpers/loadMonacoTypeScript.cjs')();
     const options = {strict: true, noEmit: true, noLib: true, types: [], module: ts.ModuleKind.CommonJS};
     const sources = new Map(files.map(file => [file.path, file.content]));
     sources.set('/globals.d.ts', 'interface String {toUpperCase(): string;}');

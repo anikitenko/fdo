@@ -69,8 +69,8 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         await setupVirtualWorkspace("sdgdsfdsfhsdh", "sdgdsfdsfhsdh", "blank", dir);
 
         expect(window.electron.plugin.getData).not.toHaveBeenCalled();
-        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "sdgdsfdsfhsdh", "blank");
-        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "sdgdsfdsfhsdh", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", expect.stringContaining('name: "sdgdsfdsfhsdh"'));
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", expect.stringContaining('export const Render'));
         expect(createVirtualFile).toHaveBeenCalledWith("/render.test.ts", expect.stringContaining('from "node:test"'));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
@@ -85,8 +85,8 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         await setupVirtualWorkspace("missing-plugin", "Missing Plugin", "blank", dir);
 
         expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
-        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "Missing Plugin", "blank");
-        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "Missing Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", expect.stringContaining('name: "Missing Plugin"'));
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", expect.stringContaining('export const Render'));
         expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
@@ -101,8 +101,8 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         await setupVirtualWorkspace("empty-plugin", "Empty Plugin", "blank", dir);
 
         expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
-        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "Empty Plugin", "blank");
-        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "Empty Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", expect.stringContaining('name: "Empty Plugin"'));
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", expect.stringContaining('export const Render'));
         expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
@@ -117,9 +117,18 @@ describe("setupVirtualWorkspace sandbox detection", () => {
         await setupVirtualWorkspace("no-template-plugin", "No Template Plugin", undefined, dir);
 
         expect(window.electron.plugin.getData).toHaveBeenCalledWith(dir);
-        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", "No Template Plugin", "blank");
-        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", "No Template Plugin", "blank");
+        expect(createVirtualFile).toHaveBeenCalledWith("/index.ts", expect.stringContaining('name: "No Template Plugin"'));
+        expect(createVirtualFile).toHaveBeenCalledWith("/render.tsx", expect.stringContaining('export const Render'));
         expect(createVirtualFile).toHaveBeenCalledWith("/package.json", expect.any(String));
         expect(virtualFS.fs.setupNodeModules).toHaveBeenCalledTimes(1);
     });
+});
+
+test('restoring a saved workspace does not replace it with a newly selected template', async () => {
+    virtualFS.isInitWorkspace.mockReturnValue(false);
+    localStorage.setItem('sandbox_existing', 'saved-files');
+    createVirtualFile.mockClear();
+    await setupVirtualWorkspace('existing', 'Existing', 'dashboard', 'sandbox');
+    expect(virtualFS.restoreSandbox).toHaveBeenCalledWith('saved-files');
+    expect(createVirtualFile).not.toHaveBeenCalled();
 });

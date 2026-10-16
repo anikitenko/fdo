@@ -1,5 +1,5 @@
 import {contextBridge, ipcRenderer} from 'electron'
-import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels} from "./ipc/channels";
+import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels, LiveUiChannels} from "./ipc/channels";
 
 const pluginListenerWrappers = {
     unloaded: new WeakMap(),
@@ -52,6 +52,41 @@ function removePluginListener(key, channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('electron', {
+    liveUi: {
+        open: data => ipcRenderer.invoke(LiveUiChannels.OPEN, data),
+        publish: (session, data) => ipcRenderer.invoke(LiveUiChannels.PUBLISH, session, data),
+        read: session => ipcRenderer.invoke(LiveUiChannels.READ, session),
+        preview: (session, revision) => ipcRenderer.invoke(LiveUiChannels.PREVIEW, session, revision),
+        focusIde: session => ipcRenderer.invoke(LiveUiChannels.FOCUS_IDE, session),
+        propose: (session, request) => ipcRenderer.invoke(LiveUiChannels.PROPOSE, session, request),
+        restoreDraft: session => ipcRenderer.invoke(LiveUiChannels.RESTORE_DRAFT, session),
+        discardDraft: (session, draftId) => ipcRenderer.invoke(LiveUiChannels.DISCARD_DRAFT, session, draftId),
+        apply: (session, draftId, options) => ipcRenderer.invoke(LiveUiChannels.APPLY, session, draftId, options),
+        canCommit: (session, requestId) => ipcRenderer.invoke(LiveUiChannels.CAN_COMMIT, session, requestId),
+        applied: (session, requestId, result) => ipcRenderer.invoke(LiveUiChannels.APPLIED, session, requestId, result),
+        reveal: (session, revision, elementId) => ipcRenderer.invoke(LiveUiChannels.REVEAL, session, revision, elementId),
+        editWithAi: (session, revision, elementId) => ipcRenderer.invoke(LiveUiChannels.EDIT_WITH_AI, session, revision, elementId),
+        onAiSelection: callback => {
+            const listener = (_, selection) => callback(selection);
+            ipcRenderer.on(LiveUiChannels.AI_SELECTION, listener);
+            return () => ipcRenderer.removeListener(LiveUiChannels.AI_SELECTION, listener);
+        },
+        onApply: callback => {
+            const listener = (_, request) => callback(request);
+            ipcRenderer.on(LiveUiChannels.APPLY_REQUEST, listener);
+            return () => ipcRenderer.removeListener(LiveUiChannels.APPLY_REQUEST, listener);
+        },
+        onReveal: callback => {
+            const listener = (_, location) => callback(location);
+            ipcRenderer.on(LiveUiChannels.REVEAL_SOURCE, listener);
+            return () => ipcRenderer.removeListener(LiveUiChannels.REVEAL_SOURCE, listener);
+        },
+        subscribe: callback => {
+            const listener = (_, state) => callback(state);
+            ipcRenderer.on(LiveUiChannels.UPDATED, listener);
+            return () => ipcRenderer.removeListener(LiveUiChannels.UPDATED, listener);
+        },
+    },
     versions: {
         node: () => process.versions.node,
         chrome: () => process.versions.chrome,
@@ -196,7 +231,6 @@ contextBridge.exposeInMainWorld('electron', {
         openFileDialog: (params, multiple) => ipcRenderer.invoke(SystemChannels.OPEN_FILE_DIALOG, params, multiple),
         openEditorWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_EDITOR_WINDOW, data),
         focusEditorWindow: () => ipcRenderer.invoke(SystemChannels.FOCUS_EDITOR_WINDOW),
-        openLiveUiWindow: (data) => ipcRenderer.send(SystemChannels.OPEN_LIVE_UI_WINDOW, data),
         getModuleFiles: () => ipcRenderer.invoke(SystemChannels.GET_MODULE_FILES),
         getFdoSdkTypes: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_TYPES),
         getFdoSdkEditorSupport: () => ipcRenderer.invoke(SystemChannels.GET_FDO_SDK_EDITOR_SUPPORT),

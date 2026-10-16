@@ -13,7 +13,7 @@ import {
     Navbar,
     NavbarDivider,
     NavbarGroup,
-    Popover,
+    PopoverNext as Popover,
     Switch,
     Tag,
 } from "@blueprintjs/core";
@@ -22,9 +22,10 @@ import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx"
 import {AppToaster} from "./components/AppToaster.jsx";
 import {PluginContainer} from "./components/PluginContainer.jsx";
 import {SideBar} from "./components/SideBar.jsx";
-import {invokePluginUiAction} from './utils/plugins/runtime/pluginUiActions';
+import {invokePluginUiAction, normalizePluginUiExtensions, pluginUiActionKey, assertPluginUiActionResponse} from './utils/plugins/runtime/pluginUiActions';
+import {PLUGIN_UI_PREFERENCES_KEY, readPluginUiPreferences, normalizePluginUiPreferences, orderPluginUiItems} from './utils/plugins/runtime/pluginUiPreferences';
+import {PluginShortcutsDialog} from './components/PluginShortcutsDialog';
 import {CommandBar} from "./components/CommandBar.jsx";
-import {generateActionId} from "./utils/plugins/runtime/generateActionId";
 import {NotificationsPanel} from "./components/NotificationsPanel.jsx";
 import {pluginTrace} from "./utils/plugins/runtime/pluginTrace";
 import {classifyPluginError} from "./utils/plugins/runtime/pluginErrorClassification";
@@ -580,8 +581,8 @@ export const Home = () => {
         activePlugins: [],
     });
     const [plugin, setPlugin] = useState("");
-    const [selectedPluginStatusMessage, setSelectedPluginStatusMessage] = useState("");
-    const [selectedPluginLifecycleStage, setSelectedPluginLifecycleStage] = useState("");
+    const [, setSelectedPluginStatusMessage] = useState("");
+    const [, setSelectedPluginLifecycleStage] = useState("");
     const [showRightSideBar, setShowRightSideBar] = useState(() => {
         return localStorage.getItem("showRightSideBar") === "true";
     });
@@ -812,7 +813,7 @@ export const Home = () => {
         runtimeValidationDialog.diagnostics,
         runtimeValidationDialog.doctorOptions,
     );
-    const pluginDoctorReport = pluginDoctorPresentation.report;
+
     const pluginDoctorPanelModel = pluginDoctorPresentation.panelModel;
     const pluginHandshakeCompatibility = pluginDoctorPresentation.handshakeCompatibility || null;
     const pluginHandshake = pluginHandshakeCompatibility?.handshake || null;
@@ -1010,14 +1011,14 @@ export const Home = () => {
     };
 
     const markPluginReady = (pluginID) => {
+        // A READY event belongs to the current worker, even when an active
+        // plugin retained its UI while its previous worker was replaced.
+        prevPluginReadinessRef.current.delete(pluginID);
         setPluginReadiness((prev) => {
             // Create a new Map to avoid mutating the state directly
             const newReadiness = new Map(prev);
 
-            // Only update if the plugin exists and is not already ready
-            if (newReadiness.has(pluginID) && !newReadiness.get(pluginID)) {
-                newReadiness.set(pluginID, true);
-            }
+            newReadiness.set(pluginID, true);
 
             return newReadiness;
         });
@@ -1171,7 +1172,7 @@ export const Home = () => {
         setSideBarActionItems((prev) => {
             const filteredSidePanel = prev.filter(action =>
                 action.id.startsWith("system-") ||
-                state.activePlugins.some(plugin => new RegExp(`^${plugin.id}$`).test(action.id))
+                state.activePlugins.some(plugin => plugin.id === action.id)
             );
             if (state.activePlugins.length === 0) {
                 return filteredSidePanel.filter(action => action.id.startsWith("system-"));
@@ -1726,14 +1727,14 @@ export const Home = () => {
                     <div>{pluginId}: {summary}</div>
                     <div style={{display: "flex", gap: "8px", flexWrap: "wrap"}}>
                         {canRetry && (
-                            <Button small={true} minimal={true} icon="refresh" onClick={retryPluginOpen}>
+                            <Button size="small" variant="minimal" icon="refresh" onClick={retryPluginOpen}>
                                 Retry
                             </Button>
                         )}
-                        <Button small={true} minimal={true} icon="document-open" onClick={openLogs}>
+                        <Button size="small" variant="minimal" icon="document-open" onClick={openLogs}>
                             Open logs
                         </Button>
-                        <Button small={true} minimal={true} icon="issue" onClick={reportIssue}>
+                        <Button size="small" variant="minimal" icon="issue" onClick={reportIssue}>
                             Report issue
                         </Button>
                     </div>
@@ -1770,7 +1771,9 @@ export const Home = () => {
         }
 
         const onPluginInit = (response) => {
-            const {id, quickActions, sidePanelActions} = response
+            const id = response?.id;
+            if (typeof id !== 'string' || !id) return;
+            const {quickActions, sidePanelActions} = normalizePluginUiExtensions(response);
             markPluginInitComplete(id)
             if (id && !selectedPluginRef.current) {
                 handlePluginChange(id);
@@ -1785,9 +1788,10 @@ export const Home = () => {
                     const actionName = String(action?.name || "").trim() || "Action";
                     const actionSubtitle = String(action?.subtitle || "").trim();
                     return {
-                        id: `plugin-action-${id}-${generateActionId(actionName)}-${generateActionId(String(action?.message_type || ''))}`,
+                        id: pluginUiActionKey(id, action),
                         name: actionName,
                         subtitle: actionSubtitle,
+                        disabled: !!action.disabled,
                         keywords: [actionName, actionSubtitle].filter(Boolean).join(" "),
                         icon: <Icon icon={sanitizeBlueprintIcon(action?.icon, "dot")} size={16}/>,
                         perform: () => runPluginUiAction(id, action, 'quick-bar'),
@@ -1843,6 +1847,7 @@ export const Home = () => {
             if (loadedPlugin) {
                 window.electron.plugin.get(loadedPlugin).then((loadedPlugin) => {
                     const newPlugin = {...loadedPlugin.plugin, ...loadedPlugin.plugin.metadata, loading: true};
+                    uiActionEpochs.current.set(newPlugin.id, (uiActionEpochs.current.get(newPlugin.id) || 0) + 1);
                     setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === newPlugin.id)));
                     setSideBarActionItems((prev) => prev.filter((item) => item.id !== newPlugin.id));
                     setPluginReadiness((prev) => {
@@ -1924,25 +1929,11 @@ export const Home = () => {
                 }
 
                 if (unloadedPluginId) {
-                    setPluginRenderEpochs((prev) => {
-                        const next = new Map(prev);
-                        next.set(unloadedPluginId, (next.get(unloadedPluginId) || 0) + 1);
-                        return next;
-                    });
-                    setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === unloadedPluginId)));
-                    setSideBarActionItems((prev) => prev.filter((item) => item.id !== unloadedPluginId));
                     const activatedAt = pluginLastActivationMsRef.current.get(unloadedPluginId) || 0;
                     const pendingActivationAt = pendingActivationStartedAtRef.current.get(unloadedPluginId) || 0;
                     const openedRecently = activatedAt > 0 && (Date.now() - activatedAt) < UNEXPECTED_MANUAL_UNLOAD_IGNORE_WINDOW_MS;
                     const activationPendingRecently = pendingActivationAt > 0 && (Date.now() - pendingActivationAt) < UNEXPECTED_MANUAL_UNLOAD_IGNORE_WINDOW_MS;
-                    if (reason === "manual_unload" && isUnexpectedManualUnload && (openedRecently || activationPendingRecently)) {
-                        pluginTrace("home.unload.ignored.unexpectedManual.recentActivation", {
-                            id: unloadedPluginId,
-                            openedRecently,
-                            activationPendingRecently,
-                        });
-                        return;
-                    }
+                    const preserveRecentActivation = reason === "manual_unload" && isUnexpectedManualUnload && (openedRecently || activationPendingRecently);
                     try {
                         const activatedRecently = activatedAt > 0 && (Date.now() - activatedAt) < UNLOAD_STALE_GUARD_MS;
                         if (activatedRecently) {
@@ -1976,6 +1967,20 @@ export const Home = () => {
                         // If status probe fails, fall back to the unload event handling.
                     }
 
+                    uiActionEpochs.current.set(unloadedPluginId, (uiActionEpochs.current.get(unloadedPluginId) || 0) + 1);
+                    setPluginRenderEpochs((prev) => {
+                        const next = new Map(prev);
+                        next.set(unloadedPluginId, (next.get(unloadedPluginId) || 0) + 1);
+                        return next;
+                    });
+                    setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === unloadedPluginId)));
+                    setSideBarActionItems((prev) => prev.filter((item) => item.id !== unloadedPluginId));
+                    // Keep the activation UI during its grace window, but do not
+                    // retain callable shortcuts for a confirmed inactive runtime.
+                    if (preserveRecentActivation) {
+                        pluginTrace("home.unload.ignored.unexpectedManual.recentActivation", {id: unloadedPluginId, openedRecently, activationPendingRecently});
+                        return;
+                    }
                     window.electron.plugin.deactivateUsers(unloadedPluginId).then(() => {
                     })
                     setState(prevState => {
@@ -2172,20 +2177,37 @@ export const Home = () => {
     }, []);
 
     const pendingUiActions = useRef(new Set());
+    const uiActionEpochs = useRef(new Map());
+    const [busyUiPlugins, setBusyUiPlugins] = useState(new Set());
+    const [shortcutPreferences, setShortcutPreferences] = useState(() => readPluginUiPreferences(localStorage));
+    const [shortcutStorageError, setShortcutStorageError] = useState(false);
+    const [showPluginShortcuts, setShowPluginShortcuts] = useState(false);
+    const updateShortcutPreferences = value => {
+        const next = normalizePluginUiPreferences(value);
+        setShortcutPreferences(next);
+        try { localStorage.setItem(PLUGIN_UI_PREFERENCES_KEY, JSON.stringify(next)); setShortcutStorageError(false); }
+        catch { setShortcutStorageError(true); }
+    };
     const runPluginUiAction = async (id, action, source) => {
-        const key = `${id}:${action?.message_type}`;
-        if (pendingUiActions.current.has(key)) return;
-        pendingUiActions.current.add(key);
+        if (pendingUiActions.current.has(id)) return;
+        pendingUiActions.current.add(id);
+        const epoch = uiActionEpochs.current.get(id) || 0;
+        setBusyUiPlugins(prev => new Set(prev).add(id));
         try {
             handlePluginChange(id);
             await invokePluginUiAction(id, action, source, window.electron.plugin.uiMessage);
             // SDK navigation actions mutate plugin state used by render().
             // Request the updated view after the handler has finished.
-            await window.electron.plugin.render(id);
+            if ((uiActionEpochs.current.get(id) || 0) !== epoch) return;
+            assertPluginUiActionResponse(await window.electron.plugin.render(id));
         } catch (error) {
+            if ((uiActionEpochs.current.get(id) || 0) !== epoch) return;
             const toaster = await AppToaster;
             toaster?.show({intent: 'danger', message: `${getPluginDisplayName(id)}: ${error.message}`});
-        } finally { pendingUiActions.current.delete(key); }
+        } finally {
+            pendingUiActions.current.delete(id);
+            setBusyUiPlugins(prev => { const next = new Set(prev); next.delete(id); return next; });
+        }
     };
 
     const handleSideBarItemsClick = (id, actionId) => {
@@ -2571,10 +2593,8 @@ export const Home = () => {
         }] : []),
     ];
 
-    const selectedPluginRecord = state.activePlugins.find((item) => item.id === plugin)
-        || state.plugins.find((item) => item.id === plugin)
-        || null;
-    const selectedPluginIsActive = state.activePlugins.some((item) => item.id === plugin);
+
+
     const activePluginSidebarItems = state.activePlugins.map((pluginItem) => {
         const runtimeStatus = pluginRuntimeStatuses.get(pluginItem.id) || null;
         const diagnosticsSummary = runtimeStatus?.diagnosticsSummary || {};
@@ -2620,7 +2640,21 @@ export const Home = () => {
         };
     });
     const pluginContextBarHeight = 50;
-    const rightSidebarMenuItems = [...sideBarActionItems];
+    // Lifecycle events update these maps immediately; the diagnostic snapshot
+    // can still describe the preceding loading state when init has completed.
+    const actionUnavailable = id => busyUiPlugins.has(id) || pluginReadiness.get(id) !== true || pluginInitStatus.get(id) !== true;
+    const quickbarActions = searchActions.map(action => {
+        if (action.source !== 'plugin-init') return action;
+        const pinOrder = shortcutPreferences.pinnedActionIds.indexOf(action.id);
+        return {...action, disabled: action.disabled || actionUnavailable(action.pluginId),
+            ...(pinOrder >= 0 ? {section: 'Pinned plugin actions', sectionPriorityKey: 'Pinned plugin actions', pinOrder,
+                subtitle: [action.section, action.subtitle].filter(Boolean).join(' · ')} : {})};
+    });
+    const rightSidebarMenuItems = [...sideBarActionItems.filter(item => item.id.startsWith('system-')),
+        ...orderPluginUiItems(sideBarActionItems.filter(item => !item.id.startsWith('system-') &&
+            !shortcutPreferences.hiddenSidebarIds.includes(item.id)), shortcutPreferences.sidebarOrder)]
+        .map(item => item.id.startsWith('system-') ? item : {...item, disabled: actionUnavailable(item.id),
+            loading: busyUiPlugins.has(item.id), submenu_list: item.submenu_list?.map(action => ({...action, disabled: action.disabled || actionUnavailable(item.id)}))});
 
     return (
         <HotkeysTarget
@@ -2635,7 +2669,10 @@ export const Home = () => {
                 },
             ]}
         >
-            <CommandBar show={showCommandSearch} actions={searchActions} setShow={setShowCommandSearch}/>
+            <CommandBar show={showCommandSearch} actions={quickbarActions} setShow={setShowCommandSearch}/>
+            <PluginShortcutsDialog isOpen={showPluginShortcuts} onClose={() => setShowPluginShortcuts(false)}
+                actions={searchActions.filter(action => action.source === 'plugin-init')} sidebarItems={sideBarActionItems}
+                preferences={shortcutPreferences} onChange={updateShortcutPreferences} storageError={shortcutStorageError}/>
             <div className={classNames("bp6-dark", styles["main-container"])} data-testid="fdo-main-container">
                 {state.activePlugins.length > 0 && (
                     <SideBar
@@ -2674,7 +2711,10 @@ export const Home = () => {
                         />
                         <NavbarDivider/>
                         <div className={styles["notification-container"]}>
+                            <Button variant="minimal" icon="layout" aria-label="Customize plugin shortcuts" title="Customize plugin shortcuts"
+                                    onClick={() => setShowPluginShortcuts(true)}/>
                             <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
+                                    aria-label={showRightSideBar ? "Hide right sidebar" : "Show right sidebar"} title={showRightSideBar ? "Hide right sidebar" : "Show right sidebar"}
                                     onClick={() => {
                                         setShowRightSideBar(!showRightSideBar);
                                         localStorage.setItem("showRightSideBar", !showRightSideBar)
@@ -2691,6 +2731,7 @@ export const Home = () => {
                         position={"right"}
                         menuItems={rightSidebarMenuItems}
                         click={handleSideBarItemsClick}
+                        activeItemId={plugin}
                         topOffset={pluginContextBarHeight}
                     />
                 )}
@@ -2966,10 +3007,10 @@ export const Home = () => {
                 </div>
                 <div className="bp6-dialog-footer">
                     <div className="bp6-dialog-footer-actions">
-                        <Button minimal onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
+                        <Button variant="minimal" onClick={handleCopyCapabilityDeniedDetails}>Copy Details</Button>
                         {capabilityDeniedExactFix ? (
                             <Button
-                                minimal
+                                variant="minimal"
                                 icon="duplicate"
                                 onClick={() => copyDiagnosticTextToClipboard({
                                     text: capabilityDeniedExactFix,
@@ -2996,7 +3037,7 @@ export const Home = () => {
                                     </Menu>
                                 )}
                             >
-                                <Button minimal>More Actions</Button>
+                                <Button variant="minimal">More Actions</Button>
                             </Popover>
                         ) : null}
                         {capabilityDeniedPrimaryAction ? (
@@ -3037,10 +3078,10 @@ export const Home = () => {
                                     </div>
                                 </div>
                                 <div style={{display: "flex", gap: "8px", flexWrap: "wrap"}}>
-                                    <Tag intent={pluginHandshakeStatusIntent} large>
+                                    <Tag intent={pluginHandshakeStatusIntent} size="large">
                                         Handshake: {pluginHandshakeStatusLabel}
                                     </Tag>
-                                    <Tag intent={pluginDoctorStatusIntent} large>
+                                    <Tag intent={pluginDoctorStatusIntent} size="large">
                                         {pluginDoctorStatusLabel}
                                     </Tag>
                                 </div>
@@ -3184,8 +3225,8 @@ export const Home = () => {
                                                     {finding.exactFix ? (
                                                         <div style={{marginTop: "8px"}}>
                                                             <Button
-                                                                small
-                                                                minimal
+                                                                size="small"
+                                                                variant="minimal"
                                                                 icon="duplicate"
                                                                 onClick={() => copyDiagnosticTextToClipboard({
                                                                     text: String(finding.exactFix || ""),
@@ -3260,8 +3301,8 @@ export const Home = () => {
                                                                     {finding.exactFix ? (
                                                                         <div style={{marginTop: "8px"}}>
                                                                             <Button
-                                                                                small
-                                                                                minimal
+                                                                                size="small"
+                                                                                variant="minimal"
                                                                                 icon="duplicate"
                                                                                 onClick={() => copyDiagnosticTextToClipboard({
                                                                                     text: String(finding.exactFix || ""),

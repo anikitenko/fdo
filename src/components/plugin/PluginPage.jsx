@@ -1,5 +1,9 @@
 import React, {useEffect, useRef, useState} from "react";
 import {FDO_AI_MARK_STYLES} from '../../utils/ai/assistant/fdoAiIdentity';
+import * as sdkUi from '@anikitenko/fdo-sdk/ui';
+import {withoutPluginAutofocus} from './utils/pluginAutofocus';
+import {pluginOnLoadInvocation} from './utils/pluginOnLoadInvocation';
+import {createSdkUiViewRuntime} from './utils/sdkUiViewRuntime';
 import {
     isTrustedParentPluginEvent,
     isValidPluginRenderMessage,
@@ -39,8 +43,9 @@ function parseUrlProtocol(input, fallbackBase = window.location.href) {
 
 export const PluginPage = () => {
     const [PluginComponent, SetPluginComponent] = useState(null);
-    const [pluginLoadError, setPluginLoadError] = useState("");
+    const [, setPluginLoadError] = useState("");
     const activeModuleUrlRef = useRef(null);
+    const activeUiViewRef = useRef(null);
 
     useEffect(() => {
         const iframeDocument = document;
@@ -391,6 +396,8 @@ export const PluginPage = () => {
         };
 
         const showPluginError = (message) => {
+            activeUiViewRef.current?.dispose();
+            activeUiViewRef.current = null;
             const normalizedMessage = String(message || "The plugin failed to load.").trim();
             setPluginLoadError(normalizedMessage);
             reportStage("iframe-plugin-error", normalizedMessage);
@@ -425,10 +432,12 @@ export const PluginPage = () => {
                     }
 
                     import(/* webpackIgnore: true */ moduleURL).then((pluginModule) => {
+                        if (activeModuleUrlRef.current !== moduleURL) return;
                         if (pluginModule.default) {
                             clearTimeout(pluginTimeout);
                             reportStage("iframe-module-imported");
-                            // Assign the globally defined PluginComponent
+                            activeUiViewRef.current?.dispose();
+                            activeUiViewRef.current = null;
                             SetPluginComponent(() => {
                                 const DynamicComponent = pluginModule.default;
                                 return (props) => <DynamicComponent {...props} />;
@@ -441,6 +450,7 @@ export const PluginPage = () => {
                         window.electron.notifications.add("Error rendering plugin", errorMessage, "danger");
                         showPluginError(errorMessage);
                     }).catch((error) => {
+                        if (activeModuleUrlRef.current !== moduleURL) return;
                         const errorMessage = error?.message || String(error);
                         reportStage("iframe-module-import-failed", errorMessage);
                         window.electron.notifications.add("Error rendering plugin", errorMessage, "danger");
@@ -539,6 +549,8 @@ export const PluginPage = () => {
         }, 5000);
 
         return () => {
+            activeUiViewRef.current?.dispose();
+            activeUiViewRef.current = null;
             window.removeEventListener("message", handleMessage);
             window.removeEventListener("pointerdown", handlePointerDownBridge, true);
             window.removeEventListener("mousedown", handleMouseDownBridge, true);
@@ -564,7 +576,7 @@ export const PluginPage = () => {
             window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-render-crashed", message }, "*");
             window.electron.notifications.add("Error rendering plugin", message, "danger");
         }}>
-            <PluginComponent React={React}/>
+            <PluginComponent React={React} sdkUi={sdkUi} registerUiView={view => {activeUiViewRef.current = view;}}/>
         </PluginRuntimeErrorBoundary>
     ) :
         <div style={{textAlign: "center", padding: "20px"}}><span className="plugin-page-loader"></span></div>;
@@ -611,9 +623,23 @@ class PluginRuntimeErrorBoundary extends React.Component {
  */
 function createESModule(pluginCode, onLoad) {
     const pluginRenderExpression = normalizeTransformedPluginExpression(pluginCode);
-    const wrappedCode = `
-        export default function PluginComponent({React}) {
+    const initializeView = pluginOnLoadInvocation(onLoad);
+    const wrappedCode = /* language=TEXT */ `
+        export default function PluginComponent({React, sdkUi, registerUiView}) {
             const pluginRootRef = React.useRef(null);
+            const uiViewRef = React.useRef(null);
+            React.useLayoutEffect(() => {
+                const view = (${createSdkUiViewRuntime.toString()})(sdkUi, () => pluginRootRef.current, window);
+                const load = () => Promise.resolve(view.api);
+                window.loadFdoUi = load;
+                uiViewRef.current = view;
+                registerUiView(view);
+                view.bindMarkupOpeners();
+                return () => {
+                    view.dispose();
+                    if (window.loadFdoUi === load) delete window.loadFdoUi;
+                };
+            }, []);
             window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-component-invoked", message: "" }, "*");
 
             window.createBackendReq = function(type, data) {
@@ -818,13 +844,10 @@ function createESModule(pluginCode, onLoad) {
                         message: "waitedMs=" + String(Math.max(0, Date.now() - assetProbeStartedAt)),
                     }, "*");
 
-                    const onLoadFn = ${onLoad}
-                    if (typeof onLoadFn === "function") {
-                        try {
-                            onLoadFn();
-                        } catch (error) {
-                            console.error("Error executing onLoad:", error);
-                        }
+                    try {
+                        uiViewRef.current?.runOnLoad(() => { ${initializeView} }).catch(error => console.error("Error executing onLoad:", error));
+                    } catch (error) {
+                        console.error("Error executing onLoad:", error);
                     }
                     requestAnimationFrame(() => {
                         if (document?.documentElement) {
@@ -936,6 +959,7 @@ function createESModule(pluginCode, onLoad) {
                 });
     
                 return () => {
+                    uiViewRef.current?.dispose();
                     document.removeEventListener("click", handleDocumentClick);
                 };
             }, []);
@@ -983,7 +1007,8 @@ function createESModule(pluginCode, onLoad) {
                 }
             };
 
-            const pluginRenderedNodeRaw = (${pluginRenderExpression});
+            const withoutAutofocus = (${withoutPluginAutofocus.toString()});
+            const pluginRenderedNodeRaw = withoutAutofocus((${pluginRenderExpression}),React,document);
             const pluginRenderedNode = typeof pluginRenderedNodeRaw === "string"
                 ? normalizeLegacyStyledHtml(pluginRenderedNodeRaw)
                 : pluginRenderedNodeRaw;

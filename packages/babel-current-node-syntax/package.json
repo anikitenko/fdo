@@ -1,0 +1,11 @@
+{
+  "name": "babel-preset-current-node-syntax",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Current Node syntax preset for modern Babel, without obsolete Babel 7-only syntax plugins",
+  "main": "index.cjs",
+  "peerDependencies": {
+    "@babel/core": "^7.29.7 || ^8.0.7"
+  },
+  "license": "MIT"
+}

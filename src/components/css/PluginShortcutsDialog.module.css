@@ -1,0 +1,6 @@
+/* Blueprint emits these exact class tokens at runtime. */
+.row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+.row :global([class~="bp6-control"]) { margin-bottom: 0; min-width: 0; overflow-wrap: anywhere; }
+.name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.owner { margin-left: auto; font-size: 12px; opacity: .7; overflow-wrap: anywhere; }
+.order { display: flex; margin-left: auto; flex-shrink: 0; }

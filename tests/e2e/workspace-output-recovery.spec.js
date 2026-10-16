@@ -3,7 +3,7 @@ const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 for (const repeated of [false, true]) {
     test(`native Cloudflare enlarges a reduced CSS allowance once: ${repeated ? 'still truncated' : 'complete'}`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true, env: {
             FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: 'auto',
         }});
         try {
@@ -42,8 +42,8 @@ for (const repeated of [false, true]) {
                 window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
                 window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
                 window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') stages.push(event); });
-                const result = await window.electron.aiCodingAgent.planCode({requestId: 'output-recovery', assistantId: assistant.id,
-                    prompt: 'Build a styled plugin with feature stylesheets.'});
+                const result = await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'output-recovery', assistantId: assistant.id,
+                    prompt: 'Build a styled plugin with feature stylesheets.'}));
                 return {result, done, errors, stages};
             });
             const requests = await app.evaluate(() => globalThis.__outputRequests);

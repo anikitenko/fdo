@@ -67,7 +67,7 @@ test('answer arrival or cancellation clears the deadline without a late abort', 
     jest.advanceTimersByTime(300000);
     expect(abort).not.toHaveBeenCalled();
     expect(jest.getTimerCount()).toBe(0);
-    expect(buildAiCodingReasoningStatus(20000)).toContain('no answer text has arrived yet (20s elapsed)');
+    expect(buildAiCodingReasoningStatus(20000)).toContain('no answer text has arrived yet (20 seconds elapsed)');
 });
 
 const {codingFirstResponseTimeoutMs} = require('../../src/utils/ai/generation/codingRequestPolicy.cjs');

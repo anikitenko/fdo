@@ -26,6 +26,24 @@ jest.mock("../../../src/components/editor/AiCodingAgentPanel.jsx", () => functio
 });
 
 describe("BuildOutputTerminalComponent", () => {
+    test('Live UI selection opens only its workspace assistant and cleans up the subscription', () => {
+        let receive;
+        const unsubscribe = jest.fn();
+        const original = virtualFS.notifications.subscribe;
+        const spy = jest.spyOn(virtualFS.notifications, 'subscribe').mockImplementation(function(name, callback) {
+            if (name === 'liveUiAiSelection') {receive = callback; return unsubscribe;}
+            return original.call(this, name, callback);
+        });
+        const select = jest.fn();
+        const {unmount} = render(<BuildOutputTerminalComponent selectedTabId="output" setSelectedTabId={select} codeEditor={null}/>);
+        try {
+            act(() => receive({workspaceId: 'foreign-workspace'}));
+            expect(select).not.toHaveBeenCalled();
+            act(() => receive({workspaceId: virtualFS.sandboxName}));
+            expect(select).toHaveBeenCalledWith('ai-agent');
+        } finally {unmount(); spy.mockRestore();}
+        expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
     test('tray activation selects the agent tab, opens progress, and unsubscribes on unmount', async () => {
         const previous = window.electron.aiCodingAgent;
         let open;

@@ -12,6 +12,10 @@ function defaultSpecFromEntry(entry) {
 }
 
 const OVERRIDES = {
+  "11-hosts-manager-plugin/index.ts": {
+    uiMarkerAnyOf: ["System Hosts"],
+    initLogAnyOf: ["Hosts Manager Plugin Initialized"],
+  },
   "01-basic-plugin.ts": {
     uiMarkerAnyOf: ["Basic Plugin Example", "What's Next?"],
     initLogAnyOf: ["BasicPlugin initialized!"],

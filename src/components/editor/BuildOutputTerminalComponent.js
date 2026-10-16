@@ -1,5 +1,5 @@
 import AiCodingConfidence from '../ai/AiCodingConfidence';
-import {Callout, Classes, Divider, Intent, Popover, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
+import {Callout, Classes, Divider, Intent, PopoverNext as Popover, ProgressBar, Tab, Tabs} from "@blueprintjs/core";
 import React from "react";
 import AiTimeEstimate from '../ai/AiTimeEstimate';
 import {AnsiOutput} from "./AnsiOutput";
@@ -87,12 +87,18 @@ const ActivityTabTitle = ({activity, label, id, openRequest = 0, onLayoutChange}
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
+                    // Keep button activation from selecting its parent tab.
                     if (event.key === "Enter" || event.key === " ") event.stopPropagation();
                 }}
-                onKeyPress={(event) => {
-                    // Tabs treats keypress as tab selection. Leave the button's
-                    // native activation intact without selecting its parent tab.
-                    if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+                ref={(node) => {
+                    if (!node) return;
+                    // Blueprint Tabs still handles keypress. Keep native button
+                    // activation without forwarding that event to the tab.
+                    const stopTabActivation = (event) => {
+                        if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+                    };
+                    node.addEventListener("keypress", stopTabActivation);
+                    return () => node.removeEventListener("keypress", stopTabActivation);
                 }}
             >
                 <Popover
@@ -149,9 +155,15 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
     const [testOutputIntent, setTestOutputIntent] = useState("primary");
     const [codingAiResponse, setCodingAiResponse] = useState("");
     const [activityOpenRequest, setActivityOpenRequest] = useState(0);
+    const [selectionFocusRequest, setSelectionFocusRequest] = useState(0);
     useEffect(() => window.electron?.aiCodingAgent?.onOpenActivity?.(() => {
         setSelectedTabId('ai-agent');
         setActivityOpenRequest(value => value + 1);
+    }), [setSelectedTabId]);
+    useEffect(() => virtualFS.notifications.subscribe('liveUiAiSelection', ({workspaceId}) => {
+        if (workspaceId !== virtualFS.sandboxName) return;
+        setSelectedTabId('ai-agent');
+        setSelectionFocusRequest(value => value + 1);
     }), [setSelectedTabId]);
     const [aiActivity, setAiActivity] = useState({
         isLoading: false,
@@ -285,8 +297,9 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
             {selectedTabId === "problems" && (<ProblemsPanel markers={markers}/>)}
             {selectedTabId === "output" && (<OutputPanel intent={buildOutputIntent} entries={buildOutput} revealOnMount emptyMessage="Build output will be here..." />)}
             {selectedTabId === "tests" && (<OutputPanel intent={testOutputIntent} entries={testOutput} revealOnMount emptyMessage="Test output will be here..." />)}
-            <AiAssistantWindow visible={selectedTabId === 'ai-agent'} focusRequest={activityOpenRequest} onReturnToTab={() => setSelectedTabId('ai-agent')}>
+            <AiAssistantWindow visible={selectedTabId === 'ai-agent'} focusRequest={activityOpenRequest + selectionFocusRequest} onReturnToTab={() => setSelectedTabId('ai-agent')}>
                 {({eventDocument}) => <AiCodingAgentPanel codeEditor={codeEditor} response={codingAiResponse}
+                                    selectionFocusRequest={selectionFocusRequest}
                                     setResponse={setCodingAiResponse}
                                     onActivityChange={setAiActivity}
                                     eventDocument={eventDocument}

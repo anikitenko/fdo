@@ -1,32 +1,15 @@
 import {resolveMonacoTypeScriptApi} from "./monacoTypeScriptApi";
 import {createVirtualFile} from "./createVirtualFile";
-import {BLANK_TEMPLATE_TEST} from "./virtualTemplates";
-import {packageJsonContent} from "./packageJsonContent";
+import {createPluginTemplateFiles} from "./virtualTemplates";
 import * as monaco from "monaco-editor";
 import virtualFS from "./VirtualFS";
 import {buildWorkspaceMonacoCompilerOptions} from "./workspaceMonacoCompilerOptions";
 import darkTheme from "../monaco/EditorDarkTheme"
 
-const SUPPORTED_TEMPLATES = new Set(["blank", "horDivided", "verDivided"]);
-
-function resolveWorkspaceTemplate(template) {
-    const normalized = String(template || "").trim();
-    if (!normalized) {
-        return "blank";
-    }
-    return SUPPORTED_TEMPLATES.has(normalized) ? normalized : "blank";
-}
-
 async function scaffoldFreshWorkspace(name, displayName, template) {
-    const resolvedTemplate = resolveWorkspaceTemplate(template);
-    const templateDisplayName = String(displayName || name || "").trim() || name;
-    createVirtualFile(virtualFS.DEFAULT_FILE_MAIN, templateDisplayName, resolvedTemplate)
-    createVirtualFile(virtualFS.DEFAULT_FILE_RENDER, templateDisplayName, resolvedTemplate)
-    if (resolvedTemplate === "blank") {
-        createVirtualFile("/render.test.ts", BLANK_TEMPLATE_TEST());
-    }
-    createVirtualFile("/package.json", packageJsonContent(name))
-    await virtualFS.fs.setupNodeModules()
+    const files = createPluginTemplateFiles({name, displayName, template});
+    for (const [filePath, content] of Object.entries(files)) createVirtualFile(filePath, content);
+    await virtualFS.fs.setupNodeModules();
 }
 
 export async function setupVirtualWorkspace(name, displayName, template, dir) {

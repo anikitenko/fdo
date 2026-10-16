@@ -140,13 +140,13 @@ for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini',
                 await expect(popover).toContainText(`Estimated total: $${message.totalCost.toFixed(5)}`);
                 await expect(popover).toContainText(provider);
                 expect(await popover.evaluate(element => {
-                    const content = element.closest('.bp6-popover-content');
+                    const content = element.closest('[role="dialog"]');
                     return element.getBoundingClientRect().width <= content.getBoundingClientRect().width + 1;
                 })).toBe(true);
                 const screenshotPath = testInfo.outputPath(`${provider}-chat-usage.png`);
                 await popover.screenshot({path: screenshotPath});
                 await testInfo.attach(`${provider}-chat-usage.png`, {path: screenshotPath, contentType: 'image/png'});
-                await page.locator('.bp6-dialog-header').click({position: {x: 10, y: 10}});
+                await page.getByRole('dialog', {name: 'Usage & cost', exact: true}).getByRole('button', {name: 'Close', exact: true}).click();
                 await expect(popover).not.toBeVisible();
             }
         } finally { await closeElectronApp(app); }

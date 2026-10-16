@@ -1,4 +1,4 @@
-import {Button, Card, Divider, Elevation, Icon, Popover, Tag} from "@blueprintjs/core";
+import {Button, Card, Divider, Elevation, Icon, PopoverNext as Popover, Tag} from "@blueprintjs/core";
 import * as style from "../Home.module.scss"
 import PropTypes from "prop-types";
 import {lazy, Suspense, useEffect, useState} from "react";
@@ -119,11 +119,6 @@ export const NavigationPluginsButton = ({
                 interactionKind={"click"}
                 isOpen={showPluginsPopover}
                 onInteraction={setShowPluginsPopover}
-                modifiers={{
-                    arrow: {enabled: true},
-                    flip: {enabled: true},
-                    preventOverflow: {enabled: true},
-                }}
             >
                 <Button variant={"minimal"} ref={buttonMenuRef}>
                     Plugins Activated: <Tag intent={"success"} round={true}>{active.length}</Tag> Installed: <Tag

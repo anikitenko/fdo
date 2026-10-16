@@ -7,14 +7,16 @@ import {
     FormGroup,
     Icon,
     InputGroup,
-    MenuItem
+    Tag,
+    Spinner
 } from "@blueprintjs/core";
-import React, {useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 
 import * as styles from './css/CreatePluginDialog.module.css'
 import {AppToaster} from "./AppToaster.jsx";
-import {Select} from "@blueprintjs/select";
+import {PLUGIN_TEMPLATES, resolvePluginTemplate} from "../utils/plugins/authoring/pluginTemplateCatalog";
 import PropTypes from "prop-types";
+import {validateNewPluginName} from '../utils/plugins/authoring/pluginNameValidation';
 import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 
 export const CreatePluginDialog = ({show, close}) => {
@@ -26,17 +28,93 @@ export const CreatePluginDialog = ({show, close}) => {
     const [updateInitial, setUpdateInitial] = useState(true);
     const [pluginContent, setPluginContent] = useState('');
     const [pluginEntrypoint, setPluginEntrypoint] = useState('');
-    const pluginTemplates = [
-        {title: "Blank", value: "blank"},
-        {title: "Horizontally divided", value: "horDivided"},
-        {title: "Vertically divided", value: "verDivided"}
-    ]
-    const [pluginTemplate, setPluginTemplate] = useState({title: "Blank", value: "blank"});
+    const [pluginTemplate, setPluginTemplate] = useState('blank');
+    const selectedTemplate = resolvePluginTemplate(pluginTemplate);
+    const [nameTouched, setNameTouched] = useState(false);
+    const [nameInventory, setNameInventory] = useState({status: 'loading', plugins: []});
+    const [openingEditor, setOpeningEditor] = useState(false);
+    const [, refreshStorage] = useState(0);
+    const inventoryEpoch = useRef(0);
+    const openingRef = useRef(null);
+    const hasSavedWorkspace = id => localStorage.getItem(`sandbox_${id}`) !== null;
+    const validation = validateNewPluginName(pluginName, {plugins: nameInventory.plugins, hasSavedWorkspace});
+    const nameError = (nameTouched || !!pluginName) && !validation.valid;
+    const loadPluginInventory = async () => {
+        const response = await window.electron.plugin.getAll();
+        if (response?.success === false || !Array.isArray(response?.plugins)) throw new Error('Plugin list unavailable.');
+        return response.plugins;
+    };
+    const refreshNameInventory = async () => {
+        const epoch = ++inventoryEpoch.current;
+        setNameInventory(previous => ({...previous, status: 'loading'}));
+        try {
+            const plugins = await loadPluginInventory();
+            if (inventoryEpoch.current === epoch) setNameInventory({status: 'ready', plugins});
+        } catch {
+            if (inventoryEpoch.current === epoch) setNameInventory({status: 'error', plugins: []});
+        }
+    };
+    useEffect(() => {
+        if (!show) {
+            openingRef.current = null;
+            setOpeningEditor(false);
+            return;
+        }
+        if (!updateInitial) return;
+        void refreshNameInventory();
+        const onStorage = event => {
+            if (event.key === null || event.key?.startsWith('sandbox_')) refreshStorage(value => value + 1);
+        };
+        const onFocus = () => { if (!openingRef.current) void refreshNameInventory(); };
+        window.addEventListener('storage', onStorage);
+        window.addEventListener('focus', onFocus);
+        return () => {
+            inventoryEpoch.current += 1;
+            window.removeEventListener('storage', onStorage);
+            window.removeEventListener('focus', onFocus);
+        };
+    }, [show, updateInitial]);
+
+    const openEditor = async (event, mode = 'new') => {
+        event?.preventDefault();
+        setNameTouched(true);
+        if (openingRef.current || nameInventory.status !== 'ready') return;
+        if (mode === 'new' && !validation.valid) return;
+        const requestToken = {};
+        openingRef.current = requestToken;
+        setOpeningEditor(true);
+        const epoch = inventoryEpoch.current;
+        try {
+            // Recheck just before opening; another window may have created a plugin.
+            const plugins = await loadPluginInventory();
+            if (inventoryEpoch.current !== epoch) return;
+            setNameInventory({status: 'ready', plugins});
+            const latest = validateNewPluginName(pluginName, {plugins, hasSavedWorkspace});
+            if (mode === 'new' && !latest.valid) return;
+            if (mode === 'resume' && latest.code !== 'workspace_exists') return;
+            if (mode === 'existing' && latest.code !== 'plugin_exists') return;
+            const name = mode === 'existing' ? latest.existingPlugin.id : latest.name;
+            window.electron.system.openEditorWindow(mode === 'new' ? {name, template: selectedTemplate.value} : {name});
+            dialogClose();
+        } catch {
+            if (inventoryEpoch.current === epoch) setNameInventory({status: 'error', plugins: []});
+        } finally {
+            if (openingRef.current === requestToken) {
+                openingRef.current = null;
+                setOpeningEditor(false);
+            }
+        }
+    };
 
     const handleReset = () => {
+        inventoryEpoch.current += 1;
+        openingRef.current = null;
+        setNameTouched(false);
+        setOpeningEditor(false);
         setPluginMetadata(null)
         setUpdateInitial(true);
         setPluginName('');
+        setPluginTemplate('blank');
         setPluginContent('');
         setPluginEntrypoint('');
     }
@@ -115,76 +193,56 @@ export const CreatePluginDialog = ({show, close}) => {
                 title={<><Icon icon={"console"} intent={"primary"} size={20}/><span className={"bp6-heading"}
                                                                                     style={{fontSize: "1.2rem"}}>Create Plugin</span></>}
                 style={{
-                    minWidth: 600,
+                    width: 760,
+                    maxWidth: 'calc(100vw - 32px)',
                     paddingBottom: 0
                 }}
         >
-            <DialogBody useOverflowScrollContainer={false}>
+            <DialogBody>
                 {updateInitial && (
-                    <>
+                    <form onSubmit={openEditor}>
                     <FormGroup
                         label="Name"
                         labelFor="plugin-name"
                         fill={true}
+                        intent={nameError ? 'danger' : validation.valid && nameInventory.status === 'ready' ? 'success' : 'none'}
+                        helperText={<div id="plugin-name-feedback" className={styles.nameFeedback} role="status" aria-live="polite">
+                            <div>{nameError ? validation.message : nameInventory.status === 'error'
+                                ? 'Could not check existing plugin names. Try again.' : nameInventory.status === 'loading'
+                                    ? 'Checking existing plugin names…' : validation.valid ? validation.message : 'Use a descriptive name for your plugin.'}</div>
+                            {validation.id && <div>Plugin ID: <code>{validation.id}</code></div>}
+                            {nameInventory.status === 'error' && <Button size="small" variant="minimal" type="button" icon="refresh" onClick={refreshNameInventory}>Retry name check</Button>}
+                            {validation.code === 'workspace_exists' && <Button size="small" variant="minimal" type="button" disabled={openingEditor || nameInventory.status !== 'ready'} onClick={event => openEditor(event, 'resume')}>Resume saved workspace</Button>}
+                            {validation.code === 'plugin_exists' && <Button size="small" variant="minimal" type="button" disabled={openingEditor || nameInventory.status !== 'ready'} onClick={event => openEditor(event, 'existing')}>Open existing plugin</Button>}
+                        </div>}
                     >
-                        <InputGroup id={"plugin-name"} onValueChange={setPluginName}
+                        <InputGroup id={"plugin-name"} value={pluginName} onValueChange={value => {setPluginName(value); setNameTouched(true);}}
+                                    disabled={openingEditor} onBlur={() => setNameTouched(true)}
+                                    aria-describedby="plugin-name-feedback" aria-invalid={nameError || nameInventory.status === 'error'}
+                                    rightElement={nameInventory.status === 'loading' ? <Spinner size={16}/> : validation.valid && nameInventory.status === 'ready' ? <Icon icon="tick" intent="success"/> : undefined}
                                     placeholder="Name of plugin" fill={true} autoFocus={true}/>
                     </FormGroup>
 
-                <FormGroup
-                    label="Template"
-                    labelFor="plugin-template"
-                    labelInfo={"(required)"}
-                    fill={true}
-                >
-                    <Select
-                        id={"plugin-template"}
-                        items={pluginTemplates}
-                        itemRenderer={
-                            (item, {handleClick, handleFocus, modifiers}) => (
-                                <MenuItem
-                                    active={modifiers.active}
-                                    disabled={modifiers.disabled}
-                                    key={item.value}
-                                    onClick={handleClick}
-                                    onFocus={handleFocus}
-                                    selected={item.value === pluginTemplate?.value}
-                                    roleStructure="listoption"
-                                    text={item.title}
-                                />
-                            )
-                        }
-                        popoverProps={
-                            {
-                                minimal: true,
-                                matchTargetWidth: true,
-                            }
-                        }
-                        onItemSelect={setPluginTemplate}
-                        filterable={false}
-                        fill={true}
-                    >
-                        <Button fill={true} text={pluginTemplate?.title ?? "Select a template"} endIcon="double-caret-vertical"/>
-                    </Select>
-                </FormGroup>
-                <div style={{marginBottom: "10px", textAlign: "-webkit-center"}}>
-                    <div className={`${styles[`new-template-image-${pluginTemplate.value}`]}`}></div>
-                </div>
-                <Button fill={true} text={"Open editor"} intent={"primary"}
-                        endIcon={"share"}
-                        onClick={() => {
-                            if (!pluginName) {
-                                (async () => {
-                                    AppToaster.show({message: "Please enter plugin name", intent: "warning"});
-                                })()
-                                return
-                            }
-                            window.electron.system.openEditorWindow({name: pluginName, template: pluginTemplate.value})
-                            dialogClose()
-                        }
-                        }/>
-                <Divider/>
-                    </>
+                <fieldset className={styles.templateFieldset}>
+                    <legend>Choose a starting point</legend>
+                    <p className={styles.templateHint}>Every template includes runnable code, tests and SKILL.md. No AI request or credentials are required.</p>
+                    <div className={styles.templateGrid}>
+                        {PLUGIN_TEMPLATES.map(template => <Button key={template.value} type="button"
+                            className={`${styles.templateCard} ${pluginTemplate === template.value ? styles.selectedTemplate : ''}`}
+                            aria-label={`${template.title} template`} disabled={openingEditor} aria-pressed={pluginTemplate === template.value}
+                            onClick={() => setPluginTemplate(template.value)}>
+                            <div className={styles.templateTitle}><Icon icon={template.icon}/><strong>{template.title}</strong>
+                                {pluginTemplate === template.value && <Icon icon="tick" intent="success"/>}</div>
+                            <p>{template.description}</p>
+                        </Button>)}
+                    </div>
+                    <div className={styles.templateFeatures} aria-live="polite">
+                        <span>Included:</span> {selectedTemplate.features.map(feature => <Tag key={feature} minimal>{feature}</Tag>)}
+                    </div>
+                </fieldset>
+                <Button fill type="submit" text={`Open editor · ${selectedTemplate.title}`} intent="primary"
+                        endIcon="share" loading={openingEditor} disabled={!validation.valid || nameInventory.status !== 'ready' || openingEditor}/>
+                    </form>
                 )}
                 {pluginMetadata && (
                     <div style={{
@@ -217,7 +275,7 @@ export const CreatePluginDialog = ({show, close}) => {
                     label="...or you may upload your plugin:"
                     labelFor="plugin-upload"
                 >
-                    <Button id={"plugin-upload"} loading={uploadLoading} icon="upload" text="Select folder"
+                    <Button id={"plugin-upload"} loading={uploadLoading} disabled={openingEditor} icon="upload" text="Select folder"
                             onClick={async () => {
                                 await handleFileUpload()
                             }}/>
@@ -236,8 +294,8 @@ export const CreatePluginDialog = ({show, close}) => {
                                 fill={true} rightElement={<Button text={"Download"}/>}/>
                 </FormGroup>
             </DialogBody>
-            <DialogFooter actions={<Button onClick={createPlugin} loading={createLoading} disabled={!pluginName || !pluginContent}
-                                           intent="success">Save</Button>}></DialogFooter>
+            {!updateInitial && <DialogFooter actions={<Button onClick={createPlugin} loading={createLoading} disabled={!pluginName || !pluginContent}
+                                           intent="success">Save imported plugin</Button>}/>}
         </Dialog>
     )
 }

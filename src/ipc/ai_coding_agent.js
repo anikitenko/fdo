@@ -1,3 +1,4 @@
+import {pluginGuideRecoveryMetadata} from '../utils/ai/assistant/pluginGuideRecovery';
 import {selectedCodexHooks} from '../utils/ai/codex/codexHooks';
 import {selectedCodexMcpServers} from '../utils/ai/codex/codexMcp';
 import {cliCodingResponseDeadline} from '../utils/ai/generation/cliCodingResponseDeadline';
@@ -226,16 +227,12 @@ function sendBackendStatus(event, requestId, message, metadata = {}) {
     });
 }
 
-function formatAssistantLabel(assistantInfo = {}) {
-    const provider = assistantInfo?.provider || "unknown provider";
-    const model = assistantInfo?.model ? ` / ${assistantInfo.model}` : "";
-    return `${provider}${model}`;
-}
+
 
 function extractJsonObject(text = "") {
     const value = String(text || "").trim();
     if (!value) return null;
-    const direct = value.match(/\{[\s\S]*\}/);
+    const direct = value.match(/\{[\s\S]*}/);
     return direct ? direct[0] : null;
 }
 
@@ -348,18 +345,14 @@ function stripAnsi(text = "") {
 function sanitizeCodexStdout(text = "") {
     const value = stripAnsi(text);
     if (!value) return "";
-    const cleaned = value
+    return value
         .split("\n")
         .filter((line) => {
             const trimmed = line.trim();
             if (!trimmed) return true;
-            if (/^\[\d{4}-\d{2}-\d{2}T/.test(trimmed) && /OpenAI Codex|workdir:|model:|provider:|approval:|sandbox:|reasoning effort:|reasoning summaries:/i.test(trimmed)) {
-                return false;
-            }
-            return true;
+            return !(/^\[\d{4}-\d{2}-\d{2}T/.test(trimmed) && /OpenAI Codex|workdir:|model:|provider:|approval:|sandbox:|reasoning effort:|reasoning summaries:/i.test(trimmed));
         })
         .join("\n");
-    return cleaned;
 }
 
 function classifyCodexCliError(stderr = "") {
@@ -710,6 +703,7 @@ async function runCodexCliTransport(event, requestId, assistantInfo, prompt, {de
         } finally { if (!cliSession) await isolation.cleanup(); }
     };
 
+    // Validation failures intentionally share this boundary with operation failures.
     try {
         // Bundled Codex JSON carries reasoning and tool lifecycle events.
         // A stale progress-only cooldown must not hide those events.
@@ -717,6 +711,7 @@ async function runCodexCliTransport(event, requestId, assistantInfo, prompt, {de
 
         let result = await runAttempt({ jsonMode: initialJsonMode, retrying: false });
         if (result.cancelled || isActiveCodingRequestCancelled(requestId)) {
+            //noinspection ExceptionCaughtLocallyJS
             throw new AiCodingRequestCancelledError();
         }
         let usedJsonFallback = false;
@@ -733,11 +728,13 @@ async function runCodexCliTransport(event, requestId, assistantInfo, prompt, {de
             }
             result = await runAttempt({ jsonMode: false, retrying: true });
             if (result.cancelled || isActiveCodingRequestCancelled(requestId)) {
+                //noinspection ExceptionCaughtLocallyJS
                 throw new AiCodingRequestCancelledError();
             }
         }
 
         if (!result.content.trim()) {
+            //noinspection ExceptionCaughtLocallyJS
             throw new Error("Codex did not produce any assistant text for this request. Try a narrower prompt or another assistant.");
         }
 
@@ -839,6 +836,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
     registerActiveCodingRequest(requestId);
     let stopObservingSender = () => {};
     let cliSession;
+    // Validation failures intentionally share this boundary with operation failures.
     try {
         const finalizeResponse = async result => {
             if (!result?.success || typeof result.content !== 'string') return result;
@@ -866,7 +864,11 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                 const result = await runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {image});
                 entry.finish(result.success ? 'completed' : 'failed');
                 return await finalizeResponse(result);
-            } catch (error) { entry.finish('failed'); throw error; }
+            } catch (error) {
+                entry.finish('failed');
+                //noinspection ExceptionCaughtLocallyJS
+                throw error;
+            }
         }
         const transientBudget = {remaining: 1};
         const runCompletePrompt = (taskPrompt, stageOptions = {}) => withCodingOutputRecovery({
@@ -963,18 +965,36 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                 const {store, workspaceId, mode, id} = generationCheckpoint;
                 const existing = await store.load(workspaceId);
                 if (id) {
-                    if (!existing || existing.id !== id) throw new Error('The generation checkpoint is no longer available. Refresh recovery before retrying.');
+                    if (!existing || existing.id !== id) {
+                        //noinspection ExceptionCaughtLocallyJS
+                        throw new Error('The generation checkpoint is no longer available. Refresh recovery before retrying.');
+                    }
                     const summary = generationCheckpointSummary(existing, workspaceFiles, installedValidator.capabilities.fingerprint);
-                    if (!summary.canResume) throw new Error(summary.reason);
+                    if (!summary.canResume) {
+                        //noinspection ExceptionCaughtLocallyJS
+                        throw new Error(summary.reason);
+                    }
                     savedCheckpoint = existing;
                     if (mode === 'resume') {
-                        if ((existing.codexSkillFingerprint || '') !== codexSkillFingerprint) throw new Error('Assigned Codex extensions changed since this attempt. Restore the previous assignments or retry with smaller scope to create a new plan.');
-                        if (userRequirements !== existing.requirements) throw new Error('Resume preserves the saved requirements. Choose Retry with smaller scope to change them.');
-                        if ((existing.imageFingerprint || '') !== generationImageFingerprint(image)) throw new Error('Resume requires the same reference image. Reattach it, or replan with smaller scope using your current reference.');
+                        if ((existing.codexSkillFingerprint || '') !== codexSkillFingerprint) {
+                            //noinspection ExceptionCaughtLocallyJS
+                            throw new Error('Assigned Codex extensions changed since this attempt. Restore the previous assignments or retry with smaller scope to create a new plan.');
+                        }
+                        if (userRequirements !== existing.requirements) {
+                            //noinspection ExceptionCaughtLocallyJS
+                            throw new Error('Resume preserves the saved requirements. Choose Retry with smaller scope to change them.');
+                        }
+                        if ((existing.imageFingerprint || '') !== generationImageFingerprint(image)) {
+                            //noinspection ExceptionCaughtLocallyJS
+                            throw new Error('Resume requires the same reference image. Reattach it, or replan with smaller scope using your current reference.');
+                        }
                         prompt = existing.prompt; userRequirements = existing.requirements;
                     }
                 } else {
-                    if (existing) throw new Error('This workspace has saved generation work. Resume it, reuse it with a smaller scope, or explicitly discard it before starting a fresh generation.');
+                    if (existing) {
+                        //noinspection ExceptionCaughtLocallyJS
+                        throw new Error('This workspace has saved generation work. Resume it, reuse it with a smaller scope, or explicitly discard it before starting a fresh generation.');
+                    }
                     savedCheckpoint = store.create({workspaceId, workspaceFiles, prompt, requirements: userRequirements || prompt, sdkFingerprint: installedValidator.capabilities.fingerprint, image});
                 }
             }
@@ -1080,6 +1100,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
     let fullContent = "";
     let clearFirstContentDeadline = () => {};
     let clearAnswerDeadline = () => {};
+    // Validation failures intentionally share this boundary with operation failures.
     try {
         // CLI providers do not receive the API assistant's system prompt. API
         // Saved API capability labels may predate a provider/model update.
@@ -1087,6 +1108,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
         // only current integration restrictions can block it at this point.
         const inputCapabilities = assistantInputCapabilities({...assistantInfo, inputCapabilities: undefined});
         if (image && inputCapabilities.imageSupport === 'unsupported') {
+            //noinspection ExceptionCaughtLocallyJS
             throw new Error(`${imageSupportLabel(inputCapabilities)}. Select an image-capable assistant for screenshot requests.`);
         }
         // providers receive the guide from createCodingLlm(), while CLI
@@ -1109,13 +1131,18 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
                     : await runGeminiCliStream(event, requestId, assistantInfo, scopedPrompt, options);
                 entry?.finish(result.success ? 'completed' : 'failed');
                 return result;
-            } catch (error) {entry?.finish('failed'); throw error;}
+            } catch (error) {entry?.finish('failed');
+            //noinspection ExceptionCaughtLocallyJS
+            throw error;}
         }
 
         if (["ollama", "cloudflare", "opencode", "openrouter"].includes(assistantInfo.provider)) {
             const inspection = new AbortController();
             updateActiveCodingRequest(requestId, {cancel: () => inspection.abort()});
-            if (isActiveCodingRequestCancelled(requestId)) throw new AiCodingRequestCancelledError();
+            if (isActiveCodingRequestCancelled(requestId)) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new AiCodingRequestCancelledError();
+            }
             if (assistantInfo.provider === "cloudflare") {
                 await inspectCloudflareModel(assistantInfo, {requireVision: !!image, signal: inspection.signal});
             } else if (assistantInfo.provider === "opencode") {
@@ -1139,6 +1166,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
         // A Stop click can race provider initialization. Do not begin a
         // network request after the user has already cancelled it.
         if (isActiveCodingRequestCancelled(requestId)) {
+            //noinspection ExceptionCaughtLocallyJS
             throw new AiCodingRequestCancelledError();
         }
         const startedAt = Date.now();
@@ -1307,11 +1335,13 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
             }
 
             if (isActiveCodingRequestCancelled(requestId)) {
+                //noinspection ExceptionCaughtLocallyJS
                 throw new AiCodingRequestCancelledError();
             }
 
             const completedResponse = await resp.complete();
             if (!fullContent.trim()) {
+                //noinspection ExceptionCaughtLocallyJS
                 throw new Error("The assistant returned no text. Check the selected model, provider access and output-token limit.");
             }
             sendBackendStatus(
@@ -1327,7 +1357,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
             if (!deferCompletion) sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
             return { success: true, requestId, content: fullContent };
         }
-
+        //noinspection ExceptionCaughtLocallyJS
         throw new Error("Invalid response from assistant backend");
     } catch (error) {
         if (isAiCodingOutputLimitError(error)) {
@@ -1359,6 +1389,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
                 requestId,
                 error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
             });
         }
         throw error;
@@ -1483,8 +1514,9 @@ Do NOT say that the workspace is read-only, that the sandbox blocked you, or tha
             requestId,
             error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
         });
-        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error) };
+        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error), guideRecovery: pluginGuideRecoveryMetadata(error) };
     }
 }
 
@@ -1587,8 +1619,9 @@ async function handleEditCode(event, data) {
             requestId,
             error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
         });
-        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error) };
+        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error), guideRecovery: pluginGuideRecoveryMetadata(error) };
     }
 }
 
@@ -1616,8 +1649,9 @@ Provide a clear, concise explanation of what this code does, how it works, and a
             requestId,
             error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
         });
-        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error) };
+        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error), guideRecovery: pluginGuideRecoveryMetadata(error) };
     }
 }
 
@@ -1637,8 +1671,9 @@ async function handleFixCode(event, data) {
             requestId,
             error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
         });
-        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error) };
+        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error), guideRecovery: pluginGuideRecoveryMetadata(error) };
     }
 }
 
@@ -1673,8 +1708,9 @@ async function handleSmartMode(event, data) {
             requestId,
             error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
         });
-        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error) };
+        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error), guideRecovery: pluginGuideRecoveryMetadata(error) };
     }
 }
 
@@ -1837,17 +1873,27 @@ async function handlePlanCode(event, data) {
 
     console.log('[AI Coding Agent Backend] Plan code request', { requestId, promptLength: prompt?.length, hasImage: !!image, assistantId });
 
+    // Validation failures intentionally share this boundary with operation failures.
     try {
         const repairPaths = explicitRepairPaths ?? readWorkspaceRepairScope(prompt, workspaceFiles);
         const assistantInfo = selectCodingAssistant(assistantId);
         const executionMode = /EXECUTION MODE:\s*WORKSPACE TASK IMPLEMENTATION/i.test(prompt || "")
             || isExistingPluginFeatureRequest({prompt: userRequirements || prompt, workspaceFiles});
         if (workspaceId && repairPaths === undefined) {
-            if (generationWorkspaceLocks.has(workspaceId)) throw new Error('Another generation is running for this workspace. Stop it before starting another attempt.');
+            if (generationWorkspaceLocks.has(workspaceId)) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error('Another generation is running for this workspace. Stop it before starting another attempt.');
+            }
             generationWorkspaceLocks.set(workspaceId, requestId); ownsLock = true;
-            if (checkpointId && !['resume', 'smaller-scope'].includes(recoveryMode)) throw new Error('Choose a checkpoint recovery mode.');
+            if (checkpointId && !['resume', 'smaller-scope'].includes(recoveryMode)) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error('Choose a checkpoint recovery mode.');
+            }
             generationCheckpoint = {store: checkpointStore(), workspaceId, id: checkpointId, mode: recoveryMode};
-        } else if (checkpointId) throw new Error('Checkpoint recovery requires workspace generation and cannot be used for a scoped repair.');
+        } else if (checkpointId) {
+            //noinspection ExceptionCaughtLocallyJS
+            throw new Error('Checkpoint recovery requires workspace generation and cannot be used for a scoped repair.');
+        }
         const staged = useStagedWorkspaceGeneration(assistantInfo.provider, true, repairPaths, !!generationCheckpoint);
         console.log("[AI Coding Agent Backend] Plan request context", {
             requestId,
@@ -1912,8 +1958,9 @@ async function handlePlanCode(event, data) {
             requestId,
             error: error.message,
             failure: codingFailureMetadata(error),
+            guideRecovery: pluginGuideRecoveryMetadata(error),
         });
-        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error) };
+        return { success: false, requestId, error: error.message, failure: codingFailureMetadata(error), guideRecovery: pluginGuideRecoveryMetadata(error) };
     } finally { if (ownsLock && generationWorkspaceLocks.get(workspaceId) === requestId) generationWorkspaceLocks.delete(workspaceId); }
 }
 
@@ -1975,7 +2022,11 @@ export function registerAiCodingAgentHandlers() {
         } catch (error) {return {success: false, error: error.message};}
     });
     ipcMain.handle(AiCodingAgentChannels.DISCARD_GENERATION_CHECKPOINT, async (_event, data) => {
-        try { if (generationWorkspaceLocks.has(data.workspaceId)) throw new Error('Stop generation before discarding its checkpoint.');
+        // Validation failures intentionally share this boundary with operation failures.
+        try { if (generationWorkspaceLocks.has(data.workspaceId)) {
+            //noinspection ExceptionCaughtLocallyJS
+            throw new Error('Stop generation before discarding its checkpoint.');
+        }
             await checkpointStore().discard(data.workspaceId, data.id); return {success: true};
         } catch (error) {return {success: false, error: error.message};}
     });

@@ -4,7 +4,7 @@ const saved = require('../fixtures/ai/workbench-render-call-errors.json');
 
 for (const unchanged of [false, true]) {
     test(`recorded render call repair ${unchanged ? 'rejects repeated defects' : 'corrects defects before acceptance'}`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '8'}});
         try {
             const page = await app.firstWindow();
@@ -21,6 +21,10 @@ for (const unchanged of [false, true]) {
                     const body = JSON.parse(init.body);
                     globalThis.__renderRepairPrompts.push(body.messages.at(-1).content);
                     const source = unchanged || globalThis.__renderRepairPrompts.length === 1 ? broken : corrected;
+                    if (body.stream) return new Response([
+                        {choices: [{delta: {content: JSON.stringify({path: '/render.tsx', lines: source.split('\n')})}}]},
+                        {choices: [{delta: {}, finish_reason: 'stop'}]},
+                    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), {headers: {'content-type': 'text/event-stream'}});
                     return Response.json({result: {choices: [{message: {content: JSON.stringify({path: '/render.tsx', lines: source.split('\n')})}, finish_reason: 'stop'}]}});
                 };
             }, {broken: saved['/render.tsx'], corrected, unchanged});
@@ -28,11 +32,12 @@ for (const unchanged of [false, true]) {
                 await window.electron.settings.ai.addAssistant({name: 'Render call repair', provider: 'cloudflare', purpose: 'coding',
                     model: '@cf/test/model', apiKey: 'test-token', accountId: 'a'.repeat(32), defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Render call repair');
-                return window.electron.aiCodingAgent.planCode({requestId: 'render-call-repair', assistantId: assistant.id,
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'render-call-repair', assistantId: assistant.id,
                     prompt: 'Correct the missing DOM import and zero-argument renderer call errors in /render.tsx. Preserve existing dependencies.',
-                    repairPaths: ['/render.tsx'], workspaceFiles});
+                    repairPaths: ['/render.tsx'], workspaceFiles}));
             }, [...Object.entries(saved).map(([path, content]) => ({path, content})), {path: '/styles.css', content: '.shell {display: block}'}]);
             const prompts = await app.evaluate(() => globalThis.__renderRepairPrompts);
+            expect(prompts.length, JSON.stringify(result)).toBeGreaterThan(1);
             expect(prompts[1]).toContain('DOM is not defined');
             expect(prompts[1]).toContain('renderDashboard from /ui/dashboard.ts declares zero parameters');
             expect(prompts[1]).toContain('renderJsonWorkspace from /ui/jsonWorkspace.ts declares zero parameters');

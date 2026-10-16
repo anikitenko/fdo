@@ -224,6 +224,7 @@ describe('VirtualFS snapshots', () => {
       files: [
         { path: 'index.d.ts', content: 'export class FDO_SDK {}\nexport interface FDOInterface {}\nexport interface PluginMetadata { name: string; version: string; author: string; }' },
         { path: 'render/index.d.ts', content: 'export {}' },
+        { path: 'ui/index.d.ts', content: 'export declare function createDialog(): string;' },
       ],
     });
 
@@ -237,6 +238,7 @@ describe('VirtualFS snapshots', () => {
       expect(packageJson.name).toBe('@anikitenko/fdo-sdk');
       expect(packageJson.types).toBe('./index.d.ts');
       expect(packageJson.exports['.'].types).toBe('./index.d.ts');
+      expect(packageJson.exports['./ui'].types).toBe('./ui/index.d.ts');
 
       expect(monaco.typescript.typescriptDefaults.addExtraLib).toHaveBeenCalledWith(
         expect.any(String),
@@ -318,5 +320,51 @@ describe('VirtualFS snapshots', () => {
       window.electron.system.getFdoSdkTypes = originalGetFdoSdkTypes;
       window.electron.system.getFdoSdkEditorSupport = originalGetFdoSdkEditorSupport;
     }
+  });
+});
+
+describe('Live UI working snapshot updates', () => {
+  beforeEach(() => {
+    virtualFS.files = {};
+    virtualFS.fs.versions = {};
+    virtualFS.fs.version_current = 0;
+    virtualFS.fs.version_latest = 0;
+    virtualFS.sandboxName = 'sandbox_live_ui';
+    localStorage.clear();
+  });
+  const setText = content => {
+    if (!virtualFS.files['/index.ts']) virtualFS.createFile('/index.ts', monaco.editor.createModel(content, 'typescript', monaco.Uri.file('/index.ts')));
+    else virtualFS.setFileContent('/index.ts', content);
+  };
+  test('updates only its owned working snapshot in storage; restore point remains intact', () => {
+    setText('before');
+    const before = virtualFS.fs.create('', [], {quiet: true});
+    setText('first');
+    const working = virtualFS.fs.create(before.version, [], {quiet: true, liveUiGroup: 'session'});
+    for (let i = 0; i < 100; i++) {
+      setText('edit ' + i);
+      expect(virtualFS.fs.create(before.version, [], {quiet: true, replaceVersion: working.version, liveUiGroup: 'session'}).error).toBeNull();
+    }
+    const persisted = JSON.parse(LZString.decompress(localStorage.getItem(virtualFS.sandboxName)));
+    expect(Object.keys(persisted.versions)).toHaveLength(2);
+    expect(persisted.versions[working.version].content.find(item => item.id === '/index.ts').content).toBe('edit 99');
+    expect(persisted.versions[before.version].content.find(item => item.id === '/index.ts').content).toBe('before');
+    expect(persisted.versions[working.version].prev).toBe(before.version);
+    virtualFS.fs.set(before.version);
+    expect(virtualFS.getFileContent('/index.ts')).toBe('before');
+  });
+  test('cannot replace ordinary, foreign, restored or branched snapshots', () => {
+    setText('before');
+    const ordinary = virtualFS.fs.create('', [], {quiet: true});
+    const replace = (version, group = 'session') => virtualFS.fs.create('', [], {quiet: true, replaceVersion: version, liveUiGroup: group});
+    expect(replace(ordinary.version).error).toBeTruthy();
+    const working = virtualFS.fs.create(ordinary.version, [], {quiet: true, liveUiGroup: 'session'});
+    expect(replace(working.version, 'foreign').error).toBeTruthy();
+    const child = virtualFS.fs.create(working.version, [], {quiet: true});
+    expect(replace(working.version).error).toBeTruthy();
+    virtualFS.fs.version_current = working.version;
+    virtualFS.fs.version_latest = working.version;
+    expect(replace(working.version).error).toBeTruthy();
+    expect(virtualFS.fs.versions[child.version].prev).toBe(working.version);
   });
 });

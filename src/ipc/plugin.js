@@ -1,3 +1,4 @@
+import {enqueuePluginUiBridge} from '../utils/plugins/runtime/pluginUiMessageQueue';
 import {typecheckPluginWorkspace} from '../utils/sdk/pluginWorkspaceTypecheck';
 import {normalizePluginDoctorPresentation} from './pluginDoctorPresentation';
 import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
@@ -25,7 +26,7 @@ import * as stream from "node:stream";
 
 import {v4 as uuidv4} from 'uuid';
 
-import archiver from "archiver"
+import {ZipArchive} from "archiver"
 import {extractMetadata} from "../utils/plugins/runtime/extractMetadata";
 import {normalizeAndValidatePluginMetadata} from "../utils/plugins/runtime/pluginMetadataContract";
 import {runPluginWorkspaceTests} from "../utils/plugins/runtime/pluginTestRunner";
@@ -102,31 +103,10 @@ function buildHostPluginMessage(message, content = undefined) {
     };
 }
 
-const pluginUiBridgeQueues = new Map();
 const PLUGIN_UI_BRIDGE_TIMEOUT_MS = 15000;
 const SDK_DIAGNOSTICS_HANDLER = "__sdk.getDiagnostics";
 const SDK_PRIVILEGED_ACTION_HANDLER = "requestPrivilegedAction";
 const privilegedEnvelopeDeprecationShown = new Set();
-
-function buildPluginUiBridgeQueueKey(pluginId, pluginSessionId = "") {
-    const normalizedPluginId = String(pluginId || "").trim() || "__unknown_plugin__";
-    const normalizedSessionId = String(pluginSessionId || "").trim();
-    return normalizedSessionId ? `${normalizedPluginId}::${normalizedSessionId}` : normalizedPluginId;
-}
-
-function enqueuePluginUiBridge(pluginId, pluginSessionId, task) {
-    const key = buildPluginUiBridgeQueueKey(pluginId, pluginSessionId);
-    const previous = pluginUiBridgeQueues.get(key) || Promise.resolve();
-    const next = previous
-        .catch(() => undefined)
-        .then(() => task());
-    pluginUiBridgeQueues.set(key, next.finally(() => {
-        if (pluginUiBridgeQueues.get(key) === next) {
-            pluginUiBridgeQueues.delete(key);
-        }
-    }));
-    return next;
-}
 
 function getPluginRuntimeSessionId(pluginId, loadedPlugin = null) {
     if (loadedPlugin && typeof loadedPlugin?.sessionId === "string" && loadedPlugin.sessionId.trim()) {
@@ -2374,7 +2354,7 @@ export function registerPluginHandlers() {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         const plugin = pluginORM.getPlugin(id)
 
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = new ZipArchive({ zlib: { level: 9 } });
         const passThrough = new stream.PassThrough();
         const chunks = [];
 

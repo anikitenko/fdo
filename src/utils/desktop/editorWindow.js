@@ -58,6 +58,7 @@ export const editorWindow = {
             },
         });
 
+        this.window.__fdoEditorWindow = true;
         installAssistantWindowPolicy(this.window);
 
         return this.window

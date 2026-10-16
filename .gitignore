@@ -97,3 +97,7 @@ typings/
 out/
 artifacts/live-ai/
 test-results/
+test-results-full/
+playwright-report/
+playwright-report-full/
+artifacts/jest-results.json

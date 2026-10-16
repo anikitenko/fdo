@@ -18,8 +18,8 @@ import {createEditorWindowConfirmState} from "./system_confirm_state";
 import {searchFdoSdkKnowledge} from "../utils/sdk/fdoSdkKnowledge";
 import {extractReferenceUrls, summarizeHtmlReference} from "../utils/ai/assistant/externalReferenceKnowledge";
 import {fetchWithTimeout} from "../utils/network/fetchWithTimeout";
-import {readFile} from "node:fs/promises";
 import fs from "node:fs";
+import {registerLiveUiHandlers, readLiveUiSdkMetadata} from './liveUi';
 
 const execAsync = promisify(exec);
 
@@ -363,6 +363,7 @@ function systemOpenEditorWindow(data) {
 }
 
 export function registerSystemHandlers() {
+    registerLiveUiHandlers({entry: MAIN_WINDOW_WEBPACK_ENTRY, preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY});
     // Listen for external link requests
     ipcMain.on(SystemChannels.OPEN_EXTERNAL_LINK, (event, url) => {
         if (typeof url !== "string") {
@@ -525,11 +526,9 @@ export function registerSystemHandlers() {
 
     ipcMain.handle(SystemChannels.GET_FDO_SDK_DOM_METADATA, async () => {
         try {
-            const domMetadataPath = path.join(resolveFdoSdkDistPath(), "dom-metadata.json");
-            const content = await readFile(domMetadataPath, "utf8");
             return {
                 success: true,
-                metadata: JSON.parse(content),
+                ...await readLiveUiSdkMetadata(),
             };
         } catch (error) {
             return {success: false, error: error.message, metadata: []};
@@ -687,22 +686,4 @@ export function registerSystemHandlers() {
         }
     });
 
-    ipcMain.on(SystemChannels.OPEN_LIVE_UI_WINDOW, (_event, data) => {
-        const liveUiWindow = new BrowserWindow({
-            width: 1024,
-            height: 800,
-            minWidth: 1024,
-            minHeight: 800,
-            webPreferences: {
-                sandbox: true,
-                nodeIntegration: false,
-                contextIsolation: true,
-                preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
-            },
-        });
-
-        const encodedData = encodeURIComponent(JSON.stringify(data));
-        liveUiWindow.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/live-ui?data=${encodedData}`).then(() => {
-        });
-    })
 }

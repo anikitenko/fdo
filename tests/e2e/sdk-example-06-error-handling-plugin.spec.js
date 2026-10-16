@@ -66,15 +66,7 @@ const STRICT_COVERAGE_MINIMUMS = {
 };
 
 function resolveExamplesRootForThisSpec() {
-  const preferred = path.resolve(process.cwd(), "../fdo-sdk/examples");
-  if (fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
-    return preferred;
-  }
-  const fallback = path.resolve(process.cwd(), "vendor/fdo-sdk/examples");
-  if (fs.existsSync(fallback) && fs.statSync(fallback).isDirectory()) {
-    return fallback;
-  }
-  throw new Error(`Unable to resolve SDK examples root for 06 spec. Tried: ${preferred}, ${fallback}`);
+  return require('./helpers/sdkExamples').resolveSdkExamplesPath();
 }
 
 function normalizeUiMessageResponse(response) {

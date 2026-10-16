@@ -74,8 +74,13 @@ function pluginHeading(files) {
   const headings = [];
   for (const statement of fn.body.body) {
     const expressions = statement.type === 'VariableDeclaration' ? statement.declarations.map(item => item.init) : [statement.expression];
-    for (const expression of expressions) if (expression?.type === 'CallExpression' && expression.callee?.property?.name === 'createHText' && value(expression.arguments[0], locals) === 1) {
-      headings.push(value(expression.arguments[1], locals));
+    for (const expression of expressions) if (expression?.type === 'CallExpression') {
+      const method = expression.callee?.property?.name;
+      if (method === 'createHText' && value(expression.arguments[0], locals) === 1) {
+        headings.push(value(expression.arguments[1], locals));
+      } else if (method === 'createElement' && value(expression.arguments[0], locals) === 'h1') {
+        headings.push(value(expression.arguments[2], locals));
+      }
     }
   }
   if (headings.length !== 1) throw new Error(`Expected one resolvable h1 heading, found ${headings.length}`);

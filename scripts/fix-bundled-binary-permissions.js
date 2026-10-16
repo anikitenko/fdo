@@ -96,11 +96,25 @@ function fixEsbuildPermissions(resourcesDir) {
     return updated;
 }
 
+function fixTypeScriptPermissions(resourcesDir) {
+    const root = path.join(resourcesDir, "app.asar.unpacked", "dist", "main", "node_modules", "@typescript");
+    if (!fs.existsSync(root)) return [];
+    const updated = [];
+    for (const name of fs.readdirSync(root)) {
+        for (const executable of ["tsc", "tsc.exe"]) {
+            const binary = path.join(root, name, "lib", executable);
+            if (chmodIfPresent(binary)) updated.push(binary);
+        }
+    }
+    return updated;
+}
+
 module.exports = async function afterPack(context) {
     const resourcesDir = getResourcesDir(context.appOutDir);
     const updated = [
         ...fixCodexPermissions(resourcesDir),
         ...fixEsbuildPermissions(resourcesDir),
+        ...fixTypeScriptPermissions(resourcesDir),
     ];
 
     if (updated.length > 0) {

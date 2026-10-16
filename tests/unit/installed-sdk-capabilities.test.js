@@ -12,7 +12,7 @@ test('fingerprints change with declarations and stamping replaces older contract
         fs.writeFileSync(entry, 'module.exports = {};');
         const declaration = path.join(root, 'dist/@types/index.d.ts');
         fs.writeFileSync(declaration, 'export declare class Tool { run(): string; }');
-        const requireSdk = Object.assign(name => require(name), {resolve: () => entry});
+        const requireSdk = Object.assign(name => require(name), {resolve: name => name === '@anikitenko/fdo-sdk' ? entry : require.resolve(name)});
         const sdk = {Tool: class Tool {}};
         const before = installedSdkCapabilities(requireSdk, sdk);
         expect(installedSdkCapabilities(requireSdk, sdk).fingerprint).toBe(before.fingerprint);

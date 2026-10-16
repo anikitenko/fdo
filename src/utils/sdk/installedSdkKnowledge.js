@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {getFilesTree} from '../filesystem/getFilesTree';
 import {buildFdoSdkKnowledgeIndex} from './fdoSdkKnowledge';
+import {installedSdkKnowledgeIdentity, readInstalledAuthoringContracts} from './installedAuthoringContracts';
 
 let fdoSdkKnowledgeCache = {
     sourcePath: "",
@@ -63,7 +64,7 @@ function getFilesTreeSafe(basePath, targetPath, filter = null) {
 export function getCachedFdoSdkKnowledgeIndex() {
     const packagePath = resolveFdoSdkPackagePath();
     const distPath = resolveFdoSdkDistPath();
-    const sourcePath = `${packagePath}|${distPath}`;
+    const sourcePath = installedSdkKnowledgeIdentity(packagePath, distPath);
     if (fdoSdkKnowledgeCache.index && fdoSdkKnowledgeCache.sourcePath === sourcePath) {
         return fdoSdkKnowledgeCache.index;
     }
@@ -75,6 +76,7 @@ export function getCachedFdoSdkKnowledgeIndex() {
         ...getFilesTreeSafe(packagePath, 'docs'),
         ...getFilesTreeSafe(packagePath, 'examples'),
         ...getFilesTreeSafe(distPath, 'docs'),
+        ...readInstalledAuthoringContracts(packagePath).files,
     ];
     const index = buildFdoSdkKnowledgeIndex(files);
     fdoSdkKnowledgeCache = {
@@ -83,4 +85,3 @@ export function getCachedFdoSdkKnowledgeIndex() {
     };
     return index;
 }
-

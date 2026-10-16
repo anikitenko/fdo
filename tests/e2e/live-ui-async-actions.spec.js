@@ -1,0 +1,133 @@
+const {test,expect,_electron:electron}=require('@playwright/test');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {launchElectronApp,closeElectronApp}=require('./helpers/electronApp');
+const {deploySdkExample,selectPluginOpen,removePlugin}=require('./helpers/sdkExamples');
+test('catalog cards contain long names and generated SDK async actions deploy with cleanup',async()=>{
+    test.setTimeout(150000);
+    const app=await launchElectronApp(electron,{isolatedUserDataDir:true});
+    const folder=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-async-actions-')),pluginName='async-action-builder';
+    let visual;
+    try {
+        const home=await app.firstWindow(),opening=app.waitForEvent('window');
+        await home.evaluate(name=>window.electron.system.openEditorWindow({name,template:'blank'}),pluginName);
+        const editor=await opening;
+        await editor.waitForFunction(()=>window.__editorTestApi?.getState().currentVersion);
+        const original=await editor.evaluate(()=>window.__editorTestApi.getFileContent('/index.ts'));
+        const previewOpening=app.waitForEvent('window');
+        await editor.getByRole('button',{name:'Live UI editor',exact:true}).click();
+        visual=await previewOpening;
+        await visual.getByText('SDK catalog',{exact:true}).click();
+        const search=visual.getByRole('textbox',{name:'Search SDK catalog'});
+        await search.fill('Confirmation');
+        const card=visual.locator('section[aria-label="SDK components"] .bp6-card');
+        await expect(card).toHaveCount(1);
+        expect(await card.evaluate(node=>{
+            const bounds=node.getBoundingClientRect(),button=node.querySelector('button').getBoundingClientRect();
+            const lines=[...node.querySelector('code').getClientRects()];
+            return {fits:lines.every(line=>line.left>=bounds.left && line.right<=bounds.right),
+                gutters:Math.abs((button.left-bounds.left)-(bounds.right-button.right))<1,
+                noOverflow:node.scrollWidth<=node.clientWidth};
+        })).toEqual({fits:true,gutters:true,noOverflow:true});
+        const catalogScreenshot=test.info().outputPath('catalog-long-method.png');
+        await card.screenshot({path:catalogScreenshot});
+        await test.info().attach('Catalog method wrapping and button spacing',{path:catalogScreenshot,contentType:'image/png'});
+        await search.fill('');
+        await visual.getByRole('button',{name:'main',exact:true}).click();
+        await visual.getByRole('button',{name:'Add Async Action Button',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'Inspect Async Action Button',exact:true})).toHaveCount(1);
+        await visual.getByRole('button',{name:'main',exact:true}).click();
+        await visual.getByLabel('Add component',{exact:true}).selectOption('result');
+        await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'pre · Results appear here',exact:true})).toBeVisible();
+        await visual.getByRole('button',{name:'Inspect Async Action Button',exact:true}).click();
+        const target=visual.getByLabel('Async result element',{exact:true});
+        await target.selectOption({label:'pre · Results appear here'});
+        await visual.getByLabel('Async result text',{exact:true}).fill('Saved <safe>');
+        await visual.getByRole('button',{name:'Preview async action',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'Disconnect async action',exact:true})).toBeEnabled();
+        await visual.getByRole('button',{name:'Disconnect async action',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'Preview async action',exact:true})).toBeVisible();
+        await visual.getByRole('button',{name:'Undo',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'Disconnect async action',exact:true})).toBeEnabled();
+        await visual.getByRole('button',{name:'main',exact:true}).click();
+        await visual.getByLabel('Add component',{exact:true}).selectOption('singleLineInput');
+        await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+        await expect(visual.getByRole('button',{name:/^input ·/})).toHaveCount(1);
+        await visual.getByRole('button',{name:'main',exact:true}).click();
+        await visual.getByRole('button',{name:'Add Async Action Button',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'Inspect Async Action Button',exact:true})).toHaveCount(2);
+        await visual.getByRole('button',{name:'Inspect Async Action Button',exact:true}).last().click();
+        await visual.getByLabel('Async action preset',{exact:true}).selectOption('inspect-json');
+        await visual.getByLabel('Async result element',{exact:true}).selectOption({label:'pre · Results appear here'});
+        await visual.getByLabel('Async request source',{exact:true}).selectOption('input');
+        await visual.getByLabel('Async request input',{exact:true}).selectOption({index:1});
+        await visual.getByLabel('Async result display',{exact:true}).selectOption('summary');
+        await visual.getByRole('button',{name:'Preview async action',exact:true}).click();
+        await expect(visual.getByRole('button',{name:'Disconnect async action',exact:true})).toBeEnabled();
+        await visual.getByLabel('Mock response JSON',{exact:true}).fill(JSON.stringify({success:true,summary:'Valid JSON · object',valueType:'object',itemCount:0,topLevelKeys:[]}));
+        await visual.getByRole('button',{name:'Run mock request',exact:true}).click();
+        await expect(visual.frameLocator('iframe[title="Plugin UI preview"]').locator('[data-fdo-result="visual-result-1"]')).toContainText('Valid JSON');
+        expect(await editor.evaluate(()=>window.__editorTestApi.getFileContent('/index.ts'))).toBe(original);
+        await visual.getByRole('button',{name:'Apply to workspace',exact:true}).click();
+        await expect(visual.getByRole('status')).toContainText('Applied. Restore point:');
+        const files=await editor.evaluate(()=>Object.fromEntries(window.__editorTestApi.getState().workspaceTreeIds.filter(id=>!id.startsWith('/node_modules/')&&!id.startsWith('/dist/')).map(id=>[id,window.__editorTestApi.getFileContent(id)]).filter(([,content])=>typeof content==='string')));
+        const build=await home.evaluate(latestContent=>window.electron.plugin.build({latestContent}),files);
+        expect(build.success,build.error).toBe(true);
+        fs.writeFileSync(path.join(folder,'index.ts'),files['/index.ts']);
+        await home.evaluate(()=>{window.__E2E__=false;});
+        await deploySdkExample(home,{absPath:path.join(folder,'index.ts'),relativePath:'visual-async-actions'},{pluginName,compiledContent:build.files.outputFiles.find(file=>!file.path.endsWith('.map')).text});
+        await selectPluginOpen(home,pluginName);
+        const frame=home.frameLocator(`iframe[data-plugin-id="${pluginName}"]`);
+        const root=frame.locator('#fdo-async-action-button');
+        await root.getByRole('button',{name:'Run action',exact:true}).click();
+        await expect(frame.locator('[data-fdo-result="visual-result-1"]')).toHaveText('Saved <safe>');
+        await expect(root).toHaveAttribute('data-fdo-state','success');
+        const backendRoot=frame.locator('#fdo-async-action-button-2');
+        const runBackend=backendRoot.locator('button[data-fdo-action="run"]');
+        await frame.locator('[data-fdo-input="visual-input-1"]').fill('{"nested":{"value":42}}');
+        await runBackend.click();
+        await expect(backendRoot).toHaveAttribute('data-fdo-state','success');
+        await expect(frame.locator('[data-fdo-result="visual-result-1"]')).toContainText('Valid JSON');
+        await frame.locator('[data-fdo-input="visual-input-1"]').fill('{invalid}');
+        await runBackend.click();
+        await expect(backendRoot).toHaveAttribute('data-fdo-state','error');
+        await expect(backendRoot.locator('[data-fdo-slot="error"]')).toContainText('Invalid JSON');
+        // Hold an actual frontend transport reply to exercise cancel + stale response.
+        await frame.locator('main').evaluate(()=>{
+            const original=window.createBackendReq;
+            window.__pendingAsyncReplies=[];
+            window.createBackendReq=(type,data)=>data.handler.startsWith('visualAsync') ? new Promise(resolve=>window.__pendingAsyncReplies.push(resolve)) : original(type,data);
+        });
+        await frame.locator('[data-fdo-input="visual-input-1"]').fill('{}');
+        await runBackend.click();
+        await expect(backendRoot).toHaveAttribute('aria-busy','true');
+        await backendRoot.locator('button[data-fdo-action="cancel"]').click();
+        await expect(backendRoot).toHaveAttribute('data-fdo-state','cancelled');
+        await frame.locator('main').evaluate(()=>window.__pendingAsyncReplies.shift()({result:{success:true,summary:'Cancelled late reply',valueType:'object',itemCount:0,topLevelKeys:[]}}));
+        await expect(frame.locator('[data-fdo-result="visual-result-1"]')).not.toContainText('Cancelled late reply');
+        await runBackend.click();
+        await expect(backendRoot).toHaveAttribute('aria-busy','true');
+        await frame.locator('main').evaluate(()=>window.__pendingAsyncReplies.shift()({result:{success:true,summary:'Fresh reply',valueType:'object',itemCount:0,topLevelKeys:[]}}));
+        await expect(frame.locator('[data-fdo-result="visual-result-1"]')).toHaveText('Fresh reply');
+        await expect(backendRoot).toHaveAttribute('data-fdo-state','success');
+        await frame.getByRole('button',{name:'Refresh status',exact:true}).click();
+        await expect(frame.locator('[data-role="status"]')).toContainText('is running');
+        await home.evaluate(id=>window.electron.plugin.render(id),pluginName);
+        await expect(root).toHaveAttribute('data-fdo-state','idle');
+        await root.getByRole('button',{name:'Run action',exact:true}).click();
+        await expect(root).toHaveAttribute('data-fdo-state','success');
+        await expect(frame.locator('[data-fdo-result="visual-result-1"]')).toHaveText('Saved <safe>');
+    } catch (error) {
+        if (visual && !visual.isClosed()) {
+            const screenshot=test.info().outputPath('async-failure.png');
+            await visual.screenshot({path:screenshot});
+            await test.info().attach('Async authoring failure',{path:screenshot,contentType:'image/png'});
+            throw new Error(`${error.message}\nInspector: ${await visual.getByRole('complementary',{name:'Element inspector'}).innerText()}`);
+        }
+        throw error;
+    } finally {
+        const home=await app.firstWindow().catch(()=>null);
+        if(home) await removePlugin(home,pluginName).catch(()=>{});
+        await closeElectronApp(app);fs.rmSync(folder,{recursive:true,force:true});
+    }
+});

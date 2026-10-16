@@ -104,14 +104,8 @@ test("AI Assistants auth dialog clears pending state after successful auth check
   expect(mockProbe.firstName).toBe("E2E Codex Assistant");
   expect(mockProbe.firstStatus).toBe("pending");
 
-  const settingsButton = window.locator('button[aria-label="settings"]').first();
-  if ((await settingsButton.count()) === 0) {
-    const sidebarToggle = window.locator('button[aria-label="menu-open"], button[aria-label="menu-closed"]').first();
-    await expect(sidebarToggle).toBeVisible({ timeout: 30000 });
-    await sidebarToggle.click();
-  }
-  await expect(settingsButton).toBeVisible({ timeout: 30000 });
-  await settingsButton.click();
+  await window.getByLabel('Open command search').click();
+  await window.getByRole('menuitem').filter({hasText: 'Configure FDO'}).click();
   await expect(window.getByRole("dialog", { name: /Settings/i })).toBeVisible({ timeout: 10000 });
 
   await window.getByRole("tab", { name: /AI Assistants/i }).click();

@@ -81,3 +81,61 @@ running or automatically activate it at application startup.
 
 The executable integration fixture is `tests/fixtures/plugin-ui-surfaces.ts`;
 `tests/e2e/plugin-ui-surfaces.spec.js` exercises all three surfaces in Electron.
+
+## Discovering and customizing shortcuts
+
+Activate the plugin first. Its quick actions appear in command search (header
+search field, Ctrl+K / ⌘K), grouped under the plugin name. Search matches action
+names, descriptions, and plugin names. Sidebar menus appear in the right sidebar;
+use **Show right sidebar** in the header if it is hidden. Sidebar buttons have
+accessible names matching their labels, and the selected plugin is highlighted.
+When the window is short, **More plugins** contains the same submenu actions.
+
+Use **Customize plugin shortcuts** in the header to:
+
+- Pin quick actions to **Pinned plugin actions** at the top of command search.
+- Arrange pinned actions with the up/down controls.
+- Show/hide plugin sidebar menus and arrange their order.
+- Restore the defaults with **Reset shortcuts**.
+
+Preferences apply immediately and are saved locally on this device. They survive
+window reloads and plugin deactivation/reactivation. Only running plugins expose
+live actions; pinning does not activate a plugin or grant permissions. System
+sidebar entries remain visible and keep their order. A storage failure is reported
+in the dialog; in that case changes last only for the current window.
+
+While an action runs, other shortcuts for that plugin are unavailable. An action
+failure produces an error toast and can be retried by selecting the action again.
+FDO refreshes the view only after a successful handler response; it also reports a
+failed render request. Confirmed unloads/redeployments invalidate pending view
+refreshes. An ignored stale unload event does not erase live shortcuts.
+
+## Example to try
+
+Use the installed SDK's **04-ui-extensions-plugin.ts** example at
+`node_modules/@anikitenko/fdo-sdk/examples/04-ui-extensions-plugin.ts`.
+It already provides three quick actions (Search Plugin Data, Create New Item,
+Plugin Settings) and the UI Extensions sidebar with Dashboard, Reports, and
+Settings. No external service or AI provider is needed.
+
+After deploying and activating it:
+
+1. Open command search and select **Search Plugin Data**. The plugin opens its
+   Search View without an additional Render click.
+2. Show the right sidebar, open **UI Extensions**, and select **Reports**.
+3. Pin Search Plugin Data and Create New Item in Plugin shortcuts, change their
+   order, then reopen command search to see them first.
+4. Hide the UI Extensions sidebar entry, reload FDO, and confirm the choice is
+   retained. Re-enable it in Plugin shortcuts.
+5. Deactivate and reactivate the plugin: registrations disappear and return,
+   while your shortcut preferences remain.
+
+Run the native example test (including real host-control clicks, saved
+preferences, lifecycle cleanup, and handler failures):
+
+```sh
+npx playwright test tests/e2e/sdk-example-04-ui-extensions-plugin.spec.js --workers=1
+```
+
+Build the application first if the source has changed. The separate
+`plugin-ui-surfaces.spec.js` also covers native tray registration and revocation.

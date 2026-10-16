@@ -3,7 +3,7 @@ const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 for (const provider of ['openrouter', 'cloudflare']) {
     test(`${provider} learns a validated CSS retry allowance within the request ceiling`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '7'}});
         try {
             const page = await app.firstWindow();
@@ -58,8 +58,8 @@ for (const provider of ['openrouter', 'cloudflare']) {
                     ...(provider === 'cloudflare' ? {accountId: 'a'.repeat(32)} : {}),
                     apiKey: 'test-only-token', defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Adaptive output');
-                return window.electron.aiCodingAgent.planCode({requestId: 'adaptive-output', assistantId: assistant.id,
-                    prompt: 'Generate modular styles for a dashboard.', workspaceFiles: []});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'adaptive-output', assistantId: assistant.id,
+                    prompt: 'Generate modular styles for a dashboard.', workspaceFiles: []}));
             }, provider);
             expect(result.success, result.error).toBe(true);
             expect(result.content.match(/### File:/g)).toHaveLength(3);

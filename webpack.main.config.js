@@ -1,6 +1,7 @@
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const webpack = require("webpack");
 const path = require("path");
+const fs = require("node:fs");
 module.exports = {
     /**
      * This is the main entry point for your application, it's the first file
@@ -49,6 +50,15 @@ module.exports = {
         __filename: false,
     },
     plugins: [
+        {
+            apply(compiler) {
+                compiler.hooks.afterEmit.tap('TypeScriptExecutablePermissions', () => {
+                    if (process.platform === 'win32') return;
+                    const binary = path.resolve(__dirname, 'dist/main/node_modules/@typescript', `typescript-${process.platform}-${process.arch}`, 'lib/tsc');
+                    if (fs.existsSync(binary)) fs.chmodSync(binary, 0o755);
+                });
+            },
+        },
         // Google Gen AI includes ws for its optional Live API. Use ws's own
         // JavaScript fallbacks instead of packaging optional native addons.
         new webpack.IgnorePlugin({resourceRegExp: /^(bufferutil|utf-8-validate)$/, contextRegExp: /node_modules[/\\]ws[/\\]/}),
@@ -59,7 +69,7 @@ module.exports = {
                 ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client'].map(name => ({
                     from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
                 })),
-                ...['typescript', '@types/node', 'undici-types'].map(name => ({
+                ...['typescript', '@typescript', '@types/node', 'undici-types'].map(name => ({
                     from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
                 })),
                 {

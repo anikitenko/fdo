@@ -3,7 +3,7 @@ const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 for (const thinkingMode of ['off', 'on', 'auto']) {
     test(`OpenRouter workspace honors ${thinkingMode} during planning and file generation`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '3'}});
         try {
             const page = await app.firstWindow();
@@ -47,17 +47,19 @@ for (const thinkingMode of ['off', 'on', 'auto']) {
                 await window.electron.settings.ai.addAssistant({name: 'Policy regression', provider: 'openrouter',
                     purpose: 'coding', model: 'policy-model', apiKey: 'test-only-token', defaultThinkingMode: thinkingMode});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Policy regression');
-                return window.electron.aiCodingAgent.planCode({requestId: 'policy-regression', assistantId: assistant.id,
-                    prompt: 'Create a pure JSON formatter and node:test tests as workspace files.', workspaceFiles: []});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'policy-regression', assistantId: assistant.id,
+                    prompt: 'Create a pure JSON formatter and node:test tests as workspace files.', workspaceFiles: []}));
             }, thinkingMode);
             expect(result.success, result.error).toBe(true);
             expect(result.content).toContain('### File: /tests/logic.test.ts');
             const requests = await app.evaluate(() => globalThis.__openRouterPolicyRequests);
             expect(requests).toHaveLength(3);
-            for (const body of requests) {
+            for (const [index, body] of requests.entries()) {
                 expect(body.reasoning).toEqual(thinkingMode === 'auto' ? undefined : {enabled: thinkingMode === 'on'});
-                expect(body.response_format?.type).toBe('json_schema');
-                expect(body.provider).toEqual({require_parameters: true});
+                // Only inventory requests use a schema; implementation files use
+                // source transport and must not require schema-capable routing.
+                expect(body.response_format?.type).toBe(index === 0 ? 'json_schema' : undefined);
+                expect(body.provider).toEqual(index === 0 ? {require_parameters: true} : undefined);
             }
             expect(requests[0].max_tokens).toBe(2048);
             expect(await app.evaluate(() => globalThis.__FDO_E2E_LIVE_AI_BUDGET__.used)).toBe(3);

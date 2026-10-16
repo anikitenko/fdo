@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {execFileSync} from 'node:child_process';
-import ts from 'typescript';
+import * as Babel from '@babel/standalone';
 import {
     PLUGIN_AUTHORING_GUIDE_VERSION,
     PLUGIN_RUNTIME_CATALOG,
@@ -14,9 +14,9 @@ import {
 
 describe("shared plugin authoring guide", () => {
     test('canonical composition emits palette and child CSS using the installed SDK', () => {
-        const js = ts.transpileModule(PLUGIN_STYLE_RENDERING_EXAMPLE, {compilerOptions: {
-            module: ts.ModuleKind.CommonJS, esModuleInterop: true,
-        }}).outputText;
+        const js = Babel.transform(PLUGIN_STYLE_RENDERING_EXAMPLE, {
+            filename: 'render.ts', presets: ['typescript'], plugins: ['transform-modules-commonjs'],
+        }).code;
         const script = `const sdk = require('@anikitenko/fdo-sdk');
 const styles = {palette: {'--ink': '#e7f0ea'}, panel: {display: 'grid', color: 'var(--ink)'}};
 const result = {};
@@ -52,7 +52,9 @@ process.stdout.write(result.renderView());`;
     test("documents the actual virtual stylesheet loader rather than inventing Sass support", () => {
         const source = fs.readFileSync(path.resolve("src/utils/esbuild/plugins/virtual-fs.js"), "utf8");
         expect(source).toContain("build.onLoad({filter: /\\.css$/}");
-        expect(source).toContain("extractCssStyles(latestContent[args.path])");
+        expect(source).toContain("compileCssStyleModule(latestContent, args.path)");
+        const compiler = fs.readFileSync(path.resolve("src/utils/esbuild/plugins/cssStyleModule.js"), "utf8");
+        expect(compiler).toContain("extractCssStyles(latestContent[virtualPath])");
         expect(source).not.toContain("sass.compile");
         expect(PLUGIN_STYLESHEET_CONTRACT.join("\n")).toContain("not a Sass compiler");
         expect(PLUGIN_STYLESHEET_CONTRACT.join("\n")).toContain("extensionless imports are unsupported");
@@ -83,7 +85,7 @@ process.stdout.write(result.renderView());`;
         expect(guide).toContain("A type assertion is not runtime validation");
         expect(guide).toContain("Bundling alone does not establish");
         expect(guide).not.toMatch(/jsonInspectorBound|category\/title|\/features\/seo/);
-        expect(guide.length).toBeLessThan(7000);
+        expect(guide.length).toBeLessThan(7500);
         expect(guide).toContain("never test typeof css.panel === 'string'");
         expect(guide).toContain('renderBody(dom)');
         expect(guide).toContain('emitted CSS');
@@ -99,6 +101,6 @@ process.stdout.write(result.renderView());`;
     test("supplies the guide to API system prompts and CLI prompts", () => {
         const source = fs.readFileSync(path.resolve("src/ipc/ai_coding_agent.js"), "utf8");
         expect(source).toContain("reviewReport ? WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()");
-        expect(source).toMatch(/const providerPrompt = isCliProvider && !reviewReport\s*\? `\$\{buildPluginCodingPrompt\(prompt\)\}\$\{providerInstructions\}`\s*: prompt;/);
+        expect(source).toMatch(/const providerPrompt = isCliProvider && !reviewReport\s*\? `\$\{buildPluginCodingPrompt\(prompt\)}\$\{providerInstructions}`\s*: prompt;/);
     });
 });

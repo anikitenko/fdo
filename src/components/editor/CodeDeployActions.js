@@ -11,9 +11,9 @@ import build from "./utils/build";
 import runTests from "./utils/runTests";
 import PropTypes from "prop-types";
 
-import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
 import {RootCertificateSelectionComponent, selectRootCert} from "./utils/RootCertificateSelectionComponent";
+import {useLiveUiConnection} from '../live-ui/utils/useLiveUiConnection';
 
 const CodeDeployActions = ({
     setSelectedTabId,
@@ -30,13 +30,14 @@ const CodeDeployActions = ({
     renderOnLoadTemplateError = "",
     highlightRenderOnLoadRecommendation = false,
 }) => {
-    const [version, setVersion] = useState(virtualFS.fs.version())
-    const [newVersion, setNewVersion] = useState(virtualFS.fs.version())
+    const liveUi = useLiveUiConnection();
+    const [, setVersion] = useState(virtualFS.fs.version())
+    const [newVersion] = useState(virtualFS.fs.version())
     const [versions, setVersions] = useState(virtualFS.fs.list())
     const [isOpenSwitch, setIsOpenSwitch] = useState(false)
     const [isLoadingSwitch, setIsLoadingSwitch] = useState(false)
     const [versionsDate, setVersionsDate] = useState(Date.now())
-    const [prettyVersionDate, setPrettyVersionDate] = useState("")
+    const [, setPrettyVersionDate] = useState("")
     const [buildInProgress, setBuildInProgress] = useState(false)
     const [deployInProgress, setDeployInProgress] = useState(false)
     const [testsInProgress, setTestsInProgress] = useState(false)
@@ -84,27 +85,7 @@ const CodeDeployActions = ({
     }, []);
 
     const rememberChoiceRef = useRef(false);
-    const versionText = (name, date, prev, pretty = false) => {
-        if (!name) return
-        if (!date) return
-        return (
-            <div style={{textAlign: "center"}}>
-                <span style={{color: "aquamarine"}}>{name}</span>
-                {prev && (
-                    <div>
-                        <span className={"bp6-text-muted bp6-text-small"}>
-                            from <span style={{color: "aquamarine", textDecoration: "underline"}}>{prev}</span>
-                        </span>
-                    </div>
-                )}
-                <Divider/>
-                <span
-                    className={"bp6-text-muted"}>
-                    {"(" + (pretty ? date : formatDistanceToNow(new Date(date), {addSuffix: true})) + ")"}
-                </span>
-            </div>
-        )
-    }
+
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -116,19 +97,7 @@ const CodeDeployActions = ({
         };
     }, [versionsDate]);
 
-    const saveAll = () => {
-        const newVersion = virtualFS.fs.create(
-            version.version,
-            virtualFS.tabs.get().filter((t) => t.id !== "Untitled").map((t) => {
-                return {
-                    id: t.id,
-                    active: t.active
-                }
-            }),
-            { quiet: true }
-        )
-        handleSwitchFsVersion(newVersion)
-    }
+
 
     const handleRootCertificateSelection = async () => {
         const rootCerts = await window.electron.settings.certificates.getRoot()
@@ -152,11 +121,7 @@ const CodeDeployActions = ({
         return selectedLabel
     }
 
-    const setFsVersion = (ver) => {
-        if (ver.version === version.version) return
-        setIsOpenSwitch(true)
-        setNewVersion(ver)
-    }
+
 
     const handleConfirmSwitch = () => {
         setIsLoadingSwitch(true)
@@ -205,13 +170,20 @@ const CodeDeployActions = ({
         deployRequestRef.current = requestId;
         setDeployInProgress(true);
         setDeployStatus({progress: 5, message: "Running plugin tests…", intent: "primary"});
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const tested = await triggerRunTests();
-            if (!tested?.success) throw new Error(tested?.error || "Plugin tests failed");
+            if (!tested?.success) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(tested?.error || "Plugin tests failed");
+            }
             setDeployStatus({progress: 25, message: tested.skipped
                 ? "No tests found. Compiling plugin…" : "Tests passed. Compiling plugin…", intent: "primary"});
             const compiled = await triggerBuild();
-            if (compiled?.success === false) throw new Error(compiled.error || "Compilation failed");
+            if (compiled?.success === false) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(compiled.error || "Compilation failed");
+            }
             setDeployStatus({progress: 45, message: "Selecting signing certificate…", intent: "primary"});
             const selectedLabel = await handleRootCertificateSelection();
             if (!selectedLabel) {
@@ -220,7 +192,10 @@ const CodeDeployActions = ({
             }
             setDeployStatus({progress: 50, message: "Preparing deployment…", intent: "primary"});
             const metadata = await virtualFS.build.getMetadata();
-            if (!metadata) throw new Error("No metadata found.");
+            if (!metadata) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error("No metadata found.");
+            }
             const result = await window.electron.plugin.deployToMainFromEditor({
                 requestId,
                 name: virtualFS.treeObject[0].label,
@@ -230,7 +205,10 @@ const CodeDeployActions = ({
                 content: virtualFS.build.getContent(),
                 rootCert: selectedLabel,
             });
-            if (!result.success) throw new Error(result.error || "Deployment failed");
+            if (!result.success) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(result.error || "Deployment failed");
+            }
             setDeployStatus({progress: 100, message: "Deployment complete", intent: "success"});
         } catch (error) {
             setDeployStatus((previous) => ({...previous, message: `Deployment failed: ${error.message}`, intent: "danger"}));
@@ -243,6 +221,7 @@ const CodeDeployActions = ({
 
     const triggerSaveAndClose = async () => {
         setSaveAndCloseInProgress(true)
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const name = virtualFS.treeObject[0].label
 
@@ -271,7 +250,10 @@ const CodeDeployActions = ({
             const entrypoint = virtualFS.build.getEntrypoint();
             const artifactPath = `/${entrypoint}`;
             const runtimeBundle = virtualFS.build.getContent();
-            if (typeof runtimeBundle !== "string" || !runtimeBundle.trim()) throw new Error("Compilation returned no runtime bundle.");
+            if (typeof runtimeBundle !== "string" || !runtimeBundle.trim()) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error("Compilation returned no runtime bundle.");
+            }
             const artifactIndex = content.findIndex(file => file.path === artifactPath);
             if (artifactIndex >= 0) content[artifactIndex] = {path: artifactPath, content: runtimeBundle};
             else content.push({path: artifactPath, content: runtimeBundle});
@@ -334,8 +316,8 @@ const CodeDeployActions = ({
                         <div className={styles["renderOnLoadSectionTitle"]}>
                             <span>Render On Load (Optional)</span>
                             <Button
-                                minimal={true}
-                                small={true}
+                                variant="minimal"
+                                size="small"
                                 icon="help"
                                 aria-label="Render On Load guide"
                                 onClick={(event) => {
@@ -499,7 +481,9 @@ const CodeDeployActions = ({
             >
             </SidebarSection>
             <Button fill={true} text="Live UI editor" intent="warning" icon="style" endIcon="share"
-                    onClick={() => window.electron.system.openLiveUiWindow({})}/>
+                    loading={liveUi.opening} disabled={treeLoading || isLoadingSwitch}
+                    onClick={liveUi.open}/>
+            {liveUi.error && <p role="alert">{liveUi.error}</p>}
             <Alert
                 cancelButtonText="Cancel"
                 canEscapeKeyCancel={true}

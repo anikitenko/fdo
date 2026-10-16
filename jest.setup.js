@@ -1,5 +1,6 @@
 const path = require('path');
 const { TextDecoder, TextEncoder } = require('util');
+const webStreams = require('node:stream/web');
 
 // Ensure the working directory is set to the project root
 process.chdir(path.resolve(__dirname));
@@ -13,6 +14,10 @@ if (typeof globalThis.TextEncoder !== 'function') {
 }
 if (typeof globalThis.TextDecoder !== 'function') {
   globalThis.TextDecoder = TextDecoder;
+}
+// jsdom does not supply the Web Streams used by the main-process MCP client.
+for (const name of ['ReadableStream', 'WritableStream', 'TransformStream']) {
+  if (typeof globalThis[name] !== 'function') globalThis[name] = webStreams[name];
 }
 
 // Node suites keep native globals; jsdom supplies renderer globals.

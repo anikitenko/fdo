@@ -4,6 +4,7 @@ const configuredWorkers = Number(process.env.PW_WORKERS || process.env.PLAYWRIGH
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
 const config = {
   testDir: 'tests/e2e',
+  forbidOnly: isCI,
   workers: Number.isFinite(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 2,
   retries: isCI ? 1 : 0,
   timeout: 60_000,

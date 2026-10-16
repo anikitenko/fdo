@@ -1,4 +1,4 @@
-import {safeLoad, JSON_SCHEMA} from 'js-yaml';
+import {load, JSON_SCHEMA} from 'js-yaml';
 
 export const MAX_CODEX_SKILLS = 50;
 export const MAX_CODEX_SKILL_CHARACTERS = 16000;
@@ -11,7 +11,7 @@ export function parseCodexSkill(content) {
     const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n([\s\S]+)$/.exec(content);
     if (!match) throw new Error('SKILL.md needs YAML front matter with name and description, followed by instructions.');
     let metadata;
-    try {metadata = safeLoad(match[1], {schema: JSON_SCHEMA});}
+    try {metadata = load(match[1], {schema: JSON_SCHEMA});}
     catch {throw new Error('SKILL.md has invalid YAML front matter.');}
     if (!metadata || typeof metadata.name !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.name) || metadata.name.length > 64) {
         throw new Error('The skill name must use lowercase letters, numbers, and single hyphens (at most 64 characters).');

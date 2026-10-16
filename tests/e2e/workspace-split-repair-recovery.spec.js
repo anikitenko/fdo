@@ -4,7 +4,7 @@ const {replies, repaired} = require('../fixtures/ai/workspace-repair-after-split
 
 for (const provider of ['openrouter', 'cloudflare']) {
     test(`${provider} repairs a parent export mismatch after its helpers complete`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '8'}});
         try {
             const page = await app.firstWindow();
@@ -47,8 +47,8 @@ for (const provider of ['openrouter', 'cloudflare']) {
                     ...(provider === 'cloudflare' ? {accountId: 'a'.repeat(32)} : {}),
                     apiKey: 'test-only-token', defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Split recovery');
-                return window.electron.aiCodingAgent.planCode({requestId: 'split-recovery', assistantId: assistant.id,
-                    prompt: 'Generate a dashboard with shared rendering modules.', workspaceFiles: []});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'split-recovery', assistantId: assistant.id,
+                    prompt: 'Generate a dashboard with shared rendering modules.', workspaceFiles: []}));
             }, provider);
             expect(result.success, result.error).toBe(true);
             expect(result.content.match(/### File:/g)).toHaveLength(3);
