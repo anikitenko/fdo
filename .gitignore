@@ -2,6 +2,7 @@
 dist/
 release/
 vendor/
+artifacts/
 
 # Logs
 logs

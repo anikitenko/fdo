@@ -64,6 +64,10 @@ module.exports = {
         new webpack.IgnorePlugin({resourceRegExp: /^(bufferutil|utf-8-validate)$/, contextRegExp: /node_modules[/\\]ws[/\\]/}),
         new CopyWebpackPlugin({
             patterns: [
+                {from: 'src/utils/persistence/notificationWorker.cjs', to: 'notificationWorker.cjs'},
+                {from: 'src/utils/persistence/notificationDatabase.cjs', to: 'notificationDatabase.cjs'},
+                {from: 'src/utils/persistence/chatWorker.cjs', to: 'chatWorker.cjs'},
+                {from: 'src/utils/persistence/chatDatabase.cjs', to: 'chatDatabase.cjs'},
                 // Keep the SDK's lazy local-runtime chunks intact, together with
                 // its platform helpers and direct runtime dependencies.
                 ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client'].map(name => ({

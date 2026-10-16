@@ -1,5 +1,6 @@
 // src/main/ai/model_capabilities/index.js
 import fs from "fs/promises";
+import {createHash} from "node:crypto";
 import path from "path";
 import { app } from "electron";
 import { STATIC_MODEL_CAPABILITIES } from "./static_map.js";
@@ -7,11 +8,17 @@ import { fetchOpenAICapabilities } from "./fetchers/openai_fetcher.js";
 import { fetchAnthropicCapabilities } from "./fetchers/anthropic_fetcher.js";
 import {inspectGeminiModel} from "../../../utils/ai/providers/geminiProvider.cjs";
 
-const CACHE_FILE = path.join(app.getPath("userData"), "ai_model_cache.json");
+// Electron may apply a custom userData directory after imports have loaded.
+// Resolve the profile path on first use, once startup configuration is in place.
+let cacheFile;
+const getCacheFile = () => cacheFile || (cacheFile = path.join(app.getPath("userData"), "ai_model_cache.json"));
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
 let cache = {};
 let lastUpdated = 0;
+let cacheRead;
+let cacheWrite = Promise.resolve();
+const refreshes = new Map();
 
 function summarizeAssistantForLogs(assistantInfo) {
     if (!assistantInfo) return null;
@@ -35,9 +42,20 @@ export async function getModelCapabilities(modelName, assistantInfo) {
     await readCache();
     const now = Date.now();
     const stale = now - lastUpdated > MAX_CACHE_AGE_MS;
-    if (stale || (["gemini", "anthropic"].includes(assistantInfo?.provider) && !cache[modelName])) {
-        console.log("[capabilities] Cache stale — refreshing…");
-        await refreshCapabilities(assistantInfo);
+    const canRefresh = assistantInfo?.apiKey && ["openai", "gemini", "anthropic"].includes(assistantInfo.provider);
+    if (canRefresh && (stale || (["gemini", "anthropic"].includes(assistantInfo.provider) && !cache[modelName]))) {
+        // Share only compatible inspections. Credentials never enter persisted
+        // cache metadata, and in-flight keys are removed as soon as work settles.
+        const key = createHash('sha256').update(JSON.stringify([
+            assistantInfo.provider, assistantInfo.provider === 'gemini' ? assistantInfo.model : null,
+            assistantInfo.apiKey, assistantInfo.baseUrl,
+        ])).digest('hex');
+        if (!refreshes.has(key)) {
+            console.log("[capabilities] Cache stale — refreshing…");
+            const refresh = refreshCapabilities(assistantInfo).finally(() => refreshes.delete(key));
+            refreshes.set(key, refresh);
+        }
+        await refreshes.get(key);
     }
 
     const merged = { ...STATIC_MODEL_CAPABILITIES, ...cache };
@@ -57,7 +75,7 @@ export async function getModelCapabilities(modelName, assistantInfo) {
 
 export function getCacheInfo() {
     return {
-        filePath: CACHE_FILE,
+        filePath: getCacheFile(),
         updatedAt: lastUpdated,
         stale: Date.now() - lastUpdated > MAX_CACHE_AGE_MS,
     };
@@ -66,37 +84,41 @@ export function getCacheInfo() {
 // -----------------------------------------------------------------------------
 // Internals
 // -----------------------------------------------------------------------------
-async function readCache() {
-    try {
-        const raw = await fs.readFile(CACHE_FILE, "utf8");
-        const parsed = JSON.parse(raw);
-        cache = parsed.data || {};
-        lastUpdated = parsed.updatedAt || 0;
-    } catch {
-        cache = {};
-        lastUpdated = 0;
-    }
+function readCache() {
+    // This main-process module owns the file. Hydrate once, sharing the initial
+    // read with concurrent callers; subsequent freshness checks use memory.
+    if (!cacheRead) cacheRead = (async () => {
+        try {
+            const parsed = JSON.parse(await fs.readFile(getCacheFile(), "utf8"));
+            cache = parsed.data || {};
+            lastUpdated = parsed.updatedAt || 0;
+        } catch {
+            cache = {};
+            lastUpdated = 0;
+        }
+    })();
+    return cacheRead;
 }
 
 async function refreshCapabilities(assistantInfo) {
-    const all = { ...STATIC_MODEL_CAPABILITIES, ...cache };
+    const updates = {};
 
     try {
         if (assistantInfo?.provider === "openai" && assistantInfo.apiKey) {
             console.log("[capabilities] Refreshing OpenAI capabilities for assistant", summarizeAssistantForLogs(assistantInfo));
             const models = await fetchOpenAICapabilities(assistantInfo.apiKey);
-            for (const m of models) all[m.id] = m;
+            for (const m of models) updates[m.id] = m;
         }
         if (assistantInfo?.provider === "gemini" && assistantInfo.apiKey) {
             const model = await inspectGeminiModel(assistantInfo);
-            all[assistantInfo.model] = {id: assistantInfo.model, provider: "gemini", api: "interactions", streaming: true, tools: true,
+            updates[assistantInfo.model] = {id: assistantInfo.model, provider: "gemini", api: "interactions", streaming: true, tools: true,
                 supportsThinking: true, supportsTemperature: false, maxTokens: model.inputTokenLimit || 32768,
                 maxOutputTokens: model.outputTokenLimit || 8192};
         }
         if (assistantInfo?.provider === "anthropic" && assistantInfo.apiKey) {
             console.log("[capabilities] Refreshing Anthropic capabilities for assistant", summarizeAssistantForLogs(assistantInfo));
             const models = await fetchAnthropicCapabilities(assistantInfo.apiKey);
-            for (const m of models) all[m.id] = m;
+            for (const m of models) updates[m.id] = m;
         }
     } catch (err) {
         console.warn("[capabilities] Live fetch failed:", {
@@ -105,14 +127,19 @@ async function refreshCapabilities(assistantInfo) {
         });
     }
 
-    cache = all;
+    // Merge after the network wait so another provider's completed refresh
+    // cannot be overwritten by a snapshot taken before this one started.
+    cache = { ...STATIC_MODEL_CAPABILITIES, ...cache, ...updates };
     lastUpdated = Date.now();
 
     try {
-        await fs.writeFile(
-            CACHE_FILE,
+        // Serialize writes and capture the latest state when each write starts.
+        // A failed disk write must not prevent later refreshes from persisting.
+        cacheWrite = cacheWrite.catch(() => {}).then(() => fs.writeFile(
+            getCacheFile(),
             JSON.stringify({ updatedAt: lastUpdated, data: cache }, null, 2)
-        );
+        ));
+        await cacheWrite;
     } catch (err) {
         console.warn("[capabilities] Failed to write cache:", err.message);
     }

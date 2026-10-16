@@ -10,6 +10,8 @@ const sidebarIcon = item => item.id === 'system-ai-chat'
     ? <FdoAiMark size={20} ambient/>
     : <Icon icon={sanitizeBlueprintIcon(item.icon, "dot")} size={20}/>;
 
+const sidebarLabel = item => item.pluginName ? `${item.name} · ${item.pluginName}` : item.name;
+
 export const SideBar = ({position, menuItems, click, activeItemId = "", topOffset = 50}) => {
     const [visibleItems, setVisibleItems] = useState(0);
     const [hiddenItems, setHiddenItems] = useState([]);
@@ -69,7 +71,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                 position={position === "left" ? "right" : "left"}
                                 disabled={item.disabled}
                             >
-                                <Tooltip content={item.name}>
+                                <Tooltip content={sidebarLabel(item)}>
                                     <div className={classNames(styles["menu-item"], item.id === activeItemId && styles["menu-item-active"])}
                                          data-plugin-sidebar-item={item.id} data-plugin-active={item.id === activeItemId ? "true" : "false"}>
                                         <Button className={styles["icon-button"]} variant={"minimal"} size={"large"} aria-label={item.name || item.icon} disabled={item.disabled} loading={item.loading} aria-pressed={item.id === activeItemId}>
@@ -113,7 +115,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                                 ) : <div/>}
                                 disabled={item.disabled || !Array.isArray(item.popupActions) || item.popupActions.length === 0}
                             >
-                                <Tooltip content={item.tooltip || (item.id === activeItemId ? `${item.name} (active)` : item.name)}>
+                                <Tooltip content={item.tooltip || (item.id === activeItemId ? `${sidebarLabel(item)} (active)` : sidebarLabel(item))}>
                                     <div
                                         className={classNames(
                                             styles["menu-item"],
@@ -158,7 +160,7 @@ export const SideBar = ({position, menuItems, click, activeItemId = "", topOffse
                         content={
                             <Menu>
                                 {hiddenItems.map((item, index) => (
-                                    <MenuItem key={index + 1} icon={item.id === 'system-ai-chat' ? sidebarIcon(item) : sanitizeBlueprintIcon(item.icon, "dot")} text={item.name}
+                                    <MenuItem key={index + 1} icon={item.id === 'system-ai-chat' ? sidebarIcon(item) : sanitizeBlueprintIcon(item.icon, "dot")} text={item.name} label={item.pluginName}
                                               onClick={item.submenu_list?.length ? undefined : () => click(item.id)} disabled={item.disabled || item.loading}>
                                         {item.submenu_list?.map(subItem => <MenuItem key={subItem.id} text={subItem.name} disabled={item.disabled || subItem.disabled}
                                             onClick={() => click(item.id, subItem.id)}/>)}

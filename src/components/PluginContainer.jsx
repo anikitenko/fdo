@@ -1,4 +1,5 @@
-import {rewritePluginHostHtml} from './plugin/utils/pluginHostHtml';
+import {subscribePluginEvent} from '../utils/plugins/runtime/subscribePluginEvent';
+import {loadPluginHostDocument} from './plugin/utils/loadPluginHostDocument';
 import {samePluginRenderContent} from './plugin/utils/pluginRenderContent';
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import PropTypes from "prop-types";
@@ -167,14 +168,12 @@ export const PluginContainer = ({
     const lastPostedRenderSignatureRef = useRef(null);
     const lastIncomingRenderSignatureRef = useRef(null);
     const lastIncomingRenderAtRef = useRef(0);
-    const renderPostedAtRef = useRef(0);
-    const renderMountedAtRef = useRef(0);
     const lastCapabilityDeniedDigestRef = useRef("");
     const helloRecoveryAttemptsRef = useRef(0);
     const layoutRecoveryAttemptsRef = useRef(0);
     const stageRecoveryAttemptsRef = useRef(0);
 
-    const [hostDocument, setHostDocument] = useState("");
+    const [hostDocument, setHostDocument] = useState(null);
     const [hostError, setHostError] = useState("");
     const [debugStage, setDebugStage] = useState("mounting");
     const [renderAttempt, setRenderAttempt] = useState(0);
@@ -193,6 +192,8 @@ export const PluginContainer = ({
             .filter((value) => typeof value === "string" && value.trim())
             .map((value) => value.trim())
     )].sort());
+    const hostDocumentKey = JSON.stringify([plugin, capabilitiesKey, renderAttempt]);
+    const currentHostDocument = hostDocument?.key === hostDocumentKey ? hostDocument.html : "";
     const normalizedCapabilities = useMemo(() => JSON.parse(capabilitiesKey), [capabilitiesKey]);
 
     const showPluginStageDebug = (
@@ -222,6 +223,9 @@ export const PluginContainer = ({
         : (statusLabelByStage[stageToken] || "Loading plugin UI");
 
     const handleRetry = () => {
+        helloRecoveryAttemptsRef.current = 0;
+        layoutRecoveryAttemptsRef.current = 0;
+        stageRecoveryAttemptsRef.current = 0;
         setShowRecovery(false);
         setHostError("");
         setDebugStage("retrying-plugin-render");
@@ -326,6 +330,12 @@ export const PluginContainer = ({
     }, [content]);
 
     useEffect(() => {
+        helloRecoveryAttemptsRef.current = 0;
+        layoutRecoveryAttemptsRef.current = 0;
+        stageRecoveryAttemptsRef.current = 0;
+    }, [plugin, capabilitiesKey]);
+
+    useEffect(() => {
         setIframeLoaded(false);
         setIframeHello(false);
         setIframeLayoutReady(false);
@@ -338,18 +348,12 @@ export const PluginContainer = ({
         lastPostedRenderSignatureRef.current = null;
         lastIncomingRenderSignatureRef.current = null;
         lastIncomingRenderAtRef.current = 0;
-        renderPostedAtRef.current = 0;
-        renderMountedAtRef.current = 0;
-        helloRecoveryAttemptsRef.current = 0;
-        layoutRecoveryAttemptsRef.current = 0;
-        stageRecoveryAttemptsRef.current = 0;
         let cancelled = false;
 
-        window.fetch("static://host/plugin_host.html")
-            .then((response) => response.text())
+        loadPluginHostDocument()
             .then((html) => {
                 if (cancelled) return;
-                setHostDocument(injectPluginCapabilityMetadata(rewritePluginHostHtml(html), normalizedCapabilities));
+                setHostDocument({key: hostDocumentKey, html: injectPluginCapabilityMetadata(html, normalizedCapabilities)});
                 setDebugStage("host-document-loaded");
             })
             .catch((error) => {
@@ -361,7 +365,7 @@ export const PluginContainer = ({
         return () => {
             cancelled = true;
         };
-    }, [normalizedCapabilities, plugin, renderAttempt]);
+    }, [normalizedCapabilities, plugin, renderAttempt, hostDocumentKey]);
 
     useEffect(() => {
         let cancelled = false;
@@ -417,6 +421,7 @@ export const PluginContainer = ({
                     requestedInitRef.current = true;
                     setDebugStage("requesting-plugin-init");
                     const initResult = await window.electron.plugin.init(plugin);
+                    if (cancelled) return;
                     if (initResult?.success === false) {
                         if (String(initResult?.code || "").trim() === "HANDSHAKE_API_INCOMPATIBLE") {
                             setHostError(String(
@@ -482,12 +487,11 @@ export const PluginContainer = ({
             setContent(normalizedContent);
         };
 
-        window.electron.plugin.off.render(handlePluginRender);
-        window.electron.plugin.on.render(handlePluginRender);
+        const unsubscribeRender = subscribePluginEvent("render", handlePluginRender);
 
         if (!pluginCanRender) {
             return () => {
-                window.electron.plugin.off.render(handlePluginRender);
+                unsubscribeRender();
             };
         }
 
@@ -548,7 +552,7 @@ export const PluginContainer = ({
             if (scheduledRetryTimer) {
                 window.clearTimeout(scheduledRetryTimer);
             }
-            window.electron.plugin.off.render(handlePluginRender);
+            unsubscribeRender();
         };
     }, [plugin, pluginCanRender, renderAttempt]);
 
@@ -568,7 +572,6 @@ export const PluginContainer = ({
                 // contentWindow survives a srcdoc navigation. A new document
                 // needs the render payload even when its content is unchanged.
                 lastPostedRenderSignatureRef.current = null;
-                renderMountedAtRef.current = 0;
                 setIframeMounted(false);
                 setIframeLayoutReady(false);
                 setIframeDocumentVersion((version) => version + 1);
@@ -592,9 +595,10 @@ export const PluginContainer = ({
             }
 
             if (event.data.type === "PLUGIN_STAGE" && typeof event.data.stage === "string") {
-                if (event.data.stage === "iframe-dom-after-mount") {
+                if (event.data.stage === "iframe-component-mounted" || event.data.stage === "iframe-dom-after-mount") {
                     setIframeMounted(true);
-                    renderMountedAtRef.current = Date.now();
+                }
+                if (event.data.stage === "iframe-dom-after-mount") {
                     if (layoutRecoveryAttemptsRef.current > 0 || stageRecoveryAttemptsRef.current > 0) {
                         emitIframeMetric("plugin_iframe_recovery_success", plugin, {
                             layoutRecoveries: layoutRecoveryAttemptsRef.current,
@@ -720,10 +724,10 @@ export const PluginContainer = ({
             }
         };
 
-        window.electron.plugin.on.uiMessage(handlePluginUiMessage);
+        const unsubscribeUiMessage = subscribePluginEvent("uiMessage", handlePluginUiMessage);
         window.addEventListener("message", handlePluginMessages);
         return () => {
-            window.electron.plugin.off.uiMessage(handlePluginUiMessage);
+            unsubscribeUiMessage();
             window.removeEventListener("message", handlePluginMessages);
         };
     }, [plugin, renderAttempt]);
@@ -745,8 +749,7 @@ export const PluginContainer = ({
             return;
         }
         lastPostedRenderSignatureRef.current = signature;
-        renderPostedAtRef.current = Date.now();
-        renderMountedAtRef.current = 0;
+        setIframeMounted(false);
         setDebugStage("posting-render");
         iframeRef.current?.contentWindow?.postMessage({
             type: "PLUGIN_RENDER",
@@ -800,24 +803,21 @@ export const PluginContainer = ({
     }, [hostError, iframeLoaded, iframeHello, iframeLayoutReady, plugin]);
 
     useEffect(() => {
-        if (hostError || !iframeLoaded || !iframeReady || !content?.render) {
+        if (hostError || !iframeLoaded || !iframeReady || !content?.render || iframeMounted) {
             return;
         }
         const timer = window.setTimeout(() => {
-            if (renderMountedAtRef.current > renderPostedAtRef.current) {
-                return;
-            }
             if (stageRecoveryAttemptsRef.current >= 1) {
                 setHostError("The plugin failed to load. You might find more details in the notification panel.");
-                emitIframeMetric("plugin_iframe_terminal_failure", plugin, {reason: "dom_after_mount_missing"});
+                emitIframeMetric("plugin_iframe_terminal_failure", plugin, {reason: "component_mount_missing"});
                 return;
             }
             stageRecoveryAttemptsRef.current += 1;
-            emitIframeMetric("plugin_iframe_recovery_attempt", plugin, {reason: "dom_after_mount_missing"});
+            emitIframeMetric("plugin_iframe_recovery_attempt", plugin, {reason: "component_mount_missing"});
             setRenderAttempt((prev) => prev + 1);
-        }, 2200);
+        }, 5000);
         return () => window.clearTimeout(timer);
-    }, [hostError, iframeLoaded, iframeReady, iframeDocumentVersion, content, plugin]);
+    }, [hostError, iframeLoaded, iframeReady, iframeDocumentVersion, content, plugin, iframeMounted]);
 
     useEffect(() => {
         if (hostError || content?.render || iframeMounted) {
@@ -834,7 +834,7 @@ export const PluginContainer = ({
 
     const shouldShowLoadingOverlay = active && (
         Boolean(hostError)
-        || !hostDocument
+        || !currentHostDocument
         || !iframeLoaded
         || (!content?.render && !iframeMounted && !iframeReady)
     );
@@ -911,10 +911,13 @@ export const PluginContainer = ({
                 data-plugin-id={plugin}
                 data-plugin-active={active ? "true" : "false"}
                 aria-hidden={!active}
-                srcDoc={hostDocument}
+                srcDoc={currentHostDocument || undefined}
                 sandbox={iframeSandbox}
                 referrerPolicy="no-referrer"
                 onLoad={() => {
+                    // about:blank may load while the trusted host HTML is still
+                    // being fetched. It has no plugin handshake to wait for.
+                    if (!currentHostDocument) return;
                     setIframeLoaded(true);
                     setDebugStage("iframe-loaded");
                 }}

@@ -15,23 +15,23 @@ export function registerNotificationHandlers() {
         });
     });
 
-    ipcMain.handle(NotificationChannels.MARK_AS_READ, (event, id) => {
-        NotificationCenter.markAsRead(id);
+    ipcMain.handle(NotificationChannels.MARK_AS_READ, async (event, id) => {
+        await NotificationCenter.markAsRead(id);
         return { success: true };
     });
 
-    ipcMain.handle(NotificationChannels.MARK_ALL_AS_READ, () => {
-        NotificationCenter.markAllAsRead();
+    ipcMain.handle(NotificationChannels.MARK_ALL_AS_READ, async () => {
+        await NotificationCenter.markAllAsRead();
         return { success: true };
     });
 
-    ipcMain.handle(NotificationChannels.REMOVE, (event, id) => {
-        NotificationCenter.deleteNotification(id);
+    ipcMain.handle(NotificationChannels.REMOVE, async (event, id) => {
+        await NotificationCenter.deleteNotification(id);
         return { success: true };
     });
 
-    ipcMain.handle(NotificationChannels.REMOVE_ALL, () => {
-        NotificationCenter.deleteAllNotifications();
+    ipcMain.handle(NotificationChannels.REMOVE_ALL, async () => {
+        await NotificationCenter.deleteAllNotifications();
         return { success: true };
     });
 }

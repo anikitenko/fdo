@@ -2,6 +2,7 @@ import {withUsageContext, currentTurnUsage} from "../../utils/ai/billing/ledger"
 import {ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
 import {settings} from "../../utils/persistence/store";
+import {chatStorage, initializeChatStorage} from "../../utils/persistence/chatStorage";
 import {
     compressSessionMessages,
     createLlmInstance,
@@ -9,33 +10,12 @@ import {
     handleStreamingResponse,
     normalizeSessionStats,
     persistClarificationResponse,
-    prepareSessionMessage, saveSessionsDebounced,
+    prepareSessionMessage, saveChatSession,
     selectAssistant, withSessionLock
 } from "./ai_chat_core";
 import {getModelCapabilities} from "./model_capabilities";
 import {detectAttachmentType} from "./utils/detectAttachmentType";
 import { createAiObservabilityTrace, getObservabilityPromptVersion } from "./observability.js";
-
-function isEmptyDraftSession(session) {
-    return Array.isArray(session?.messages) && session.messages.length === 0;
-}
-
-function compareSessionRecency(a, b) {
-    const aTime = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
-    const bTime = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
-    return bTime - aTime;
-}
-
-function normalizeEmptyDraftSessions(sessions) {
-    const ordered = (sessions || []).slice().sort(compareSessionRecency);
-    let keptEmptyDraft = false;
-    return ordered.filter((session) => {
-        if (!isEmptyDraftSession(session)) return true;
-        if (keptEmptyDraft) return false;
-        keptEmptyDraft = true;
-        return true;
-    });
-}
 
 function buildNewSession(name) {
     const now = new Date().toISOString();
@@ -72,53 +52,29 @@ function buildNewSession(name) {
 }
 
 export function registerAiChatHandlers() {
+    initializeChatStorage().catch(error => console.error('Chat history migration failed; original data retained:', error));
     ipcMain.handle(AiChatChannels.SESSIONS_GET, async () => {
-        const sessions = normalizeEmptyDraftSessions((settings.get('ai.sessions', []) || []).slice());
-        const normalizedSessions = await Promise.all(
-            sessions.map((session) => normalizeSessionStats(session))
-        );
-        settings.set('ai.sessions', normalizedSessions);
-        return normalizedSessions;
-    })
+        const sessions = await chatStorage.list();
+        return Promise.all(sessions.map(session => normalizeSessionStats(session)));
+    });
+
+    ipcMain.handle(AiChatChannels.SESSIONS_LIST, () => chatStorage.summaries());
+
+    ipcMain.handle(AiChatChannels.SESSION_GET, async (_, sessionId) => {
+        if (typeof sessionId !== 'string' || !sessionId) return null;
+        return normalizeSessionStats(await chatStorage.get(sessionId));
+    });
 
     ipcMain.handle(AiChatChannels.SESSION_CREATE, async (_, name) => {
         const requestedName = (name || 'New Chat').trim() || 'New Chat';
-        const sessions = normalizeEmptyDraftSessions((settings.get('ai.sessions', []) || []).slice());
-        const existingEmpty = sessions.find((session) => isEmptyDraftSession(session));
-
-        if (existingEmpty) {
-            const now = new Date().toISOString();
-            const reused = {
-                ...existingEmpty,
-                name: requestedName,
-                updatedAt: now,
-            };
-            const nextSessions = [reused, ...sessions.filter((session) => session.id !== reused.id)];
-            settings.set('ai.sessions', nextSessions);
-            return reused;
-        }
-
-        const session = buildNewSession(requestedName);
-        sessions.unshift(session);
-        settings.set('ai.sessions', sessions);
-        return session;
-    })
+        return chatStorage.create(buildNewSession(requestedName));
+    });
 
     ipcMain.handle(AiChatChannels.SESSION_RENAME, async (_, sessionId, name) => {
         const requestedName = (name || '').trim();
         if (!sessionId || !requestedName) return null;
-        const sessions = (settings.get('ai.sessions', []) || []).slice();
-        const idx = sessions.findIndex((session) => session.id === sessionId);
-        if (idx === -1) return null;
-        const updated = {
-            ...sessions[idx],
-            name: requestedName,
-            updatedAt: new Date().toISOString(),
-        };
-        sessions[idx] = updated;
-        settings.set('ai.sessions', sessions);
-        return updated;
-    })
+        return withSessionLock(sessionId, () => chatStorage.rename(sessionId, requestedName));
+    });
 
     ipcMain.handle(AiChatChannels.GET_PREFERENCES, async () => {
         return settings.get("ai.options.chatDialog", {}) || {};
@@ -281,7 +237,7 @@ export function registerAiChatHandlers() {
                 session.messages.push(assistantMsg);
                 session.updatedAt = new Date().toISOString();
                 sessions[idx] = session;
-                saveSessionsDebounced(sessions, true);
+                await saveChatSession(sessions[idx]);
                 await trace.fail(e, {
                     route: session.routing?.activeRoute || "general",
                     scope: session.routing?.activeScope || "general",

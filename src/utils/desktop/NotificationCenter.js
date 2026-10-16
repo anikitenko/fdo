@@ -1,72 +1,44 @@
-import {settings} from '../persistence/store';
 import {v4 as uuidv4} from 'uuid';
-import {NotificationChannels} from "../../ipc/channels";
-import {webContents} from "electron";
+import {NotificationChannels} from '../../ipc/channels';
+import {webContents} from 'electron';
+import {notificationStorage} from '../persistence/notificationStorage';
 
-function broadcastNotifications() {
-    const all = NotificationCenter.getAllNotifications();
-    webContents.getAllWebContents().forEach((wc) => {
-        wc.send(NotificationChannels.on_off.UPDATED, all);
-    });
+function observe(promise) {
+    // Lifecycle emitters can fire and forget; IPC callers still receive errors.
+    promise.catch(error => console.error('Notification persistence failed:', error));
+    return promise;
+}
+
+function mutate(operation, value) {
+    return observe(notificationStorage(operation, value).then(result => {
+        if (result.changed) {
+            for (const wc of webContents.getAllWebContents()) {
+                if (wc.isDestroyed()) continue;
+                try { wc.send(NotificationChannels.on_off.UPDATED, result.notifications); }
+                catch (error) {
+                    // A closing window must not turn a committed write into an
+                    // apparent persistence failure or prevent other deliveries.
+                    if (!wc.isDestroyed()) console.error('Notification delivery failed:', error);
+                }
+            }
+        }
+        return result;
+    }));
 }
 
 export const NotificationCenter = {
-    getAllNotifications() {
-        return settings.get('notifications') || []
-    },
-
-    addNotification({ title, message = '', type = '' }) {
+    getAllNotifications() { return notificationStorage('all'); },
+    addNotification({title, message = '', type = ''}) {
         const now = new Date().toISOString();
-        const notification = {
-            id: uuidv4(),
-            title,
-            message,
-            type,
-            read: false,
-            createdAt: now,
-            updatedAt: now
-        };
-
-        const notifications = NotificationCenter.getAllNotifications();
-        notifications.push(notification);
-        settings.set('notifications', notifications);
-
-        broadcastNotifications()
-
-        return notification;
+        const notification = {id: uuidv4(), title: String(title), message: String(message), type: type === 'info' ? 'primary' : type,
+            read: false, createdAt: now, updatedAt: now};
+        const result = mutate('add', notification).then(() => notification);
+        // mutate already reports the error; observe the derived promise too.
+        result.catch(() => {});
+        return result;
     },
-
-    markAsRead(notificationId) {
-        const notifications = NotificationCenter.getAllNotifications().map(n =>
-            n.id === notificationId
-                ? { ...n, read: true, updatedAt: new Date().toISOString() }
-                : n
-        );
-        settings.set('notifications', notifications);
-
-        broadcastNotifications()
-    },
-
-    markAllAsRead() {
-        const now = new Date().toISOString();
-        const notifications = NotificationCenter.getAllNotifications().map(n =>
-            n.read ? n : { ...n, read: true, updatedAt: now }
-        );
-        settings.set('notifications', notifications);
-
-        broadcastNotifications()
-    },
-
-    deleteNotification(notificationId) {
-        const filtered = NotificationCenter.getAllNotifications().filter(n => n.id !== notificationId);
-        settings.set('notifications', filtered);
-
-        broadcastNotifications()
-    },
-
-    deleteAllNotifications() {
-        settings.set('notifications', []);
-
-        broadcastNotifications()
-    }
+    markAsRead(id) { return mutate('read', id); },
+    markAllAsRead() { return mutate('readAll'); },
+    deleteNotification(id) { return mutate('delete', id); },
+    deleteAllNotifications() { return mutate('deleteAll'); },
 };

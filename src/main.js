@@ -21,6 +21,8 @@ import {registerSystemHandlers} from "./ipc/system";
 import {buildUsingEsbuild, registerPluginHandlers} from "./ipc/plugin";
 import {interruptAllCodexAuthProcesses, registerSettingsHandlers} from "./ipc/settings";
 import {NotificationCenter} from "./utils/desktop/NotificationCenter";
+import {closeNotificationStorage} from './utils/persistence/notificationStorage';
+import {closeChatStorage} from './utils/persistence/chatStorage';
 import {readFile} from "node:fs/promises";
 
 import mime from 'mime';
@@ -996,6 +998,8 @@ app.on('window-all-closed', () => {
     }
 });
 
+let storageDrained = false;
+let storageDrainStarted = false;
 app.on('before-quit', () => {
     pluginTray.dispose();
     isAppShuttingDown = true;
@@ -1003,6 +1007,17 @@ app.on('before-quit', () => {
     interruptAllCodexAuthProcesses();
 });
 
-app.on("will-quit", () => {
+app.on("will-quit", (event) => {
     recordE2EWindowLifecycle("app-will-quit");
+    // Windows can cancel quitting (for example, an unsaved editor). Keep the
+    // stores usable until every window has accepted closing.
+    if (!storageDrained) {
+        event.preventDefault();
+        if (storageDrainStarted) return;
+        storageDrainStarted = true;
+        Promise.allSettled([closeNotificationStorage(), closeChatStorage()]).then(results => {
+            for (const result of results) if (result.status === 'rejected') console.error('Storage shutdown failed:', result.reason);
+        })
+            .finally(() => { storageDrained = true; app.quit(); });
+    }
 });

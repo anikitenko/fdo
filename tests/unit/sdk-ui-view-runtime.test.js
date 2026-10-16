@@ -121,3 +121,30 @@ test.each(['foreign','nested','unsupported'])('toast queue runtime rejects %s co
     if(mode==='nested') {const wrapper=document.createElement('div');wrapper.setAttribute('data-fdo-component','custom');toast.before(wrapper);wrapper.append(toast);}
     view.bindMarkupOpeners();expect(ui.mountToastRegion).not.toHaveBeenCalled();expect(target.console.error).toHaveBeenCalledTimes(1);
 });
+
+test('large toast queues scan identities once while preserving each button target',()=>{
+    const {root,target}=fixture();
+    root.innerHTML='<section id="notices" data-fdo-component="fdo.toast-region" data-fdo-component-version="1.0.0">'
+        + Array.from({length:100},(_,i)=>`<div id="toast-${i}" data-fdo-component="fdo.toast" data-fdo-component-version="1.0.0"></div>`).join('')+'</section>'
+        + Array.from({length:100},(_,i)=>`<button type="button" data-fdo-ui-toast-region="notices" data-fdo-ui-toast-id="toast-${i}" data-fdo-ui-toast-visible="1" data-fdo-ui-toast-queued="100" data-fdo-ui-toast-duration="0">Toast ${i}</button>`).join('');
+    const controller={enqueue:jest.fn(()=>true),getState:()=>({destroyed:false}),destroy:jest.fn()};
+    const ui={mountToastRegion:jest.fn(()=>controller)};
+    const query=jest.spyOn(root,'querySelectorAll');
+    const view=createSdkUiViewRuntime(ui,()=>root,target);
+    view.bindMarkupOpeners();
+    expect(query.mock.calls.filter(([selector])=>selector==='[id]')).toHaveLength(1);
+    expect(ui.mountToastRegion).toHaveBeenCalledTimes(1);
+    expect(target.console.error).not.toHaveBeenCalled();
+    const buttons=root.querySelectorAll('button');
+    buttons[0].click();buttons[99].click();
+    expect(controller.enqueue.mock.calls.map(([toast])=>toast.id)).toEqual(['toast-0','toast-99']);
+    view.dispose();
+});
+
+test('toast identity indexing still rejects duplicate targets before mounting',()=>{
+    const {root,ui,view,target}=toastQueueFixture();
+    root.append(root.querySelector('#toast').cloneNode(true));
+    view.bindMarkupOpeners();
+    expect(ui.mountToastRegion).not.toHaveBeenCalled();
+    expect(target.console.error).toHaveBeenCalledTimes(1);
+});

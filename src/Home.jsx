@@ -1,3 +1,4 @@
+import {subscribePluginEvent} from './utils/plugins/runtime/subscribePluginEvent';
 import React, {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react'
 import classNames from "classnames";
 import {
@@ -1264,6 +1265,7 @@ export const Home = () => {
                         }
                     });
                     if (selectedPluginRef.current === plugin.id) {
+                        selectedPluginRef.current = "";
                         setPlugin("")
                         setSelectedPluginStatusMessage("")
                         setSelectedPluginLifecycleStage("")
@@ -1294,6 +1296,7 @@ export const Home = () => {
             // Removing it early causes rapid re-open to issue a duplicate activate
             // while runtime is still alive, leading to unstable render lifecycle.
             if (selectedPluginRef.current === plugin.id) {
+                selectedPluginRef.current = "";
                 setPlugin("");
                 setSelectedPluginStatusMessage("");
                 setSelectedPluginLifecycleStage("");
@@ -1604,7 +1607,8 @@ export const Home = () => {
     }, [activePluginIdsKey, activePluginsLoadingKey]);
 
     useEffect(() => {
-        const activeIds = state.activePlugins.map((item) => item.id).filter(Boolean);
+        const activeIds = state.activePlugins.map((item) => item.id)
+            .filter(id => id && !pendingDeactivateTimersRef.current.has(id));
         if (activeIds.length === 0) {
             return;
         }
@@ -1764,7 +1768,7 @@ export const Home = () => {
                     activePlugins: [...prevState.activePlugins, pluginRecord],
                 };
             });
-            if (!selectedPluginRef.current) {
+            if (!selectedPluginRef.current && !pendingDeactivateTimersRef.current.has(pluginID)) {
                 handlePluginChange(pluginID);
             }
             markPluginReady(pluginID)
@@ -1775,7 +1779,7 @@ export const Home = () => {
             if (typeof id !== 'string' || !id) return;
             const {quickActions, sidePanelActions} = normalizePluginUiExtensions(response);
             markPluginInitComplete(id)
-            if (id && !selectedPluginRef.current) {
+            if (id && !selectedPluginRef.current && !pendingDeactivateTimersRef.current.has(id)) {
                 handlePluginChange(id);
             }
             const pluginSection = getPluginDisplayName(id);
@@ -2032,17 +2036,16 @@ export const Home = () => {
             }
         }
 
-        window.electron.plugin.on.ready(onPluginReady)
-        window.electron.plugin.on.init(onPluginInit)
-        window.electron.plugin.on.unloaded(onPluginUnloaded)
-        window.electron.plugin.on.deployFromEditor(onPluginLoaded)
+        const subscriptions = [
+            subscribePluginEvent('ready', onPluginReady),
+            subscribePluginEvent('init', onPluginInit),
+            subscribePluginEvent('unloaded', onPluginUnloaded),
+            subscribePluginEvent('deployFromEditor', onPluginLoaded),
+        ];
         restorePluginUiActions.current = onPluginInit;
         return () => {
             restorePluginUiActions.current = null;
-            window.electron.plugin.off.ready(onPluginReady)
-            window.electron.plugin.off.init(onPluginInit)
-            window.electron.plugin.off.deployFromEditor(onPluginLoaded)
-            window.electron.plugin.off.unloaded(onPluginUnloaded)
+            subscriptions.forEach(unsubscribe => unsubscribe());
         };
     }, [])
 
@@ -2650,8 +2653,12 @@ export const Home = () => {
             ...(pinOrder >= 0 ? {section: 'Pinned plugin actions', sectionPriorityKey: 'Pinned plugin actions', pinOrder,
                 subtitle: [action.section, action.subtitle].filter(Boolean).join(' · ')} : {})};
     });
-    const rightSidebarMenuItems = [...sideBarActionItems.filter(item => item.id.startsWith('system-')),
-        ...orderPluginUiItems(sideBarActionItems.filter(item => !item.id.startsWith('system-') &&
+    const pluginShortcutActions = searchActions.filter(action => action.source === 'plugin-init')
+        .map(action => ({...action, pluginName: getPluginDisplayName(action.pluginId)}));
+    const sidebarItemsWithOwners = sideBarActionItems.map(item => item.id.startsWith('system-')
+        ? item : {...item, pluginName: getPluginDisplayName(item.id)});
+    const rightSidebarMenuItems = [...sidebarItemsWithOwners.filter(item => item.id.startsWith('system-')),
+        ...orderPluginUiItems(sidebarItemsWithOwners.filter(item => !item.id.startsWith('system-') &&
             !shortcutPreferences.hiddenSidebarIds.includes(item.id)), shortcutPreferences.sidebarOrder)]
         .map(item => item.id.startsWith('system-') ? item : {...item, disabled: actionUnavailable(item.id),
             loading: busyUiPlugins.has(item.id), submenu_list: item.submenu_list?.map(action => ({...action, disabled: action.disabled || actionUnavailable(item.id)}))});
@@ -2671,7 +2678,7 @@ export const Home = () => {
         >
             <CommandBar show={showCommandSearch} actions={quickbarActions} setShow={setShowCommandSearch}/>
             <PluginShortcutsDialog isOpen={showPluginShortcuts} onClose={() => setShowPluginShortcuts(false)}
-                actions={searchActions.filter(action => action.source === 'plugin-init')} sidebarItems={sideBarActionItems}
+                actions={pluginShortcutActions} sidebarItems={sidebarItemsWithOwners}
                 preferences={shortcutPreferences} onChange={updateShortcutPreferences} storageError={shortcutStorageError}/>
             <div className={classNames("bp6-dark", styles["main-container"])} data-testid="fdo-main-container">
                 {state.activePlugins.length > 0 && (

@@ -78,11 +78,77 @@ describe("PluginContainer message hardening", () => {
         expect(iframe.srcdoc).toBe(hostDocument);
 
         rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network", "system.network.https"]} />);
-        await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(1));
         await waitFor(() => expect(iframe.srcdoc).toContain("system.network.https"));
         rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network.https", "system.network", "system.network"]} />);
         await act(async () => {});
-        expect(window.fetch).toHaveBeenCalledTimes(2);
+        expect(window.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    test("does not start handshake recovery for an empty frame while host HTML is loading", async () => {
+        jest.useFakeTimers();
+        let finish;
+        window.fetch = jest.fn(() => new Promise(resolve => {finish = resolve;}));
+        try {
+            const {container} = render(<PluginContainer plugin="example-plugin"/>);
+            await act(async () => {});
+            const iframe = container.querySelector('iframe');
+            fireEvent.load(iframe); // Browser's initial about:blank load.
+            await act(async () => {jest.advanceTimersByTime(3000);});
+            expect(container.querySelector('iframe')).toBe(iframe);
+            expect(window.fetch).toHaveBeenCalledTimes(1);
+            await act(async () => {finish({text: async () => '<main>Host</main>'});});
+            expect(iframe.srcdoc).toContain('<main>Host</main>');
+        } finally {jest.useRealTimers();}
+    });
+
+    test("a mounted component is not reloaded while its later styles/paint signal is delayed", async () => {
+        jest.useFakeTimers();
+        try {
+            const {container} = render(<PluginContainer plugin="example-plugin"/>);
+            await act(async () => {});
+            const iframe = container.querySelector('iframe');
+            const iframeWindow = {postMessage: jest.fn()};
+            Object.defineProperty(iframe, 'contentWindow', {configurable: true, value: iframeWindow});
+            fireEvent.load(iframe);
+            act(() => {
+                window.dispatchEvent(new MessageEvent('message', {source: iframeWindow, data: {type: 'PLUGIN_HELLO'}}));
+                window.dispatchEvent(new MessageEvent('message', {source: iframeWindow, data: {type: 'PLUGIN_LAYOUT_READY', layout: {
+                    docElRect: {width: 800, height: 600}, bodyRect: {width: 800, height: 600}, rootRect: {width: 800, height: 600},
+                }}}));
+                renderHandler({id: 'example-plugin', content: {html: '<h1>Mounted</h1>'}});
+            });
+            act(() => window.dispatchEvent(new MessageEvent('message', {source: iframeWindow,
+                data: {type: 'PLUGIN_STAGE', stage: 'iframe-component-mounted'}})));
+            await act(async () => {jest.advanceTimersByTime(6000);});
+            expect(container.querySelector('iframe')).toBe(iframe);
+            expect(screen.queryByText('Plugin UI failed to load')).not.toBeInTheDocument();
+            expect(iframeWindow.postMessage.mock.calls.filter(([message]) => message.type === 'PLUGIN_RENDER')).toHaveLength(1);
+        } finally {jest.useRealTimers();}
+    });
+
+    test("automatic handshake recovery stops after two retries and manual retry starts a new budget", async () => {
+        jest.useFakeTimers();
+        try {
+            const {container} = render(<PluginContainer plugin="example-plugin"/>);
+            await act(async () => {});
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const iframe = container.querySelector('iframe');
+                fireEvent.load(iframe);
+                await act(async () => {jest.advanceTimersByTime(2300);});
+                if (attempt < 2) expect(container.querySelector('iframe')).not.toBe(iframe);
+                else expect(container.querySelector('iframe')).toBe(iframe);
+            }
+            expect(screen.getByText('Plugin UI failed to load')).toBeInTheDocument();
+            expect(window.fetch).toHaveBeenCalledTimes(1);
+            fireEvent.click(screen.getByRole('button', {name: 'Reload plugin frame'}));
+            await act(async () => {});
+            expect(screen.queryByText('Plugin UI failed to load')).not.toBeInTheDocument();
+            const iframe = container.querySelector('iframe');
+            fireEvent.load(iframe);
+            await act(async () => {jest.advanceTimersByTime(2300);});
+            expect(container.querySelector('iframe')).not.toBe(iframe);
+        } finally {jest.useRealTimers();}
     });
 
     test("accepts external-link requests only from the mounted plugin iframe and only for http(s) URLs", async () => {
@@ -133,7 +199,7 @@ describe("PluginContainer message hardening", () => {
             expect(window.electron.plugin.render).toHaveBeenCalled();
         });
 
-        expect(window.fetch).toHaveBeenCalledWith("static://host/plugin_host.html");
+        expect(window.fetch).toHaveBeenCalledWith("static://host/plugin_host.html", {signal: expect.any(AbortSignal)});
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('src="static://host/plugin_host.test.js"');
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('name="fdo-plugin-capabilities"');
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('system.network.https');

@@ -477,7 +477,7 @@ function renderCodeSegment(segment, key) {
     );
 }
 
-export default function MarkdownRenderer({ skeleton, text, attachments, role }) {
+function MarkdownRenderer({ skeleton, text, attachments, role }) {
     const anchorPrefix = React.useId().replace(/:/g, "");
     const containerRef = React.useRef(null);
     const anchorCountsRef = React.useRef(new Map());
@@ -500,3 +500,7 @@ export default function MarkdownRenderer({ skeleton, text, attachments, role }) 
         </AnchorScopeContext.Provider>
     );
 }
+
+// Retain only the mounted message's latest view. Composer edits and other
+// messages' streamed tokens must not reparse unchanged Markdown histories.
+export default React.memo(MarkdownRenderer);

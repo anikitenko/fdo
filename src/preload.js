@@ -1,55 +1,8 @@
+import {createPluginEventRegistry} from './utils/plugins/runtime/pluginEventRegistry';
 import {contextBridge, ipcRenderer} from 'electron'
 import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels, LiveUiChannels} from "./ipc/channels";
 
-const pluginListenerWrappers = {
-    unloaded: new WeakMap(),
-    ready: new WeakMap(),
-    deployFromEditor: new WeakMap(),
-    deployProgress: new WeakMap(),
-    init: new WeakMap(),
-    render: new WeakMap(),
-    uiMessage: new WeakMap(),
-};
-const pluginListenerRegistry = {
-    unloaded: new Set(),
-    ready: new Set(),
-    deployFromEditor: new Set(),
-    deployProgress: new Set(),
-    init: new Set(),
-    render: new Set(),
-    uiMessage: new Set(),
-};
-
-function addPluginListener(key, channel, callback, projector = (value) => value) {
-    const existing = pluginListenerWrappers[key].get(callback);
-    if (existing) {
-        ipcRenderer.removeListener(channel, existing);
-        pluginListenerRegistry[key].delete(existing);
-    }
-    const wrapped = (_, payload) => {
-        callback(projector(payload));
-    };
-    pluginListenerWrappers[key].set(callback, wrapped);
-    pluginListenerRegistry[key].add(wrapped);
-    ipcRenderer.on(channel, wrapped);
-}
-
-function removePluginListener(key, channel, callback) {
-    const wrapped = pluginListenerWrappers[key].get(callback);
-    if (!wrapped) {
-        // Fallback cleanup for cross-context callback identity mismatches.
-        // This prevents listener leaks (duplicate event delivery) in long-running sessions.
-        for (const listener of pluginListenerRegistry[key]) {
-            ipcRenderer.removeListener(channel, listener);
-        }
-        pluginListenerRegistry[key].clear();
-        pluginListenerWrappers[key] = new WeakMap();
-        return;
-    }
-    ipcRenderer.removeListener(channel, wrapped);
-    pluginListenerWrappers[key].delete(callback);
-    pluginListenerRegistry[key].delete(wrapped);
-}
+const {add: addPluginListener, remove: removePluginListener} = createPluginEventRegistry(ipcRenderer);
 
 contextBridge.exposeInMainWorld('electron', {
     liveUi: {
@@ -121,6 +74,8 @@ contextBridge.exposeInMainWorld('electron', {
     },
     aiChat: {
         getSessions: () => ipcRenderer.invoke(AiChatChannels.SESSIONS_GET),
+        listSessions: () => ipcRenderer.invoke(AiChatChannels.SESSIONS_LIST),
+        getSession: id => ipcRenderer.invoke(AiChatChannels.SESSION_GET, id),
         createSession: (name) => ipcRenderer.invoke(AiChatChannels.SESSION_CREATE, name),
         renameSession: (id, name) => ipcRenderer.invoke(AiChatChannels.SESSION_RENAME, id, name),
         sendMessage: (data) => ipcRenderer.invoke(AiChatChannels.SEND_MESSAGE, data),

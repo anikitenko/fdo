@@ -1,7 +1,7 @@
 // src/main/ai/ai_chat_core.js
 import LLM from "../../utils/ai/providers/aiProviderClient";
 import {currentTurnUsage} from "../../utils/ai/billing/ledger";
-import { settings } from "../../utils/persistence/store.js";
+import { settings as applicationSettings } from "../../utils/persistence/store.js";
 import { AiChatChannels } from "../channels.js";
 import { recordAnswerMetrics, recordTokenUsage, recordToolUsage } from "./metrics.js";
 import { getObservabilityPromptVersion } from "./observability.js";
@@ -18,22 +18,26 @@ import {
     SUPPORTED_SCOPES,
     SUPPORTED_TASK_SHAPES
 } from "./tools/index";
-import debounce from "lodash/debounce";
+import {chatStorage} from "../../utils/persistence/chatStorage";
 import { getCacheInfo, getModelCapabilities } from "./model_capabilities/index";
 import fs from "fs";
 import {detectAttachmentType, getRemoteFileCategory} from "./utils/detectAttachmentType";
 
-import {Jimp} from "jimp";
+import {compressImage} from "./utils/compressImage";
 import * as os from "node:os";
 import path from "node:path";
 import crypto from "crypto";
+import {Buffer} from "node:buffer";
 import { normalizeAsciiEmoticons } from "../../utils/presentation/emoticons.js";
 import { getAiChatText, normalizeAiChatUiLanguage } from "../../utils/ai/assistant/aiChatI18n.js";
 import {
     applyCompressedUsageCap,
     computeModelUsageStats,
-    estimateTokenCount,
 } from "../../utils/ai/assistant/aiChatStats.js";
+
+// electron-store inherits this API from Conf; its transitive type is not
+// resolved by every IDE's package-exports resolver.
+const settings = /** @type {Pick<import('conf').default, 'get'>} */ (applicationSettings);
 
 const BASE_SYSTEM_PROMPT = `You are Junie, the AI assistant inside FlexDevOps (FDO).
 
@@ -169,17 +173,6 @@ function extractSummaryBody(content = "") {
     return value
         .replace(/^🧠\s*\*\*Summary of earlier .*? conversation:\*\*\s*/i, "")
         .trim();
-}
-
-function buildSummaryMemoryPrompt(memory) {
-    const summary = normalizeSessionMemory(memory).summary || {};
-    const content = String(summary.content || "").trim();
-    if (!content) return "";
-
-    return [
-        "Compressed conversation memory:",
-        content,
-    ].join("\n");
 }
 
 function normalizeLanguageLabel(value) {
@@ -507,10 +500,6 @@ function buildToolFollowUpBehavior(memory, intent, originalPrompt = "", targetLa
     return rules;
 }
 
-function detectPreferredLanguage(messages = [], previousLanguage = null) {
-    return previousLanguage || null;
-}
-
 function detectResponseStyle(messages = [], previousStyle = null) {
     const recentUserMessages = messages
         .filter((message) => message?.role === "user")
@@ -608,7 +597,7 @@ function buildClarificationMessage(intent, originalPrompt = "", assistantCopyLan
     return getAiChatText(assistantCopyLanguage, "clarificationGeneric");
 }
 
-export function persistClarificationResponse(session, sessions, idx, clarificationText, intent, resolvedMemory = null) {
+export async function persistClarificationResponse(session, sessions, idx, clarificationText, intent, resolvedMemory = null) {
     const now = new Date().toISOString();
     const assistantCopyLanguage = resolveAssistantCopyLanguage(
         normalizeSessionMemory(resolvedMemory).preferences?.preferredLanguage || null,
@@ -651,7 +640,7 @@ export function persistClarificationResponse(session, sessions, idx, clarificati
     };
 
     sessions[idx] = nextSession;
-    saveSessionsDebounced(sessions, true);
+    await saveChatSession(sessions[idx]);
     return nextSession;
 }
 
@@ -732,7 +721,7 @@ async function resolvePreferenceUpdate(assistantInfo, prompt, sessionMemory = nu
 function extractJsonObject(text = "") {
     const value = String(text || "").trim();
     if (!value) return null;
-    const direct = value.match(/\{[\s\S]*\}/);
+    const direct = value.match(/\{[\s\S]*}/);
     return direct ? direct[0] : null;
 }
 
@@ -845,11 +834,11 @@ function updateSessionRoutingState(session, intent, toolsUsed = [], assistantMsg
     const preferenceOnly = !!intent?.preferenceOnly;
     const lastUserMessage = [...(session?.messages || [])].reverse().find((message) => message?.role === "user");
 
-    let activeRoute = previous.activeRoute;
-    let activeTool = previous.activeTool;
-    let activeTaskShape = previous.activeTaskShape;
-    let activeScope = previous.activeScope;
-    let routeConfidence = previous.routeConfidence;
+    let activeRoute;
+    let activeTool;
+    let activeTaskShape;
+    let activeScope;
+    let routeConfidence;
     let lastToolUsedAt = previous.lastToolUsedAt;
     let lastRouteChangeAt = previous.lastRouteChangeAt;
     let recentToolHistory = previous.recentToolHistory;
@@ -936,7 +925,7 @@ function updateSessionRoutingState(session, intent, toolsUsed = [], assistantMsg
 function savePdfTemp(base64, prefix = "attachment") {
     try {
         // Generate a random suffix for the filename
-        const random = crypto.randomBytes(6).toString("hex"); // e.g. "a3b19c82e4f1"
+        const random = Buffer.from(crypto.randomBytes(6)).toString("hex"); // e.g. "a3b19c82e4f1"
         const filename = `${prefix}-${random}.pdf`;
 
         // Build full path in OS tmp dir
@@ -975,22 +964,10 @@ export async function withSessionLock(sessionId, fn) {
     }
 }
 
-// --- Debounced session writer ---
-const _saveSessions = debounce(
-    (sessions) => {
-        settings.set("ai.sessions", sessions);
-    },
-    1500, // delay in ms
-    { maxWait: 5000 } // ensure it always saves within 5 s
-);
-
-export function saveSessionsDebounced(sessions, immediate = false) {
-    if (immediate) {
-        _saveSessions.flush?.(); // flush pending writes
-        settings.set("ai.sessions", sessions);
-    } else {
-        _saveSessions(sessions);
-    }
+// Each completed change persists only its session; unrelated conversations
+// cannot be overwritten by an older request's snapshot.
+export function saveChatSession(session) {
+    return chatStorage.put(session);
 }
 
 function deriveSessionNameFromPrompt(content = "") {
@@ -1024,8 +1001,9 @@ export async function prepareSessionMessage(sessionId, content, attachments, rep
     const normalizedContent = String(content || "").trim();
     if (!normalizedContent && !replyTo?.id) throw new Error(getAiChatText(uiLanguage, "messageContentEmpty"));
 
-    const sessions = (settings.get("ai.sessions", []) || []).slice();
-    const idx = sessions.findIndex(s => s.id === sessionId);
+    const stored = await chatStorage.get(sessionId);
+    const sessions = stored ? [await normalizeSessionStats(stored)] : [];
+    const idx = stored ? 0 : -1;
     if (idx === -1) throw new Error(getAiChatText(uiLanguage, "sessionNotFound"));
 
     const now = new Date().toISOString();
@@ -1101,7 +1079,7 @@ export async function prepareSessionMessage(sessionId, content, attachments, rep
         updatedAt: now
     };
     sessions[idx] = session;
-    saveSessionsDebounced(sessions, true);
+    await saveChatSession(sessions[idx]);
 
     return {
         session,
@@ -1135,61 +1113,6 @@ export function selectAssistant(assistantId, provider, model) {
     return assistantInfo;
 }
 
-/**
- * Compress an image (local file, URL, or Buffer) using Jimp v1+.
- *  - Resizes to maxWidth (preserving aspect ratio)
- *  - Encodes to JPEG (or PNG if transparency)
- *  - Returns { base64, contentType }
- */
-async function compressImage(source, {
-    maxWidth = 800,
-    jpegQuality = 60,
-    pngCompressionLevel = 9,
-    forceJpeg = false,
-} = {}) {
-    try {
-        const img = await Jimp.read(source);        // works with file path or URL
-        const { width } = img.bitmap;
-        const getBufferAsync = (mime) => new Promise((resolve, reject) => {
-            img.getBuffer(mime, (err, buffer) => {
-                if (err) {
-                    reject(err);
-                    return;
-                }
-                resolve(buffer);
-            });
-        });
-
-        // Resize while keeping aspect ratio
-        if (width > maxWidth) {
-            await img.resize({ w: maxWidth });
-        }
-
-        // Detect transparency (alpha channel)
-        const hasAlpha = typeof img.hasAlpha === "function" ? img.hasAlpha() : false;
-
-        const isLineArt = img.bitmap.width * img.bitmap.height < 2_000_000 && hasAlpha === false;
-        if (isLineArt) {
-            img.deflateLevel?.(5);
-            const buffer = await getBufferAsync("image/png");
-            return { base64: buffer.toString("base64"), contentType: "image/png" };
-        }
-
-        if (!forceJpeg && hasAlpha) {
-            img.deflateLevel?.(pngCompressionLevel);
-            const buffer = await getBufferAsync("image/png");
-            return { base64: buffer.toString("base64"), contentType: "image/png" };
-        }
-
-        img.quality?.(jpegQuality);
-        const buffer = await getBufferAsync("image/jpeg");
-        return { base64: buffer.toString("base64"), contentType: "image/jpeg" };
-
-    } catch (err) {
-        throw new Error(`[compressImage] Failed to compress: ${err.message}`);
-    }
-}
-
 async function createAttachment(attachment) {
     // Ensure object exists
     if (!attachment?.path) {
@@ -1205,22 +1128,22 @@ async function createAttachment(attachment) {
                 const { base64, contentType } = compressed;
 
                 if (contentType === "image/png") {
-                    return LLM.Attachment.fromPNG(base64);
+                    return LLM.Attachment.fromBase64(base64, "image", "image/png");
                 } else if (contentType === "image/jpeg") {
-                    return LLM.Attachment.fromJPEG(base64);
+                    return LLM.Attachment.fromBase64(base64, "image", "image/jpeg");
                 }
             }
         }
         // fallback (non-image or compression failed)
         const data = fs.readFileSync(attachment.path, "base64");
         switch (detectFileType.category) {
-            case "fromGIF":  return LLM.Attachment.fromGIF(data);
-            case "fromJPEG": return LLM.Attachment.fromJPEG(data);
-            case "fromPDF":  return LLM.Attachment.fromPDF(data);
-            case "fromPNG":  return LLM.Attachment.fromPNG(data);
-            case "fromSVG":  return LLM.Attachment.fromSVG(data);
-            case "fromTIFF": return LLM.Attachment.fromTIFF(data);
-            case "fromWEBP": return LLM.Attachment.fromWEBP(data);
+            case "fromGIF":  return LLM.Attachment.fromBase64(data, "image", "image/gif");
+            case "fromJPEG": return LLM.Attachment.fromBase64(data, "image", "image/jpeg");
+            case "fromPDF":  return LLM.Attachment.fromBase64(data, "document", "application/pdf");
+            case "fromPNG":  return LLM.Attachment.fromBase64(data, "image", "image/png");
+            case "fromSVG":  return LLM.Attachment.fromBase64(data, "image", "image/svg+xml");
+            case "fromTIFF": return LLM.Attachment.fromBase64(data, "image", "image/tiff");
+            case "fromWEBP": return LLM.Attachment.fromBase64(data, "image", "image/webp");
             default:         return LLM.Attachment.fromBase64(data, "document", detectFileType.mimeType);
         }
     } else if (attachment.type === "url") {
@@ -1232,9 +1155,9 @@ async function createAttachment(attachment) {
                 const { base64, contentType } = compressed;
 
                 if (contentType === "image/png") {
-                    return LLM.Attachment.fromPNG(base64);
+                    return LLM.Attachment.fromBase64(base64, "image", "image/png");
                 } else if (contentType === "image/jpeg") {
-                    return LLM.Attachment.fromJPEG(base64);
+                    return LLM.Attachment.fromBase64(base64, "image", "image/jpeg");
                 }
             }
 
@@ -1246,10 +1169,10 @@ async function createAttachment(attachment) {
             }
         }
     } else if (attachment.type === "session") {
-        const sessions = (settings.get("ai.sessions", []) || []).slice();
-        const idx = sessions.findIndex(s => s.id === attachment.path);
+        const session = await chatStorage.get(attachment.path);
+        if (!session) throw new Error("Attached chat session not found");
         return {
-            messages: sessions[idx].messages.map(({ role, content }) => ({ role, content })),
+            messages: session.messages.map(({ role, content }) => ({ role, content })),
             sessionID: attachment.name
         };
     }
@@ -1546,15 +1469,6 @@ export async function createLlmInstance(assistantInfo, content, think, stream, c
     };
 }
 
-function estimateContextTokensForMessage(message = {}) {
-    return estimateTokenCount([
-        message.role || "",
-        message.content || "",
-        message.replyContext || "",
-        message.contentAttachments || "",
-    ].filter(Boolean).join("\n"));
-}
-
 function recomputeModelUsageFromMessages(messagesForModel, maxTokens) {
     return computeModelUsageStats(messagesForModel, maxTokens, BASE_SYSTEM_PROMPT_TOKENS);
 }
@@ -1683,10 +1597,7 @@ function looksLikeContextDependentWebPrompt(prompt = "") {
     if (/\b(it|that|this|those|them)\b/i.test(text)) {
         return true;
     }
-    if (/^(how to|how do i|how can i|implement|integration|setup|example|examples|nodejs|node\.js|javascript|typescript)\b/i.test(lower)) {
-        return true;
-    }
-    return false;
+    return /^(how to|how do i|how can i|implement|integration|setup|example|examples|nodejs|node\.js|javascript|typescript)\b/i.test(lower);
 }
 
 function looksLikeUnderSpecifiedWebQuery(query = "") {
@@ -1695,10 +1606,7 @@ function looksLikeUnderSpecifiedWebQuery(query = "") {
     if (text.length <= 40 && /^(latest|latest version|version|docs|documentation|pricing|install|setup|github|repo|website)$/i.test(text)) {
         return true;
     }
-    if (/^(latest|version|docs|documentation|pricing|install|setup|github|repo|website)\b/.test(text)) {
-        return true;
-    }
-    return false;
+    return /^(latest|version|docs|documentation|pricing|install|setup|github|repo|website)\b/.test(text);
 }
 
 function looksLikeConversationalWebFollowUp(query = "") {
@@ -2079,7 +1987,7 @@ async function persistAssistantMessage(event, { session, sessions, idx, intent }
         updatedAt: new Date().toISOString()
     };
     sessions[idx] = nextSession;
-    saveSessionsDebounced(sessions, true);
+    await saveChatSession(sessions[idx]);
 
     event.sender.send(AiChatChannels.on_off.STATS_UPDATE, {
         sessionId: nextSession.id,
@@ -2296,7 +2204,7 @@ export async function compressSessionMessages(session, event, llm, assistantInfo
         updatedAt: new Date().toISOString(),
     };
     sessions[idx] = session;
-    saveSessionsDebounced(sessions, true);
+    await saveChatSession(sessions[idx]);
 
     event?.sender?.send(AiChatChannels.on_off.COMPRESSION_START, { sessionId: session.id, model: assistantInfo.model });
     // Keep only the last couple of turns verbatim and aggressively
@@ -2321,7 +2229,7 @@ export async function compressSessionMessages(session, event, llm, assistantInfo
             updatedAt: new Date().toISOString(),
         };
         sessions[idx] = session;
-        saveSessionsDebounced(sessions, true);
+        await saveChatSession(sessions[idx]);
         event?.sender?.send(AiChatChannels.on_off.COMPRESSION_DONE, {
             sessionId: session.id,
             model: assistantInfo.model,
@@ -2374,7 +2282,7 @@ Return markdown with these sections when applicable:
             updatedAt: new Date().toISOString(),
         };
         sessions[idx] = session;
-        saveSessionsDebounced(sessions, true);
+        await saveChatSession(sessions[idx]);
         event?.sender?.send(AiChatChannels.on_off.COMPRESSION_DONE, {
             sessionId: session.id,
             model: assistantInfo.model,
@@ -2421,16 +2329,14 @@ Return markdown with these sections when applicable:
         percentUsed: adjustedPercent,
     } = applyCompressedUsageCap(estimatedUsed, modelStats.maxTokens, 0.2);
 
-    const newModelStats = {
+    session.stats.models[assistantInfo.model] = {
         ...modelStats,
         estimatedUsed: adjustedUsed,
         totalMessages: keptForThisModel.length,
         assistantMessages: keptForThisModel.filter((message) => message.role === "assistant").length,
         percentUsed: adjustedPercent,
         updatedAt: new Date().toISOString(),
-    }
-
-    session.stats.models[assistantInfo.model] = newModelStats;
+    };
 
     const totalTokens = Object.values(session.stats.models)
         .reduce((sum, stats) => sum + (stats.estimatedUsed || 0), 0);
@@ -2447,7 +2353,7 @@ Return markdown with these sections when applicable:
     session.stats.summary = summary;
 
     sessions[idx] = session;
-    saveSessionsDebounced(sessions, true);
+    await saveChatSession(sessions[idx]);
     event?.sender?.send(AiChatChannels.on_off.COMPRESSION_DONE, {
         sessionId: session.id,
         model: assistantInfo.model,
@@ -2540,7 +2446,7 @@ export async function handleStreamingResponse(
         }));
     } catch (err) {
         if (err.message?.includes("invalidrequesterror")) {
-            const badField = err.message.match(/input\[\d+\]\.content\[\d+\]\.(\w+)/)?.[1];
+            const badField = err.message.match(/input\[\d+]\.content\[\d+]\.(\w+)/)?.[1];
             const fieldInfo = badField ? ` (field: ${badField})` : "";
 
             throw new Error(`This model cannot process one of your attachments${fieldInfo}. Only images and PDFs are supported right now.`);
@@ -2715,7 +2621,7 @@ export async function handleNonStreamingResponse(
         attachments: currentAttachments,
     }));
 
-    let reply = "";
+    let reply;
     let replySources = [];
     let sourceDetails = [];
     let grounded = false;

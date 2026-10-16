@@ -109,10 +109,10 @@ module.exports = {
         splitChunks: {
             chunks: 'all',
             cacheGroups: {
-                // Vendor bundle for large npm packages
+                // Partition vendors by their consuming chunks. A fixed name
+                // merges editor-only dependencies into every plugin iframe.
                 vendor: {
                     test: /[\\/]node_modules[\\/]/,
-                    name: 'vendors',
                     priority: 10,
                     reuseExistingChunk: true,
                 },
