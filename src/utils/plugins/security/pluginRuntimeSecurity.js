@@ -1,7 +1,7 @@
 import {app} from "electron";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import path from "node:path";
-import {buildRuntimeSecurityPolicy, KNOWN_PLUGIN_CAPABILITIES, normalizeCapabilityList} from "./pluginCapabilities";
+import {buildRuntimeSecurityPolicy, normalizeCapabilityList} from "./pluginCapabilities";
 import {HOST_PLUGIN_API_VERSION} from "../../sdk/pluginHostContract";
 
 export {HOST_PLUGIN_API_VERSION} from "../../sdk/pluginHostContract";
@@ -190,11 +190,11 @@ function normalizeHostBrokerErrorPayload(response, fallbackCode, fallbackMessage
     };
 }
 async function callHostBroker(handler, content) {
-    const response = await bridgeTarget.createBackendReq("UI_MESSAGE", {
+    
+    return await bridgeTarget.createBackendReq("UI_MESSAGE", {
         handler,
         content: content && typeof content === "object" ? content : {},
     });
-    return response;
 }
 function toHostBrokerErrorMessage(prefix, payload) {
     const normalized = normalizeHostBrokerErrorPayload(payload, "HOST_BROKER_FAILED", "Host broker request failed.");
@@ -400,10 +400,8 @@ function isNetworkTargetAllowed(target, scopePolicies) {
         if (allowedHostPatterns.length > 0 && !allowedHostPatterns.some((pattern) => hostnameMatchesPattern(hostname, pattern))) {
             return false;
         }
-        if ((transport === "tcp" || transport === "udp" || scheme) && allowedPorts.length > 0 && !portMatches(port, allowedPorts)) {
-            return false;
-        }
-        return true;
+        return !((transport === "tcp" || transport === "udp" || scheme) && allowedPorts.length > 0 && !portMatches(port, allowedPorts));
+        
     });
 }
 
@@ -528,7 +526,7 @@ function isWithin(basePath, targetPath) {
                 pending.unshift(path.basename(current));
                 current = parent;
             }
-            let canonicalParent = current;
+            let canonicalParent;
             try {
                 canonicalParent = typeof fs.realpathSync?.native === "function"
                     ? fs.realpathSync.native(current)
@@ -716,7 +714,7 @@ const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
     if (blockedModules.has(request) || blockedNetworkModules.has(request) || alwaysBlockedModules.has(request)) {
         const parentFile = typeof parent?.filename === "string" ? parent.filename : "";
-        const isSdkInternalImport = parentFile.includes("@anikitenko/fdo-sdk");
+        const isSdkInternalImport = parentFile.replace(/\\\\/g, "/").includes("@anikitenko/fdo-sdk");
         if (!isSdkInternalImport) {
         deny(\`[host-policy] Import "\${request}" is denied by host capability policy.\`);
         }
@@ -882,7 +880,7 @@ export function ensurePluginRuntimeBootstrap(pluginId) {
     mkdirSync(runtimeCacheDir, {recursive: true});
     const bootstrapPath = path.join(runtimeCacheDir, "host_runtime_bootstrap.cjs");
     const source = buildPluginRuntimeBootstrapSource();
-    let shouldWrite = true;
+    let shouldWrite;
     try {
         shouldWrite = readFileSync(bootstrapPath, "utf8") !== source;
     } catch (_) {

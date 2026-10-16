@@ -77,6 +77,7 @@ test('bundled frontend UI mounts under plugin CSP, restores focus and disposes p
             throw new Error(error.message + '\nConsole: ' + errors.join(' | ') + '\nPlugin runtime: ' + JSON.stringify(trace));
         }
         await expect(frame.locator('[autofocus]')).toHaveCount(0);
+        await page.bringToFront();
         await frame.getByRole('textbox',{name:'Autofocus probe',exact:true}).evaluate(node=>node.focus());
         await expect(frame.getByRole('textbox',{name:'Autofocus probe',exact:true})).toBeFocused();
         expect(autofocusWarnings).toEqual([]);
