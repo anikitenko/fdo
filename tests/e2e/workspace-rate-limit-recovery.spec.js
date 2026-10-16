@@ -3,7 +3,7 @@ const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 for (const retrySeconds of [15, 86400]) {
     test(`workspace HTTP 429 respects a ${retrySeconds}s server reset`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '3'}});
         try {
             const page = await app.firstWindow();
@@ -43,8 +43,8 @@ for (const retrySeconds of [15, 86400]) {
                 await window.electron.settings.ai.addAssistant({name: 'Rate recovery', provider: 'openrouter',
                     purpose: 'coding', model: 'rate-model', apiKey: 'test-only-token', defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Rate recovery');
-                return window.electron.aiCodingAgent.planCode({requestId: 'rate-recovery', assistantId: assistant.id,
-                    prompt: 'Create a workspace module exporting answer = 42.', workspaceFiles: []});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'rate-recovery', assistantId: assistant.id,
+                    prompt: 'Create a workspace module exporting answer = 42.', workspaceFiles: []}));
             });
             const requests = await app.evaluate(() => globalThis.__rateLimitRequests);
             const statuses = await page.evaluate(() => window.__rateLimitStatuses);

@@ -50,3 +50,21 @@ test('returns passing and skipped test evidence with virtual file owners', async
         expect.objectContaining({file: '/proof.test.ts', name: 'not evidence', skipped: true}),
     ]));
 });
+
+test('render tests consume imported CSS states and media rules using the deployment style-map contract', async () => {
+    const result = await runPluginWorkspaceTests({
+        '/styles/base.css': '.panel { color: red; } .panel:hover { color: blue; }',
+        '/styles/theme.css': '@import "./base.css"; .panel { padding: 12px; } @media (max-width: 480px) { .panel { padding: 4px; } }',
+        '/render.test.ts': `import {test} from 'node:test'; import assert from 'node:assert/strict';
+            import {DOM} from '@anikitenko/fdo-sdk'; import styles from './styles/theme.css';
+            test('CSS stays present in rendered output', () => {
+                assert.equal(styles.panel.color, 'red');
+                assert.equal(styles.panel['&:hover'].color, 'blue');
+                assert.equal(styles.panel['@media (max-width: 480px)'].padding, '4px');
+                const dom = new DOM();
+                const html = dom.renderHTML(dom.createElement('section', {class: dom.createClassFromStyle(styles.panel)}, 'Panel'));
+                assert.match(html, /:hover/); assert.match(html, /@media/); assert.match(html, /padding:12px|padding: 12px/);
+            });`,
+    });
+    expect({success: result.success, ...(result.success ? {} : {output: result.output})}).toEqual({success: true});
+});

@@ -1,4 +1,5 @@
 const { test, expect, _electron: electron } = require("@playwright/test");
+const { getBehaviorSpec } = require("./helpers/sdkExampleBehaviorManifest");
 const {
   launchElectronApp,
   closeElectronApp,
@@ -110,9 +111,7 @@ for (const entry of smokeEntries) {
       expect(uiState?.runtimeStatus?.loading).toBe(false);
       expect(uiState?.iframePresent).toBe(true);
       expect(uiState?.hostOverlayVisible).toBe(false);
-      if (String(uiState?.iframeHtml || "").includes("plugin-page-loader")) {
-        throw new Error(`PLUGIN_IFRAME_STUCK_LOADER: ${entry.relativePath}`);
-      }
+      expect(String(uiState?.iframeHtml || ""), `PLUGIN_IFRAME_STUCK_LOADER: ${entry.relativePath}`).not.toContain("plugin-page-loader");
       expect(recentToasts.join("\n")).not.toMatch(/failed to load|failed to render|verification failed|plugin closed/i);
       expect(logJson).not.toContain("plugin.render.error");
       expect(logJson).not.toContain("plugin.init.error");
@@ -127,7 +126,10 @@ for (const entry of smokeEntries) {
         expect(actualHandlers).toContain(handler);
       }
 
-      const uiMarkers = Array.isArray(entry?.expectations?.uiMarkers) ? entry.expectations.uiMarkers : [];
+      // Metadata names need not appear in markup. Use the same explicit UI
+      // contract as the behavior/coverage suites, with discovery as a fallback.
+      const behavior = getBehaviorSpec(entry);
+      const uiMarkers = behavior.uiMarkerAnyOf;
       if (uiMarkers.length > 0) {
         const uiBodyText = String(uiText || "");
         const iframeText = String(uiState?.iframeText || "");
@@ -137,7 +139,7 @@ for (const entry of smokeEntries) {
         expect(markerFound).toBe(true);
       }
 
-      const initMessages = Array.isArray(entry?.expectations?.initMessages) ? entry.expectations.initMessages : [];
+      const initMessages = behavior.initLogAnyOf;
       if (initMessages.length > 0) {
         const hasInitSignal = initMessages.some((message) => logJson.includes(message))
           || /plugin\.init\.success/.test(logJson)

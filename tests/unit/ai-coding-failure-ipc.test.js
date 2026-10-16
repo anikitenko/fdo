@@ -1,3 +1,5 @@
+/** @jest-environment node */
+import {createPluginGuideRecoveryError} from '../../src/utils/ai/assistant/pluginGuideRecovery';
 import {EventEmitter} from 'node:events';
 import {ipcMain} from 'electron';
 import {registerAiCodingAgentHandlers} from '../../src/ipc/ai_coding_agent';
@@ -60,4 +62,18 @@ test('IPC persists progress and resumes it after a new store instance; newer edi
         const resumed = await handler(event, {requestId: 'resumed-checkpoint', assistantId: 'test', workspaceId, checkpointId: saved.id, recoveryMode: 'resume', workspaceFiles: baseline, prompt: 'Build helpers', userRequirements: 'Build helpers'});
         expect(resumed.success).toBe(true);
     } finally {await fs.rm(directory, {recursive: true, force: true});}
+});
+
+
+test('guide review recovery metadata survives stream and invoke boundaries',async()=>{
+    const error = createPluginGuideRecoveryError();
+    generateStagedWorkspace.mockRejectedValueOnce(error);
+    registerAiCodingAgentHandlers();
+    const handler = ipcMain.handle.mock.calls.find(([channel])=>channel === AiCodingAgentChannels.PLAN_CODE)[1];
+    const event = {sender:Object.assign(new EventEmitter(),{isDestroyed:()=>false}),senderFrame:{isDestroyed:()=>false,detached:false,send:jest.fn()}};
+    const result = await handler(event,{requestId:'guide-migration',assistantId:'test',prompt:'Repair',workspaceFiles:[],repairPaths:['/index.ts']});
+    expect(result).toMatchObject({success:false,guideRecovery:error.guideRecovery});
+    const messages = event.senderFrame.send.mock.calls.filter(([channel])=>channel === AiCodingAgentChannels.on_off.STREAM_ERROR);
+    expect(messages.length).toBeGreaterThan(0);
+    expect(messages.every(([,payload])=>payload.guideRecovery?.code === 'PLUGIN_GUIDE_SDK_REVIEW_REQUIRED')).toBe(true);
 });

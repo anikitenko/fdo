@@ -1,7 +1,7 @@
 const { test, expect, _electron: electron } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
-const { createCoverageMap } = require("istanbul-lib-coverage");
+const { isOperationalExample, prepareOperationalCoverage, mergedExampleCoverage, runOperationalCoverage } = require("./helpers/sdkOperationalCoverage");
 const {
   launchElectronApp,
   closeElectronApp,
@@ -150,10 +150,11 @@ for (const entry of entries) {
     await removePlugin(window, pluginName);
 
     try {
-      await deploySdkExample(window, entry, { pluginName });
+      await deploySdkExample(window, entry, { pluginName, capabilities: isOperationalExample(entry) ? ["system.clipboard.write", "system.network", "system.network.https", "system.network.scope.public-web-secure", "system.network.scope.external-services"] : [] });
       await waitForPluginRegistered(window, pluginName);
       await waitForPluginReady(window, pluginName);
       await waitForPluginSettled(window, pluginName);
+      await prepareOperationalCoverage(window, pluginName, entry, callHandler);
       await selectPluginOpen(window, pluginName);
       await expectPluginUiVisible(window, pluginName);
       await waitForPluginUiRendered(window, pluginName, 25000);
@@ -172,16 +173,17 @@ for (const entry of entries) {
         ? Array.from(new Set(behaviorHandlers))
         : Array.from(new Set(safeRuntimeHandlers));
 
-      for (const handler of handlers) {
+      for (const handler of isOperationalExample(entry) ? [] : handlers) {
         const payload = handlerPayloads?.[handler]?.payload || {};
         const response = await callHandler(window, pluginName, handler, payload);
         record.invokedHandlers.push({ handler, ok: !!response?.ok, code: response?.code || "" });
       }
 
+      record.operationalScenarios = await runOperationalCoverage(window, pluginName, entry, callHandler, expect);
       const covResponse = await callHandler(window, pluginName, "__e2e.getCoverage", {});
       expect(covResponse?.ok).toBe(true);
       const rawCoverage = covResponse?.result?.coverage || covResponse?.result || {};
-      const coverageMap = createCoverageMap(rawCoverage);
+      const coverageMap = await mergedExampleCoverage(window, rawCoverage, entry);
       const fileCoverage = coverageMap.fileCoverageFor(entry.absPath);
       const summary = fileCoverage.toSummary();
       const metrics = {

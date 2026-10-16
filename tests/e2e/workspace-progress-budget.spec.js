@@ -5,7 +5,7 @@ const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 for (const provider of ['openrouter', 'cloudflare']) {
   for (const mode of ['auto', '50']) {
     test(`${provider} uses ${mode} budgeting across validated and repeated files`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: mode}});
         try {
             const page = await app.firstWindow();
@@ -29,10 +29,11 @@ for (const provider of ['openrouter', 'cloudflare']) {
                     }
                     const body = JSON.parse(init.body);
                     globalThis.__splitRepairRequests.push(body);
-                    const schema = body.response_format.json_schema.schema || body.response_format.json_schema;
-                    const content = schema.properties.files
+                    const schema = body.response_format?.json_schema?.schema || body.response_format?.json_schema;
+                    const path = schema?.properties.path?.enum?.[0] || body.messages.at(-1).content.match(/Generate ONLY (\/[^\s]+)\. Its contract:/)?.[1];
+                    const content = schema?.properties.files
                         ? JSON.stringify({files: Array.from({length: ++plans === 1 ? 24 : 12}, (_, i) => ({path: `/feature-${i}.ts`, contract: 'Export a feature value'}))})
-                        : JSON.stringify({path: schema.properties.path.enum[0], lines: ['export const value = 1;']});
+                        : JSON.stringify({path, lines: ['export const value = 1;']});
                     const finishReason = 'stop';
                     const usage = {prompt_tokens: 100, completion_tokens: 30};
                     if (body.stream) return new Response([
@@ -53,8 +54,8 @@ for (const provider of ['openrouter', 'cloudflare']) {
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Progress budget');
                 const results = [];
                 for (let i = 0; i < 3; i++) {
-                    results.push(await window.electron.aiCodingAgent.planCode({requestId: `progress-budget-${i}`, assistantId: assistant.id,
-                        prompt: 'Generate a dashboard workspace with feature modules.', workspaceFiles: []}));
+                    results.push(await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: `progress-budget-${i}`, assistantId: assistant.id,
+                        prompt: 'Generate a dashboard workspace with feature modules.', workspaceFiles: []})));
                 }
                 return results;
             }, {provider});

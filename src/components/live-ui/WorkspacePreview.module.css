@@ -1,0 +1,87 @@
+/* Blueprint emits these exact class tokens at runtime. */
+.page { height: 100vh; display: flex; flex-direction: column; padding: 16px; gap: 12px; background: #18212b; color: #e6edf3; }
+.header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.header h1 { font-size: 20px; margin: 0 0 6px; }
+.header p { margin: 0; opacity: .75; }
+.layout { display: grid; grid-template-columns: 210px minmax(260px, 1fr) 290px; flex: 1; min-height: 0; gap: 14px; }
+.catalog { overflow: auto; padding-right: 10px; min-width: 0; }
+.catalog h2 { font-size: 16px; }
+.helper { margin: 12px 0; overflow-wrap: anywhere; }
+.method { margin: 10px 0; box-sizing: border-box; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.method code { white-space: normal; overflow-wrap: anywhere; }
+.method > :global([class~="bp6-button"]) { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; margin: 8px 0 0; white-space: normal; }
+.method :global([class~="bp6-button-text"]) { min-width: 0; overflow-wrap: anywhere; }
+.method p { font-size: 12px; line-height: 1.5; white-space: pre-line; }
+.helper code { white-space: normal; font-size: 12px; }
+.canvas { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; background: #26323e; padding: 12px; border-radius: 8px; }
+.frame { width: 100%; flex: 1; min-height: 260px; border: 1px solid #526475; align-self: center; background: #101820; }
+.inspector { overflow: auto; min-width: 0; padding: 0 4px; }
+.inspector h2 { font-size: 16px; }
+.inspector code { overflow-wrap: anywhere; }
+.inspector :global([class~="bp6-button"]) { margin-bottom: 10px; }
+.diff { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #101820; border: 1px solid #526475; border-radius: 6px; }
+.element { text-align: left; white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+.element :global([class~="bp6-button-text"]) { width: 100%; }
+.sdk { margin-top: 20px; }
+@media (max-width: 1000px) { .layout { grid-template-columns: 180px minmax(220px, 1fr) 250px; gap: 10px; } }
+
+.draft { border: 1px solid #526475; border-radius: 6px; padding: 10px; margin-bottom: 16px; }
+.diff { max-height: 220px; overflow: auto; }
+
+.arrange { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.arrange > span { flex: 1 1 100%; overflow-wrap: anywhere; }
+.arrange :global([class~="bp6-form-group"]) { margin: 0; flex: 1 1 130px; }
+.arrange > small { flex: 1 1 100%; opacity: .7; }
+
+.shortcuts { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+.propertyPopover :global([class~="bp6-menu"]) { max-height: 280px; overflow: auto; }
+.propertyName { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.propertyName small { opacity: .7; font-size: 11px; }
+.valuePresets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.valuePresets :global([class~="bp6-button"]) { margin: 0; }
+
+.section { margin: 12px 0; border: 1px solid #415364; border-radius: 8px; background: #202c37; overflow: clip; }
+.sectionHeader { list-style: none; display: flex; align-items: center; gap: 9px; padding: 11px; cursor: pointer; user-select: none; border-radius: 7px; transition: background-color .15s ease; }
+.sectionHeader::-webkit-details-marker { display: none; }
+.sectionHeader:hover { background: #2d3d4c; }
+.sectionHeader:focus-visible { outline: 2px solid #78b7ff; outline-offset: -3px; }
+.sectionHeading { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; font-weight: 600; overflow-wrap: anywhere; }
+.sectionHeading small { color: #a8b9c8; font-size: 11px; font-weight: 400; line-height: 1.4; }
+.sectionIcon { color: #83b9e3; flex-shrink: 0; }
+.sectionChevron { color: #a8b9c8; flex-shrink: 0; transition: transform .15s ease; }
+.section[open] > .sectionHeader { background: #293947; border-bottom: 1px solid #415364; border-radius: 7px 7px 0 0; }
+.section[open] > .sectionHeader > .sectionChevron { transform: rotate(90deg); }
+.sectionBody { padding: 12px; min-width: 0; }
+.sectionBody :global([class~="bp6-form-group"]), .sectionBody :global([class~="bp6-form-content"]), .sectionBody :global([class~="bp6-input-group"]), .sectionBody :global([class~="bp6-html-select"]) { min-width: 0; max-width: 100%; }
+.sectionBody input, .sectionBody select, .sectionBody textarea { min-width: 0; max-width: 100%; }
+.sectionBody > :last-child { margin-bottom: 0; }
+.section .section { background: #182630; border-color: #405b70; }
+.fieldError { display: block; color: #ff9a9a; font-size: 12px; line-height: 1.5; margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .sectionHeader, .sectionChevron { transition: none; } }
+
+.previewViewport { flex: 1; min-width: 0; min-height: 260px; overflow: auto; border: 1px solid #526475; }
+.previewViewport .frame { display: block; height: 100%; max-width: none; margin: 0; border: 0; }
+.previewControls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.inspector :global([class~="bp6-callout"]) { box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.sectionBody input, .sectionBody select, .sectionBody textarea, .sectionBody > :global([class~="bp6-button"]) { box-sizing: border-box; }
+
+.colorPicker { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 14px; }
+.colorPicker :global([class~="bp6-form-group"]) { margin: 0; min-width: 0; }
+.colorPicker :global([class~="bp6-form-group"]):nth-child(2) { flex: 1 1 130px; }
+.colorPicker input[type="color"] { width: 54px; height: 34px; padding: 2px; border: 1px solid #526475; border-radius: 4px; background: #18212b; cursor: pointer; box-sizing: border-box; }
+.colorPicker input[type="range"] { width: 100%; margin: 0; accent-color: #78b7ff; }
+.colorPicker input:disabled { cursor: default; opacity: .5; }
+.colorPicker > small { flex: 1 1 100%; opacity: .75; line-height: 1.5; overflow-wrap: anywhere; }
+.lengthEditor { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 14px; }
+.lengthEditor :global([class~="bp6-form-group"]) { margin: 0; min-width: 0; flex: 1 1 75px; }
+.lengthEditor input, .lengthEditor select { width: 100%; min-width: 0; }
+.lengthEditor > small { flex: 1 1 100%; opacity: .75; line-height: 1.5; overflow-wrap: anywhere; }
+.spacingEditor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.spacingEditor :global([class~="bp6-form-group"]) { margin: 0; min-width: 0; }
+.spacingEditor input { width: 100%; min-width: 0; }
+.dialogControls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.dialogControls :global([class~="bp6-form-group"]) { margin: 0; min-width: 0; flex: 1 1 180px; }
+.dialogControls :global([class~="bp6-html-select"]), .dialogControls select { width: 100%; max-width: 100%; }
+.dialogControls > small { flex: 1 1 100%; opacity: .75; line-height: 1.5; }

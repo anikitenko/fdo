@@ -15,7 +15,7 @@ describe("SideBar", () => {
             if (height === 50) {
                 fireEvent.click(await screen.findByRole('button', {name: 'more'}));
                 fireEvent.mouseEnter(await screen.findByText('Tools'));
-            } else fireEvent.click(await screen.findByRole('button', {name: 'cog'}));
+            } else fireEvent.click(await screen.findByRole('button', {name: 'Tools'}));
             fireEvent.click(await screen.findByText('Copy snippet'));
             expect(click).toHaveBeenCalledWith('tools', 'copy');
         } finally {

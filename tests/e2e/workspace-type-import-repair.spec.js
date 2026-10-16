@@ -7,7 +7,7 @@ const expectedPaths = fixture.files.map(file => file.path);
 
 for (const provider of ['openrouter', 'cloudflare']) {
     test(`${provider} repairs type imports and exports while retaining implementation`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: String(replies.length)}});
         try {
             const page = await app.firstWindow();
@@ -50,8 +50,8 @@ for (const provider of ['openrouter', 'cloudflare']) {
                     ...(provider === 'cloudflare' ? {accountId: 'a'.repeat(32)} : {}),
                     apiKey: 'test-only-token', defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Type interface recovery');
-                return window.electron.aiCodingAgent.planCode({requestId: 'type-interface-recovery', assistantId: assistant.id,
-                    prompt: 'Generate a dashboard with shared rendering modules.', workspaceFiles});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'type-interface-recovery', assistantId: assistant.id,
+                    prompt: 'Generate a dashboard with shared rendering modules.', workspaceFiles}));
             }, {provider, workspaceFiles});
             expect(result.success, result.error).toBe(true);
             expect([...result.content.matchAll(/^### File: (.+)$/gm)].map(match => match[1])).toEqual(expectedPaths);

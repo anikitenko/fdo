@@ -2,6 +2,14 @@
 import path from 'node:path';
 import {typecheckPluginWorkspace} from '../../src/utils/sdk/pluginWorkspaceTypecheck';
 jest.mock('../../src/utils/plugins/runtime/pluginRuntimeBundle', () => ({getHostPluginNodeModulesPath: () => require('node:path').resolve('node_modules')}));
+test('uses published UI subpath declarations and recursive CSS map values', () => {
+    const result = typecheckPluginWorkspace({'/render.ts': `import {DOM, createDialog} from '@anikitenko/fdo-sdk/ui';
+import css from './styles.css';
+export const nested = css.panel['@media (max-width: 600px)'];
+export const html = createDialog(new DOM().collectStylesFrom(), {id: 'details', title: 'Details', options: {style: css.panel}});`,
+        '/styles.css': '.panel {color:red}'});
+    expect(result.diagnostics).toEqual([]);
+});
 test('typechecks detached sources against installed SDK and returns virtual diagnostic owners', () => {
     const files = {'/logic.ts': 'export const count: number = "wrong";'};
     const before = JSON.stringify(files);
@@ -22,7 +30,7 @@ test('accepts bundler-style imports and import.meta used by plugin test fixtures
 
 test('scoped repair checks SDK contracts and union access while unused declarations remain advisory', () => {
     const {validatePluginTypeScriptRepair} = require('../../src/utils/sdk/pluginWorkspaceTypecheck');
-    const broken = {path: '/repair.ts', content: `import type {FDOInterface} from "@anikitenko/fdo-sdk";
+    const broken = {path: '/repair.ts', content: /* language=TEXT */ `import type {FDOInterface} from "@anikitenko/fdo-sdk";
 const FAV_KEY = "unused";
 export const capabilities: Pick<FDOInterface, "declareCapabilities"> = {declareCapabilities: (): string[] => ["storage"]};
 export function favorite(response: {favorites: string[]} | {isFavorite: boolean}) { return response.isFavorite; }
@@ -34,7 +42,7 @@ declare global { interface Window { createBackendReq?: (type: string, data?: unk
     expect(errors.some(error => error.includes('isFavorite'))).toBe(true);
     expect(errors.some(error => error.includes('createBackendReq'))).toBe(true);
     expect(errors.every(error => error.startsWith('/repair.ts:'))).toBe(true);
-    const fixed = {...broken, content: `import type {FDOInterface, PluginCapability} from "@anikitenko/fdo-sdk";
+    const fixed = {...broken, content: /* language=TEXT */ `import type {FDOInterface, PluginCapability} from "@anikitenko/fdo-sdk";
 export const capabilities: Pick<FDOInterface, "declareCapabilities"> = {declareCapabilities: (): PluginCapability[] => ["storage"]};
 export function favorite(response: {favorites: string[]} | {isFavorite: boolean}) { return "isFavorite" in response ? response.isFavorite : false; }
 export const request = (type: string) => window.createBackendReq(type);`};
@@ -86,4 +94,35 @@ test('an unused empty private method is advisory while invalid method calls stil
         .toEqual(expect.arrayContaining([expect.objectContaining({code: 2339})]));
     const {buildWorkspaceMonacoCompilerOptions} = require('../../src/components/editor/utils/workspaceMonacoCompilerOptions');
     expect(buildWorkspaceMonacoCompilerOptions({}).noUnusedLocals).toBe(false);
+});
+
+test('frontend loader declarations typecheck self-contained SDK component setup and cleanup', () => {
+    const result = typecheckPluginWorkspace({'/frontend.ts': `import {defineRenderOnLoad} from '@anikitenko/fdo-sdk';
+export const onLoad = defineRenderOnLoad(async () => {
+    const ui = await window.loadFdoUi();
+    const root = document.querySelector<HTMLDialogElement>('#settings');
+    const button = document.querySelector<HTMLButtonElement>('#open-settings');
+    if (!root || !button) throw new Error('Missing controls');
+    const controller = ui.mountDialog(root);
+    const open = () => controller.open(button);
+    button.addEventListener('click', open);
+    return () => {button.removeEventListener('click', open); controller.destroy();};
+}, {language:'typescript'});`});
+    expect(result.diagnostics).toEqual([]);
+});
+
+test('ignores candidate compiler configuration and blocks reads outside the candidate and installed packages', () => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-typecheck-isolation-'));
+    try {
+        const external = path.join(temporary, 'secret.ts').replace(/\\/g, '/');
+        fs.writeFileSync(external, 'export const secret = 42;');
+        const result = typecheckPluginWorkspace({
+            '/render.ts': `import {secret} from ${JSON.stringify(external)}; export const value = secret;`,
+            '/tsconfig.json': JSON.stringify({compilerOptions: {plugins: [{name: external}]}}),
+        }, path.resolve('node_modules'));
+        expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({path: '/render.ts', code: 2307})]));
+        expect(fs.readFileSync(external, 'utf8')).toBe('export const secret = 42;');
+    } finally {fs.rmSync(temporary, {recursive: true, force: true});}
 });

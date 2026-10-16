@@ -27,6 +27,7 @@ export async function validateAiWorkspaceCandidate({files, workspaceFiles, readW
         emit();
     };
     emit();
+    // Validation failures intentionally share this boundary with operation failures.
     try {
         update('contracts', 'running');
         const before = fingerprint(workspaceFiles);
@@ -64,7 +65,10 @@ export async function validateAiWorkspaceCandidate({files, workspaceFiles, readW
         // When available, still collect compiler owners in the same repair pass.
         if (errors.length && typeof typecheck !== 'function') return [...new Set(errors)];
         update('types', 'running');
-        if (typeof typecheck !== 'function') throw new Error('Plugin TypeScript checker is unavailable. No generated files were applied.');
+        if (typeof typecheck !== 'function') {
+            //noinspection ExceptionCaughtLocallyJS
+            throw new Error('Plugin TypeScript checker is unavailable. No generated files were applied.');
+        }
         const types = await typecheck({latestContent: Object.fromEntries(candidate.map(file => [file.path, file.content]))});
         assertCurrent();
         if (types?.success !== true) {
@@ -79,18 +83,30 @@ export async function validateAiWorkspaceCandidate({files, workspaceFiles, readW
         // single workspace repair allowance has already been consumed.
         if (errors.length || staticOnly) return [...new Set(errors)];
         update('build', 'running');
-        if (typeof build !== 'function') throw new Error('Plugin compiler is unavailable. No generated files were applied.');
+        if (typeof build !== 'function') {
+            //noinspection ExceptionCaughtLocallyJS
+            throw new Error('Plugin compiler is unavailable. No generated files were applied.');
+        }
         const result = await build({latestContent: Object.fromEntries(candidate.map(file => [file.path, file.content]))});
         assertCurrent();
         if (result?.success !== true) {
             const error = `Candidate workspace build failed: ${String(result?.error || 'Compiler returned no successful result.').slice(0, 6000)}`;
             update('build', 'failed', error);
+            // Preserve explicit compiler owners for scoped automatic repair.
+            // A path mentioned in prose is not permission to edit that file.
+            const owners = [...new Set([...String(result?.error || '').matchAll(/^(?:virtual(?:-fs)?:)?(\/[^:\n]+):\d+(?::\d+)?[:\s]/gm)].map(match => match[1]))];
+            if (owners.length && owners.every(path => candidate.some(file => file.path === path))) {
+                return owners.map(path => `${path}: ${error}`);
+            }
             return [error];
         }
         update('build', 'passed');
         if (candidate.some(file => isGeneratedTestFile(file.path))) {
             update('tests', 'running');
-            if (typeof runTests !== 'function') throw new Error('Plugin test runner is unavailable. No generated files were applied.');
+            if (typeof runTests !== 'function') {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error('Plugin test runner is unavailable. No generated files were applied.');
+            }
             onTestStart?.();
             const testResult = await runTests({latestContent: Object.fromEntries(candidate.map(file => [file.path, file.content]))});
             assertCurrent();

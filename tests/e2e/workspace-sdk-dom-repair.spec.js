@@ -3,7 +3,7 @@ const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 const recorded = require('../fixtures/ai/workspace-global-sdk-dom.json');
 
 test('recorded global DOM shim is corrected before acceptance and renders with SDK style maps', async () => {
-    const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+    const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
         env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '1'}});
     try {
         const page = await app.firstWindow();
@@ -41,9 +41,9 @@ test('styles and renderer survive SDK constructor repair', () => {
             await window.electron.settings.ai.addAssistant({name: 'SDK DOM repair', provider: 'cloudflare', purpose: 'coding',
                 model: '@cf/test/model', apiKey: 'test-token', accountId: 'a'.repeat(32), defaultThinkingMode: 'off'});
             const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'SDK DOM repair');
-            return window.electron.aiCodingAgent.planCode({requestId: 'sdk-dom', assistantId: assistant.id,
+            return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'sdk-dom', assistantId: assistant.id,
                 prompt: 'Repair the SDK DOM constructor and style-map argument errors.', repairPaths: ['/render.tsx'],
-                workspaceFiles: Object.entries(files).map(([path, content]) => ({path, content}))});
+                workspaceFiles: Object.entries(files).map(([path, content]) => ({path, content}))}));
         }, files);
         expect(result.success, result.error).toBe(true);
         files['/render.tsx'] = result.content.match(/```\w*\n([\s\S]*)\n```/)[1];

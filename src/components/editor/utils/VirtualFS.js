@@ -2,7 +2,6 @@ import {pluginBuildEntrypoint} from '../../../utils/plugins/runtime/pluginBuildA
 import React from 'react';
 import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
 import * as monaco from "monaco-editor";
-import {packageDefaultContent} from "./packageDefaultContent";
 import * as styles from '../EditorPage.module.css'
 import _ from "lodash";
 import getLanguage from "./getLanguage";
@@ -17,6 +16,7 @@ import {
 } from "./renderOnLoadMonacoSupport";
 
 import {resolveMonacoTypeScriptApi} from "./monacoTypeScriptApi";
+import {PLUGIN_CSS_TYPES, PLUGIN_UI_TYPES} from '../../../utils/sdk/pluginCssTypes';
 
 function getMonacoTypeScriptApi() {
     return resolveMonacoTypeScriptApi(monaco);
@@ -30,6 +30,8 @@ function getMonacoJavaScriptDefaults() {
     return getMonacoTypeScriptApi()?.javascriptDefaults;
 }
 
+// These definitions are consumed by virtual plugins, not this module.
+// language=TEXT
 const FDO_SDK_FALLBACK_D_TS = `declare module "@anikitenko/fdo-sdk" {
   export type PluginCapability = string;
   export interface PluginMetadata {
@@ -300,6 +302,7 @@ const virtualFS = {
     initWorkspace: false,
     pluginName: "",
     sandboxName: "",
+    aiCodingBusy: false,
     quickInputWidgetTop: false,
     treeObject: [createDefaultTreeObject()],
     notifications: {
@@ -382,12 +385,6 @@ const virtualFS = {
             message: "",
             ts: 0,
         },
-        getInit() {
-            return this.init
-        },
-        setInit() {
-            this.init = true
-        },
         setInProgress() {
             this.inProgress = true
             this.parent.notifications.addToQueue("buildOutputUpdate", this.status())
@@ -423,9 +420,6 @@ const virtualFS = {
                 ? this.history.filter((entry) => entry?.kind === kind)
                 : this.history;
             return filtered.slice(-Math.max(0, limit))
-        },
-        clearHistory() {
-            this.history = []
         },
         getEntrypoint() {
             return pluginBuildEntrypoint(this.parent.getLatestContent());
@@ -533,13 +527,20 @@ const virtualFS = {
             this.parent.notifications.addToQueue("restorePhase", phase)
         },
         create(prevVersion = "", tabs = [], options = {}) {
-            const { quiet = false } = options;
+            const { quiet = false, replaceVersion, liveUiGroup } = options;
+            // Only the current, unbranched Live UI working snapshot can be updated.
+            // Ordinary snapshots and snapshots with descendants remain immutable.
+            if (replaceVersion && (!liveUiGroup || this.version_current !== replaceVersion || this.version_latest !== replaceVersion ||
+                this.versions[replaceVersion]?.liveUiGroup !== liveUiGroup ||
+                Object.values(this.versions).some(version => version.prev === replaceVersion))) {
+                return {error: 'The working snapshot changed. Start a new design checkpoint.'};
+            }
             if (!quiet) {
                 this.setLoading();
             }
 
             // Generate a human-readable version name
-            const latest = uniqueNamesGenerator({ dictionaries: [adjectives, colors], separator: '-', length: 2 });
+            const latest = replaceVersion || uniqueNamesGenerator({ dictionaries: [adjectives, colors], separator: '-', length: 2 });
 
             const content = [];
             this.parent.listModels().forEach((model) => {
@@ -563,7 +564,8 @@ const virtualFS = {
                 tabs: tabs,
                 content: content,
                 version: latest,
-                prev: prevVersion,
+                prev: replaceVersion ? this.versions[replaceVersion].prev : prevVersion,
+                ...(liveUiGroup ? {liveUiGroup} : {}),
                 date: date,
                 ts: ts
             };
@@ -728,10 +730,7 @@ const virtualFS = {
                 return this.nodeModulesPromise;
             }
 
-            const cssType = 'declare module "*.css" {\n' +
-                '    const styles: { [className: string]: Record<string, string> };\n'+
-                '    export default styles;\n' +
-                '}'
+            const cssType = PLUGIN_CSS_TYPES + '\n' + PLUGIN_UI_TYPES;
             tsDefaults?.addExtraLib(cssType, `/node_modules/@types/css.d.ts`)
             createVirtualFile(`/node_modules/@types/css.d.ts`, cssType, undefined, false, false, undefined, {
                 suppressTreeUpdate: true,
@@ -866,11 +865,16 @@ const virtualFS = {
                             const manifestObject = bundle?.packageManifest && typeof bundle.packageManifest === "object"
                                 ? bundle.packageManifest
                                 : createSafeSdkManifest(moduleId);
-                            const packageJson = (
+                            let packageJson = (
                                 typeof bundle?.packageJson === "string" && bundle.packageJson.trim()
                                     ? bundle.packageJson
                                     : JSON.stringify(manifestObject, null, 2)
                             );
+                            if (sdkTypeFiles.some(file => file.path === 'ui/index.d.ts')) {
+                                const published = JSON.parse(packageJson);
+                                published.exports = {...published.exports, './ui': {types: './ui/index.d.ts'}};
+                                packageJson = JSON.stringify(published, null, 2);
+                            }
                             createVirtualFile(packageJsonVirtualPath, packageJson, undefined, false, false, undefined, {
                                 suppressTreeUpdate: true,
                                 suppressFileSelected: true,
@@ -1121,9 +1125,6 @@ const virtualFS = {
         listMarkers() {
             return this.list.filter((t) => t.markers).map((t) => ({id: t.id, markers: t.markers}))
         },
-        totalMarkersCount() {
-            return this.list.reduce((sum, t) => sum + (t.markers?.length || 0), 0);
-        },
         remove(tab) {
             this.removeById(tab.id)
         },
@@ -1140,9 +1141,6 @@ const virtualFS = {
         },
         get() {
             return [...this.list]
-        },
-        getLast() {
-            return this.list[this.list.length - 1]
         },
         switchToLast() {
             const tabs = this.get();
@@ -1203,12 +1201,6 @@ const virtualFS = {
         _.merge(this.fs, sandboxData)
         this.fs.set(this.fs.version_current)
         this.restoreTreeObjectItemsIcon(this.treeObject)
-    },
-    getQuickInputWidgetTop() {
-        return this.quickInputWidgetTop
-    },
-    setQuickInputWidgetTop(loc) {
-        this.quickInputWidgetTop = loc
     },
     __isModelDisposed(model) {
         if (!model) return true;
@@ -1484,19 +1476,6 @@ const virtualFS = {
             this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
 
-    createEmptyFile(packageName) {
-        const uri = monaco.Uri.file(`Untitled`);
-        let model = monaco.editor.getModel(uri);
-        const defaultContent = packageDefaultContent(packageName);
-        if (!model) {
-            model = monaco.editor.createModel(defaultContent, "plaintext", uri);
-        } else {
-            model.setValue(defaultContent);
-        }
-        this.updateModel("Untitled", model)
-        return this.__createTreeObjectItemChild("Untitled", "Untitled", "file")
-    },
-
     __createTreeObjectItemChild(id, name, type, options = {}) {
         const {
             suppressDefaultSelection = false
@@ -1589,17 +1568,6 @@ const virtualFS = {
         this.removeTreeObjectItemById(fileName)
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
     },
-    removeTreeObjectItemsIcon(tree) {
-        const stack = [...tree];
-        while (stack.length) {
-            const node = stack.pop();
-            if (node.icon) {
-                delete node.icon
-            }
-            if (node.childNodes?.length) stack.push(...node.childNodes);
-        }
-        return null;
-    },
     restoreTreeObjectItemsIcon(tree) {
         const stack = [...tree];
         while (stack.length) {
@@ -1666,10 +1634,6 @@ const virtualFS = {
 
     getFileDialog() {
         return this.fileDialog
-    },
-
-    modelIdDefined(id) {
-        return this.files[id]?.model
     },
 
     listModels() {

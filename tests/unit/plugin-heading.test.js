@@ -5,8 +5,8 @@ const {BLANK_TEMPLATE_MAIN, BLANK_TEMPLATE_RENDER} = require('../../src/componen
 test('accepts the actual live response passing metadata.name to the heading', () => {
   expect(pluginHeading(recorded)).toBe('Quasar Quill');
 });
-test('also accepts a hard-coded heading', () => {
-  expect(pluginHeading({'/index.ts': BLANK_TEMPLATE_MAIN('Quasar Quill'), '/render.tsx': BLANK_TEMPLATE_RENDER().replace('`My Plugin`', '`Quasar Quill`')})).toBe('Quasar Quill');
+test('also accepts a hard-coded SDK createElement heading', () => {
+  expect(pluginHeading({'/index.ts': BLANK_TEMPLATE_MAIN('Quasar Quill'), '/render.tsx': BLANK_TEMPLATE_RENDER('Quasar Quill')})).toBe('Quasar Quill');
 });
 test('rejects missing name wiring even though the entry contains the renamed metadata', () => {
   const files = {...recorded, '/index.ts': recorded['/index.ts'].replace('name: metadata.name,', '')};

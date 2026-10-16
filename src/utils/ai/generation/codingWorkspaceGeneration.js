@@ -1,3 +1,4 @@
+import {createPluginGuideRecoveryError} from '../assistant/pluginGuideRecovery';
 import {createCodingGenerationFailure} from '../assistant/aiCodingFailure';
 import {isClassificationOnly} from '../assistant/aiCodingClassification';
 import {repairConcreteStateResult} from "../../plugins/validation/workspaceStateResult";
@@ -496,7 +497,7 @@ ${JSON.stringify(requiredTests)}
 Implement every exact testName above as a top-level direct named import test/it call from node:test with an executable callback and no skip/todo options. A describe suite with that name does not satisfy the criterion; put the approved name on the executable test itself. Each callback must exercise the described behavior with meaningful assertions using the real implementation and appropriate fixtures. Checking only HTML labels or the presence of handler source does not exercise the described processing behavior or user interactions. Other tests do not replace these cases. Preserve approved identities and descriptions; do not edit SKILL.md to bypass missing coverage. This file is checked for these declarations before generation continues.` : ''}`});
     };
     const targetedRepair = repairPaths !== undefined;
-    const reportedDiagnostics = String(prompt || '').split('\n').filter(line => /^\/[^:\n]+:\d+:\d+\s+\[\d+\]/.test(line));
+    const reportedDiagnostics = String(prompt || '').split('\n').filter(line => /^\/[^:\n]+:\d+:\d+\s+\[\d+]/.test(line));
     if (targetedRepair && (!Array.isArray(repairPaths) || !repairPaths.length || repairPaths.length > MAX_WORKSPACE_FILES
         || repairPaths.some(path => typeof path !== 'string' || sanitizeVirtualWorkspacePath(path) !== path
             || !existingFiles.some(file => file.path === path))
@@ -509,7 +510,7 @@ Implement every exact testName above as a top-level direct named import test/it 
     try { guideCriteriaValid = readPluginAcceptanceCriteria(existingGuide?.content).length > 0; } catch { /* Reviewed migration must repair malformed criteria. */ }
     const needsGuideReview = !!sdkFingerprint && (!!reuseCheckpoint || guideFingerprint !== sdkFingerprint || !guideCriteriaValid);
     if (targetedRepair && existingGuide && needsGuideReview && !repairPaths.includes('/SKILL.md')) {
-        throw new Error('Plugin guide SDK fingerprint is missing or stale. Review /SKILL.md against the current SDK before starting this scoped repair; no files were applied.');
+        throw createPluginGuideRecoveryError();
     }
     const repairSet = new Set(repairPaths || []);
     const immutableRepairSources = targetedRepair ? existingFiles.filter(file => !repairSet.has(file.path)) : [];
@@ -587,7 +588,7 @@ Implement every exact testName above as a top-level direct named import test/it 
     let sourceMixedIssue = false;
     let rejectedSource = '';
     let rejectedResponse = '';
-    const reusableCandidates = [...(reuseCheckpoint?.completed || []), ...(reuseCheckpoint?.reuseCandidates || resumeCheckpoint?.reuseCandidates || [])].filter(file => /\.[cm]?[jt]s$/.test(file.path) && !/(?:^|\/)(?:index|render|actions|plugin|acceptance)(?:\.|\/)|\.(?:test|spec)\./i.test(file.path));
+    const reusableCandidates = [...(reuseCheckpoint?.completed || []), ...(reuseCheckpoint?.reuseCandidates || resumeCheckpoint?.reuseCandidates || [])].filter(file => /\.[cm]?[jt]s$/.test(file.path) && !/(?:^|\/)(?:index|render|actions|plugin|acceptance)[./]|\.(?:test|spec)\./i.test(file.path));
     if (reuseCheckpoint && reusableCandidates.length) prompt += `\nValidated helper reuse candidates from the previous attempt (not applied): ${JSON.stringify(reusableCandidates.map(({path, contract}) => ({path, contract})))}. Only retain a helper if its implementation still fits the new requirements. Copy its contract exactly to request reuse; change its contract or omit its path to regenerate or remove it. Guides and acceptance tests must be recreated for the revised scope.`;
     const inventoryRules = `Return only JSON: {"files":[{"path":"/features/text/logic.ts","contract":"Export transformText(value: string, mode: TextMode): string; pure text operations."}]}.
 List changed/new files in dependency order. The response schema bounds this inventory and the host admits it against the remaining request budget. Include all required composition, navigation/actions, styles and tests alongside feature modules. Do not spend every slot on category helpers and leave the plugin unfinished. Respect user restrictions on paths and file creation.
@@ -754,7 +755,7 @@ RESPONSE SHAPE — this request accepts ONLY the compact JSON inventory {"files"
                         // split-validation branch fired.
                         const splitStem = error.splitPath.slice(error.splitPath.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
                         const splitStylesheet = /\.css$/i.test(error.splitPath);
-                        issueTail = `The rejection is the split proposal itself: a passing reply holds one to ${MAX_SPLIT_REFERENCES} entries shaped like {"path":"<a path no listing above contains>","contract":"one focused responsibility"}${splitStylesheet ? ` — a new sibling such as ${splitStem}-<responsibility>.css, or, when the "Reusable CSS dependencies" listing above holds entries, an exact path quoted from it (never one marked NOT reusable), which the host imports verbatim` : ` — a new sibling such as ${splitStem}-<responsibility>.ts`}. ${error.splitPath} itself and every retained or completed path belong to the host: repeating one is an echo, and this retry passes only when at least one entry names something the host does not already hold.`;
+                        issueTail = /* language=TEXT */ `The rejection is the split proposal itself: a passing reply holds one to ${MAX_SPLIT_REFERENCES} entries shaped like {"path":"<a path no listing above contains>","contract":"one focused responsibility"}${splitStylesheet ? ` — a new sibling such as ${splitStem}-<responsibility>.css, or, when the "Reusable CSS dependencies" listing above holds entries, an exact path quoted from it (never one marked NOT reusable), which the host imports verbatim` : ` — a new sibling such as ${splitStem}-<responsibility>.ts`}. ${error.splitPath} itself and every retained or completed path belong to the host: repeating one is an echo, and this retry passes only when at least one entry names something the host does not already hold.`;
                     }
                 }
                 label = `Retrying workspace file plan: ${limited ? 'inventory too long' : error.code === 'INVALID_WORKSPACE_MANIFEST_JSON' ? 'invalid JSON' : 'invalid contract or plan shape'}`;
@@ -778,7 +779,7 @@ RESPONSE SHAPE — this request accepts ONLY the compact JSON inventory {"files"
             'Planning workspace files', 2, validateInitialPlan, WORKSPACE_MANIFEST_SCHEMA, MAX_WORKSPACE_FILES - MAX_SPLIT_REFERENCES, {requiredGuide: !!needsGuideReview});
     // Generate the plugin guide before implementation so subsequent requests
     // share its validated content, regardless of the model's inventory order.
-    if (!targetedRepair) pending = [...pending.filter(file => file.path === '/SKILL.md'), ...pending.filter(file => file.path !== '/SKILL.md')];
+    pending = [...pending.filter(file => file.path === '/SKILL.md'), ...pending.filter(file => file.path !== '/SKILL.md')];
     if (resumeCheckpoint) {
         if (targetedRepair) throw new Error('A scoped repair cannot resume a generation checkpoint.');
         const restoredPlan = [...resumeCheckpoint.completed, ...pending].map(({content, ...file}) => file);
@@ -834,6 +835,7 @@ RESPONSE SHAPE — this request accepts ONLY the compact JSON inventory {"files"
             || fileAllowance(file.path, splitDepth, compositions.has(file.path), rawSource);
         let validated;
         let responseText;
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             // Completed files are immutable, so their imports of this pending
             // path are requirements this file must satisfy — state them up
@@ -845,7 +847,7 @@ RESPONSE SHAPE — this request accepts ONLY the compact JSON inventory {"files"
             // just triggered: only this file can change, by exposing the name.
             const crossFileRejections = sourceImportIssue
                 ? [...new Set(String(fileIssue).split('\n')
-                    .map(line => (/^((?:\/[^\s:]*)): /.exec(line) || [])[1])
+                    .map(line => (/^(\/[^\s:]*): /.exec(line) || [])[1])
                     .filter(path => path && path !== file.path))]
                 : [];
             const originalRepairSource = targetedRepair ? existingFiles.find(item => item.path === file.path).content : '';
@@ -922,6 +924,7 @@ Return only the edits JSON within ${maxOutputTokens} output tokens.`,
                         break;
                     } catch (error) {
                         if ((error.code !== 'EXACT_REPAIR_MATCH' && !isAiCodingOutputLimitError(error)) || attempt === 1) {
+                            //noinspection ExceptionCaughtLocallyJS
                             throw new Error(`${file.path}: ${isAiCodingOutputLimitError(error) ? "Compact targeted repair exceeded its response allowance; targeted repairs cannot regenerate or split unrelated files. No edits were applied. " : ""}${error.message}`, {cause: error});
                         }
                         assertBudget(pending.length);
@@ -951,8 +954,9 @@ Return only the line-range edits JSON within ${maxOutputTokens} output tokens.`;
                     // A persistent guide describes the product, not this host's
                     // current file-response protocol. Do not feed execution
                     // wrappers back as candidate guide conventions.
-                    prompt: guideProposalOptions.requirements || prompt,
-                    files: [...completed, ...pending], fingerprint: sdkFingerprint,
+                    prompt: targetedRepair && existingGuide ? existingGuide.content : guideProposalOptions.requirements || prompt,
+                    requirements: targetedRepair && existingGuide ? existingGuide.content : guideProposalOptions.requirements || prompt,
+                    files: [...existingFiles.filter(existing => ![...completed, ...pending].some(planned => planned.path === existing.path)), ...completed, ...pending], fingerprint: sdkFingerprint,
                     validateFile, assertActive, assertBudget, existing: existingGuide?.content || '',
                     onStage: stage => onStage({...stage, index: completed.length + 1, total: completed.length + pending.length, content: files.join('\n\n')}),
                 })})
@@ -1068,7 +1072,10 @@ Do not repeat other files or add prose. Preserve all requested functionality ass
             assertActive();
             validated = validateWorkspaceFile(responseText, file.path, {allowSourceFence: rawSource});
             let content = validated.match(/\n```\w*\n([\s\S]*)\n```$/)[1];
-            if (file.path === '/SKILL.md' && content.length > 16000) throw Object.assign(new Error('Plugin guide exceeds 16000 characters.'), {code: 'CODING_RESPONSE_TOO_LARGE'});
+            if (file.path === '/SKILL.md' && content.length > 16000) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw Object.assign(new Error('Plugin guide exceeds 16000 characters.'), {code: 'CODING_RESPONSE_TOO_LARGE'});
+            }
             const stateResult = repairConcreteStateResult({path: file.path, content});
             if (stateResult.repaired) {
                 content = stateResult.content;
@@ -1117,6 +1124,7 @@ Do not repeat other files or add prose. Preserve all requested functionality ass
                 try { content = applyWorkspaceTypeImportRepair(typeImportRepair, content); }
                 catch (cause) {
                     const reason = `Invalid interface header for ${file.path}: ${cause.message}`;
+                    //noinspection ExceptionCaughtLocallyJS
                     throw Object.assign(new Error(`${reason} No changes were applied.`, {cause}),
                         {code: 'INVALID_WORKSPACE_FILE', reason, rejectedSource, importRejection: true});
                 }
@@ -1210,6 +1218,7 @@ Do not repeat other files or add prose. Preserve all requested functionality ass
             }));
             if (errors.length) {
                 const reason = [...new Set(errors)].slice(0, 10).join('\n');
+                //noinspection ExceptionCaughtLocallyJS
                 throw Object.assign(new Error(`${reason} No changes were applied.`),
                     {code: 'INVALID_WORKSPACE_FILE', reason, rejectedSource: content,
                         // The only planned stylesheet may reveal that the

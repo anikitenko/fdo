@@ -152,9 +152,10 @@ test('manage plugins shows friendly capability labels and dependency recovery', 
   await expect(window.locator(`text=${PLUGIN_DISPLAY}`).first()).toBeVisible({ timeout: 10000 });
 
   await expect(window.locator('text=Capabilities & Privileged Access')).toBeVisible();
+  await window.getByRole('button', {name: 'Expand', exact: true}).click();
   await expect(window.locator('text=Privileged host actions')).toBeVisible();
-  await expect(window.locator('text=Scoped filesystem access: etc-hosts')).toBeVisible();
-  await expect(window.locator('text=Scoped capabilities are present, but base privileged access is disabled.')).toBeVisible();
+  await expect(window.getByRole('checkbox', {name: 'Filesystem Scope: etc-hosts', exact: true})).toBeChecked();
+  await expect(window.getByText('Child capabilities/scopes are present, but base privileged access is disabled.', {exact: true})).toBeVisible();
 
   await window.getByRole('button', { name: 'Enable required base permission' }).click();
   await window.getByRole('button', { name: 'Save Capabilities' }).click();

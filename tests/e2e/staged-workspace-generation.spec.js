@@ -10,7 +10,7 @@ const missingCommaSource = require('node:fs').readFileSync(require('node:path').
     '../fixtures/ai/workspace-render-missing-comma.ts'), 'utf8');
 
 test('native initial inventory retains composition and tests alongside twelve feature modules', async () => {
-    const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+    const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
         env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: 'auto'}});
     try {
         const page = await app.firstWindow();
@@ -44,16 +44,17 @@ test('native initial inventory retains composition and tests alongside twelve fe
             await window.electron.settings.ai.addAssistant({name: 'Complete inventory', provider: 'cloudflare', purpose: 'coding',
                 model: '@cf/qwen/qwen3.8-27b', accountId: 'a'.repeat(32), apiKey: 'test-token', defaultThinkingMode: 'off'});
             const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Complete inventory');
-            return window.electron.aiCodingAgent.planCode({requestId: 'complete-inventory', assistantId: assistant.id,
+            return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'complete-inventory', assistantId: assistant.id,
                 prompt: 'Build twelve feature modules plus plugin composition, styles and tests.', workspaceFiles: [],
-                image: 'data:image/png;base64,iVBORw0KGgo='});
+                image: 'data:image/png;base64,iVBORw0KGgo='}));
         });
         expect(result.success, result.error).toBe(true);
         expect(result.content.match(/### File:/g)).toHaveLength(16);
         for (const path of ['/index.ts', '/render.tsx', '/styles.css', '/render.test.ts']) expect(result.content).toContain(`### File: ${path}`);
         const requests = await app.evaluate(() => globalThis.__coverageRequests);
         expect(requests).toHaveLength(17);
-        expect(requests[0].response_format.json_schema.properties.files.maxItems).toBe(36);
+        // The initial inventory reserves twelve of the 36 slots for split recovery.
+        expect(requests[0].response_format.json_schema.properties.files.maxItems).toBe(24);
         expect(Array.isArray(requests[0].messages.at(-1).content)).toBe(true);
         for (const request of requests.slice(1)) {
             const path = JSON.stringify(request.messages).match(/Generate ONLY (\/[^\s]+)\. Its contract:/)?.[1];
@@ -65,7 +66,7 @@ test('native initial inventory retains composition and tests alongside twelve fe
 });
 
 test('repairs workspace imports through native IPC without regenerating retained files', async () => {
-    const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+    const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
         env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '4'}});
     try {
         const page = await app.firstWindow();
@@ -97,9 +98,9 @@ test('repairs workspace imports through native IPC without regenerating retained
             await window.electron.settings.ai.addAssistant({name: 'Import recovery', provider: 'cloudflare', purpose: 'coding',
                 model: '@cf/qwen/qwen3.8-27b', accountId: 'a'.repeat(32), apiKey: 'test-token', defaultThinkingMode: 'off'});
             const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Import recovery');
-            return window.electron.aiCodingAgent.planCode({requestId: 'import-recovery', assistantId: assistant.id,
+            return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'import-recovery', assistantId: assistant.id,
                 prompt: 'Repair plugin rendering, retaining existing modules.',
-                workspaceFiles: [{path: '/existing.ts', content: 'export const title = "Existing";'}]});
+                workspaceFiles: [{path: '/existing.ts', content: 'export const title = "Existing";'}]}));
         });
         expect(result.success, result.error).toBe(true);
         expect(result.content.match(/### File:/g)).toHaveLength(2);
@@ -116,7 +117,7 @@ test('repairs workspace imports through native IPC without regenerating retained
 });
 
 test('replays each workspace step\'s transient failure independently', async () => {
-    const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+    const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
         env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '6'}});
     try {
         const page = await app.firstWindow();
@@ -160,8 +161,8 @@ test('replays each workspace step\'s transient failure independently', async () 
                 model: '@cf/qwen/qwen3.8-27b', accountId: 'a'.repeat(32), apiKey: 'test-token', defaultThinkingMode: 'off'});
             const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Step retries');
             window.electron.aiCodingAgent.on.streamError(event => { globalThis.__stepErrors = globalThis.__stepErrors || []; globalThis.__stepErrors.push(event); });
-            return window.electron.aiCodingAgent.planCode({requestId: 'step-retries', assistantId: assistant.id,
-                prompt: 'Build a two-module plugin with a transient fault per file.'});
+            return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'step-retries', assistantId: assistant.id,
+                prompt: 'Build a two-module plugin with a transient fault per file.'}));
         });
         const rendererErrors = await page.evaluate(() => globalThis.__stepErrors || []);
         const mainRequests = await app.evaluate(() => (globalThis.__stepRequests || []).map((request, index, all) => ({
@@ -188,7 +189,7 @@ for (const scenario of ['complete', 'incomplete final file', 'invalid plan recov
     const retryExhausted = scenario === 'budget retry exhausted';
     const success = !incomplete && invalidCount !== 2 && !budgetFailure;
     test(`Cloudflare workspace transaction: ${scenario}`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {FDO_E2E_LIVE_AI: budgeted ? '1' : '0', FDO_TEST_AI_MAX_REQUESTS: scenario === 'budget adaptive' ? 'auto' : scenario === 'budget insufficient' ? '2' : '3'}});
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true, env: {FDO_E2E_LIVE_AI: budgeted ? '1' : '0', FDO_TEST_AI_MAX_REQUESTS: scenario === 'budget adaptive' ? 'auto' : scenario === 'budget insufficient' ? '2' : '3'}});
         try {
             const page = await app.firstWindow();
             await expect.poll(() => page.evaluate(async () => {
@@ -210,9 +211,9 @@ for (const scenario of ['complete', 'incomplete final file', 'invalid plan recov
                     ]}) : stage === 2 ? JSON.stringify({path: '/render.ts', lines: ['export const render = () => "Hello";']})
                         : JSON.stringify({path: '/index.ts', lines: ['import {render} from "./render";']});
                     if (body.response_format) return Response.json({result: {choices: [{message: {content: text},
-                        finish_reason: incomplete && stage === 3 ? null : truncated && stage <= 0 ? 'length' : 'stop'}], usage: {prompt_tokens: 100, completion_tokens: 20}}});
+                        finish_reason: incomplete && stage >= 3 ? null : truncated && stage <= 0 ? 'length' : 'stop'}], usage: {prompt_tokens: 100, completion_tokens: 20}}});
                     const events = [{choices: [{delta: {content: text}, finish_reason: null}]}];
-                    if (!(incomplete && stage === 3)) events.push({choices: [{delta: {}, finish_reason: truncated && stage <= 0 ? 'length' : 'stop'}], usage: {prompt_tokens: 100, completion_tokens: 20}});
+                    if (!(incomplete && stage >= 3)) events.push({choices: [{delta: {}, finish_reason: truncated && stage <= 0 ? 'length' : 'stop'}], usage: {prompt_tokens: 100, completion_tokens: 20}});
                     return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''),
                         {headers: {'content-type': 'text/event-stream'}});
                 };
@@ -225,7 +226,7 @@ for (const scenario of ['complete', 'incomplete final file', 'invalid plan recov
                 window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
                 window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
                 window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') stages.push(event); });
-                const response = await window.electron.aiCodingAgent.planCode({requestId: 'stage-test', assistantId: assistant.id, prompt: 'Implement a greeting plugin.'});
+                const response = await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'stage-test', assistantId: assistant.id, prompt: 'Implement a greeting plugin.'}));
                 window.__stageResult = {response, done, stages, errors};
                 return response;
             });
@@ -240,7 +241,7 @@ for (const scenario of ['complete', 'incomplete final file', 'invalid plan recov
             // cannot produce a fitting plan. Non-limited retries (invalid JSON
             // or schema shape) keep the 2048-token plan budget.
             expect(requests.map(request => request.max_tokens)).toEqual(budgetFailure ? retryExhausted ? [2048, 6144] : [2048] : invalidCount === 2 ? (truncated ? [2048, 4096] : [2048, 2048])
-                : [...Array(invalidCount).fill(2048), truncated ? 4096 : 2048, 6144, 6144]);
+                : [...Array(invalidCount).fill(2048), truncated ? 4096 : 2048, 6144, 6144, ...(incomplete ? [6144] : [])]);
             for (const request of requests) {
                 // Classify by schema shape, not token budget: the escalated
                 // plan retry no longer shares the 2048 value with first plans.
@@ -276,14 +277,14 @@ for (const scenario of ['complete', 'incomplete final file', 'invalid plan recov
             }
             const usage = await page.evaluate(() => window.electron.aiUsage.get({surface: 'coding'}));
             expect(usage.entries).toHaveLength(requests.length);
-            expect(usage.entries.filter(entry => entry.status === 'completed')).toHaveLength(requests.length - (incomplete || retryExhausted ? 1 : 0) - (truncated ? invalidCount : 0));
+            expect(usage.entries.filter(entry => entry.status === 'completed')).toHaveLength(requests.length - (incomplete ? 2 : retryExhausted ? 1 : 0) - (truncated ? invalidCount : 0));
         } finally { await closeElectronApp(app); }
     });
 }
 
 for (const {stylesheet, repairSplit, echoRoot, fullInventory, reuseCss, wrongFolder, duplicateHelper, unrelatedProposals, earlySize} of [{stylesheet: false}, {stylesheet: false, earlySize: true}, {stylesheet: true}, {stylesheet: true, repairSplit: true}, {stylesheet: true, echoRoot: true}, {stylesheet: true, fullInventory: true}, {stylesheet: true, reuseCss: 'pending'}, {stylesheet: true, reuseCss: 'completed'}, {stylesheet: true, wrongFolder: true}, {stylesheet: true, repairSplit: true, duplicateHelper: true}, {stylesheet: true, repairSplit: true, unrelatedProposals: true}]) {
 test(`oversized ${stylesheet ? 'CSS' : 'TypeScript'} file is split into helper modules through the native SDK${earlySize ? ' after early stream cancellation' : unrelatedProposals ? ' with unrelated conflicting source proposals in a CSS split' : duplicateHelper ? ' after a corrected plan repeats an identical helper' : wrongFolder ? ' with a wrong relative helper folder' : repairSplit ? ' after split validation repair' : echoRoot ? ' with misplaced original module' : fullInventory ? ' with a full initial inventory' : reuseCss ? ` reusing ${reuseCss} CSS` : ''}`, async () => {
-    const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+    const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
         env: {FDO_E2E_LIVE_AI: fullInventory || reuseCss ? '1' : '0', FDO_TEST_AI_MAX_REQUESTS: reuseCss ? '6' : 'auto'}});
     try {
         const page = await app.firstWindow();
@@ -361,7 +362,7 @@ test(`oversized ${stylesheet ? 'CSS' : 'TypeScript'} file is split into helper m
             window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
             window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
             window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') stages.push(event.label); });
-            const result = await window.electron.aiCodingAgent.planCode({requestId: 'split-test', assistantId: assistant.id, prompt: 'Build a greeting plugin using feature folders.'});
+            const result = await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'split-test', assistantId: assistant.id, prompt: 'Build a greeting plugin using feature folders.'}));
             return {result, done, errors, stages};
         });
         expect(observed.result.success, observed.result.error).toBe(true);
@@ -419,7 +420,7 @@ const sourceKind = kind === 'CSS source syntax' || kind === 'entry instantiation
     || kind === 'flattened entry' || kind === 'renderer syntax' || phased;
 for (const repeated of [false, true]) {
     test(`completed ${kind} ${repeated ? sourceKind ? 'fails after repeated repairs' : 'fails after one retry' : 'recovers without regenerating dependencies'}`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: phased ? (repeated ? '6' : '5')
                 : adaptive ? '5' : sourceKind && repeated ? '5' : '4'}});
         try {
@@ -478,7 +479,7 @@ for (const repeated of [false, true]) {
                 window.electron.aiCodingAgent.on.streamDone(event => window.__formatEvents.done.push(event));
                 window.electron.aiCodingAgent.on.streamError(event => window.__formatEvents.errors.push(event));
                 window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') window.__formatEvents.stages.push(event); });
-                return window.electron.aiCodingAgent.planCode({requestId: 'format-test', assistantId: assistant.id, prompt: 'Build an overlay plugin.'});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'format-test', assistantId: assistant.id, prompt: 'Build an overlay plugin.'}));
             });
             const requests = await app.evaluate(() => globalThis.__formatRequests);
             const entry = kind.includes('entry');
@@ -493,7 +494,8 @@ for (const repeated of [false, true]) {
             if (kind === 'CSS source syntax' || kind.endsWith('renderer syntax')) {
                 expect(repairRequest.messages.at(-1).content).toContain('FOCUSED WORKSPACE SYNTAX REPAIR');
                 expect(repairRequest.messages.at(-1).content).not.toContain('export type State');
-            } else expect(repairRequest.messages.at(-1).content).toContain('export type State');
+            } else if (kind.startsWith('CSS')) expect(repairRequest.messages.at(-1).content).not.toContain('export type State');
+            else expect(repairRequest.messages.at(-1).content).toContain('export type State');
             if (kind.endsWith('response format')) expect(repairRequest.messages.at(-1).content).toContain('BEGIN REJECTED FILE RESPONSE');
             else expect(repairRequest.messages.at(-1).content).toContain('BEGIN REJECTED SOURCE');
             if (kind === 'JSON response format') {

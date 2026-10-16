@@ -2,7 +2,7 @@ const {test, expect, _electron: electron} = require('@playwright/test');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 test('native Cloudflare independently splits media, social and render with compact dependency context', async () => {
-    const app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
+    const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true, env: {
         FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: 'auto',
     }});
     try {
@@ -22,7 +22,15 @@ test('native Cloudflare independently splits media, social and render with compa
                 if (String(url) !== `${base}run/@cf/qwen/qwen3.8-27b`) throw new Error('Unexpected endpoint');
                 const body = JSON.parse(init.body);
                 globalThis.__independentRequests.push(body);
-                const path = body.response_format.json_schema.properties.path?.enum[0];
+                const path = body.response_format?.json_schema?.properties.path?.enum[0]
+                    || body.messages.at(-1).content.match(/Generate ONLY (\/[^\s]+)\. Its contract:/)?.[1];
+                const reply = (content, finishReason = 'stop') => body.stream
+                    ? new Response([
+                        {choices: [{delta: {content: JSON.stringify(content)}}]},
+                        {choices: [{delta: {}, finish_reason: finishReason}], usage: {prompt_tokens: 100, completion_tokens: 20}},
+                    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), {headers: {'content-type': 'text/event-stream'}})
+                    : Response.json({result: {choices: [{message: {content: JSON.stringify(content)}, finish_reason: finishReason}],
+                        usage: {prompt_tokens: 100, completion_tokens: 20}}});
                 let content;
                 if (!path) {
                     content = {files: plans === 0 ? roots.map(path => ({path, contract: 'Export feature renderer'}))
@@ -30,13 +38,12 @@ test('native Cloudflare independently splits media, social and render with compa
                     if (plans) expanded.add(roots[plans - 1]);
                     plans++;
                 } else if (roots.includes(path) && !expanded.has(path)) {
-                    return Response.json({result: {choices: [{message: {content: 'truncated'}, finish_reason: 'length'}]}});
+                    return reply('truncated', 'length');
                 } else {
                     content = {path, lines: ['export function render(): string {',
                         ...Array(80).fill('// INTERNAL_IMPLEMENTATION_DETAIL preserved in source'), 'return "Hello";', '}']};
                 }
-                return Response.json({result: {choices: [{message: {content: JSON.stringify(content)}, finish_reason: 'stop'}],
-                    usage: {prompt_tokens: 100, completion_tokens: 20}}});
+                return reply(content);
             };
         });
         const observed = await page.evaluate(async () => {
@@ -46,11 +53,11 @@ test('native Cloudflare independently splits media, social and render with compa
             const done = [], errors = [];
             window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
             window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
-            const result = await window.electron.aiCodingAgent.planCode({requestId: 'independent-splits', assistantId: assistant.id,
-                prompt: 'Build a plugin with media, social and render modules.'});
+            const result = await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'independent-splits', assistantId: assistant.id,
+                prompt: 'Build a plugin with media, social and render modules.'}));
             return {result, done, errors};
         });
-        expect(observed.result.success).toBe(true);
+        expect(observed.result.success, observed.result.error).toBe(true);
         expect(observed.errors).toEqual([]);
         expect(observed.done).toHaveLength(1);
         expect(observed.result.content.match(/### File:/g)).toHaveLength(6);
@@ -65,7 +72,7 @@ test('native Cloudflare independently splits media, social and render with compa
         const lifecycle = await app.evaluate(() => globalThis.__FDO_E2E_CODING_LIFECYCLE__);
         const rendererCalls = lifecycle.filter(entry => entry.event === 'provider-request-dispatched' && entry.workspaceStep === '/render.tsx');
         expect(rendererCalls.map(entry => entry.maxOutputTokens)).toEqual([6144, 2048]);
-        expect(rendererCalls.every(entry => entry.promptCharacters > 0 && entry.systemCharacters > 0 && entry.structured)).toBe(true);
+        expect(rendererCalls.every(entry => entry.promptCharacters > 0 && entry.systemCharacters > 0 && !entry.structured)).toBe(true);
         expect(lifecycle.find(entry => entry.event === 'request-failed')).toMatchObject({workspaceStep: '/media.ts', elapsedMs: expect.any(Number)});
         expect(lifecycle.find(entry => entry.event === 'request-completed')).toMatchObject({inputTokens: 100, outputTokens: 20});
         expect(JSON.stringify(lifecycle)).not.toMatch(/test-token|INTERNAL_IMPLEMENTATION_DETAIL/);
@@ -74,8 +81,8 @@ test('native Cloudflare independently splits media, social and render with compa
 
 
 for (const scenario of ['recovers', 'persists', 'incomplete stream', 'planning timeout', 'aborted', 'budget exhausted', 'cancelled']) {
-    test(`native Cloudflare HTTP 408 transport recovery: ${scenario}`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
+    test(`native Cloudflare provider transport recovery: ${scenario}`, async () => {
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true, env: {
             FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: scenario === 'budget exhausted' ? '3' : 'auto',
         }});
         try {
@@ -92,16 +99,19 @@ for (const scenario of ['recovers', 'persists', 'incomplete stream', 'planning t
                     if (String(url) !== `${base}run/@cf/qwen/qwen3.8-27b`) throw new Error('Unexpected endpoint');
                     const body = JSON.parse(init.body);
                     const attempt = globalThis.__timeoutRequests.push(body);
-                    if (scenario === 'planning timeout' || attempt === 3 || (attempt === 4 && scenario === 'persists')) {
+                    if (attempt === 3 && ['recovers', 'budget exhausted'].includes(scenario)) {
+                        return Response.json({success: false, errors: [{message: 'Temporarily unavailable'}]}, {status: 503});
+                    }
+                    if (scenario === 'planning timeout' || (attempt === 3 && ['persists', 'aborted'].includes(scenario))) {
                         return Response.json({errors: [{message: 'Request timeout', code: scenario === 'aborted' ? 3008 : 3046}],
                             success: false, result: {}, messages: []}, {status: 408});
                     }
-                    if (scenario === 'cancelled' && attempt === 4) return new Promise((resolve, reject) => {
+                    if (scenario === 'cancelled' && attempt === 3) return new Promise((resolve, reject) => {
                         const abort = () => reject(Object.assign(new Error('Aborted'), {name: 'AbortError'}));
                         if (init.signal.aborted) abort();
                         else init.signal.addEventListener('abort', abort, {once: true});
                     });
-                    if (attempt >= 4) {
+                    if (attempt >= 4 || (attempt === 3 && scenario === 'incomplete stream')) {
                         const text = 'The entry imports the completed renderer.\n```ts\nimport {render} from "./render";\n```\nUpdated the requested file.';
                         const events = [{choices: [{delta: {content: text}, finish_reason: null}]}];
                         if (scenario !== 'incomplete stream') events.push({choices: [{delta: {}, finish_reason: 'stop'}],
@@ -112,6 +122,10 @@ for (const scenario of ['recovers', 'persists', 'incomplete stream', 'planning t
                     const content = attempt === 1 ? {files: [
                         {path: '/render.ts', contract: 'Export render()'}, {path: '/index.ts', contract: 'Import render()'},
                     ]} : {path: '/render.ts', content: 'export const render = () => "Hello";'};
+                    if (body.stream) return new Response([
+                        {choices: [{delta: {content: JSON.stringify(content)}}]},
+                        {choices: [{delta: {}, finish_reason: 'stop'}], usage: {prompt_tokens: 100, completion_tokens: 20}},
+                    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), {headers: {'content-type': 'text/event-stream'}});
                     return Response.json({result: {choices: [{message: {content: JSON.stringify(content)}, finish_reason: 'stop'}],
                         usage: {prompt_tokens: 100, completion_tokens: 20}}});
                 };
@@ -124,24 +138,24 @@ for (const scenario of ['recovers', 'persists', 'incomplete stream', 'planning t
                 window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
                 window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
                 window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') stages.push(event); });
-                window.__timeoutResult = window.electron.aiCodingAgent.planCode({requestId: 'timeout-test', assistantId: assistant.id,
-                    prompt: 'Build a greeting plugin.'}).then(result => ({result, done, errors, stages}));
+                window.__timeoutResult = window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'timeout-test', assistantId: assistant.id,
+                    prompt: 'Build a greeting plugin.'})).then(result => ({result, done, errors, stages}));
             });
             if (scenario === 'cancelled') {
-                await expect.poll(() => app.evaluate(() => globalThis.__timeoutRequests.length)).toBe(4);
+                await expect.poll(() => app.evaluate(() => globalThis.__timeoutRequests.length)).toBe(3);
                 await page.evaluate(() => window.electron.aiCodingAgent.cancelRequest({requestId: 'timeout-test'}));
             }
             const observed = await page.evaluate(() => window.__timeoutResult);
             const requests = await app.evaluate(() => globalThis.__timeoutRequests);
-            const expectedCalls = scenario === 'planning timeout' ? 2 : ['aborted', 'budget exhausted'].includes(scenario) ? 3 : 4;
+            const expectedCalls = scenario === 'planning timeout' ? 2 : ['recovers', 'incomplete stream'].includes(scenario) ? 4 : 3;
             expect(requests).toHaveLength(expectedCalls);
             if (expectedCalls === 4) {
-                expect(requests[2].stream).toBe(false);
-                expect(requests[2].response_format).toBeDefined();
+                expect(requests[2].stream).toBe(true);
+                expect(requests[2].response_format).toBeUndefined();
                 expect(requests[3].stream).toBe(true);
                 expect(requests[3].response_format).toBeUndefined();
                 expect(requests[3].max_tokens).toBe(requests[2].max_tokens);
-                expect(requests[3].messages.at(-1).content).toContain('Return exactly one closed fenced code block');
+                if (scenario === 'incomplete stream') expect(requests[3].messages.at(-1).content).toContain('SOURCE FORMAT RECOVERY');
             }
             expect(observed.stages.some(stage => stage.label.startsWith('Splitting'))).toBe(false);
             const success = scenario === 'recovers';

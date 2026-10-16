@@ -18,6 +18,17 @@ const indexFor = signature => buildFdoSdkKnowledgeIndex([
     {path: '@types/Unrelated.d.ts', content: 'export declare class Unrelated { close(): void; }'},
 ]);
 
+test('SDK authoring evidence distinguishes composition, frontend modules and supported host component adapters', () => {
+    const index = buildFdoSdkKnowledgeIndex([{path: 'dist/dom-authoring-contract.json', content: '{"contractVersion":"1.0.0"}'},
+        {path: '@types/ui/markup.d.ts', content: 'export declare function createDialog(dom: DOM, options: DialogMarkupOptions): string;'}]);
+    const evidence = buildCodingEvidence(index, {source: 'import {createDialog} from "@anikitenko/fdo-sdk/ui";', prompt: 'Create a dialog'});
+    expect(evidence).toContain('SDK AUTHORING');
+    expect(evidence).toContain('cannot capture imported mount functions');
+    expect(evidence).toContain('await window.loadFdoUi()');
+    expect(evidence).toContain('collectStylesFrom');
+    expect(evidence).toContain('Textarea emits paired tags');
+});
+
 test('retrieves installed declarations from aliased and type imports, with provenance', () => {
     const evidence = buildCodingEvidence(indexFor('open(value: string): void;'), {
         source: 'import {type Gadget as LocalGadget} from "@anikitenko/fdo-sdk";', targetPath: '/view.ts',
@@ -147,4 +158,14 @@ test('test repair prioritizes an omitted registry import and callback capture se
     expect(evidence).toContain('side-effect-only import does not create local bindings');
     expect(evidence).toContain('does not update a module-local');
     expect(evidence).toContain('preserve actual async behavior');
+});
+
+test('published SDK preview metadata enables provider-neutral component and repair guidance',()=>{
+    const index=buildFdoSdkKnowledgeIndex([{path:'dist/ui-previews.json',content:'{"contractVersion":"1.0.0","cases":[]}'},
+        {path:'docs/AUTHORING_COMPONENTS.md',content:'mountAsyncActionButton requires onAction with AbortSignal; createTabs and createInlineAlert compose HTML.'}]);
+    const evidence=buildCodingEvidence(index,{prompt:'Add an async action and error feedback'});
+    expect(evidence).toContain('SDK AUTHORING COMPONENTS');
+    expect(evidence).toContain('AbortSignal');
+    expect(evidence).toContain('Omit absent optional ARIA');
+    expect(evidence).toContain('Do not mount owned children separately');
 });

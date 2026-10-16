@@ -1,6 +1,4 @@
 const { test, expect, _electron: electron } = require("@playwright/test");
-const path = require("node:path");
-const fs = require("node:fs");
 const { createCoverageMap } = require("istanbul-lib-coverage");
 const {
   launchElectronApp,
@@ -43,15 +41,7 @@ const EXPECTED = {
 };
 
 function resolveExamplesRootForThisSpec() {
-  const preferred = path.resolve(process.cwd(), "../fdo-sdk/examples");
-  if (fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
-    return preferred;
-  }
-  const fallback = path.resolve(process.cwd(), "vendor/fdo-sdk/examples");
-  if (fs.existsSync(fallback) && fs.statSync(fallback).isDirectory()) {
-    return fallback;
-  }
-  throw new Error(`Unable to resolve SDK examples root for 09 spec. Tried: ${preferred}, ${fallback}`);
+  return require('./helpers/sdkExamples').resolveSdkExamplesPath();
 }
 
 function normalizeUiMessageResponse(response) {
@@ -153,7 +143,7 @@ async function clickRunAndWait(window, matcherExpr, timeoutMs = 10000) {
     runButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     const until = Date.now() + timeoutMs;
     while (Date.now() < until) {
-      const text = String(resultBox.textContent || "").trim();
+      const text = String(doc.getElementById("operator-result-box")?.textContent || "").trim();
       // eslint-disable-next-line no-new-func
       const matched = new Function("text", `return (${matcherExpr});`)(text);
       if (matched) {
@@ -161,7 +151,7 @@ async function clickRunAndWait(window, matcherExpr, timeoutMs = 10000) {
       }
       await new Promise((resolve) => setTimeout(resolve, 120));
     }
-    return { ok: false, reason: "timeout", text: String(resultBox.textContent || "").trim() };
+    return { ok: false, reason: "timeout", text: String(doc.getElementById("operator-result-box")?.textContent || "").trim() };
   }, { matcherExpr, timeoutMs });
 }
 
@@ -252,6 +242,9 @@ test.describe("SDK example 09-operator-plugin: live E2E line proof", () => {
       await expectPluginUiVisible(window, pluginName);
       await waitForPluginUiRendered(window, pluginName, 20000);
       await waitFor09UiReady(window, 20000);
+      const restartedDiagnostics = await getPluginDiagnostics(window, pluginName);
+      expect(restartedDiagnostics?.health?.initCount).toBeGreaterThan(0);
+      expect(restartedDiagnostics?.capabilities?.registeredHandlers).toContain(EXPECTED.handler);
 
       const successResult = await clickRunAndWait(
         window,

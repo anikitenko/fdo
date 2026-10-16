@@ -75,15 +75,7 @@ const STRICT_COVERAGE_MINIMUMS = {
 };
 
 function resolveExamplesRootForThisSpec() {
-  const preferred = path.resolve(process.cwd(), "../fdo-sdk/examples");
-  if (fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
-    return preferred;
-  }
-  const fallback = path.resolve(process.cwd(), "vendor/fdo-sdk/examples");
-  if (fs.existsSync(fallback) && fs.statSync(fallback).isDirectory()) {
-    return fallback;
-  }
-  throw new Error(`Unable to resolve SDK examples root for 05 spec. Tried: ${preferred}, ${fallback}`);
+  return require('./helpers/sdkExamples').resolveSdkExamplesPath();
 }
 
 function toTailText(logTail) {
@@ -131,7 +123,6 @@ async function getAdvancedDomSnapshot(window, pluginName) {
     const doc = iframe?.contentDocument;
     const byId = (id) => doc?.getElementById(id);
     const text = (selector) => String(doc?.querySelector(selector)?.textContent || "").trim();
-    const attr = (selector, name) => String(doc?.querySelector(selector)?.getAttribute(name) || "");
     const style = (selector, property) => String(doc?.querySelector(selector)?.style?.[property] || "");
     const computed = (selector, property) => {
       const el = doc?.querySelector(selector);

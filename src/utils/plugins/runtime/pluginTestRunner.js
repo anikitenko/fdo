@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import {spawn} from "node:child_process";
 import {ensureExecutableEsbuildBinary, getHostPluginNodeModulesPath, loadHostEsbuild} from "./pluginRuntimeBundle";
+import {compileCssStyleModule} from '../../esbuild/plugins/cssStyleModule';
 
 export function formatNoPluginTestsMessage() {
     return "No plugin tests found. Add node:test files like /index.test.ts, /src/foo.spec.ts, or /__tests__/bar.test.ts to run tests before build.";
@@ -54,7 +55,9 @@ async function materializeWorkspace(rootDir, files) {
     }
 }
 
-async function transpilePluginTests(workspaceDir, compiledDir, testFiles) {
+async function transpilePluginTests(workspaceDir, compiledDir, testFiles, latestContent) {
+    // esbuild canonicalizes /var -> /private/var on macOS before onLoad.
+    workspaceDir = await fs.realpath(workspaceDir);
     const nodeModulesPath = getHostPluginNodeModulesPath();
     ensureExecutableEsbuildBinary(nodeModulesPath);
     const esbuild = loadHostEsbuild(nodeModulesPath);
@@ -74,6 +77,13 @@ async function transpilePluginTests(workspaceDir, compiledDir, testFiles) {
         sourcemap: "inline",
         target: "es2022",
         external: ["@anikitenko/fdo-sdk"],
+        plugins: [{name: 'fdo-test-css', setup(build) {
+            build.onLoad({filter: /\.css$/}, async ({path: diskPath}) => {
+                const virtualPath = '/' + path.relative(workspaceDir, diskPath).split(path.sep).join('/');
+                if (!Object.hasOwn(latestContent, virtualPath)) throw new Error(`CSS file is outside the plugin workspace: ${virtualPath}`);
+                return {contents: await compileCssStyleModule(latestContent, virtualPath), loader: 'js'};
+            });
+        }}],
         define: {
             "import.meta.url": "__fdoImportMetaUrl",
         },
@@ -200,7 +210,7 @@ export async function runPluginWorkspaceTests(latestContent = {}) {
 
     try {
         await materializeWorkspace(workspaceDir, files);
-        const {compiledTestFiles, nodeModulesPath} = await transpilePluginTests(workspaceDir, compiledDir, testFiles);
+        const {compiledTestFiles, nodeModulesPath} = await transpilePluginTests(workspaceDir, compiledDir, testFiles, Object.fromEntries(files.map(file => [file.path, file.content])));
         await copyWorkspaceRuntimeFiles(workspaceDir, compiledDir, files, testFiles, compiledTestFiles);
         const result = await executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath);
         return {

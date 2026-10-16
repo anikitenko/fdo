@@ -36,7 +36,7 @@ test('plugin quick, sidebar, and native tray actions invoke handlers; revocation
         await page.getByRole('menuitem', {name: /Surface quick action/}).click();
         await expect.poll(events).toContain('quick');
         await expect(page.frameLocator('iframe[data-plugin-id="surface-fixture"]').getByText('Last action: quick')).toBeVisible();
-        await page.getByRole('button', {name: 'cog', exact: true}).last().click();
+        await page.getByRole('button', {name: 'Surface sidebar', exact: true}).last().click();
         await page.getByText('Surface side action', {exact: true}).click();
         await expect.poll(events).toContain('side');
         await expect(page.frameLocator('iframe[data-plugin-id="surface-fixture"]').getByText('Last action: side')).toBeVisible();

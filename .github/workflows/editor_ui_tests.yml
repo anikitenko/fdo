@@ -2,226 +2,182 @@ name: App UI Tests
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: ['**']
   pull_request:
+  merge_group:
   workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ui-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  # This workflow must never spend provider credits or depend on local credentials.
+  FDO_E2E_LIVE_AI: '0'
 
 jobs:
-  ui-smoke:
-    name: App UI Smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+  unit:
+    name: Unit and Component Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Check dependency security and deprecations
+        run: npm run check:dependencies
+      - name: Run every Jest suite
+        run: |
+          mkdir -p artifacts
+          npm run test:ci -- --json --outputFile=artifacts/jest-results.json
+      - name: Upload Jest results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jest-results
+          path: artifacts/jest-results.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  ui-linux:
+    name: Electron Regression (Linux ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-
+        shard: [1, 2, 3, 4]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers and dependencies
-        if: runner.os == 'Linux'
-        run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright browsers
-        if: runner.os != 'Linux'
-        run: npx playwright install chromium
-
-      - name: Build application
-        run: npm run build
-
-      - name: Run editor unit/component tests
-        run: npm run test:editor:unit
-
-      - name: Run app smoke Electron UI tests
-        if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:e2e:smoke
-
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Run deterministic Electron regressions (including fault injection)
+        run: xvfb-run -a npm run test:e2e:ci -- --shard=${{ matrix.shard }}/4
+      - name: Upload regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: playwright-artifacts-${{ matrix.os }}
-          path: |
-            playwright-report
-            test-results
-          if-no-files-found: ignore
+          name: electron-linux-${{ matrix.shard }}
+          path: playwright-report
+          retention-days: 14
+          if-no-files-found: warn
 
-  ui-full-linux:
-    name: App UI Full Clean (ubuntu-latest)
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Upload native diagnostics on failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
         with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers and dependencies
-        run: npx playwright install --with-deps chromium
-
-      - name: Build application
-        run: npm run build
-
-      - name: Run editor unit/component tests
-        run: npm run test:editor:unit
-
-      - name: Run full clean Electron UI regression suite
-        run: xvfb-run -a npm run test:e2e:full
-
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-artifacts-full-linux
-          path: |
-            playwright-report
-            test-results
+          name: electron-linux-${{ matrix.shard }}-diagnostics
+          path: test-results
+          retention-days: 14
           if-no-files-found: ignore
 
   sdk-fixture-runtime-matrix:
-    name: SDK Fixture Runtime Matrix (ubuntu-latest)
+    name: SDK Fixture Runtime Matrix
     runs-on: ubuntu-latest
     timeout-minutes: 35
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers and dependencies
-        run: npx playwright install --with-deps chromium
-
-      - name: Build application
-        run: npm run build
-
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
       - name: Run SDK fixture runtime matrix
         env:
           FDO_E2E_FIXTURE_MATRIX_CONCURRENCY: 2
         run: xvfb-run -a npm run test:e2e:fixtures:matrix
-
-      - name: Upload fixture runtime matrix artifacts
+      - name: Upload fixture runtime artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sdk-fixture-runtime-matrix
           path: |
             playwright-report
             test-results/sdk-fixture-runtime-matrix.json
             test-results/sdk-fixture-runtime-matrix.md
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload fixture runtime diagnostics on failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-fixture-runtime-diagnostics
+          path: test-results
+          retention-days: 14
           if-no-files-found: ignore
 
-  ui-fault-injection:
-    name: App UI Fault Injection (ubuntu-latest)
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers and dependencies
-        run: npx playwright install --with-deps chromium
-
-      - name: Build application
-        run: npm run build
-
-      - name: Run fault-injection Electron UI tests
-        run: xvfb-run -a npm run test:e2e:faults
-
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-artifacts-fault-injection
-          path: |
-            playwright-report
-            test-results
-          if-no-files-found: ignore
-
-  ui-tests-cross-platform:
-    name: App UI Tests (${{ matrix.os }}) Manual
-    if: github.event_name == 'workflow_dispatch'
+  ui-cross-platform:
+    name: Electron Smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium
-
-      - name: Build application
-        run: npm run build
-
-      - name: Run editor unit/component tests
-        run: npm run test:editor:unit
-
-      - name: Run app smoke Electron UI tests
-        run: npm run test:e2e:smoke
-
-      - name: Run clean Electron UI regression suite
-        run: npm run test:e2e:full
-
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run build
+      # One invocation preserves every failure artifact; native UI tests run serially.
+      - name: Run desktop and Live UI smoke tests
+        run: npm run test:e2e:ci -- tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js
+      - name: Run full regressions on scheduled and manual runs
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report-full
+        run: npm run test:e2e:ci -- --output=test-results-full
+      - name: Upload desktop artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: playwright-artifacts-${{ matrix.os }}
+          name: electron-${{ matrix.os }}
           path: |
             playwright-report
+            playwright-report-full
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload native desktop diagnostics on failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: electron-${{ matrix.os }}-diagnostics
+          path: |
             test-results
+            test-results-full
+          retention-days: 14
           if-no-files-found: ignore
+
+  required:
+    name: App UI Required
+    if: always()
+    needs: [unit, ui-linux, sdk-fixture-runtime-matrix, ui-cross-platform]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every test job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: node -e 'const results = JSON.parse(process.env.RESULTS); if (!results.length || results.some(result => result !== "success")) process.exit(1);'

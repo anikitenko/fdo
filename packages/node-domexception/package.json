@@ -1,0 +1,9 @@
+{
+  "name": "node-domexception",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Compatibility export for the native DOMException available in FDO's supported Node.js runtimes",
+  "main": "index.cjs",
+  "engines": { "node": ">=22.12.0" },
+  "license": "MIT"
+}

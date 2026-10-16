@@ -112,6 +112,14 @@ export const AiCodingAgentChannels = withPrefix('ai-coding-agent', {
     }
 })
 
+export const LiveUiChannels = withPrefix('live-ui', {
+    OPEN: 'open', PUBLISH: 'publish', READ: 'read', PREVIEW: 'preview', FOCUS_IDE: 'focus-ide', UPDATED: 'updated',
+    PROPOSE: 'propose', APPLY: 'apply', APPLY_REQUEST: 'apply-request', APPLIED: 'applied', CAN_COMMIT: 'can-commit',
+    REVEAL: 'reveal', REVEAL_SOURCE: 'reveal-source',
+    EDIT_WITH_AI: 'edit-with-ai', AI_SELECTION: 'ai-selection',
+    RESTORE_DRAFT: 'restore-draft', DISCARD_DRAFT: 'discard-draft',
+});
+
 export const SystemChannels = withPrefix('system', {
     OPEN_EXTERNAL_LINK: 'open-external-link',
     OPEN_PLUGIN_LOGS: 'open-plugin-logs',
@@ -128,7 +136,6 @@ export const SystemChannels = withPrefix('system', {
     GET_EXTERNAL_REFERENCE_KNOWLEDGE: 'get-external-reference-knowledge',
     GET_BABEL_PATH: 'get-babel-path',
     OPEN_EDITOR_WINDOW: 'open-editor-window',
-    OPEN_LIVE_UI_WINDOW: 'open-live-ui-window',
     EDITOR_CLOSE_APPROVED: 'editor-close-approved',
     EDITOR_RELOAD_APPROVED: 'editor-reload-approved',
     FOCUS_EDITOR_WINDOW: 'system:focus-editor-window',

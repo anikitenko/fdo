@@ -64,12 +64,14 @@ const renderAction = (action, { handleClick, modifiers, query }) => {
             }
             icon={action.icon}
             active={modifiers.active}
+            disabled={action.disabled}
             onClick={handleClick}
         />
     );
 };
 
 const SECTION_PRIORITY = {
+    "pinned plugin actions": -1,
     "installed plugins": 0,
     "active plugin actions": 1,
     "other": 99,
@@ -90,11 +92,11 @@ function groupActionsBySection(actions) {
         }
         acc[section].items.push(action);
         return acc;
-    }, {});
+    }, Object.create(null));
 
     // Sort actions inside each section alphabetically by name
     Object.keys(grouped).forEach(section => {
-        grouped[section].items.sort((a, b) => a.name.localeCompare(b.name));
+        grouped[section].items.sort((a, b) => (a.pinOrder ?? Infinity) - (b.pinOrder ?? Infinity) || a.name.localeCompare(b.name));
     });
 
     return grouped;
@@ -116,7 +118,7 @@ function orderActions(actions = []) {
             return sectionComparison;
         }
 
-        return actionA.name.localeCompare(actionB.name);
+        return (actionA.pinOrder ?? Infinity) - (actionB.pinOrder ?? Infinity) || actionA.name.localeCompare(actionB.name);
     });
 }
 
@@ -129,11 +131,11 @@ function itemListRenderer({
 
     const filteredItems = items.filter(action => {
         if (!action) return false;
-        const keywords = Array.isArray(action.keywords) ? action.keywords : [];
+        const keywords = Array.isArray(action.keywords) ? action.keywords : [action.keywords, action.subtitle, action.section].filter(Boolean);
 
         return (
             action.name.toLowerCase().includes(normalizedQuery) ||
-            keywords.some(keyword => keyword.toLowerCase().includes(normalizedQuery))
+            keywords.some(keyword => String(keyword).toLowerCase().includes(normalizedQuery))
         );
     });
 
@@ -197,6 +199,7 @@ function renderGroupedInitialContent(actions, onSelect) {
                                 text={action.name}
                                 label={action.subtitle}
                                 icon={action.icon}
+                                disabled={action.disabled}
                                 onClick={() => onSelect(action)}
                             />
                         ))}
@@ -211,6 +214,9 @@ export const CommandBar = ({show, actions, setShow}) => {
 
     const debouncedSetQuery = useMemo(() => debounce(setQuery, 150), [setQuery]);
     const orderedActions = useMemo(() => orderActions(actions), [actions]);
+    useEffect(() => {
+        if (!show) { debouncedSetQuery.cancel(); setQuery(''); }
+    }, [show, debouncedSetQuery]);
 
     useEffect(() => {
         return () => {
@@ -224,14 +230,18 @@ export const CommandBar = ({show, actions, setShow}) => {
             isOpen={show}
             items={orderedActions}
             itemRenderer={renderAction}
+            itemDisabled={item => !!item.disabled}
             itemListRenderer={itemListRenderer}
             onItemSelect={(item) => {
+                if (item.disabled) return;
                 item.perform();
                 setShow(false);
             }}
             onClose={() => setShow(false)}
             resetOnSelect
+            resetOnClose
             initialContent={renderGroupedInitialContent(orderedActions, (action) => {
+                if (action.disabled) return;
                 action.perform();
                 setShow(false);
             })}

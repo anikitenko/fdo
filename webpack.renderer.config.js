@@ -4,6 +4,30 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 const webpack = require("webpack");
 const path = require("path");
 
+/** @type {import("webpack").ResolveOptions["fallback"]} */
+const rendererFallbacks = {
+    path: require.resolve("path-browserify"),
+    process: require.resolve("process/browser.js"),
+    buffer: require.resolve("buffer/"),
+    crypto: false,
+    fs: false,
+    stream: false,
+    http: false,
+    https: false,
+    zlib: false,
+    url: false,
+};
+
+/** @type {import("webpack").ResolveOptions} */
+const rendererResolve = {
+    fallback: rendererFallbacks,
+    extensions: ['.js', '.jsx', '.json', '.mjs'],
+    alias: {
+        'process/browser': require.resolve('process/browser.js'),
+    },
+};
+
+/** @type {import("webpack").Configuration} */
 module.exports = {
     entry: {
         main_window: ['./src/polyfills.js', './src/renderer.js'],
@@ -22,24 +46,7 @@ module.exports = {
         __dirname: false,
         __filename: false,
     },
-    resolve: {
-        fallback: {
-            "path": require.resolve("path-browserify"),
-            "process": require.resolve("process/browser.js"),
-            "buffer": require.resolve("buffer"),
-            "crypto": false,
-            "fs": false,
-            "stream": false,
-            "http": false,
-            "https": false,
-            "zlib": false,
-            "url": false
-        },
-        extensions: ['.js', '.jsx', '.json', '.mjs'],
-        alias: {
-            'process/browser': require.resolve('process/browser.js')
-        }
-    },
+    resolve: rendererResolve,
     module: {
         rules: [
             {
@@ -70,7 +77,8 @@ module.exports = {
                     options: {
                         presets: [
                             ["@babel/preset-react", {
-                                "runtime": "automatic"
+                                "runtime": "automatic",
+                                "development": false
                             }],
                         ]
                     }
@@ -196,4 +204,3 @@ module.exports = {
         }),
     ],
 };
-

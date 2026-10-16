@@ -21,7 +21,6 @@ import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
 import generatePluginName from "./utils/generatePluginName";
-import {ShowLightbulbIconMode} from "monaco-editor/esm/vs/editor/common/config/editorOptions";
 import {
     buildCapabilityAndDeprecationCodeActions,
     buildMetadataIconCodeActions,
@@ -461,9 +460,11 @@ export const EditorPage = () => {
         }
         setRenderOnLoadTemplateApplying(true);
         setRenderOnLoadTemplateError("");
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const template = await getRenderOnLoadTemplateWithFallback(templateId);
             if (!template?.source) {
+                //noinspection ExceptionCaughtLocallyJS
                 throw new Error("Template content is not available in the installed SDK.");
             }
             let source = template.source;
@@ -1307,7 +1308,7 @@ export const EditorPage = () => {
                                                         },
                                                         linkedEditing: true,
                                                         lightbulb: {
-                                                            enabled: ShowLightbulbIconMode.On
+                                                            enabled: monaco.editor.ShowLightbulbIconMode.On
                                                         },
                                                         scrollbar: {vertical: "auto", horizontal: "auto"},
                                                         stickyScroll: {
@@ -1331,7 +1332,7 @@ export const EditorPage = () => {
                                                         Select a file from Project Explorer or reopen the main plugin file.
                                                     </div>
                                                     <Button
-                                                        small
+                                                        size="small"
                                                         icon="document-open"
                                                         text={reopenButtonText}
                                                         onClick={reopenPreferredFile}

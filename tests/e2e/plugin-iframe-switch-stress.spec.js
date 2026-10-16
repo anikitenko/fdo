@@ -147,6 +147,7 @@ test.describe("plugin iframe rapid-switch stress", () => {
     try {
       electronApp = await launchElectronApp(electron);
     } catch (error) {
+      if (process.env.CI) throw error;
       launchError = error;
     }
   });

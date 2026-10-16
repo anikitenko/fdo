@@ -1,6 +1,4 @@
 const { test, expect, _electron: electron } = require("@playwright/test");
-const path = require("node:path");
-const fs = require("node:fs");
 const { createCoverageMap } = require("istanbul-lib-coverage");
 const {
   launchElectronApp,
@@ -46,15 +44,7 @@ const EXPECTED = {
 };
 
 function resolveExamplesRootForThisSpec() {
-  const preferred = path.resolve(process.cwd(), "../fdo-sdk/examples");
-  if (fs.existsSync(preferred) && fs.statSync(preferred).isDirectory()) {
-    return preferred;
-  }
-  const fallback = path.resolve(process.cwd(), "vendor/fdo-sdk/examples");
-  if (fs.existsSync(fallback) && fs.statSync(fallback).isDirectory()) {
-    return fallback;
-  }
-  throw new Error(`Unable to resolve SDK examples root for custom tool fixture spec. Tried: ${preferred}, ${fallback}`);
+  return require('./helpers/sdkExamples').resolveSdkExamplesPath();
 }
 
 function normalizeUiMessageResponse(response) {

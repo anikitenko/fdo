@@ -1,4 +1,6 @@
-import forge from "node-forge"
+import "reflect-metadata";
+import {BasicConstraintsExtension, KeyUsagesExtension, KeyUsageFlags, X509CertificateGenerator, X509Certificate as ParsedCertificate} from "@peculiar/x509";
+import {verifyCertificateChain} from "./certificateChain";
 import {settings} from "../persistence/store";
 import * as os from "node:os";
 import crypto from 'crypto';
@@ -29,38 +31,35 @@ export const Certs = {
     },
 
     daysUntilExpiry(certPem) {
-        const cert = forge.pki.certificateFromPem(certPem);
-        const notAfter = cert.validity.notAfter;
+        const cert = new crypto.X509Certificate(certPem);
+        const notAfter = new Date(cert.validTo);
         return (notAfter - new Date()) / (1000 * 60 * 60 * 24);
     },
 
-    generateRootCA(label = 'root', update = false) {
+    async generateRootCA(label = 'root', update = false) {
         NotificationCenter.addNotification({title: ``, message: `🔐 Generating new FDO Root Certificate...`});
 
-        const keys = forge.pki.rsa.generateKeyPair(4096);
-        const cert = forge.pki.createCertificate();
-
-        cert.publicKey = keys.publicKey;
-        cert.serialNumber = Date.now().toString();
-        cert.validity.notBefore = new Date();
-        cert.validity.notAfter = new Date();
-        cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
-
-        const attrs = [
-            {name: 'commonName', value: 'FDO Root CA'},
-            {name: 'organizationName', value: 'FDO'},
-        ];
-        cert.setSubject(attrs);
-        cert.setIssuer(attrs);
-        cert.setExtensions([
-            {name: 'basicConstraints', cA: true},
-            {name: 'keyUsage', keyCertSign: true, digitalSignature: true},
-        ]);
-
-        cert.sign(keys.privateKey, forge.md.sha256.create());
-
-        const certPem = forge.pki.certificateToPem(cert);
-        const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
+        const algorithm = {
+            name: "RSASSA-PKCS1-v1_5", hash: "SHA-256",
+            publicExponent: new Uint8Array([1, 0, 1]), modulusLength: 4096,
+        };
+        const keys = await crypto.webcrypto.subtle.generateKey(algorithm, true, ["sign", "verify"]);
+        const notBefore = new Date();
+        const notAfter = new Date(notBefore);
+        notAfter.setFullYear(notBefore.getFullYear() + 1);
+        const cert = await X509CertificateGenerator.createSelfSigned({
+            serialNumber: crypto.randomBytes(16).toString("hex"),
+            name: "CN=FDO Root CA, O=FDO",
+            notBefore, notAfter, keys, signingAlgorithm: algorithm,
+            extensions: [
+                new BasicConstraintsExtension(true, undefined, true),
+                new KeyUsagesExtension(KeyUsageFlags.keyCertSign | KeyUsageFlags.digitalSignature, true),
+            ],
+        }, crypto.webcrypto);
+        const certPem = cert.toString("pem");
+        const exportedKey = await crypto.webcrypto.subtle.exportKey("pkcs8", keys.privateKey);
+        const keyPem = crypto.createPrivateKey({key: Buffer.from(exportedKey), format: "der", type: "pkcs8"})
+            .export({format: "pem", type: "pkcs1"});
 
         // Calculate SHA256 fingerprint of cert PEM
         const sha256 = crypto.createHash('sha256').update(certPem).digest('base64');
@@ -84,7 +83,7 @@ export const Certs = {
                 identity,
                 label,
                 createdAt: now.toISOString(),
-                expiresAt: cert.validity.notAfter.toISOString(),
+                expiresAt: notAfter.toISOString(),
                 lastUsedAt: now.toISOString(),
                 imported: false
             });
@@ -96,7 +95,7 @@ export const Certs = {
                 root.id = id;
                 root.identity = identity;
                 root.createdAt = now.toISOString();
-                root.expiresAt = cert.validity.notAfter.toISOString();
+                root.expiresAt = notAfter.toISOString();
                 root.lastUsedAt = now.toISOString();
                 root.imported = false;
             }
@@ -146,7 +145,7 @@ export const Certs = {
                     try {
                         certs.push({
                             pem: block,
-                            cert: forge.pki.certificateFromPem(block)
+                            cert: new crypto.X509Certificate(block)
                         });
                     } catch {
                         return { success: false, error: "Invalid certificate block" };
@@ -162,7 +161,7 @@ export const Certs = {
 
             const now = new Date();
             const leaf = certs[0];
-            if (leaf.cert.validity.notAfter <= now) {
+            if (new Date(leaf.cert.validTo) <= now) {
                 return { success: false, error: "Certificate is expired" };
             }
 
@@ -172,14 +171,8 @@ export const Certs = {
 
             if (privateKeyPem) {
                 try {
-                    privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
-                    const publicKeyFromCert = leaf.cert.publicKey;
-
-                    // Compare modulus and exponent (RSA)
-                    keyMatches = (
-                        publicKeyFromCert.n?.toString() === privateKey.n?.toString() &&
-                        publicKeyFromCert.e?.toString() === privateKey.e?.toString()
-                    );
+                    privateKey = crypto.createPrivateKey(privateKeyPem);
+                    keyMatches = leaf.cert.checkPrivateKey(privateKey);
 
                     if (!keyMatches) {
                         return { success: false, error: "Private key does not match certificate" };
@@ -203,7 +196,7 @@ export const Certs = {
                 id,
                 label: `Imported-${(Math.random() + 1).toString(36).substring(2)}`,
                 createdAt: now.toISOString(),
-                expiresAt: leaf.cert.validity.notAfter.toISOString(),
+                expiresAt: new Date(leaf.cert.validTo).toISOString(),
                 lastUsedAt: now.toISOString(),
                 imported: true
             };
@@ -292,34 +285,30 @@ export const Certs = {
 
         this.ensureFdoIgnore(pluginDir);
 
-        const certObj = forge.pki.certificateFromPem(certEntry.cert);
+        const certObj = new crypto.X509Certificate(certEntry.cert);
         const now = new Date();
-        if (certObj.validity.notBefore > now) {
-            return {success: false, error: `Certificate not valid before ${certObj.validity.notBefore.toISOString()}`};
+        if (new Date(certObj.validFrom) > now) {
+            return {success: false, error: `Certificate not valid before ${new Date(certObj.validFrom).toISOString()}`};
         }
-        if (certObj.validity.notAfter <= now) {
-            return {success: false, error: `Certificate expired on ${certObj.validity.notAfter.toISOString()}`};
+        if (new Date(certObj.validTo) <= now) {
+            return {success: false, error: `Certificate expired on ${new Date(certObj.validTo).toISOString()}`};
         }
 
-        const privateKey = forge.pki.privateKeyFromPem(certEntry.key);
+        const privateKey = crypto.createPrivateKey(certEntry.key);
+        if (privateKey.asymmetricKeyType !== "rsa") {
+            return {success: false, error: "Plugin signing requires an RSA private key"};
+        }
         const hash = this.hashPluginDir(pluginDir);
-
-        const md = forge.md.sha256.create();
-        md.update(hash.toString("binary"));
-
-        const signature = privateKey.sign(md);
+        // Preserve the existing format: RSA/SHA-256 over the directory's SHA-256 digest.
+        const signature = crypto.sign("sha256", hash, {
+            key: privateKey, padding: crypto.constants.RSA_PKCS1_PADDING,
+        });
 
         const normalizedCert = certEntry.cert.trim().replace(/\r\n/g, '\n');
         const fingerprint = crypto.createHash("sha256").update(normalizedCert).digest("base64");
 
         // 🔍 Check if the certificate is a CA
-        let isRoot = false;
-        for (const ext of certObj.extensions) {
-            if (ext.name === 'basicConstraints' && ext.cA === true) {
-                isRoot = true;
-                break;
-            }
-        }
+        const isRoot = certObj.ca;
 
         const metaInformation = {
             fingerprint: {
@@ -341,7 +330,7 @@ export const Certs = {
                 : { cert: certEntry.cert };
         }
 
-        fs.writeFileSync(path.join(pluginDir, "fdo.signature"), Buffer.from(signature, "binary"));
+        fs.writeFileSync(path.join(pluginDir, "fdo.signature"), signature);
         fs.writeFileSync(
             path.join(pluginDir, "fdo.meta.json"),
             JSON.stringify(metaInformation, null, 2) + this.LINE_END()
@@ -364,37 +353,31 @@ export const Certs = {
         try {
             // 1. Hash the plugin content
             const pluginHash = this.hashPluginDir(pluginDir);
-            const md = forge.md[hashAlgorithm];
-            if (!md) return {success: false, error: `Unsupported hash algorithm: ${hashAlgorithm}`};
-            const digest = md.create();
-            digest.update(pluginHash.toString("binary"));
+            if (!["sha1", "sha256", "sha384", "sha512"].includes(hashAlgorithm)) {
+                return {success: false, error: `Unsupported hash algorithm: ${hashAlgorithm}`};
+            }
 
             // 2. Parse cert and validate validity
-            const certObj = forge.pki.certificateFromPem(certPem);
+            const certObj = new crypto.X509Certificate(certPem);
             const now = new Date();
-            if (certObj.validity.notBefore > now) {
+            if (new Date(certObj.validFrom) > now) {
                 return {
                     success: false,
-                    error: `Certificate not valid before ${certObj.validity.notBefore.toISOString()}`
+                    error: `Certificate not valid before ${new Date(certObj.validFrom).toISOString()}`
                 };
             }
-            if (certObj.validity.notAfter <= now) {
-                return {success: false, error: `Certificate expired on ${certObj.validity.notAfter.toISOString()}`};
+            if (new Date(certObj.validTo) <= now) {
+                return {success: false, error: `Certificate expired on ${new Date(certObj.validTo).toISOString()}`};
             }
 
-            const publicKey = certObj.publicKey;
-
-            // 3. Decode signature
-            let binarySignature;
-            if (Buffer.isBuffer(signature)) {
-                binarySignature = signature.toString("binary");
-            } else {
-                const buf = Buffer.from(signature, signatureEncoding);
-                binarySignature = buf.toString("binary");
+            if (certObj.publicKey.asymmetricKeyType !== "rsa") {
+                return {success: false, error: "Plugin signatures require an RSA certificate"};
             }
-
-            // 4. Verify signature
-            const isValid = publicKey.verify(digest.digest().bytes(), binarySignature);
+            const signatureBuffer = Buffer.isBuffer(signature)
+                ? signature : Buffer.from(signature, signatureEncoding);
+            const isValid = crypto.verify(hashAlgorithm, pluginHash, {
+                key: certObj.publicKey, padding: crypto.constants.RSA_PKCS1_PADDING,
+            }, signatureBuffer);
             return isValid ? {success: true, cert: certObj} : {success: false, error: "Signature is invalid."};
         } catch (err) {
             return {success: false, error: `Verification of signature failed: ${err.message}`};
@@ -444,48 +427,21 @@ export const Certs = {
 
                 let certChain;
                 try {
-                    certChain = rawChain.map(pem => forge.pki.certificateFromPem(pem));
+                    certChain = rawChain.map(pem => new crypto.X509Certificate(pem));
                 } catch (e) {
                     return {success: false, error: `Failed to parse developer certificate chain: ${e.message}`};
                 }
 
-                const caStore = forge.pki.createCaStore(
-                    allCerts.map(certEntry => forge.pki.certificateFromPem(certEntry.cert))
-                );
-
                 try {
-                    forge.pki.verifyCertificateChain(caStore, certChain);
+                    const trustedRoot = verifyCertificateChain(certChain, allCerts.map(entry => entry.cert));
+                    matchedCert = allCerts.find(entry =>
+                        new crypto.X509Certificate(entry.cert).fingerprint256 === trustedRoot.fingerprint256);
                 } catch (e) {
                     return {
                         success: false,
                         error: `Developer certificate chain verification failed: ${e.message}`
                     };
                 }
-
-                const leafCert = certChain[0];
-                const trustedRoots = allCerts.map(entry => ({
-                    pem: entry.cert,
-                    cert: forge.pki.certificateFromPem(entry.cert)
-                }));
-
-                const issuerString = leafCert.issuer.attributes.map(attr => `${attr.name}=${attr.value}`).join(", ");
-
-                let matchedRoot = trustedRoots.find(root => {
-                    const subjectString = root.cert.subject.attributes.map(attr => `${attr.name}=${attr.value}`).join(", ");
-                    return subjectString === issuerString;
-                });
-
-                if (!matchedRoot) {
-                    const lastChainCert = certChain[certChain.length - 1];
-                    matchedRoot = trustedRoots.find(root => {
-                        return root.cert.subject.hash === lastChainCert.issuer.hash;
-                    })
-                }
-
-                matchedCert = allCerts.find(entry => {
-                    const parsed = forge.pki.certificateFromPem(entry.cert);
-                    return parsed.subject.hash === matchedRoot.cert.subject.hash;
-                });
 
                 certificateToVerifyAgainst = rawChain[0]
             } else {
@@ -519,7 +475,7 @@ export const Certs = {
 
             return {
                 success: true,
-                commonName: verifySig.cert.subject.attributes.find(attr => attr.name === 'commonName'),
+                commonName: {name: 'commonName', value: new ParsedCertificate(verifySig.cert.raw).subjectName.getField('CN')[0]},
                 signer: matchedCert,
             };
         } catch (err) {

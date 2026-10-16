@@ -4,7 +4,6 @@ import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
 import {app, BrowserWindow, dialog, nativeTheme, protocol} from 'electron';
 import {installAssistantWindowPolicy} from './utils/desktop/assistantWindowPolicy';
 import nodeUrl from 'node:url';
-import started from 'electron-squirrel-startup';
 import PluginManager from "./utils/plugins/runtime/PluginManager";
 import {pluginTray} from './utils/plugins/runtime/pluginTray';
 import fs, {existsSync, mkdirSync} from "node:fs";
@@ -44,6 +43,15 @@ import {ipcMain} from 'electron';
 import {StartupChannels} from "./ipc/channels";
 import {registerAiChatHandlers} from "./ipc/ai/ai_chat";
 import {registerAiCodingAgentHandlers} from "./ipc/ai_coding_agent";
+
+// Isolate Chromium storage as well as config/plugin files in native tests.
+// This must run before the first BrowserWindow/default session is created.
+if (process.env.FDO_E2E === '1' && process.env.FDO_E2E_USER_DATA_DIR) {
+    const e2eUserData = nodePath.resolve(process.env.FDO_E2E_USER_DATA_DIR);
+    mkdirSync(e2eUserData, {recursive: true});
+    app.setPath('userData', e2eUserData);
+    app.setPath('sessionData', e2eUserData);
+}
 
 protocol.registerSchemesAsPrivileged([
     {
@@ -307,14 +315,6 @@ function printSdkMigrationReport(report) {
         console.log(styleText("green", "\n✅ Migration changes were applied."));
         console.log(styleText("italic", "Hint: run `git diff` to review applied updates."));
     }
-}
-
-// Early exit for Windows installer events (squirrel)
-// The 'started' variable was imported from 'electron-squirrel-startup' at the top
-debugLog(`[MAIN] Squirrel started: ${started}`);
-if (started) {
-    debugLog('[MAIN] Quitting due to squirrel startup');
-    app.quit();
 }
 
 const program = new Command();
@@ -666,10 +666,10 @@ const createWindow = async () => {
     // Capture renderer console warnings/errors.
     // Electron is deprecating the old variadic signature in favor of a single params object.
     mainWindow.webContents.on('console-message', (...args) => {
-        let level = 0;
-        let message = "";
-        let line = 0;
-        let sourceId = "";
+        let level;
+        let message;
+        let line;
+        let sourceId;
 
         // New-style shape: (_, params)
         if (args.length >= 2 && args[1] && typeof args[1] === "object" && !Array.isArray(args[1])) {
@@ -951,7 +951,7 @@ app.whenReady().then(async () => {
                     type: 'warning'
                 });
                 try {
-                    Certs.generateRootCA('root', true);
+                    await Certs.generateRootCA('root', true);
                 } catch (e) {
                     log.warn('❌ Failed to regenerate "FDO Root Certificate":', e);
                     app.quit();
@@ -969,7 +969,7 @@ app.whenReady().then(async () => {
                 type: 'warning'
             });
             try {
-                Certs.generateRootCA('root');
+                await Certs.generateRootCA('root');
             } catch (e) {
                 log.warn('❌ Failed to generate "FDO Root Certificate":', e);
                 app.quit();

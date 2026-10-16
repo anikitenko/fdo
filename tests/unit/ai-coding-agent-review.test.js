@@ -16,7 +16,7 @@ describe("AI Coding Agent workspace review prompts", () => {
         {path: '/styles.css', content: '.panel {display:grid}'},
     ];
     test('review includes style repair evidence and retains host findings if the model overlooks them', () => {
-        expect(workspaceStyleReviewContext(styleFiles)).toContain('one DOM per render');
+        expect(workspaceStyleReviewContext(styleFiles)).toContain('Share one DOM across child renderers');
         const cleanReport = {status: 'completed', summary: 'Tests passed.', findings: [], limitations: []};
         const report = includeWorkspaceStyleFindings(cleanReport, styleFiles);
         expect(report.findings.map(finding => finding.file)).toEqual(['/index.ts', '/view.ts']);

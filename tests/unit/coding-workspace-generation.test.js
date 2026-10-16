@@ -1603,10 +1603,10 @@ test('successful source recovery selects source responses for later files and sp
 });
 
 test('JSON diagnostics retain numeric locations without leaking generated text', () => {
+    expect.assertions(3);
     const invalid = '{\n  "path": "/a.ts",\n  "lines": ["export const x = "sensitive-source";"]\n}';
     try {
         validateWorkspaceFile(invalid, '/a.ts');
-        throw new Error('Expected invalid JSON to be rejected');
     } catch (error) {
         expect(error.jsonErrorLocation).toEqual({position: invalid.indexOf('sensitive-source'), line: 3, column: 32});
         expect(error.message).not.toContain('sensitive-source');
@@ -2921,7 +2921,7 @@ describe('CSS ancestor split recovery', () => {
         expect(result).not.toContain('/discarded.css');
         expect(options.request).toHaveBeenCalledTimes(replies.length);
         const split = options.request.mock.calls[4][0].prompt;
-        const reusable = JSON.parse(split.match(/Reusable CSS dependencies[^\n]+: (\[[^\n]*\])/)[1]);
+        const reusable = JSON.parse(split.match(/Reusable CSS dependencies[^\n]+: (\[[^\n]*])/)[1]);
         expect(reusable).toEqual([]);
         const repair = options.request.mock.calls[5][0];
         expect(repair.responseSchema.required).toEqual(['helpers']);
@@ -3527,6 +3527,7 @@ test.each(['corrected', 'repeated', 'budget', 'cancel'])('exact match correction
 });
 
 test('a cross-file diagnostic never quotes the same line number from the rejected file', async () => {
+    expect.assertions(3);
     const source = '// catalog line\n'.repeat(63) + 'export const tools = [];';
     const request = jest.fn().mockResolvedValue(file('/catalog.ts', source));
     try {
@@ -3534,7 +3535,6 @@ test('a cross-file diagnostic never quotes the same line number from the rejecte
             repairPaths: ['/catalog.ts'], request,
             validateFile: () => ['/index.ts:64:16: renderApp is missing categories and tools'],
         });
-        throw new Error('Expected validation rejection');
     } catch (error) {
         expect(error.message).toContain('/index.ts:64:16:');
         expect(error.message).not.toContain('Rejected source around line');
@@ -3960,8 +3960,9 @@ test('a package envelope failure recovers when the provider returns raw JSON aga
 });
 
 test('a misplaced importsOnly entry is a repairable shape error, not an unsafe path', () => {
+    expect.assertions(2);
     const plan = JSON.stringify({files: [{path: '/styles.css', contract: 'Styles'}, {importsOnly: true}]});
-    try { parseWorkspaceManifest(plan, {includeCompositionMode: true}); throw new Error('Expected rejection'); }
+    try { parseWorkspaceManifest(plan, {includeCompositionMode: true}); }
     catch (error) {
         expect(error.code).toBe('INVALID_WORKSPACE_MANIFEST_SCHEMA');
         expect(error.message).toContain('importsOnly is a top-level plan flag');
@@ -4085,4 +4086,55 @@ test('cancellation after a validated file preserves a resumable pending checkpoi
     expect(request).toHaveBeenCalledTimes(2);
     expect(checkpoint.completed).toEqual([expect.objectContaining({path: '/a.ts', content: 'export const a = 1;'})]);
     expect(checkpoint.pending.map(file => file.path)).toEqual(['/b.ts']);
+});
+
+test('scoped guide migration reviews the guide first even when implementation paths were supplied first', async () => {
+    const guide = '# Guide\n<!-- fdo-acceptance -->\n~~~json\n[{"id":"proof","description":"Keep behavior","testFile":"/proof.test.ts","testName":"proof"}]\n~~~';
+    let approve, shown;
+    const started = new Promise(resolve => {shown = resolve;});
+    const request = jest.fn(async options => {
+        if (options.workspaceStep === '/SKILL.md') return JSON.stringify({path:'/SKILL.md',content:guide});
+        return file('/logic.ts','export const value = 2;');
+    });
+    const result = generateStagedWorkspace({prompt:'Repair',request,sdkFingerprint:'a'.repeat(64),
+        repairPaths:['/logic.ts','/SKILL.md'],workspaceFiles:[{path:'/logic.ts',content:'export const value = 1;'},{path:'/SKILL.md',content:guide}],
+        reviewSkill: entry => {shown(); return new Promise(resolve => {approve = () => resolve(entry.content);});}});
+    await started;
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0].workspaceStep).toBe('/SKILL.md');
+    approve();
+    expect(await result).toContain('export const value = 2;');
+});
+
+test('stale guide reports a transport-safe recovery action without starting generation',async()=>{
+    const request = jest.fn();
+    await expect(generateStagedWorkspace({prompt:'Repair',request,sdkFingerprint:'a'.repeat(64),repairPaths:['/logic.ts'],
+        workspaceFiles:[{path:'/SKILL.md',content:'# Old'},{path:'/logic.ts',content:'export const value = 1;'}]}))
+        .rejects.toMatchObject({guideRecovery:{schemaVersion:'1.0.0',code:'PLUGIN_GUIDE_SDK_REVIEW_REQUIRED',path:'/SKILL.md',workspaceChanged:false}});
+    expect(request).not.toHaveBeenCalled();
+});
+
+test('guide migration retains the full existing workspace and product requirements in proposal context',async()=>{
+    const guide = '# Product guide\nInspect JSON locally and show nested values.';
+    const request = jest.fn(async options => {
+        expect(options.prompt).toContain('/retained.test.ts');
+        expect(options.prompt).toContain('Inspect JSON locally and show nested values.');
+        throw new Error('Stop proposal fixture');
+    });
+    await expect(generateStagedWorkspace({prompt:'Repair current diagnostics',request,sdkFingerprint:'a'.repeat(64),
+        repairPaths:['/logic.ts','/SKILL.md'],workspaceFiles:[{path:'/SKILL.md',content:guide},
+            {path:'/logic.ts',content:'export const value = 1;'}, {path:'/retained.test.ts',content:'export {};'}],
+        guideProposalOptions:{requirements:'Repair current diagnostics',validateSection:async()=>[]}}))
+        .rejects.toThrow('Stop proposal fixture');
+    expect(request).toHaveBeenCalledTimes(1);
+});
+
+test('cancelling scoped guide approval prevents implementation generation',async()=>{
+    const guide = '# Guide\n<!-- fdo-acceptance -->\n~~~json\n[{"id":"proof","description":"Keep behavior","testFile":"/proof.test.ts","testName":"proof"}]\n~~~';
+    const request = jest.fn(async () => JSON.stringify({path:'/SKILL.md',content:guide}));
+    await expect(generateStagedWorkspace({prompt:'Repair',request,sdkFingerprint:'a'.repeat(64),
+        repairPaths:['/logic.ts','/SKILL.md'],workspaceFiles:[{path:'/SKILL.md',content:guide},{path:'/logic.ts',content:'export const value = 1;'}],
+        reviewSkill:async()=>{throw new Error('User stopped approval');}})).rejects.toThrow('User stopped approval');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0].workspaceStep).toBe('/SKILL.md');
 });

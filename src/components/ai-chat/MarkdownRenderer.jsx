@@ -47,6 +47,16 @@ function unwrapMarkdownLinkHref(value = "") {
     return current;
 }
 
+function normalizeMarkdownLinkTargets(text = "") {
+    return String(text).split(/(`[^`\n]+`)/g).map(segment => {
+        if (segment.startsWith('`')) return segment;
+        // Normalize model-produced links whose href is itself Markdown before
+        // the parser treats the nested brackets as separate link syntax.
+        return segment.replace(/\[([^\]\n]+)]\((\[[^\]\n]*]\([^\n]+?\))\)/g,
+            (_, label, href) => `[${label}](${unwrapMarkdownLinkHref(href)})`);
+    }).join('');
+}
+
 function splitMarkdownAndCodeFences(text = "") {
     const source = String(text || "");
     if (!source) return [];
@@ -89,13 +99,13 @@ function autolinkPlainUrls(text = "") {
                 return segment;
             }
             return segment
-                .split(/(`[^`\n]+`|\[[^\]]+\]\([^)]+\))/g)
+                .split(/(`[^`\n]+`|\[[^\]]+]\([^)]+\))/g)
                 .map((inlineSegment) => {
-                    if (/^`[^`\n]+`$/.test(inlineSegment) || /^\[[^\]]+\]\([^)]+\)$/.test(inlineSegment)) {
+                    if (/^`[^`\n]+`$/.test(inlineSegment) || /^\[[^\]]+]\([^)]+\)$/.test(inlineSegment)) {
                         return inlineSegment;
                     }
                     return inlineSegment.replace(
-                        /(?<!\]\()(?<!["'(])\b(https?:\/\/[^\s<)]+[^\s<.,!?;:)])/gi,
+                        /(?<!]\()(?<!["'(])\b(https?:\/\/[^\s<)]+[^\s<.,!?;:)])/gi,
                         (match) => `[${match}](${match})`
                     );
                 })
@@ -125,10 +135,10 @@ function resolveReferenceStyleLinks(text = "") {
         return source;
     }
 
-    const protectedSegments = withoutDefinitions.split(/(`[^`\n]+`|\[[^\]]+\]\([^)]+\))/g);
+    const protectedSegments = withoutDefinitions.split(/(`[^`\n]+`|\[[^\]]+]\([^)]+\))/g);
     return protectedSegments
         .map((segment) => {
-            if (/^`[^`\n]+`$/.test(segment) || /^\[[^\]]+\]\([^)]+\)$/.test(segment)) {
+            if (/^`[^`\n]+`$/.test(segment) || /^\[[^\]]+]\([^)]+\)$/.test(segment)) {
                 return segment;
             }
 
@@ -141,7 +151,7 @@ function resolveReferenceStyleLinks(text = "") {
             );
 
             nextSegment = nextSegment.replace(
-                /\[([^\]]+)]\[\]/g,
+                /\[([^\]]+)]\[]/g,
                 (match, textLabel) => {
                     const resolved = definitions.get(String(textLabel || "").trim().toLowerCase());
                     return resolved ? `[${textLabel}](${resolved})` : match;
@@ -149,7 +159,7 @@ function resolveReferenceStyleLinks(text = "") {
             );
 
             nextSegment = nextSegment.replace(
-                /(^|[^\]!])\[([^\]]+)](?!\(|\[)/g,
+                /(^|[^\]!])\[([^\]]+)](?![([])/g,
                 (match, prefix, textLabel) => {
                     const resolved = definitions.get(String(textLabel || "").trim().toLowerCase());
                     return resolved ? `${prefix}[${textLabel}](${resolved})` : match;
@@ -162,17 +172,17 @@ function resolveReferenceStyleLinks(text = "") {
 }
 
 const STATUS_PATTERNS = [
-    { pattern: /(^|[\s(>])((?:✅|🟢)?\s*Active)(?=$|[\s),.!?:;])/g, variant: "active" },
-    { pattern: /(^|[\s(>])((?:⚠️|🕒|🟡|⬜|◻️|☐)?\s*Pending)(?=$|[\s),.!?:;])/g, variant: "pending" },
-    { pattern: /(^|[\s(>])((?:⚠️|🔴)?\s*Inactive)(?=$|[\s),.!?:;])/g, variant: "inactive" },
-    { pattern: /(^|[\s(>])((?:❌|⛔|🔴)?\s*Blocked)(?=$|[\s),.!?:;])/g, variant: "blocked" },
+    { pattern: /(^|[\s(>])([✅🟢]?\s*Active)(?=$|[\s),.!?:;])/gu, variant: "active" },
+    { pattern: /(^|[\s(>])((?:[⚠◻]️|[🕒🟡⬜☐])?\s*Pending)(?=$|[\s),.!?:;])/gu, variant: "pending" },
+    { pattern: /(^|[\s(>])((?:⚠️|🔴)?\s*Inactive)(?=$|[\s),.!?:;])/gu, variant: "inactive" },
+    { pattern: /(^|[\s(>])([❌⛔🔴]?\s*Blocked)(?=$|[\s),.!?:;])/gu, variant: "blocked" },
 ];
 
 const EXACT_STATUS_VARIANTS = [
-    { pattern: /^(?:✅|🟢|\[x\])?\s*active$/i, variant: "active" },
-    { pattern: /^(?:⚠️|🕒|🟡|⬜|◻️|☐|\[ \])?\s*pending$/i, variant: "pending" },
-    { pattern: /^(?:⚠️|🔴)?\s*inactive$/i, variant: "inactive" },
-    { pattern: /^(?:❌|⛔|🔴)?\s*blocked$/i, variant: "blocked" },
+    { pattern: /^(?:✅|🟢|\[x\])?\s*active$/iu, variant: "active" },
+    { pattern: /^(?:[⚠◻]️|[🕒🟡⬜☐]|\[ \])?\s*pending$/iu, variant: "pending" },
+    { pattern: /^(?:⚠️|🔴)?\s*inactive$/iu, variant: "inactive" },
+    { pattern: /^[❌⛔🔴]?\s*blocked$/iu, variant: "blocked" },
 ];
 const STATUS_ICONS = {
     active: "✅",
@@ -412,7 +422,7 @@ function StatusAwareListItem({ children, ...props }) {
     if (!taskStatusData.hasCheckbox || !statusVariant || !statusText) {
         return React.createElement("li", props, enhanceMarkdownChildren(children));
     }
-    const statusLabel = statusText.replace(/^\[(?: |x|X)\]\s*/i, "").trim();
+    const statusLabel = statusText.replace(/^\[[ xX]]\s*/i, "").trim();
     const statusIcon = STATUS_ICONS[statusVariant] || (taskStatusData.checked ? "☑" : "☐");
 
     return React.createElement(
@@ -442,7 +452,7 @@ const markdownOptions = {
 };
 
 function renderMarkdownSegment(content, key) {
-    const normalized = autolinkPlainUrls(resolveReferenceStyleLinks(normalizeAsciiEmoticons(content)));
+    const normalized = autolinkPlainUrls(resolveReferenceStyleLinks(normalizeAsciiEmoticons(normalizeMarkdownLinkTargets(content))));
     if (!normalized.trim()) {
         return null;
     }

@@ -83,6 +83,53 @@ describe("Home plugin runtime backfill", () => {
         expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1');
         localStorage.removeItem('showRightSideBar');
     });
+    test('serializes actions per plugin, reports failure, and allows another attempt', async () => {
+        let resolveAction;
+        window.electron.plugin.uiMessage = jest.fn(() => new Promise(resolve => { resolveAction = resolve; }));
+        window.electron.plugin.render = jest.fn(async () => ({success: true}));
+        localStorage.setItem('showRightSideBar', 'true');
+        render(<Home/>);
+        await waitFor(() => expect(window.electron.plugin.on.init).toHaveBeenCalled());
+        act(() => window.electron.plugin.on.init.mock.calls[0][0]({id: 'plugin-1',
+            quickActions: [{name: 'Run action', message_type: 'run'}],
+            sidePanelActions: {label: 'Run menu', submenu_list: [{id: 'other', name: 'Other', message_type: 'other'}]}}));
+        fireEvent.click(await screen.findByText('Run action'));
+        fireEvent.click(screen.getByText('Run menu'));
+        expect(window.electron.plugin.uiMessage).toHaveBeenCalledTimes(1);
+        await act(async () => resolveAction({ok: true, result: {success: false, error: 'Try again'}}));
+        const {AppToaster} = require('../../src/components/AppToaster.jsx');
+        expect((await AppToaster).show).toHaveBeenCalledWith(expect.objectContaining({intent: 'danger', message: expect.stringContaining('Try again')}));
+        expect(window.electron.plugin.render).not.toHaveBeenCalled();
+        window.electron.plugin.uiMessage.mockResolvedValue({ok: true});
+        fireEvent.click(screen.getByText('Run action'));
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1'));
+        localStorage.removeItem('showRightSideBar');
+    });
+    test('stale unload keeps registered quickbar and sidebar actions', async () => {
+        localStorage.setItem('showRightSideBar', 'true');
+        render(<Home/>);
+        await waitFor(() => expect(window.electron.plugin.on.init).toHaveBeenCalled());
+        act(() => window.electron.plugin.on.init.mock.calls[0][0]({id: 'plugin-1', quickActions: [{name: 'Keep action', message_type: 'keep'}],
+            sidePanelActions: {label: 'Keep menu', submenu_list: []}}));
+        await act(async () => window.electron.plugin.on.unloaded.mock.calls[0][0]({id: 'plugin-1', reason: 'process_exit'}));
+        expect(screen.getByText('Keep action')).toBeVisible();
+        expect(screen.getByText('Keep menu')).toBeVisible();
+        localStorage.removeItem('showRightSideBar');
+    });
+    test('removes custom shortcuts for an inactive runtime even during the activation grace period', async () => {
+        localStorage.setItem('showRightSideBar', 'true');
+        render(<Home/>);
+        fireEvent.click(await screen.findByRole('button', {name: 'Plugin One'}));
+        await waitFor(() => expect(window.electron.plugin.on.init).toHaveBeenCalled());
+        act(() => window.electron.plugin.on.init.mock.calls[0][0]({id: 'plugin-1', quickActions: [{name: 'Temporary action', message_type: 'run'}],
+            sidePanelActions: {label: 'Temporary menu', submenu_list: []}}));
+        expect(await screen.findByText('Temporary action')).toBeVisible();
+        window.electron.plugin.getRuntimeStatus.mockResolvedValue({success: true, statuses: [{id: 'plugin-1', loaded: false, ready: false, inited: false, loading: false}]});
+        await act(async () => window.electron.plugin.on.unloaded.mock.calls[0][0]({id: 'plugin-1', reason: 'manual_unload'}));
+        expect(screen.queryByText('Temporary action')).not.toBeInTheDocument();
+        expect(screen.queryByText('Temporary menu')).not.toBeInTheDocument();
+        localStorage.removeItem('showRightSideBar');
+    });
     beforeEach(() => {
         pluginContainerMounts.length = 0;
         window.electron.notifications = {
@@ -170,6 +217,17 @@ describe("Home plugin runtime backfill", () => {
             expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
             expect(screen.queryByText(/Stage: mock-mounted/)).toBeNull();
         });
+    });
+
+    test('a restarted worker is initialized even when the retained plugin UI was already ready', async () => {
+        render(<Home/>);
+        await waitFor(() => expect(window.electron.plugin.on.ready).toHaveBeenCalled());
+        const ready = window.electron.plugin.on.ready.mock.calls.at(-1)[0];
+        act(() => ready('plugin-1'));
+        await waitFor(() => expect(window.electron.plugin.init).toHaveBeenCalledWith('plugin-1'));
+        const previousCalls = window.electron.plugin.init.mock.calls.length;
+        act(() => ready('plugin-1'));
+        await waitFor(() => expect(window.electron.plugin.init.mock.calls.length).toBeGreaterThan(previousCalls));
     });
 
     test("does not reactivate already activated plugins during initial load", async () => {

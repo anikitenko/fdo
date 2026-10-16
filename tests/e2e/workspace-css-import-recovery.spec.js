@@ -4,7 +4,7 @@ const workspace = require('../fixtures/ai/json-inspector-workspace.json');
 
 for (const provider of ['openrouter', 'cloudflare']) {
     test(`${provider} corrects initial-plan CSS folder mistakes without repair requests`, async () => {
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: '8'}});
         try {
             const page = await app.firstWindow();
@@ -53,8 +53,8 @@ for (const provider of ['openrouter', 'cloudflare']) {
                     ...(provider === 'cloudflare' ? {accountId: 'a'.repeat(32)} : {}),
                     apiKey: 'test-only-token', defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'CSS import regression');
-                return window.electron.aiCodingAgent.planCode({requestId: 'css-import-regression', assistantId: assistant.id,
-                    prompt: 'Generate modular CSS files for the workbench.', workspaceFiles: []});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'css-import-regression', assistantId: assistant.id,
+                    prompt: 'Generate modular CSS files for the workbench.', workspaceFiles: []}));
             }, provider);
             expect(result.success, result.error).toBe(true);
             const generated = Object.fromEntries([...result.content.matchAll(/### File: ([^\n]+)\n```\w*\n([\s\S]*?)\n```/g)]

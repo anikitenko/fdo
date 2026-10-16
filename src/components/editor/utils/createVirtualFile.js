@@ -1,9 +1,5 @@
 import * as monaco from 'monaco-editor';
-import {
-    BLANK_TEMPLATE_MAIN, BLANK_TEMPLATE_RENDER,
-    HORIZONTAL_DIVIDED_TEMPLATE,
-    VERTICAL_DIVIDED_TEMPLATE
-} from "./virtualTemplates";
+import {createPluginTemplateFiles} from './virtualTemplates';
 import virtualFS from "./VirtualFS";
 import getLanguage from "./getLanguage";
 
@@ -28,20 +24,7 @@ export function createVirtualFile(filePath, content, template = undefined, ignor
 }
 
 function getTemplateContent(file, template, name) {
-    let content;
-    switch (template) {
-        case "blank":
-            if (file === virtualFS.DEFAULT_FILE_MAIN) content = BLANK_TEMPLATE_MAIN(name);
-            if (file === virtualFS.DEFAULT_FILE_RENDER) content = BLANK_TEMPLATE_RENDER(name);
-            break
-        case "horDivided":
-            content = HORIZONTAL_DIVIDED_TEMPLATE(name);
-            break
-        case "verDivided":
-            content = VERTICAL_DIVIDED_TEMPLATE(name);
-            break
-        default:
-            content = "";
-    }
+    const content = createPluginTemplateFiles({name, template})[file];
+    if (content === undefined) throw new Error(`Template ${template} does not define ${file}.`);
     return content;
 }

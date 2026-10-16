@@ -115,10 +115,19 @@ async function launchElectronApp(electron, options = {}) {
   });
 
   await firstWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
+  // Electron contexts are created outside Playwright's page fixture, so the
+  // config's use.trace setting does not record their native window actions.
+  if (process.env.CI && typeof app.context === 'function') {
+    await app.context().tracing.start({screenshots: true, snapshots: true, sources: true});
+    appUserDataDirs.get(app).nativeTracePath = path.resolve('test-results/electron-native', `${path.basename(userDataDir)}.zip`);
+  }
   await installToastObserver(firstWindow);
   app.on('window', (page) => {
     installToastObserver(page).catch(() => {});
   });
+  if (options.reviewedWorkspaceFixture === true) {
+    await require('./reviewedWorkspace.cjs').installReviewedWorkspaceFixture(firstWindow);
+  }
   return app;
 }
 
@@ -215,6 +224,16 @@ async function closeElectronWindows(app) {
 async function closeElectronApp(app) {
   if (!app) return;
   const appUserData = appUserDataDirs.get(app) || null;
+  if (appUserData?.nativeTracePath) {
+    fs.mkdirSync(path.dirname(appUserData.nativeTracePath), {recursive: true});
+    let traceDeadline;
+    try {
+      await Promise.race([
+        app.context().tracing.stop({path: appUserData.nativeTracePath}).catch(() => {}),
+        new Promise(resolve => {traceDeadline = setTimeout(resolve, 5000);}),
+      ]);
+    } finally {clearTimeout(traceDeadline);}
+  }
   await appUserData?.powerGuard?.release();
   const child = app.process();
   // A lost browser connection can make app.close() return without terminating
@@ -263,7 +282,7 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-+)|(-+$)/g, '')}`;
 
-  await window.evaluate(({ extra, pluginDisplayName, pluginDir, sandboxName, useRealAssistants }) => {
+  await window.evaluate(({ extra, sandboxName, useRealAssistants }) => {
     window.__E2E__ = true;
     window.__SNAPSHOTS_ENABLED = true;
     window.electron = window.electron || {};

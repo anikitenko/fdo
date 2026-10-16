@@ -9,7 +9,7 @@ const optionsFixture = {label: 'incomplete options', expectedDiagnostic: 'requir
 const recorded = require('../fixtures/ai/workspace-unchanged-return-repair.json');
 const recordedSource = recorded.files['/index.ts'];
 const recordedCorrected = recordedSource.replace('renderOnLoad(): string', 'renderOnLoad()');
-const returnFixture = {label: 'unchanged return-type repair', expectedDiagnostic: 'repair repeated diagnostic files unchanged',
+const returnFixture = {label: 'unchanged return-type repair', expectedDiagnostic: "Type 'RenderOnLoadModule' is not assignable to type 'string'",
     source: recordedSource, corrected: recordedCorrected,
     prompt: `Repair reported compiler diagnostics:\n${recorded.diagnostics}`,
     workspaceFiles: Object.entries(recorded.files).map(([path, content]) => ({path, content})),
@@ -22,7 +22,7 @@ for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini',
         // These adapters charge connection verification during assistant setup.
         // Leave exactly two requests for the repair after that existing charge.
         const setupRequests = ['openai', 'anthropic', 'gemini'].includes(provider) ? 1 : 0;
-        const app = await launchElectronApp(electron, {isolatedUserDataDir: true,
+        const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,
             env: {FDO_E2E_LIVE_AI: '1', FDO_TEST_AI_MAX_REQUESTS: String(setupRequests + 2)}});
         try {
             const page = await app.firstWindow();
@@ -102,8 +102,8 @@ for (const provider of ['openai', 'anthropic', 'cloudflare', 'ollama', 'gemini',
                     ...(provider === 'cloudflare' ? {accountId: 'a'.repeat(32)} : {}),
                     ...(provider === 'ollama' ? {baseUrl: 'http://127.0.0.1:11434', contextLength: 32768} : {})});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Targeted repair');
-                return window.electron.aiCodingAgent.planCode({requestId: 'targeted-repair', assistantId: assistant.id,
-                    prompt: fixture.prompt, workspaceFiles: fixture.workspaceFiles, repairPaths: ['/index.ts']});
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'targeted-repair', assistantId: assistant.id,
+                    prompt: fixture.prompt, workspaceFiles: fixture.workspaceFiles, repairPaths: ['/index.ts']}));
             }, {provider, model, fixture});
             const validation = await app.evaluate(() => (globalThis.__FDO_E2E_CODING_LIFECYCLE__ || [])
                 .filter(event => event.event === 'workspace-file-validation'));

@@ -1,3 +1,4 @@
+import {pluginGuideRecoveryMetadata} from '../../utils/ai/assistant/pluginGuideRecovery';
 import {generationRecoveryReducer, initialGenerationRecovery} from './utils/aiGenerationRecoveryState';
 import AiCodingConfidence from '../ai/AiCodingConfidence';
 import {isClassificationOnly} from '../../utils/ai/assistant/aiCodingClassification';
@@ -91,7 +92,8 @@ import {
     validateAiCodingPluginScopeResponse,
 } from "./utils/aiCodingAgentPluginScope.js";
 import {isAiCodingFastLocalEditPrompt} from "./utils/aiCodingAgentFastPath.js";
-import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT, parseWorkspaceReviewReport, formatWorkspaceReviewReport, workspaceStyleReviewContext, includeWorkspaceStyleFindings} from "./utils/aiCodingAgentReview.js";
+import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT, parseWorkspaceReviewReport, formatWorkspaceReviewReport, workspaceReviewContext, includeWorkspaceAuthoringFindings} from "./utils/aiCodingAgentReview.js";
+import {findWorkspaceHtmlIssues} from '../../utils/plugins/validation/workspaceHtmlReview';
 import runHostPluginTests from "./utils/runTests.js";
 
 import hljs from "../../assets/js/hljs/highlight.min"
@@ -429,8 +431,7 @@ function buildPluginRuntimeVerificationContext({
 export function shouldAutoApplySingleFileResponse({
     action = "",
     prompt = "",
-    selectedCode = "",
-    targetFilePath = "",
+
 } = {}) {
     const normalizedAction = String(action || "").trim().toLowerCase();
     if (!normalizedAction) return false;
@@ -454,7 +455,7 @@ export function shouldAutoApplySingleFileResponse({
 
     // Smart mode should only auto-apply when the prompt explicitly asks for changes.
     // Merely having selected code or a derived target file is not enough.
-    return hasExplicitChangeIntent || hasScaffoldIntent || /(?:хочу\s+(?:(?:такий|новий|цей)\s+)?плагін|створи|створити|зроби|додай|виправ|зміни|онови)/iu.test(normalizedPrompt);
+    return hasExplicitChangeIntent || hasScaffoldIntent || /хочу\s+(?:(?:такий|новий|цей)\s+)?плагін|створи|створити|зроби|додай|виправ|зміни|онови/iu.test(normalizedPrompt);
 }
 
 export function buildSelectionGuidance({
@@ -671,7 +672,7 @@ export function buildSmartModeGuidance({
     };
 }
 
-export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange, onShowTests, eventDocument = document }) {
+export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange, onShowTests, eventDocument = document, selectionFocusRequest = 0 }) {
     const scheduleUiFrame = callback => (eventDocument.defaultView || window).requestAnimationFrame(callback);
     const historyKey = historyStorageKey(virtualFS.sandboxName);
     const [conversation, setConversation] = useState(() => readHistory(localStorage, historyKey));
@@ -680,6 +681,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const requestSnapshotRef = useRef(null);
     const appliedSnapshotRef = useRef(null);
     const assertSnapshotUnchanged = () => {
+        if (!panelMountedRef.current) throw new Error("The AI panel was closed. No further AI edits were applied.");
         const started = requestSnapshotRef.current;
         if (started && (started.revision !== (virtualFS.fs.snapshotSwitchRevision || 0) || started.workspace !== virtualFS.sandboxName)) {
             throw new Error("Snapshot changed during this request. No further AI edits were applied. Send a new request using the restored files.");
@@ -724,6 +726,15 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             }
         }
     }), [historyKey]);
+    useEffect(() => virtualFS.notifications?.subscribe?.('liveUiApplied', ({message, historySaved}) => {
+        saveConversation(historySaved ? readHistory(localStorage, historyKey) : [...conversationRef.current, message]);
+        setResponse(''); responseRef.current = ''; setOperationSummary(null);
+        if (submitInFlightRef.current) {
+            setError('Workspace changed in Live UI. The earlier request cannot apply further edits; send a new request using the current files.');
+            const id = streamingRequestIdRef.current;
+            if (id) {cancelledRequestIdsRef.current.add(id); Promise.resolve(window.electron.aiCodingAgent.cancelRequest?.({requestId: id})).catch(() => {});}
+        } else requestSnapshotRef.current = {revision: virtualFS.fs.snapshotSwitchRevision || 0, workspace: virtualFS.sandboxName};
+    }), [historyKey]);
     const requestConversationSnapshot = (versionId) => {
         const target = String(versionId || "").trim();
         if (!target) return;
@@ -749,7 +760,9 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     }, [isLoading]);
 
     useEffect(() => {
+        virtualFS.aiCodingBusy = isLoading;
         window.electron?.aiCodingAgent?.setActivity?.(isLoading);
+        return () => {virtualFS.aiCodingBusy = false;};
     }, [isLoading]);
     useEffect(() => () => {
         window.electron?.aiCodingAgent?.setActivity?.(false);
@@ -814,6 +827,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const [imageName, setImageName] = useState("");
     const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
     const [operationSummary, setOperationSummary] = useState(null);
+    const [guideRecovery, setGuideRecovery] = useState(null);
     const [responseApplied, setResponseApplied] = useState(false);
     const [requestStatusEntries, setRequestStatusEntries] = useState([]);
     const [requestElapsedMs, setRequestElapsedMs] = useState(0);
@@ -837,6 +851,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const fileInputRef = useRef(null);
     const pendingAutoFileCreateRef = useRef(false);
     const submitInFlightRef = useRef(false);
+    const panelMountedRef = useRef(true);
     const expectWorkspaceApplyRef = useRef(false);
     const planRetryInFlightRef = useRef(false);
     const applyActionRef = useRef("");
@@ -849,6 +864,12 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const cancelledRequestIdsRef = useRef(new Set());
     const timedOutRequestIdsRef = useRef(new Set());
     const promptInputRef = useRef(null);
+    useEffect(() => {
+        if (!selectionFocusRequest) return;
+        const view = eventDocument.defaultView || window;
+        const frame = view.requestAnimationFrame(() => promptInputRef.current?.focus());
+        return () => view.cancelAnimationFrame(frame);
+    }, [selectionFocusRequest, eventDocument]);
     const promptBlurTimeoutRef = useRef(null);
     const [mentionState, setMentionState] = useState(null);
     const lastPluginTraceToastRef = useRef({key: "", at: 0});
@@ -1128,6 +1149,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     useEffect(() => {
         if (listenersRegistered.current) return; // Prevent double-registration
         listenersRegistered.current = true;
+        panelMountedRef.current = true;
         // Create handler functions
         const handleStreamDelta = (data) => {
             if (requestSnapshotRef.current?.revision !== (virtualFS.fs.snapshotSwitchRevision || 0)) return;
@@ -1324,6 +1346,11 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         console.log('[AI Coding Agent] Event handlers registered');
 
         return () => {
+            panelMountedRef.current = false;
+            if (submitInFlightRef.current) {
+                const requestId = currentRequestRef.current?.requestId || streamingRequestIdRef.current;
+                if (requestId) cancelledRequestIdsRef.current.add(requestId);
+            }
             if (streamContentFlushTimerRef.current) {
                 clearTimeout(streamContentFlushTimerRef.current);
                 streamContentFlushTimerRef.current = null;
@@ -1342,6 +1369,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             if (handlersRef.current.cancelled) {
                 window.electron.aiCodingAgent.off.streamCancelled?.(handlersRef.current.cancelled);
             }
+            listenersRegistered.current = false;
             console.log('[AI Coding Agent] Event handlers cleaned up');
         };
     }, []); // Empty dependency array - only register once
@@ -1395,16 +1423,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
         }
     };
 
-    const formatMentionSuggestion = (filePath) => {
-        const normalized = String(filePath || "").replace(/^[/\\]+/, "");
-        const segments = normalized.split("/");
-        const basename = segments.pop() || normalized;
-        const directory = segments.join("/");
-        return {
-            basename,
-            directory,
-        };
-    };
+
 
     const updateMentionSuggestions = (text, cursorIndex) => {
         const skillMention = detectCodexSkillMention(text, cursorIndex);
@@ -1437,7 +1456,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const renderMentionTitle = (item) => {
         if (item.type === "special" || item.type === 'skill') {
             const titleText = String(item.title || "");
-            const marker = /^[\@$]/.test(titleText) ? titleText[0] : "";
+            const marker = /^[@$]/.test(titleText) ? titleText[0] : "";
             const body = marker ? titleText.slice(1) : titleText;
             return (
                 <span className={styles["mention-token"]}>
@@ -2681,9 +2700,13 @@ Rules:
     const handleDiscardGenerationCheckpoint = async () => {
         if (isLoading) return;
         const workspaceId = virtualFS.sandboxName;
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const result = await window.electron.aiCodingAgent.discardGenerationCheckpoint({workspaceId, id: savedGenerationCheckpoint?.id || null});
-            if (!result.success) throw new Error(result.error);
+            if (!result.success) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(result.error);
+            }
             if (workspaceId !== virtualFS.sandboxName) return;
             checkpointSequenceRef.current += 1;
             setSavedGenerationCheckpoint(null); applyingGenerationCheckpointRef.current = null; setCheckpointError('');
@@ -2782,7 +2805,6 @@ Rules:
             if (isLoading) {
                 handleStopRequest();
             }
-            return;
         }
     };
 
@@ -2833,7 +2855,7 @@ Rules:
         },
         {
             combo: shortcutCombos.insert,
-            label: "Insert into editor",
+            label: /* language=TEXT */ "Insert into editor",
             allowInInput: true,
             preventDefault: true,
             onKeyDown: () => {
@@ -2979,6 +3001,7 @@ Rules:
         setError(null);
         setOperationSummary(null);
 
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const execution = await executePlanResponse(response, {
                 createSnapshot: true,
@@ -2986,7 +3009,10 @@ Rules:
             });
             if (execution.successCount > 0) {
                 const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
-                if (!persisted || persisted.error) throw new Error("Files changed, but the resulting snapshot could not be saved.");
+                if (!persisted || persisted.error) {
+                    //noinspection ExceptionCaughtLocallyJS
+                    throw new Error("Files changed, but the resulting snapshot could not be saved.");
+                }
                 const message = `Created ${execution.successCount} file(s) in the virtual workspace${execution.errorCount > 0 ? `, ${execution.errorCount} issue(s)` : ''}.`;
                 setOperationSummary({
                     intent: execution.errorCount > 0 ? "warning" : "success",
@@ -3194,11 +3220,10 @@ Rules:
             }
         }
 
-        let successCount = 0;
         let errorCount = 0;
         const errorDetails = [];
 
-        successCount = applyAiWorkspaceFiles({files, existingFiles: getAllProjectFiles(),
+        const successCount = applyAiWorkspaceFiles({files, existingFiles: getAllProjectFiles(),
             write: createVirtualFile, remove: path => virtualFS.deleteFile(path, {exact: true}),
             assertScope: assertSnapshotUnchanged});
         updatePendingFiles({files: [], activePath: '', status: 'applied'});
@@ -3296,19 +3321,29 @@ Rules:
         beginStreamingRequest(requestId); scheduleRequestTimeout(selectedAssistant.provider);
         pushRequestStatus(`Repair attempt ${retained.attempts + 1}: retaining the latest candidate and correcting its validation failures.`, {phase: 'validation-repair'});
         saveConversation([...conversationRef.current, {role: 'user', content: 'Repair failed validation.', snapshot: virtualFS.fs.version()?.version ?? ''}]);
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const result = await window.electron.aiCodingAgent.planCode({requestId, assistantId: selectedAssistant.id,
                 workspaceFiles: retained.candidate, repairPaths: retained.paths, prompt: retryPrompt,
                 context: currentRequestRef.current?.context || '', image: uploadedImage});
             if (cancelledRequestIdsRef.current.has(requestId) || result?.cancelled) return;
             assertValidationRecoveryCurrent(retained, {files: getAllProjectFiles(), workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0});
-            if (!result?.success || !result.content) throw new Error(result?.error || 'The assistant returned no corrected files.');
+            if (!result?.success || !result.content) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(result?.error || 'The assistant returned no corrected files.');
+            }
             const merged = mergeValidationRepairResponse(retained.files, result.content, retained.paths);
             const execution = await executePlanResponse(merged, {createSnapshot: false, allowValidationRetry: false,
                 allowTestRetry: false, allowProgressTestRetry: false, allowProblemsRetry: false});
-            if (execution.errorCount || !execution.successCount) throw new Error(execution.errorDetails.join('\n') || 'No validated files were applied.');
+            if (execution.errorCount || !execution.successCount) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(execution.errorDetails.join('\n') || 'No validated files were applied.');
+            }
             const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || '');
-            if (!persisted || persisted.error) throw new Error('Repair applied, but its snapshot could not be saved.');
+            if (!persisted || persisted.error) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error('Repair applied, but its snapshot could not be saved.');
+            }
             const summary = `Validation repair completed. ${execution.successCount} files applied after candidate validation.`;
             responseRef.current = summary; setResponse(summary);
             setOperationSummary({intent: 'success', title: 'Validation Repair Complete', message: summary});
@@ -3326,7 +3361,7 @@ Rules:
         }
     };
 
-    const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride} = {}) => {
+    const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride, migrateGuide = false} = {}) => {
         if (submitInFlightRef.current) return;
         const requestPrompt = String(promptOverride ?? prompt).trim();
         const reviewRequest = isWorkspaceQualityReviewPrompt(requestPrompt);
@@ -3348,6 +3383,7 @@ Rules:
             return;
         }
 
+        setGuideRecovery(null);
         const projectFiles = getAllProjectFiles();
         const previousResponse = isClassificationOnly(response) ? '' : response;
         const followUpMode = shouldTreatAsAiCodingFollowUp({
@@ -3399,6 +3435,7 @@ Rules:
         
         setComposerMode(null);
 
+        // Validation failures intentionally share this boundary with operation failures.
         try {
             const selectedCode = getSelectedCode();
             const refreshedProjectFiles = getAllProjectFiles();
@@ -3676,7 +3713,7 @@ Rules:
             });
             const conversationContext = `Current plugin snapshot: ${userMessage.snapshot}.\n` + buildHistoryContext(priorConversation, content =>
                 validateAiCodingPluginScopeResponse({text: content, workspaceFiles: refreshedProjectFiles}).ok);
-            const styleReviewContext = reviewRequest ? `\n${workspaceStyleReviewContext(getAllProjectFiles())}` : '';
+            const styleReviewContext = reviewRequest ? `\n${workspaceReviewContext(getAllProjectFiles())}` : '';
             requestContexts.projectContext = conversationContext + requestContexts.projectContext + styleReviewContext;
             requestContexts.referenceContext = conversationContext + requestContexts.referenceContext + styleReviewContext;
             const enhancedContext = requestContexts.projectContext;
@@ -3901,14 +3938,21 @@ Rules:
                 return;
             }
 
-            if (reviewRequest && !result?.success) throw new Error(result?.error || "The workspace review could not complete.");
+            if (reviewRequest && !result?.success) {
+                //noinspection ExceptionCaughtLocallyJS
+                throw new Error(result?.error || "The workspace review could not complete.");
+            }
             if (result?.success && isClassificationOnly(result.content || responseRef.current)) {
+                //noinspection ExceptionCaughtLocallyJS
                 throw Object.assign(new Error('The provider returned only a safety classification, with no answer or implementation. Select a coding-capable model and submit again. No changes were applied.'),
                     {code: 'AI_PROVIDER_CLASSIFICATION_ONLY'});
             }
             if (result && result.success && result.requestId) {
                 requestSucceeded = true;
-                if (effectiveAction === 'plan' && currentRequestRef.current?.generationBaseline !== JSON.stringify(getAllProjectFiles().slice().sort((a, b) => a.path.localeCompare(b.path)))) throw new Error('The workspace changed during generation. No generated files were applied. Review your newer edits before recovering the saved proposal.');
+                if (effectiveAction === 'plan' && currentRequestRef.current?.generationBaseline !== JSON.stringify(getAllProjectFiles().slice().sort((a, b) => a.path.localeCompare(b.path)))) {
+                    //noinspection ExceptionCaughtLocallyJS
+                    throw new Error('The workspace changed during generation. No generated files were applied. Review your newer edits before recovering the saved proposal.');
+                }
                 dispatchGenerationRecovery({type: 'ready', requestId: result.requestId});
                 console.log('[AI Coding Agent] Request successful, streaming complete', { requestId: result.requestId });
                 // Request ID already set before IPC call, streaming events should have flowed
@@ -3919,7 +3963,7 @@ Rules:
 
                 if (reviewRequest) {
                     assertSnapshotUnchanged();
-                    const report = includeWorkspaceStyleFindings(
+                    const report = includeWorkspaceAuthoringFindings(
                         parseWorkspaceReviewReport(result.content || responseRef.current, getAllProjectFiles()), getAllProjectFiles());
                     reviewReport = report;
                     if (report.status === "completed" && (!reviewTests?.success || reviewTests?.skipped)) {
@@ -3938,8 +3982,8 @@ Rules:
                         setResponse(responseRef.current);
                     };
                     publishReport();
-                    if (requestAutoApply && report.status !== "blocked" && report.findings.length) {
-                        const repairPaths = [...new Set(report.findings.map(finding => finding.file))];
+                    if (requestAutoApply && report.status !== "blocked" && (report.findings.length || migrateGuide)) {
+                        const repairPaths = [...new Set([...(migrateGuide ? ["/SKILL.md"] : []), ...report.findings.map(finding => finding.file)])];
                         assertSnapshotUnchanged();
                         const repairRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                         beginStreamingRequest(repairRequestId);
@@ -3950,24 +3994,35 @@ Rules:
                             assistantId: selectedAssistant.id,
                             workspaceFiles: getAllProjectFiles(),
                             repairPaths,
-                            prompt: `Repair only these confirmed plugin-local findings. Preserve working behavior and public SDK contracts. Return complete changed files for the approved paths.\n${JSON.stringify(report.findings)}`,
+                            prompt: `${migrateGuide ? "First migrate /SKILL.md to the installed SDK, preserving the product requirements and acceptance behavior. Pause for human guide approval before repairing implementation files. " : ""}Repair only these confirmed plugin-local findings. Preserve working behavior and public SDK contracts. Return complete changed files for the approved paths.\n${JSON.stringify(report.findings)}`,
                             context: requestContexts.referenceContext,
                             image: null,
                         });
-                        if (!repaired?.success) throw new Error(repaired?.error || "The workspace repair could not complete.");
+                        if (!repaired?.success) {
+                            //noinspection ExceptionCaughtLocallyJS
+                            throw Object.assign(new Error(repaired?.error || "The workspace repair could not complete."), {guideRecovery: pluginGuideRecoveryMetadata(repaired)});
+                        }
                         const scopedRepair = mergeValidationRepairResponse(
                             getAllProjectFiles().filter(file => repairPaths.includes(file.path)), repaired.content, repairPaths);
                         const execution = await executePlanResponse(scopedRepair, {allowProblemsRetry: true});
                         reviewChangesApplied = execution.successCount > 0;
                         if (reviewChangesApplied) {
                             const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
-                            if (!persisted || persisted.error) throw new Error("Repairs were applied, but the resulting snapshot could not be saved.");
+                            if (!persisted || persisted.error) {
+                                //noinspection ExceptionCaughtLocallyJS
+                                throw new Error("Repairs were applied, but the resulting snapshot could not be saved.");
+                            }
                         }
                         reviewTests = await runPluginTests();
                         const remainingStyleIssues = findWorkspaceStyleIssues(getAllProjectFiles());
                         if (remainingStyleIssues.length) {
                             report.status = 'partial';
                             report.limitations.push('Style registration is still missing after repair.', ...remainingStyleIssues.map(issue => `${issue.file}: ${issue.issue}`));
+                        }
+                        const remainingHtmlIssues = findWorkspaceHtmlIssues(getAllProjectFiles());
+                        if (remainingHtmlIssues.length) {
+                            report.status = 'partial';
+                            report.limitations.push('SDK-helper migration still needs attention after repair.', ...remainingHtmlIssues.map(issue => `${issue.file}: ${issue.evidence}`));
                         }
                         repairSummary = `Repair: ${execution.successCount} file(s) updated.`;
                         if (execution.errorCount || !reviewTests?.success) {
@@ -4109,11 +4164,15 @@ Rules:
                 }
                 
                 if (pendingAutoFileCreateRef.current) {
+                    // Validation failures intentionally share this boundary with operation failures.
                     try {
                         const execution = await executePlanResponse(result.content || responseRef.current);
                         if (execution.successCount > 0) {
                             const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
-                            if (!persisted || persisted.error) throw new Error("Files changed, but the resulting snapshot could not be saved.");
+                            if (!persisted || persisted.error) {
+                                //noinspection ExceptionCaughtLocallyJS
+                                throw new Error("Files changed, but the resulting snapshot could not be saved.");
+                            }
                             const message = `Created ${execution.successCount} file(s) in the virtual workspace${execution.errorCount > 0 ? `, ${execution.errorCount} failed` : ''}.`;
                             setOperationSummary({
                                 intent: execution.errorCount > 0 ? "warning" : "success",
@@ -4165,6 +4224,8 @@ Rules:
         } catch (err) {
             requestSucceeded = false;
             if (reviewRequest) {
+                const recovery = pluginGuideRecoveryMetadata(err);
+                if (recovery) setGuideRecovery({prompt: requestPrompt, workspace: virtualFS.sandboxName});
                 const failedReport = reviewReport ? {...reviewReport, status: 'partial',
                     limitations: [...reviewReport.limitations, err.message || 'Repairs could not complete.']}
                     : {status: 'blocked', summary: 'Workspace quality remains unverified.', findings: [],
@@ -4420,11 +4481,10 @@ Rules:
         }
 
         const codeToInsert = applyDecision.code;
-        const nextFileText = codeToInsert;
         const appliedSummary = buildAppliedChangeSummary({
             filePath: targetFilePath || currentModelPath,
             beforeText: currentFileText,
-            afterText: nextFileText,
+            afterText: codeToInsert,
             mode: targetFileContent ? "replace-target-file" : applyDecision.mode,
         });
         if (targetFileContent && targetFilePath) {
@@ -4631,7 +4691,7 @@ Rules:
             <div className={styles["panel-header"]}>
                 <AiUsagePopover surface="coding" />
                 <Button
-                    small
+                    size="small"
                     disabled={isLoading}
                     onClick={() => setIsResetConversationOpen(true)}
                 >
@@ -4668,8 +4728,8 @@ Rules:
                         {message.snapshot != null && (
                             <div>
                                 <Button
-                                    minimal
-                                    small
+                                    variant="minimal"
+                                    size="small"
                                     icon="history"
                                     text={`Snapshot: ${message.snapshot}`}
                                     title={`Switch to snapshot ${message.snapshot}`}
@@ -4773,7 +4833,7 @@ Rules:
                             {imagePreview && (
                                 <div style={{ flex: 1 }}>
                                     <Button
-                                        minimal
+                                        variant="minimal"
                                         aria-label={`Open reference image: ${imageName || "UI Mockup"}`}
                                         title={`Open ${imageName || "UI Mockup"}`}
                                         onClick={() => setIsImagePreviewOpen(true)}
@@ -4793,8 +4853,8 @@ Rules:
                                     </Button>
                                     <div style={{display: "flex", alignItems: "center", gap: "4px", marginTop: "4px"}}>
                                         <Button
-                                            minimal
-                                            small
+                                            variant="minimal"
+                                            size="small"
                                             text={imageName || "Open reference image"}
                                             icon="zoom-in"
                                             onClick={() => setIsImagePreviewOpen(true)}
@@ -5067,7 +5127,7 @@ Rules:
                     <p>The latest candidate and validation diagnostics are kept in this session. Each click requests one focused repair, then validates it before applying changes. You can repeat after a failure or select another assistant.</p>
                     <Button text="Repair failed validation" icon="wrench" loading={isLoading} disabled={isLoading || !selectedAssistant}
                         onClick={handleRepairFailedValidation}/>
-                    <Button text="Discard retained proposal" minimal disabled={isLoading} onClick={() => updateValidationRecovery(null)}/>
+                    <Button text="Discard retained proposal" variant="minimal" disabled={isLoading} onClick={() => updateValidationRecovery(null)}/>
                     <p><small>{validationRecovery.attempts} user-requested repair attempt(s). Repair requests use your selected provider and may incur costs.</small></p>
                     <details><summary>Files and latest diagnostics</summary>
                         <p>{validationRecovery.paths.join(', ')}</p>
@@ -5085,7 +5145,7 @@ Rules:
                         </Callout> : renderErrorContent(error)}
                         {!recoveryFailure && isAiCodingOutputLimitError(error) && response && (
                             <Button
-                                small
+                                size="small"
                                 icon="refresh"
                                 text="Retry as complete response"
                                 onClick={handleRetryTruncatedResponse}
@@ -5102,6 +5162,13 @@ Rules:
                             <p className={styles["operation-summary-text"]}>{operationSummary.message}</p>
                         </Callout>
                     </div>
+                )}
+
+                {guideRecovery && guideRecovery.workspace === virtualFS.sandboxName && (
+                    <Callout intent="primary" icon="manual" title="Update the plugin guide for this SDK" data-testid="guide-sdk-recovery">
+                        <p>No files were changed. Recheck the current workspace, update SKILL.md for the installed SDK, and review the guide before repairs continue.</p>
+                        <Button icon="refresh" disabled={isLoading || !selectedAssistant} onClick={() => handleSubmit({prompt: guideRecovery.prompt, action: 'smart', autoApply: true, migrateGuide: true})}>Update guide and resume repair</Button>
+                    </Callout>
                 )}
 
                 {isLoading && !onActivityChange && eventDocument === document && requestProgress}

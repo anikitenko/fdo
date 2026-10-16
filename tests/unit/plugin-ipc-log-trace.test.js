@@ -12,6 +12,11 @@ jest.mock("electron", () => ({
     },
 }));
 
+// This suite exercises host log IPC, not SDK initialization or its filesystem.
+jest.mock("../../src/ipc/pluginDoctorPresentation", () => ({
+    normalizePluginDoctorPresentation: jest.fn(),
+}));
+
 jest.mock("node:fs", () => ({
     rmSync: jest.fn(),
     chmodSync: jest.fn(),
@@ -26,12 +31,12 @@ jest.mock("node:fs/promises", () => ({
 }));
 
 jest.mock("archiver", () => {
-    return jest.fn(() => ({
+    return {ZipArchive: jest.fn(() => ({
         on: jest.fn(),
         pipe: jest.fn(),
         file: jest.fn(),
         finalize: jest.fn(async () => undefined),
-    }));
+    }))};
 });
 
 jest.mock("../../src/main.js", () => ({
@@ -51,22 +56,17 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
 
 jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
-    default: class PluginORMMock {
-        getPlugin(id) {
-            return {
+    default: jest.fn(() => ({
+        getPlugin: jest.fn(id => ({
                 id,
                 home: `/tmp/plugins/${id}`,
                 entry: "dist/index.js",
-            };
-        }
-
-        getAllPlugins() {
-            return [{
+        })),
+        getAllPlugins: jest.fn(() => [{
                 id: "trace-plugin",
                 customProcessScopes: [],
-            }];
-        }
-    },
+        }]),
+    })),
 }));
 
 jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
@@ -76,16 +76,16 @@ jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
 
 jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
-    default: class UserORMMock {
-        activatePlugin() {}
-        deactivatePlugin() {}
-        deactivateAllPlugins() {}
-        getActivatedPlugins() { return []; }
-        getSharedProcessScopes() { return []; }
-        setSharedProcessScopes(scopes) { return scopes; }
-        getCustomProcessScopes() { return []; }
-        setCustomProcessScopes(scopes) { return scopes; }
-    },
+    default: jest.fn(() => ({
+        activatePlugin: jest.fn(),
+        deactivatePlugin: jest.fn(),
+        deactivateAllPlugins: jest.fn(),
+        getActivatedPlugins: jest.fn(() => []),
+        getSharedProcessScopes: jest.fn(() => []),
+        setSharedProcessScopes: jest.fn(scopes => scopes),
+        getCustomProcessScopes: jest.fn(() => []),
+        setCustomProcessScopes: jest.fn(scopes => scopes),
+    })),
 }));
 
 jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
@@ -94,7 +94,6 @@ jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
         loadPlugin: jest.fn(async () => ({success: true})),
         unLoadPlugin: jest.fn(),
         unLoadPlugins: jest.fn(),
-        getLoadedPlugin: jest.fn(() => ({instance: {postMessage: jest.fn()}})),
         getLoadedPluginReady: jest.fn(() => true),
         getLoadedPluginInited: jest.fn(() => true),
         getPluginDiagnostics: jest.fn(async () => ({

@@ -3,14 +3,7 @@ import path from "node:path";
 import {buildWorkspaceMonacoCompilerOptions} from "../../src/components/editor/utils/workspaceMonacoCompilerOptions";
 
 test("Monaco resolves Node test imports with the bundled declarations", () => {
-    const servicesPath = path.resolve("node_modules/monaco-editor/esm/vs/language/typescript/lib/typescriptServices.js");
-    const source = fs.existsSync(servicesPath)
-        ? fs.readFileSync(servicesPath, "utf8").replace(/export \{[^}]+\};\s*$/, "return typescript;")
-        : (() => {
-            const worker = fs.readFileSync(path.resolve("node_modules/monaco-editor/esm/vs/language/typescript/ts.worker.js"), "utf8");
-            return worker.slice(worker.indexOf("var ts ="), worker.indexOf("// src/language/typescript/lib/lib.ts")) + "\nreturn typescript;";
-        })();
-    const ts = new Function(source)();
+    const ts = require('../helpers/loadMonacoTypeScript.cjs')();
     const files = {};
     function collect(directory, prefix) {
         for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {

@@ -1,3 +1,4 @@
+import {enqueuePluginUiBridge} from './pluginUiMessageQueue';
 import UserORM from "../../persistence/UserORM";
 import {pluginTray, PLUGIN_TRAY_HANDLER} from './pluginTray';
 import {app, dialog, shell, utilityProcess} from "electron";
@@ -115,7 +116,7 @@ const PluginManager = {
     sanitizePrivilegedAuditEvent(pluginId, event = {}) {
         const error = event?.error && typeof event.error === "object" ? event.error : null;
         const result = event?.result && typeof event.result === "object" ? event.result : null;
-        const normalized = {
+        return {
             pluginId: String(pluginId || "").trim(),
             timestamp: typeof event?.timestamp === "string" ? event.timestamp : new Date().toISOString(),
             correlationId: typeof event?.correlationId === "string" ? event.correlationId : "",
@@ -150,7 +151,6 @@ const PluginManager = {
                 workflowId: typeof result?.result?.workflowId === "string" ? result.result.workflowId : "",
             } : null,
         };
-        return normalized;
     },
     recordPrivilegedAudit(pluginId, event = {}) {
         const id = String(pluginId || "").trim();
@@ -246,7 +246,7 @@ const PluginManager = {
         if (!child || typeof child.postMessage !== "function" || typeof child.on !== "function" || typeof child.off !== "function") {
             return null;
         }
-        return new Promise((resolve) => {
+        return enqueuePluginUiBridge(pluginId, expectedSessionId, () => new Promise((resolve) => {
             let settled = false;
             let timeoutHandle = null;
 
@@ -277,7 +277,7 @@ const PluginManager = {
             } catch (_) {
                 finish(null);
             }
-        });
+        }));
     },
     async refreshPluginDiagnostics(pluginId, options = {}) {
         const id = String(pluginId || "").trim();

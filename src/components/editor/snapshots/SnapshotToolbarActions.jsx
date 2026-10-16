@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from "react";
-import {Button, ButtonGroup, Menu, MenuDivider, MenuItem, Popover, InputGroup, Tag} from "@blueprintjs/core";
+import {Button, ButtonGroup, Menu, MenuDivider, MenuItem, PopoverNext as Popover, InputGroup, Tag} from "@blueprintjs/core";
 import {useSnapshots} from "./SnapshotContext.jsx";
 import * as styles from "./snapshots.module.css";
 
@@ -48,7 +48,7 @@ const RecentMenu = ({versions, onSwitch, onRename, onDelete, openPanel}) => {
 export const SnapshotToolbarActions = () => {
   const {
     versions, creating, loading, restoreLoading, switching, createSnapshot, requestSwitch, renameSnapshot, deleteSnapshot, openPanel,
-    hasUnsavedChanges, confirmSwitchTarget, confirmSwitchCancel, confirmSwitchProceed, confirmSwitchCreateAndSwitch
+    hasUnsavedChanges,
   } = useSnapshots();
 
   const recent = useMemo(() => versions, [versions]);
