@@ -10,7 +10,7 @@ function workspaceTreeIdsFrom(state) {
 
 async function createSnapshotFromToolbar(win) {
   await win.getByRole('button', {name: 'Snapshot', exact: true}).click();
-  const toast = win.locator('.bp6-toast').filter({hasText: /Snapshot .+ created/}).first();
+  const toast = win.locator('.bp6-toast').filter({hasText: /Workspace snapshot “.+” saved\./}).first();
   await expect(toast).toBeVisible();
   // Blueprint pauses expiry while hovered. A new toast can cover the toolbar
   // under the pointer, so acknowledge it before the next toolbar interaction.

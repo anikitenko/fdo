@@ -6,9 +6,17 @@ import * as monaco from 'monaco-editor';
 import {focusLiveUiAiSelection} from './focusAiSelection';
 
 export function useLiveUiConnection() {
-    const session = useRef(null), last = useRef(''), busy = useRef(false), alive = useRef(true);
+    const session = useRef(null), last = useRef(''), busy = useRef(null), alive = useRef(true);
+    const openingRef = useRef(false);
     const [opening, setOpening] = useState(false), [error, setError] = useState('');
     const selection = useRef(null), designSession = useRef(null);
+    // Keep a completion signal so an explicit Open waits for synchronization
+    // instead of silently discarding the user's click while IPC is in flight.
+    const acquire = () => {
+        let finish;
+        busy.current = new Promise(resolve => {finish = resolve;});
+        return () => {busy.current = null; finish();};
+    };
     const payload = () => {
         const editor = monaco.editor.getEditors?.().find(editor => editor.hasTextFocus?.());
         const position = editor?.getPosition();
@@ -22,7 +30,7 @@ export function useLiveUiConnection() {
                 await window.electron.liveUi.applied(request.sessionId, request.requestId, {status: 'busy', message: 'The IDE is synchronizing. Retry Apply.'});
                 return;
             }
-            busy.current = true;
+            const release = acquire();
             let result;
             try {
                 if (designSession.current?.id !== request.sessionId) designSession.current = {id: request.sessionId};
@@ -39,7 +47,7 @@ export function useLiveUiConnection() {
             } catch (failure) {result = {status: 'error', message: failure.message || String(failure)};}
             finally {
                 try {await window.electron.liveUi.applied(request.sessionId, request.requestId, result);} catch { /* Owner/window disconnected; source remains authoritative. */ }
-                busy.current = false;
+                release();
             }
         });
         const unsubscribeReveal = window.electron.liveUi?.onReveal?.(location => {
@@ -78,8 +86,8 @@ export function useLiveUiConnection() {
             } catch (failure) {if (alive.current) setError(failure.message || 'The selected source could not be opened. Refresh Live UI before editing with AI.');}
         });
         const timer = setInterval(async () => {
-            if (!session.current || busy.current || virtualFS.fs.getRestoreLoading?.()) return;
-            busy.current = true;
+            if (!session.current || busy.current || openingRef.current || virtualFS.fs.getRestoreLoading?.()) return;
+            const release = acquire();
             try {
                 const data = payload();
                 const fingerprint = JSON.stringify(data);
@@ -90,20 +98,26 @@ export function useLiveUiConnection() {
             } catch (failure) {
                 session.current = null;
                 if (alive.current) setError('Live UI disconnected. Open it again to reconnect.');
-            } finally {busy.current = false;}
+            } finally {release();}
         }, 750);
         return () => {alive.current = false; clearInterval(timer); unsubscribe?.(); unsubscribeReveal?.(); unsubscribeAi?.();};
     }, []);
     const open = async () => {
-        if (opening || busy.current) return;
-        setOpening(true); setError(''); busy.current = true;
+        if (openingRef.current) return;
+        openingRef.current = true;
+        setOpening(true); setError('');
+        let release;
         try {
+            while (busy.current) await busy.current;
+            if (!alive.current) return;
+            release = acquire();
+            setError('');
             const data = payload();
             const result = await window.electron.liveUi.open(data);
             session.current = result.sessionId;
             last.current = JSON.stringify(data);
         } catch (failure) {if (alive.current) setError(failure.message || String(failure));}
-        finally {busy.current = false; if (alive.current) setOpening(false);}
+        finally {release?.(); openingRef.current = false; if (alive.current) setOpening(false);}
     };
     return {open, opening, error};
 }
