@@ -75,11 +75,16 @@
 
 .card-setting-header {
     display: flex;
-    align-items: center;
-    flex-direction: row;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px 20px;
     margin-top: 15px;
     padding-bottom: 0.5rem;
 }
+
+.plugin-identity { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.plugin-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.plugin-started { margin-left: auto; padding-top: 4px; }
 
 .alert-clean {
     background: #3c3c3c;

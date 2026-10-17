@@ -33,11 +33,11 @@ let electronApp;
 async function ensureRootCertificate(window) {
   await window.evaluate(async () => {
     const roots = await window.electron.settings.certificates.getRoot();
-    if ((roots || []).some((item) => item?.label === "root" && item?.key)) return;
+    if ((roots || []).some((item) => item?.label === "root" && item?.hasPrivateKey)) return;
     const known = new Set((roots || []).map((item) => item?.id).filter(Boolean));
     await window.electron.settings.certificates.create();
     const updated = await window.electron.settings.certificates.getRoot();
-    const created = (updated || []).find((item) => item?.id && !known.has(item.id) && item?.key);
+    const created = (updated || []).find((item) => item?.id && !known.has(item.id) && item?.hasPrivateKey);
     if (created?.id && created.label !== "root") {
       await window.electron.settings.certificates.rename(created.id, "root");
     }

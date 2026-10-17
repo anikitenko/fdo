@@ -1,38 +1,22 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import {settings} from './store';
 import {createStorageWorker} from './storageWorkerClient';
+import {createIncidentReporter} from '../desktop/backgroundNotifications';
 
-let legacy;
-let initialization;
 const client = createStorageWorker('Chat', 'chatWorker.cjs', () => ({
-    filename: path.join(path.dirname(settings.path), 'chat-history.sqlite'), legacy,
+    filename: path.join(path.dirname(settings.path), 'chat-history.sqlite'),
 }));
-
-export function initializeChatStorage() {
-    if (!initialization) initialization = (async () => {
-        legacy = settings.get('ai.sessions', []) || [];
-        await client.request('ready'); // Import must commit before changing JSON.
-        if (legacy.length) {
-            const backup = path.join(path.dirname(settings.path), 'settings-before-chat-sqlite.json');
-            try {
-                fs.copyFileSync(settings.path, backup, fs.constants.COPYFILE_EXCL);
-                fs.chmodSync(backup, 0o600);
-            }
-            catch (error) { if (error.code !== 'EEXIST') throw error; }
-            settings.delete('ai.sessions');
-        }
-        legacy = null;
-    })();
-    return initialization;
-}
-
-async function request(operation, value) {
-    await initializeChatStorage();
-    return client.request(operation, value);
-}
+const incident = createIncidentReporter({source: 'ai', groupKey: 'ai-chat-storage', title: 'AI conversation history is unavailable',
+    message: 'This history operation could not complete. Your latest conversation changes may not be saved. Check disk space and file access, then restart FDO.',
+    recoveredTitle: 'AI conversation history is available again', recoveredMessage: 'Conversation history can be read and saved again. Check the conversation for any changes made during the failure.',
+    actions: [{kind: 'view-settings', tab: 'observability'}]});
+const request = async (operation, value) => {
+    try {const result = await (value === undefined ? client.request(operation) : client.request(operation, value)); incident.recover(); return result;}
+    catch (error) {incident.fail(error); throw error;}
+};
 
 export const chatStorage = {
+    ready: () => request('ready'),
     list: () => request('list'),
     summaries: () => request('summaries'),
     get: id => request('get', id),
@@ -40,9 +24,4 @@ export const chatStorage = {
     create: session => request('create', session),
     rename: (id, name) => request('rename', {id, name, updatedAt: new Date().toISOString()}),
 };
-
-export async function closeChatStorage() {
-    // Initialization may still be copying the backup; let it finish first.
-    try { if (initialization) await initialization; }
-    finally { await client.close(); }
-}
+export const closeChatStorage = client.close;

@@ -50,8 +50,22 @@ contextBridge.exposeInMainWorld('electron', {
     },
     notifications: {
         get: () => ipcRenderer.invoke(NotificationChannels.GET_ALL),
-        add: (title, body, type) => ipcRenderer.invoke(NotificationChannels.ADD, title, body, type),
+        add: (title, body, type, metadata) => ipcRenderer.invoke(NotificationChannels.ADD, title, body, type, metadata),
         markAsRead: (id) => ipcRenderer.invoke(NotificationChannels.MARK_AS_READ, id),
+        markAsUnread: id => ipcRenderer.invoke(NotificationChannels.MARK_AS_UNREAD, id),
+        undo: token => ipcRenderer.invoke(NotificationChannels.UNDO, token),
+        getPreferences: () => ipcRenderer.invoke(NotificationChannels.GET_PREFERENCES),
+        savePreferences: value => ipcRenderer.invoke(NotificationChannels.SAVE_PREFERENCES, value),
+        onAlert: callback => {
+            const listener = (_, notification) => callback(notification);
+            ipcRenderer.on(NotificationChannels.on_off.ALERT, listener);
+            return () => ipcRenderer.removeListener(NotificationChannels.on_off.ALERT, listener);
+        },
+        onPreferences: callback => {
+            const listener = (_, preferences) => callback(preferences);
+            ipcRenderer.on(NotificationChannels.on_off.PREFERENCES, listener);
+            return () => ipcRenderer.removeListener(NotificationChannels.on_off.PREFERENCES, listener);
+        },
         markAllAsRead: () => ipcRenderer.invoke(NotificationChannels.MARK_ALL_AS_READ),
         remove: (id) => ipcRenderer.invoke(NotificationChannels.REMOVE, id),
         removeAll: () => ipcRenderer.invoke(NotificationChannels.REMOVE_ALL),
@@ -133,6 +147,28 @@ contextBridge.exposeInMainWorld('electron', {
         }
     },
     settings: {
+        observability: {
+            get: () => ipcRenderer.invoke(SettingsChannels.observability.GET),
+            save: config => ipcRenderer.invoke(SettingsChannels.observability.SAVE, config),
+            test: config => ipcRenderer.invoke(SettingsChannels.observability.TEST, config),
+            retry: () => ipcRenderer.invoke(SettingsChannels.observability.RETRY),
+            trace: id => ipcRenderer.invoke(SettingsChannels.observability.TRACE, id),
+        },
+        gitops: {
+            list: () => ipcRenderer.invoke(SettingsChannels.gitops.LIST),
+            save: repository => ipcRenderer.invoke(SettingsChannels.gitops.SAVE, repository),
+            verify: id => ipcRenderer.invoke(SettingsChannels.gitops.VERIFY, id),
+            remove: id => ipcRenderer.invoke(SettingsChannels.gitops.REMOVE, id),
+            sync: id => ipcRenderer.invoke(SettingsChannels.gitops.SYNC, id),
+            syncPlugin: (id, pluginName) => ipcRenderer.invoke(SettingsChannels.gitops.SYNC_PLUGIN, {id, pluginName}),
+            setInterval: (id, minutes) => ipcRenderer.invoke(SettingsChannels.gitops.SET_INTERVAL, {id, minutes}),
+            setAutoSync: (id, enabled) => ipcRenderer.invoke(SettingsChannels.gitops.SET_AUTO_SYNC, {id, enabled}),
+            onUpdated: callback => {
+                const listener = () => callback();
+                ipcRenderer.on(SettingsChannels.gitops.UPDATED, listener);
+                return () => ipcRenderer.removeListener(SettingsChannels.gitops.UPDATED, listener);
+            },
+        },
         certificates: {
             getRoot: () => ipcRenderer.invoke(SettingsChannels.certificates.GET_ROOT),
             create: () => ipcRenderer.invoke(SettingsChannels.certificates.CREATE),

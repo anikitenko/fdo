@@ -6,7 +6,7 @@ const {createRequire} = require('node:module');
 const Conf = createRequire(require.resolve('electron-store'))('conf').default;
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
-test('chat migration preserves history, backs up JSON, and persists edits across restarts', async () => {
+test('SQLite chat preserves history and edits across restart without JSON history', async () => {
     test.setTimeout(60000);
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-chat-migration-'));
     const options = {cwd: profile, encryptionKey: 'FDO-APPLICATION'};
@@ -14,7 +14,10 @@ test('chat migration preserves history, backs up JSON, and persists edits across
     const legacy = {id: 'existing-chat', name: 'Existing conversation', createdAt: '2026-10-16T10:00:00Z', messages: [
         {id: 'original-message', role: 'user', content: 'Preserved private chat content', createdAt: '2026-10-16T10:00:00Z'},
     ]};
-    legacyStore.set('ai.sessions', [legacy]);
+    const {openChatDatabase} = require('../../src/utils/persistence/chatDatabase.cjs');
+    const database = openChatDatabase(path.join(profile, 'chat-history.sqlite'));
+    database.execute('put', legacy); database.close();
+    legacyStore.set('ai.sessions', [{...legacy, id: 'obsolete-json-copy'}]);
     legacyStore.set('ai.options.chatDialog.uiLanguage', 'uk');
     const launch = () => launchElectronApp(electron, {isolatedUserDataDir: true, env: {FDO_E2E_USER_DATA_DIR: profile}});
     let app;
@@ -26,9 +29,8 @@ test('chat migration preserves history, backs up JSON, and persists edits across
             expect.objectContaining({id: 'original-message', content: 'Preserved private chat content'}),
         ])})]));
         expect(new Conf({...options, configName: 'settings'}).get('ai.sessions', [])).toEqual([]);
-        const backup = new Conf({...options, configName: 'settings-before-chat-sqlite'});
-        expect(backup.get('ai.sessions')[0]).toMatchObject(legacy);
-        expect(backup.get('ai.options.chatDialog.uiLanguage')).toBe('uk');
+        expect(sessions.some(session => session.id === 'obsolete-json-copy')).toBe(false);
+        expect(fs.existsSync(path.join(profile, 'settings-before-chat-sqlite.json'))).toBe(false);
         await page.evaluate(() => window.electron.aiChat.renameSession('existing-chat', 'Renamed conversation'));
         // No assistant is configured: the turn must commit its user message
         // before returning the provider-selection error, without any API call.

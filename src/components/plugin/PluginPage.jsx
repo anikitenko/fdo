@@ -453,19 +453,16 @@ export const PluginPage = () => {
 
                         const errorMessage = "Plugin module did not export a default component.";
                         reportStage("iframe-default-export-missing", errorMessage);
-                        window.electron.notifications.add("Error rendering plugin", errorMessage, "danger");
                         showPluginError(errorMessage);
                     }).catch((error) => {
                         if (activeModuleUrlRef.current !== moduleURL) return;
                         const errorMessage = error?.message || String(error);
                         reportStage("iframe-module-import-failed", errorMessage);
-                        window.electron.notifications.add("Error rendering plugin", errorMessage, "danger");
                         showPluginError(errorMessage);
                     });
                 } catch (error) {
                     const errorMessage = error?.message || String(error);
                     reportStage("iframe-render-handle-failed", errorMessage);
-                    window.electron.notifications.add("Error rendering plugin", errorMessage, "danger");
                     showPluginError(errorMessage);
                 }
             }
@@ -581,7 +578,6 @@ export const PluginPage = () => {
         <PluginRuntimeErrorBoundary onError={(message) => {
             setPluginLoadError(message);
             window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-render-crashed", message }, "*");
-            window.electron.notifications.add("Error rendering plugin", message, "danger");
         }}>
             <PluginComponent React={React} sdkUi={sdkUi} registerUiView={view => {activeUiViewRef.current = view;}}/>
         </PluginRuntimeErrorBoundary>

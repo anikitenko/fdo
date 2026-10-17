@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import {BasicConstraintsExtension, KeyUsagesExtension, KeyUsageFlags, X509CertificateGenerator, X509Certificate as ParsedCertificate} from "@peculiar/x509";
 import {verifyCertificateChain} from "./certificateChain";
-import {settings} from "../persistence/store";
+import {certificateStorage} from "../persistence/certificateStorage";
 import * as os from "node:os";
 import crypto from 'crypto';
 import fs from "node:fs";
@@ -37,7 +37,6 @@ export const Certs = {
     },
 
     async generateRootCA(label = 'root', update = false) {
-        NotificationCenter.addNotification({title: ``, message: `🔐 Generating new FDO Root Certificate...`});
 
         const algorithm = {
             name: "RSASSA-PKCS1-v1_5", hash: "SHA-256",
@@ -72,51 +71,27 @@ export const Certs = {
 
         const now = new Date();
 
-        // Store as array of root certs
-        const roots = settings.get('certificates.root') || [];
+        const previous = update ? certificateStorage.list('root').find(root => root.label === label) : null;
+        if (update && !previous) throw new Error('Certificate to renew was not found');
+        certificateStorage.put({
+            ...previous, key: keyPem, cert: certPem, id, identity, label,
+            createdAt: now.toISOString(), expiresAt: notAfter.toISOString(),
+            lastUsedAt: now.toISOString(), imported: false,
+        }, 'root', previous?.id);
 
-        if (!update) {
-            roots.push({
-                key: keyPem,
-                cert: certPem,
-                id,
-                identity,
-                label,
-                createdAt: now.toISOString(),
-                expiresAt: notAfter.toISOString(),
-                lastUsedAt: now.toISOString(),
-                imported: false
-            });
-        } else {
-            const root = roots.find((root) => root.label === label);
-            if (root) {
-                root.key = keyPem;
-                root.cert = certPem;
-                root.id = id;
-                root.identity = identity;
-                root.createdAt = now.toISOString();
-                root.expiresAt = notAfter.toISOString();
-                root.lastUsedAt = now.toISOString();
-                root.imported = false;
-            }
-        }
-
-        settings.set('certificates.root', roots);
-
-        NotificationCenter.addNotification({title: ``, message: `✅ Root certificate created and added as identity: ${identity}`});
+        NotificationCenter.addNotification({source: 'security',
+            title: update ? `Signing certificate “${label}” renewed` : `Signing certificate “${label}” created`,
+            message: update ? 'The signing identity was replaced. Re-sign plugins that used the previous certificate before starting them again.' : 'The certificate and its encrypted private key are saved. You can now use it to sign plugins.',
+            details: `Identity: ${identity}\nFingerprint: ${id}\nExpires: ${notAfter.toISOString()}`,
+            type: update ? 'warning' : 'success', actions: [{kind: 'view-settings', tab: 'certificates'}]});
     },
 
     setLabel(id, newName) {
-        const roots = settings.get('certificates.root') || [];
-        const root = roots.find((root) => root.id === id);
-        if (root) {
-            root.label = newName;
-        }
-        settings.set('certificates.root', roots);
+        certificateStorage.update(id, {label: newName});
     },
 
     export(id) {
-        const roots = settings.get('certificates.root') || [];
+        const roots = certificateStorage.list('root');
         const root = roots.find((root) => root.id === id);
         if (root) {
             return {
@@ -185,7 +160,7 @@ export const Certs = {
             // Save to store
             const sha256 = crypto.createHash("sha256").update(leaf.pem).digest("base64");
             const id = `SHA256://${sha256}`;
-            const roots = settings.get("certificates.root") || [];
+            const roots = certificateStorage.list('root');
 
             if (roots.find(root => root.id === id)) {
                 return { success: false, error: "Certificate already exists" };
@@ -209,9 +184,11 @@ export const Certs = {
                 entry.key = privateKeyPem;
             }
 
-            roots.push(entry);
-            settings.set("certificates.root", roots);
-
+            certificateStorage.put(entry);
+            NotificationCenter.addNotification({source: 'security', title: 'Certificate imported', type: 'success',
+                message: keyMatches ? 'The certificate and matching private key were saved. It can be used for plugin verification and signing.' : 'The certificate was added as a trusted signer. It can verify plugins but has no private key for signing.',
+                details: `Label: ${entry.label}\nSubject: ${leaf.cert.subject}\nFingerprint: ${id}`,
+                actions: [{kind: 'view-settings', tab: 'certificates'}]});
             return { success: true };
         } catch (err) {
             return { success: false, error: "Failed to import certificate: " + err.message };
@@ -264,22 +241,20 @@ export const Certs = {
             const isAutoGenerated = content.startsWith("# .fdoignore autogenerated by FDO");
 
             if (!isAutoGenerated) {
-                NotificationCenter.addNotification({title: `Checking .fdoignore`, message: `✅ Found custom .fdoignore. Not overwriting.`});
                 return;
             }
         }
 
         const content = this.generateDefaultFdoIgnore();
         fs.writeFileSync(ignorePath, content, "utf-8");
-        NotificationCenter.addNotification({title: `Checking .fdoignore`, message: `🛡️ Created auto-generated .fdoignore for plugin at ${pluginDir}`});
     },
 
 
     signPlugin(pluginDir, signerLabel) {
-        const roots = settings.get("certificates.root") || [];
+        const roots = certificateStorage.list('root');
         const certEntry = roots.find(cert => cert.label === signerLabel);
 
-        if (!certEntry || !certEntry.key) {
+        if (!certEntry?.hasPrivateKey) {
             return {success: false, error: "Signer not found or missing private key"}
         }
 
@@ -294,7 +269,7 @@ export const Certs = {
             return {success: false, error: `Certificate expired on ${new Date(certObj.validTo).toISOString()}`};
         }
 
-        const privateKey = crypto.createPrivateKey(certEntry.key);
+        const privateKey = crypto.createPrivateKey(certificateStorage.privateKey(certEntry.id));
         if (privateKey.asymmetricKeyType !== "rsa") {
             return {success: false, error: "Plugin signing requires an RSA private key"};
         }
@@ -406,11 +381,7 @@ export const Certs = {
                 };
             }
 
-            const allCerts = [
-                ...(settings.get("certificates.root") || []),
-                ...(settings.get("certificates.org") || []),
-                ...(settings.get("certificates.registry") || []),
-            ];
+            const allCerts = certificateStorage.list();
 
             let matchedCert;
             let certificateToVerifyAgainst;
@@ -466,12 +437,7 @@ export const Certs = {
                 return verifySig;
             }
 
-            matchedCert.lastUsedAt = new Date().toISOString();
-
-            const updatedCerts = allCerts.map(cert =>
-                cert.id === matchedCert.id ? matchedCert : cert
-            );
-            settings.set("certificates.root", updatedCerts);
+            certificateStorage.update(matchedCert.id, {lastUsedAt: new Date().toISOString()}, matchedCert.scope);
 
             return {
                 success: true,

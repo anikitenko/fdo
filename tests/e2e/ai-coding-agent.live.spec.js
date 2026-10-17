@@ -87,7 +87,7 @@ function recordLiveLifecycle(event, details = {}) {
 async function ensureRootCertificate(window) {
   const hasRoot = await window.evaluate(async () => {
     const roots = await window.electron.settings.certificates.getRoot();
-    return (roots || []).some((item) => item?.label === "root" && item?.key);
+    return (roots || []).some((item) => item?.label === "root" && item?.hasPrivateKey);
   });
   if (hasRoot) return;
 
@@ -96,14 +96,14 @@ async function ensureRootCertificate(window) {
     const beforeIds = new Set((before || []).map((item) => item?.id).filter(Boolean));
     await window.electron.settings.certificates.create();
     const after = await window.electron.settings.certificates.getRoot();
-    const created = (after || []).find((item) => item?.id && !beforeIds.has(item.id) && item?.key);
+    const created = (after || []).find((item) => item?.id && !beforeIds.has(item.id) && item?.hasPrivateKey);
     if (created?.id && created.label !== "root") {
       await window.electron.settings.certificates.rename(created.id, "root");
     }
   });
   const ready = await window.evaluate(async () => {
     const roots = await window.electron.settings.certificates.getRoot();
-    return (roots || []).some((item) => item?.label === "root" && item?.key);
+    return (roots || []).some((item) => item?.label === "root" && item?.hasPrivateKey);
   });
   if (!ready) throw new Error("The disposable live-test profile could not create a signing root certificate.");
 }

@@ -1,4 +1,3 @@
-import {AppToaster} from "../../AppToaster";
 
 export function shortenUrl(url) {
     try {
@@ -12,7 +11,6 @@ export function shortenUrl(url) {
 
         return `${u.origin}/${shortPath}`;
     } catch (e) {
-        AppToaster.show({message: `Invalid URL: ${url}`, intent: "warning"});
         return null;
     }
 }

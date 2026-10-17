@@ -2,7 +2,7 @@ const {parentPort, workerData} = require('node:worker_threads');
 const {openNotificationDatabase} = require('./notificationDatabase.cjs');
 
 try {
-    const database = openNotificationDatabase(workerData.filename, workerData.legacy);
+    const database = openNotificationDatabase(workerData.filename);
     parentPort.on('message', ({id, operation, value}) => {
         try {
             if (operation === 'close') {

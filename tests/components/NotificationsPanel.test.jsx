@@ -83,12 +83,97 @@ test('remeasures variable-height rows without moving the visible anchor and disc
     expect(observers.every(observer => observer.disconnect.mock.calls.length > 0)).toBe(true);
 });
 
-test('keeps dismiss and bulk actions working', () => {
+test('keeps dismiss and bulk actions working', async () => {
     render(<NotificationsPanel {...props} notifications={notices(2)}/>);
     fireEvent.click(screen.getByRole('button', {name: 'Dismiss Notice 1'}));
     expect(window.electron.notifications.remove).toHaveBeenCalledWith('1');
+    await act(async () => {});
     fireEvent.click(screen.getByRole('button', {name: 'Mark all as read'}));
     expect(window.electron.notifications.markAllAsRead).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', {name: 'Remove all'}));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', {name: 'Dismiss all'}));
     expect(window.electron.notifications.removeAll).toHaveBeenCalledTimes(1);
+});
+
+test('filters by unread, attention and source, searches details, and distinguishes no results', () => {
+    const notifications = [
+        {...notices(1)[0], id: 'failure', title: 'Sync failed', source: 'gitops', type: 'danger', details: 'commit abc123'},
+        {...notices(1)[0], id: 'resolved', title: 'Recovered', source: 'gitops', type: 'success', status: 'resolved'},
+        {...notices(1)[0], id: 'build', title: 'Build complete', source: 'builds', type: 'success', read: true},
+    ];
+    render(<NotificationsPanel {...props} notifications={notifications}/>);
+    fireEvent.click(screen.getByRole('button', {name: 'Needs attention', exact: true}));
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    fireEvent.change(screen.getByRole('combobox', {name: 'Notification source'}), {target: {value: 'builds'}});
+    expect(screen.getByText('No matching notifications')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name: 'Clear filters'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Unread', exact: true}));
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    fireEvent.change(screen.getByPlaceholderText('Filter notifications...'), {target: {value: 'abc123'}});
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+});
+
+test('supports individual read state, expanded details, navigation actions, and undo', async () => {
+    window.electron.notifications.markAsRead = jest.fn(async () => ({}));
+    window.electron.notifications.remove.mockResolvedValue({undoToken: 'token'});
+    window.electron.notifications.undo = jest.fn(async () => ({success: true}));
+    const onAction = jest.fn(async () => {});
+    const notification = {...notices(1)[0], details: 'Full commit details', occurrences: 3, source: 'gitops',
+        actions: [{kind: 'view-plugin', pluginId: 'plugin'}]};
+    render(<NotificationsPanel {...props} notifications={[notification]} onAction={onAction}/>);
+    expect(screen.queryByText('Full commit details')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Show details'}));
+    expect(screen.getByText('Full commit details')).toBeVisible();
+    expect(screen.getByText('3 occurrences')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name: /^Mark read:/}));
+    await waitFor(() => expect(window.electron.notifications.markAsRead).toHaveBeenCalledWith('0'));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', {name: 'View plugin'}));
+    await waitFor(() => expect(onAction).toHaveBeenCalledWith(notification.actions[0], notification));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', {name: 'Dismiss Notice 0'}));
+    fireEvent.click(await screen.findByRole('button', {name: 'Undo'}));
+    await waitFor(() => expect(window.electron.notifications.undo).toHaveBeenCalledWith('token'));
+});
+
+test('saves toast preferences and reports action errors', async () => {
+    window.electron.notifications.getPreferences = jest.fn(async () => ({successToasts: true, failureToasts: true, infoToasts: false, retentionDays: 0, mutedSources: []}));
+    window.electron.notifications.savePreferences = jest.fn(async value => value);
+    window.electron.notifications.remove.mockRejectedValue(new Error('Disk unavailable'));
+    render(<NotificationsPanel {...props} notifications={notices(1)}/>);
+    fireEvent.click(screen.getByRole('button', {name: 'Notification preferences'}));
+    fireEvent.click(await screen.findByRole('checkbox', {name: 'Show success toasts'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Save notification preferences'}));
+    await waitFor(() => expect(window.electron.notifications.savePreferences).toHaveBeenCalledWith(expect.objectContaining({successToasts: false})));
+    expect(await screen.findByText('Notification preferences saved.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name: 'Notification preferences'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Dismiss Notice 0'}));
+    expect(await screen.findByText('Disk unavailable')).toBeVisible();
+});
+
+test('preferences show navigation instead of bulk notification controls', async () => {
+    window.electron.notifications.getPreferences = jest.fn(async () => ({successToasts: true, failureToasts: true, infoToasts: false, retentionDays: 0, mutedSources: []}));
+    render(<NotificationsPanel {...props} notifications={notices(1)}/>);
+    fireEvent.click(screen.getByRole('button', {name: 'Notification preferences'}));
+    expect(screen.queryByRole('button', {name: 'Mark all as read'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Dismiss all'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Back to notifications'}));
+    expect(screen.getByRole('button', {name: 'Dismiss all'})).toBeVisible();
+});
+
+test('navigates to an offscreen notification, focuses it and clears the highlight after a short interval', () => {
+    jest.useFakeTimers();
+    HTMLElement.prototype.scrollIntoView = jest.fn();
+    const notifications = notices();
+    const {rerender, unmount} = render(<NotificationsPanel {...props} notifications={notifications}
+        focusRequest={{notificationId: '900', requestId: 1}}/>);
+    const target = document.querySelector('[data-notification-id="900"]');
+    scroller();
+    expect(target).toHaveAttribute('data-notification-highlighted', 'true');
+    expect(target).toHaveFocus();
+    act(() => jest.advanceTimersByTime(3600));
+    expect(target).not.toHaveAttribute('data-notification-highlighted');
+    rerender(<NotificationsPanel {...props} notifications={notifications} focusRequest={{notificationId: '900', requestId: 2}}/>);
+    expect(document.querySelector('[data-notification-id="900"]')).toHaveAttribute('data-notification-highlighted', 'true');
+    unmount(); jest.useRealTimers();
 });

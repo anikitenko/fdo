@@ -2,8 +2,7 @@ const {parentPort, workerData} = require('node:worker_threads');
 const {openChatDatabase} = require('./chatDatabase.cjs');
 
 try {
-    const database = openChatDatabase(workerData.filename, workerData.legacy);
-    workerData.legacy = null;
+    const database = openChatDatabase(workerData.filename);
     parentPort.on('message', ({id, operation, value}) => {
         try {
             if (operation === 'close') {

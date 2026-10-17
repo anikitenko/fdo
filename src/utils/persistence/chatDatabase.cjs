@@ -1,17 +1,16 @@
 const {DatabaseSync} = require('node:sqlite');
-const {createCipheriv, createDecipheriv, randomBytes, hkdfSync, createHash} = require('node:crypto');
+const {createCipheriv, createDecipheriv, randomBytes, hkdfSync} = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const assert = require('node:assert/strict');
 
 function transaction(db, fn) {
-    db.exec('BEGIN IMMEDIATE');
+    db.exec(/* language=SQLite */ 'BEGIN IMMEDIATE');
     let committed = false;
-    try { const result = fn(); db.exec('COMMIT'); committed = true; return result; }
-    finally { if (!committed) db.exec('ROLLBACK'); }
+    try { const result = fn(); db.exec(/* language=SQLite */ 'COMMIT'); committed = true; return result; }
+    finally { if (!committed) db.exec(/* language=SQLite */ 'ROLLBACK'); }
 }
 
-function openChatDatabase(filename, legacy = []) {
+function openChatDatabase(filename) {
     fs.mkdirSync(path.dirname(filename), {recursive: true});
     const db = new DatabaseSync(filename);
     try {
@@ -73,7 +72,7 @@ function openChatDatabase(filename, legacy = []) {
                 .map(message => JSON.parse(text(messageKey(id, message.id), message.payload)));
             return {...JSON.parse(text(sessionKey(id), row.payload)), messages};
         };
-        const put = (session, importing = false) => {
+        const put = session => {
             if (!session || typeof session.id !== 'string' || !session.id || typeof session.name !== 'string'
                 || !Number.isFinite(Date.parse(session.createdAt)) || !Array.isArray(session.messages)
                 || (session.updatedAt != null && !Number.isFinite(Date.parse(session.updatedAt)))) throw new Error('Invalid chat session');
@@ -86,7 +85,6 @@ function openChatDatabase(filename, legacy = []) {
             }
             const {messages, ...metadata} = session;
             const previous = db.prepare(/* language=TEXT */ 'SELECT * FROM sessions WHERE id = ?').get(session.id);
-            if (importing && previous) throw new Error('Duplicate legacy chat session');
             const payload = encode(sessionKey(session.id), metadata, previous?.payload);
             const updatedAt = session.updatedAt || session.createdAt;
             if (!previous || payload !== previous.payload || previous.messageCount !== messages.length) {
@@ -112,16 +110,6 @@ function openChatDatabase(filename, legacy = []) {
             }
             return session;
         };
-        const legacyHash = createHash('sha256').update(JSON.stringify(legacy)).digest('hex');
-        if (!meta('json-import-v1')) {
-            transaction(db, () => {
-                for (const session of legacy) put(session, true);
-                db.prepare(/* language=TEXT */ 'INSERT INTO metadata VALUES (?, ?)').run('json-import-v1', legacyHash);
-            });
-        } else if (legacy.length && meta('json-import-v1') !== legacyHash) {
-            assert.equal(meta('json-import-v1'), legacyHash, 'Chat JSON changed after SQLite import; original data was preserved. Restore or reconcile the backup before retrying.');
-        }
-        legacy = null;
         const pruneDrafts = () => {
             const {count} = db.prepare(/* language=TEXT */ 'SELECT count(*) AS count FROM sessions WHERE messageCount=0').get();
             if (count < 2) return;

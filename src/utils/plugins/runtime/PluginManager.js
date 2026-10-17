@@ -1,3 +1,4 @@
+import {failureNotification, pluginDisplayName} from '../../desktop/notificationContent';
 import {enqueuePluginUiBridge} from './pluginUiMessageQueue';
 import UserORM from "../../persistence/UserORM";
 import {pluginTray, PLUGIN_TRAY_HANDLER} from './pluginTray';
@@ -550,8 +551,11 @@ const PluginManager = {
         const suffix = changed.length > 3 ? "…" : "";
         const sample = changed.slice(0, 3).join(", ");
         NotificationCenter.addNotification({
-            title: `Plugin ${id} modified code directory`,
-            message: `Development warning: plugin wrote files under PLUGIN_CODE_HOME. Use PLUGIN_HOME for writable state. Changed: ${sample}${suffix}`,
+            source: "plugins",
+            title: `${pluginDisplayName(new PluginORM(this.pluginConfigFile).getPlugin(id))} changed its installed code`,
+            details: `Plugin ID: ${id}\nThe plugin wrote to PLUGIN_CODE_HOME. Maintainers should use PLUGIN_HOME for writable state. Changed files: ${sample}${suffix}`,
+            actions: [{kind: "manage-plugin", pluginId: id}],
+            message: "Files changed inside the signed installation. A future launch may fail signature verification. Review the plugin before restarting it.",
             type: "warning",
         });
     },
@@ -561,10 +565,8 @@ const PluginManager = {
 
         const loadPromises = plugins.map((id) => this.loadPlugin(id));
 
-        const results = await Promise.allSettled(loadPromises);
-
-        const loaded = results.filter(r => r.status === "fulfilled" && r.value.success).length;
-        NotificationCenter.addNotification({title: `Plugins were loaded`, message: `🔄 Loaded ${loaded} of ${plugins.length} plugins.`});
+        // Each failure already has a named, actionable incident.
+        await Promise.allSettled(loadPromises);
     },
 
     async loadPlugin(id) {
@@ -593,6 +595,8 @@ const PluginManager = {
 
         const pluginORM = new PluginORM(this.pluginConfigFile);
         const plugin = pluginORM.getPlugin(id);
+        const displayName = pluginDisplayName(plugin);
+        const notificationContext = {source: "plugins", groupKey: `plugin-runtime:${id}`, details: `Plugin ID: ${id}`, actions: [{kind: "manage-plugin", pluginId: id}, {kind: "open-plugin-logs", pluginId: id}]};
 
         try {
             const result = await Certs.verifyPlugin(plugin.home);
@@ -603,10 +607,11 @@ const PluginManager = {
                 this.sendToMainWindow(PluginChannels.on_off.UNLOADED, {
                     id,
                     reason: "verification_failed",
+                    notificationReported: true,
                     message: result.error,
                 });
-                NotificationCenter.addNotification({title: `Plugin ${id} verification failed`, message: result.error, type: "danger"});
-                return { success: false, error: result.error };
+                NotificationCenter.addNotification(failureNotification({...notificationContext, source: "security", title: `${displayName} was blocked by signature verification`, message: "The installed plugin could not be verified and was not started. Review its signer in Manage Plugins. Reinstall from a trusted source if its files changed.", error: result.error}));
+                return { success: false, error: result.error, notified: true };
             }
 
             let runtimeEntry = plugin.entry;
@@ -625,8 +630,10 @@ const PluginManager = {
                     error: error?.message || String(error),
                 });
                 NotificationCenter.addNotification({
-                    title: `Plugin ${id} runtime rebuild failed`,
-                    message: `Falling back to the stored bundle. ${error.message || error}`,
+                    ...notificationContext,
+                    title: `${displayName}: runtime compilation failed`,
+                    message: "FDO will try the previously compiled bundle. If the plugin does not open, review its logs or rebuild it.",
+                    details: `Plugin ID: ${id}\n${error.message || error}`,
                     type: "warning",
                 });
             }
@@ -722,6 +729,7 @@ const PluginManager = {
                     reason: payload.reason || "unloaded",
                     message,
                     code: payload.code,
+                    notificationReported: payload.notify !== false,
                 };
                 this.maybeWarnPluginCodeMutation(id, plugin.home);
                 this.lastUnloadByPlugin[id] = {
@@ -737,11 +745,13 @@ const PluginManager = {
                 }));
                 this.sendToMainWindow(PluginChannels.on_off.UNLOADED, unloadPayload);
                 if (payload.notify !== false) {
-                    NotificationCenter.addNotification({
-                        title: payload.title || `Plugin ${id} was unloaded`,
-                        message: payload.message || "",
-                        type: payload.type || "",
-                    });
+                    NotificationCenter.addNotification(failureNotification({
+                        ...notificationContext,
+                        title: payload.title || `${displayName} stopped unexpectedly`,
+                        message: "The plugin stopped and its actions are unavailable. Review the logs, then start it again from Manage Plugins.",
+                        error: message,
+                        type: payload.type || 'warning',
+                    }));
                 }
             };
 
@@ -816,7 +826,9 @@ const PluginManager = {
                         void this.refreshPluginDiagnostics(id, {timeoutMs: 2500, reason: "plugin_ready"});
                         this.tracePluginEvent(id, "runtime.ready", {sessionId});
                         this.sendToMainWindow(PluginChannels.on_off.READY, id)
-                        NotificationCenter.addNotification({title: `${id} is ready`});
+                        // Successful starts are quiet unless they resolve a saved runtime failure.
+                        NotificationCenter.addNotification({...notificationContext, status: 'resolved', type: 'success',
+                            title: `${displayName} started after an earlier failure`, message: 'The plugin process started successfully. Open the plugin to load its interface.'});
                     } else if (message.type === 'PLUGIN_INIT') {
                         if (this.loadedPlugins[id]) {
                             this.loadedPlugins[id].initRequested = false;
@@ -943,7 +955,7 @@ const PluginManager = {
                 cleanup({
                     reason: "process_error",
                     message: err?.message || String(err),
-                    title: `Error with ${id}`,
+                    title: `${displayName} encountered a runtime error`,
                     type: "danger",
                 });
             });
@@ -953,8 +965,8 @@ const PluginManager = {
                     reason: "process_exit",
                     code,
                     message: `Exit code ${code}`,
-                    title: `Plugin ${id} exited`,
-                    type: code === 0 ? "" : "danger",
+                    title: `${displayName} stopped unexpectedly`,
+                    type: code === 0 ? "warning" : "danger",
                 });
             });
 
@@ -967,7 +979,7 @@ const PluginManager = {
                 const result = await dialog.showMessageBox({
                     type: 'error',
                     title: 'Permission Denied',
-                    message: `macOS has blocked access to:\n${id}\n\nPlease grant access in System Settings > Privacy & Security > Files and Folders.`,
+                    message: `macOS has blocked access for ${displayName}:\n${plugin.home}\n\nPlease grant access in System Settings > Privacy & Security > Files and Folders.`,
                     buttons: ['Open Settings', 'Cancel'],
                     defaultId: 0
                 });
@@ -975,14 +987,18 @@ const PluginManager = {
                 if (result.response === 0) {
                     await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders');
                 }
+                NotificationCenter.addNotification(failureNotification({...notificationContext, source: 'security', title: `macOS blocked file access for ${displayName}`,
+                    message: 'Review System Settings → Privacy & Security → Files and Folders, then try starting this plugin again.', error: err}));
+                return {success: false, error: err.message, notified: true};
             } else {
-                NotificationCenter.addNotification({title: `Failed to load ${id}`, message: err, type: "danger"});
+                NotificationCenter.addNotification(failureNotification({...notificationContext, title: `Couldn’t start ${displayName}`, message: "The plugin did not start. Review its logs and permissions in Manage Plugins, then try again.", error: err}));
                 this.sendToMainWindow(PluginChannels.on_off.UNLOADED, {
                     id,
                     reason: "load_failed",
+                    notificationReported: true,
                     message: err?.message || String(err),
                 });
-                return {success: false, error: err.message};
+                return {success: false, error: err.message, notified: true};
             }
         }
     },

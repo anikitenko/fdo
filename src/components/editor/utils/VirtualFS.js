@@ -1,4 +1,4 @@
-import {pluginBuildEntrypoint} from '../../../utils/plugins/runtime/pluginBuildArtifact';
+import {pluginBuildEntrypoint, pluginBuildSource} from '../../../utils/plugins/runtime/pluginBuildArtifact';
 import React from 'react';
 import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
 import * as monaco from "monaco-editor";
@@ -372,7 +372,8 @@ const virtualFS = {
     },
     build: {
         init: false,
-        parent: Object,
+        /** @type {typeof virtualFS | null} */
+        parent: null,
         inProgress: false,
         progress: 0,
         history: [],
@@ -426,8 +427,7 @@ const virtualFS = {
         },
         async getMetadata() {
             const latestContent = this.parent.getLatestContent()
-            const srcJson = JSON.parse(latestContent["/package.json"])
-            const sourceFile = srcJson.source || "index.ts"
+            const sourceFile = pluginBuildSource(latestContent) || 'index.ts';
             const sourceFileContent = latestContent[`/${sourceFile}`]
 
             const match = await extractMetadata(sourceFileContent);
@@ -462,7 +462,8 @@ const virtualFS = {
         tsCounter: 0,
         nodeModulesPromise: null,
         renderOnLoadTypeDefsPromise: null,
-        parent: Object,
+        /** @type {typeof virtualFS | null} */
+        parent: null,
         loading: false,
         nodeModulesLoading: false,
         restoreLoading: false,
@@ -1020,7 +1021,8 @@ const virtualFS = {
         }
     },
     tabs: {
-        parent: Object,
+        /** @type {typeof virtualFS | null} */
+        parent: null,
         list: [],
         setActiveTab(tab) {
             for (const i of this.list) {

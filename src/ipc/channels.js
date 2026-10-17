@@ -18,15 +18,23 @@ export const NotificationChannels = withPrefix('notifications', {
     GET_ALL: 'get-all',
     ADD: 'add',
     MARK_AS_READ: 'mark-read',
+    MARK_AS_UNREAD: 'mark-unread',
+    UNDO: 'undo',
+    GET_PREFERENCES: 'get-preferences',
+    SAVE_PREFERENCES: 'save-preferences',
     MARK_ALL_AS_READ: 'mark-read-all',
     REMOVE: 'remove',
     REMOVE_ALL: 'remove-all',
     on_off: {
-        UPDATED: 'updated'
+        UPDATED: 'updated',
+        ALERT: 'alert',
+        PREFERENCES: 'preferences'
     }
 });
 
 export const SettingsChannels = withPrefix('settings', {
+    observability: {GET: 'get', SAVE: 'save', TEST: 'test', RETRY: 'retry', TRACE: 'trace'},
+    gitops: {LIST: 'list', SAVE: 'save', VERIFY: 'verify', REMOVE: 'remove', SYNC: 'sync', SYNC_PLUGIN: 'sync-plugin', SET_INTERVAL: 'set-interval', SET_AUTO_SYNC: 'set-auto-sync', UPDATED: 'updated'},
     certificates: {
         GET_ROOT: 'get-root',
         CREATE: 'create',

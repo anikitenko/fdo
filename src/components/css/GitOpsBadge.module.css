@@ -1,0 +1,13 @@
+.badge { border-radius: 6px; font-weight: 600; flex-shrink: 0; }
+.dialog { width: 640px; max-width: calc(100vw - 32px); }
+.body { max-height: 70vh; overflow-y: auto; }
+.summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.summary strong { font-size: 16px; }
+.body h4 { border-bottom: 1px solid #dce0e5; padding-bottom: 8px; margin: 20px 0 12px; }
+.details { margin: 0 0 16px; }
+.details > div { display: grid; grid-template-columns: minmax(120px, 155px) minmax(0, 1fr); gap: 12px; margin: 10px 0; }
+.details dt { color: #5f6b7c; }
+.details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; user-select: text; }
+.details code { font-size: 12px; white-space: normal; }
+.loading { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 480px) { .details > div { grid-template-columns: 1fr; gap: 4px; } }

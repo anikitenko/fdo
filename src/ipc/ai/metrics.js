@@ -1,4 +1,4 @@
-import { settings } from "../../utils/persistence/store.js";
+import {currentAiMetrics, saveAiMetrics} from "../../utils/persistence/observabilityStorage";
 
 const MAX_RECENT_MISSES = 50;
 const LOW_CONFIDENCE_THRESHOLD = 0.55;
@@ -83,11 +83,11 @@ function normalizeMetrics(metrics) {
 }
 
 function updateAiMetrics(mutator) {
-    const current = normalizeMetrics(settings.get("ai.metrics"));
+    const current = normalizeMetrics(currentAiMetrics());
     const draft = clone(current);
     mutator(draft);
     const next = normalizeMetrics(draft);
-    settings.set("ai.metrics", next);
+    saveAiMetrics(next);
     return next;
 }
 

@@ -1,13 +1,8 @@
+import {describe, expect, jest, test} from "@jest/globals";
+
 jest.mock("electron", () => ({
-    app: {
-        isPackaged: false,
-        getAppPath: jest.fn(() => "/tmp/app"),
-    },
     ipcMain: {
         handle: jest.fn(),
-    },
-    dialog: {
-        showMessageBox: jest.fn(async () => ({response: 1})),
     },
 }));
 
@@ -28,63 +23,33 @@ jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
         getAllPlugins() { return []; }
+        getPlugin(id) { return {id, metadata: {name: "Fixture Plugin"}}; }
     },
-}));
-
-jest.mock("../../src/components/editor/utils/generatePluginName", () => ({
-    __esModule: true,
-    default: jest.fn(() => "generated-plugin-name"),
 }));
 
 jest.mock("../../src/utils/persistence/UserORM", () => ({
     __esModule: true,
     default: class UserORMMock {
-        activatePlugin() {}
-        deactivatePlugin() {}
-        deactivateAllPlugins() {}
-        getActivatedPlugins() { return []; }
         getSharedProcessScopes() { return []; }
-        setSharedProcessScopes(scopes) { return scopes; }
-        getCustomProcessScopes() { return []; }
-        setCustomProcessScopes(scopes) { return scopes; }
+        getSharedFilesystemScopes() { return []; }
     },
 }));
 
 jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
     __esModule: true,
-    default: {
-        loadPlugin: jest.fn(async () => ({success: true})),
-        unLoadPlugin: jest.fn(),
-        unLoadPlugins: jest.fn(),
-        getLoadedPlugin: jest.fn(),
-        getLoadedPluginReady: jest.fn(() => true),
-        getLoadedPluginInited: jest.fn(() => true),
-        loadingPlugins: {},
-        mainWindow: {focus: jest.fn(), webContents: {send: jest.fn()}},
-    },
+    default: {getLoadedPlugin: jest.fn()},
 }));
 
-jest.mock("../../src/utils/filesystem/ensureAndWrite", () => ({
-    __esModule: true,
-    default: jest.fn(async () => undefined),
-}));
-jest.mock("../../src/utils/esbuild/plugins/virtual-fs", () => ({
-    EsbuildVirtualFsPlugin: jest.fn(() => ({name: "virtual-fs"})),
-}));
 jest.mock("../../src/utils/system/certs", () => ({
     Certs: {
         signPlugin: jest.fn(() => ({success: true})),
         verifyPlugin: jest.fn(async () => ({success: true})),
     },
 }));
-jest.mock("../../src/utils/plugins/runtime/syncPluginDir", () => ({syncPluginDir: jest.fn(async () => undefined)}));
+
 jest.mock("../../src/utils/desktop/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
 jest.mock("../../src/utils/desktop/editorWindow", () => ({editorWindow: {getWindow: jest.fn(() => null)}}));
-jest.mock("../../src/utils/filesystem/getIgnoreInstance", () => ({getIgnoreInstance: jest.fn(async () => ({ignores: () => false}))}));
-jest.mock("../../src/utils/filesystem/getAllFilesWithIgnorance", () => ({getAllFilesWithIgnorance: jest.fn(async () => [])}));
-jest.mock("../../src/utils/plugins/runtime/extractMetadata", () => ({extractMetadata: jest.fn(async () => ({}))}));
-jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({normalizeAndValidatePluginMetadata: jest.fn((m) => m)}));
-jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
+
 jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     HOST_PRIVILEGED_HANDLER: "__host.privilegedAction",
     executeHostPrivilegedAction: jest.fn(async (_request, ctx) => ({
@@ -98,28 +63,29 @@ jest.mock("../../src/utils/plugins/security/hostPrivilegedActions", () => ({
     })),
 }));
 
+function registerUiHandler(grantedCapabilities) {
+    const {ipcMain} = require("electron");
+    const {registerPluginHandlers} = require("../../src/ipc/plugin");
+    const {PluginChannels} = require("../../src/ipc/channels");
+    const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+    const postMessage = jest.fn();
+    PluginManager.getLoadedPlugin.mockReturnValue({ready: true, grantedCapabilities, instance: {postMessage}});
+    const handle = jest.mocked(ipcMain.handle);
+    handle.mockClear();
+    registerPluginHandlers();
+    const uiHandler = handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
+    return {postMessage, uiHandler};
+}
+
 describe("plugin IPC privileged action transport", () => {
     test("routes reserved host privileged handler with correlation id and returns response payload", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
-        const {registerPluginHandlers} = require("../../src/ipc/plugin");
-        const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+
         const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
-        const {NotificationCenter} = require("../../src/utils/desktop/NotificationCenter");
 
-        const postMessage = jest.fn();
-        PluginManager.getLoadedPlugin.mockReturnValue({
-            ready: true,
-            grantedCapabilities: ["system.hosts.write"],
-            instance: {postMessage},
-        });
+        const {postMessage, uiHandler} = registerUiHandler(["system.hosts.write"]);
 
-        ipcMain.handle.mockClear();
-        registerPluginHandlers();
-        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
-
-        const response = await uiHandler({}, "plugin-x", {
+        const response = await uiHandler(undefined, "plugin-x", {
             handler: "__host.privilegedAction",
             content: {
                 correlationId: "corr-xyz",
@@ -146,25 +112,12 @@ describe("plugin IPC privileged action transport", () => {
 
     test("routes SDK requestPrivilegedAction handler alias to the same host privileged transport", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
-        const {registerPluginHandlers} = require("../../src/ipc/plugin");
-        const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+
         const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
-        const {NotificationCenter} = require("../../src/utils/desktop/NotificationCenter");
 
-        const postMessage = jest.fn();
-        PluginManager.getLoadedPlugin.mockReturnValue({
-            ready: true,
-            grantedCapabilities: ["system.process.exec", "system.process.scope.terraform"],
-            instance: {postMessage},
-        });
+        const {postMessage, uiHandler} = registerUiHandler(["system.process.exec", "system.process.scope.terraform"]);
 
-        ipcMain.handle.mockClear();
-        registerPluginHandlers();
-        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
-
-        const response = await uiHandler({}, "plugin-x", {
+        const response = await uiHandler(undefined, "plugin-x", {
             handler: "requestPrivilegedAction",
             content: {
                 correlationId: "corr-sdk-alias",
@@ -190,25 +143,13 @@ describe("plugin IPC privileged action transport", () => {
 
     test("accepts SDK backend envelope response shape when forwarded to requestPrivilegedAction", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
-        const {registerPluginHandlers} = require("../../src/ipc/plugin");
-        const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+
         const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
         const {NotificationCenter} = require("../../src/utils/desktop/NotificationCenter");
 
-        const postMessage = jest.fn();
-        PluginManager.getLoadedPlugin.mockReturnValue({
-            ready: true,
-            grantedCapabilities: ["system.hosts.write", "system.fs.scope.etc-motd"],
-            instance: {postMessage},
-        });
+        const {postMessage, uiHandler} = registerUiHandler(["system.hosts.write", "system.fs.scope.etc-motd"]);
 
-        ipcMain.handle.mockClear();
-        registerPluginHandlers();
-        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
-
-        const response = await uiHandler({}, "plugin-x", {
+        const response = await uiHandler(undefined, "plugin-x", {
             handler: "requestPrivilegedAction",
             content: {
                 ok: true,
@@ -243,35 +184,26 @@ describe("plugin IPC privileged action transport", () => {
             ok: true,
             correlationId: "etc-motd-corr",
         }));
-        expect(NotificationCenter.addNotification).toHaveBeenCalledWith(expect.objectContaining({
-            title: "Deprecated privileged request shape",
-            message: expect.stringContaining("requestPrivilegedActionFromEnvelope"),
+        expect(NotificationCenter.addNotification).toHaveBeenCalledTimes(1);
+        expect(NotificationCenter.addNotification.mock.calls[0][0]).toMatchObject({
+            title: "Fixture Plugin uses an older permission interface",
+            message: expect.stringContaining("compatibility support"),
+            details: expect.stringContaining("requestPrivilegedActionFromEnvelope"),
+            actions: [{kind: "manage-plugin", pluginId: "plugin-x"}],
             type: "warning",
-        }));
+        });
         expect(postMessage).not.toHaveBeenCalled();
     });
 
     test("passes through forwarded backend failure payload without re-validating it as privileged request", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
-        const {registerPluginHandlers} = require("../../src/ipc/plugin");
-        const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+
         const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
-        const postMessage = jest.fn();
-        PluginManager.getLoadedPlugin.mockReturnValue({
-            ready: true,
-            grantedCapabilities: ["system.process.exec", "system.process.scope.git"],
-            instance: {postMessage},
-        });
-
-        ipcMain.handle.mockClear();
         executeHostPrivilegedAction.mockClear();
-        registerPluginHandlers();
-        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
+        const {postMessage, uiHandler} = registerUiHandler(["system.process.exec", "system.process.scope.git"]);
 
-        const response = await uiHandler({}, "plugin-x", {
+        const response = await uiHandler(undefined, "plugin-x", {
             handler: "requestPrivilegedAction",
             content: {
                 ok: false,
@@ -293,13 +225,10 @@ describe("plugin IPC privileged action transport", () => {
 
     test("routes process privileged action with correlation id and returns response payload", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
-        const {registerPluginHandlers} = require("../../src/ipc/plugin");
-        const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+
         const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
-        executeHostPrivilegedAction.mockResolvedValueOnce({
+        executeHostPrivilegedAction.mockImplementationOnce(async () => ({
             ok: true,
             correlationId: "corr-proc",
             result: {
@@ -310,19 +239,10 @@ describe("plugin IPC privileged action transport", () => {
                 command: "/usr/local/bin/docker",
                 args: ["version"],
             },
-        });
-        const postMessage = jest.fn();
-        PluginManager.getLoadedPlugin.mockReturnValue({
-            ready: true,
-            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
-            instance: {postMessage},
-        });
+        }));
+        const {postMessage, uiHandler} = registerUiHandler(["system.process.exec", "system.process.scope.docker-cli"]);
 
-        ipcMain.handle.mockClear();
-        registerPluginHandlers();
-        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
-
-        const response = await uiHandler({}, "plugin-x", {
+        const response = await uiHandler(undefined, "plugin-x", {
             handler: "__host.privilegedAction",
             content: {
                 correlationId: "corr-proc",
@@ -351,13 +271,10 @@ describe("plugin IPC privileged action transport", () => {
 
     test("routes workflow privileged action with correlation id and returns response payload", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
-        const {registerPluginHandlers} = require("../../src/ipc/plugin");
-        const {PluginChannels} = require("../../src/ipc/channels");
-        const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
+
         const {executeHostPrivilegedAction} = require("../../src/utils/plugins/security/hostPrivilegedActions");
 
-        executeHostPrivilegedAction.mockResolvedValueOnce({
+        executeHostPrivilegedAction.mockImplementationOnce(async () => ({
             ok: true,
             correlationId: "corr-workflow",
             result: {
@@ -388,19 +305,10 @@ describe("plugin IPC privileged action transport", () => {
                     skippedSteps: 0,
                 },
             },
-        });
-        const postMessage = jest.fn();
-        PluginManager.getLoadedPlugin.mockReturnValue({
-            ready: true,
-            grantedCapabilities: ["system.process.exec", "system.process.scope.docker-cli"],
-            instance: {postMessage},
-        });
+        }));
+        const {postMessage, uiHandler} = registerUiHandler(["system.process.exec", "system.process.scope.docker-cli"]);
 
-        ipcMain.handle.mockClear();
-        registerPluginHandlers();
-        const uiHandler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.UI_MESSAGE)[1];
-
-        const response = await uiHandler({}, "plugin-x", {
+        const response = await uiHandler(undefined, "plugin-x", {
             handler: "__host.privilegedAction",
             content: {
                 correlationId: "corr-workflow",

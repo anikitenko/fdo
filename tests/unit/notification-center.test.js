@@ -3,6 +3,7 @@ import {notificationStorage} from '../../src/utils/persistence/notificationStora
 import {webContents} from 'electron';
 
 jest.mock('../../src/utils/persistence/notificationStorage', () => ({notificationStorage: jest.fn()}));
+jest.mock('../../src/utils/persistence/store', () => ({settings: {get: jest.fn(() => ({})), set: jest.fn()}}));
 jest.mock('electron', () => ({webContents: {getAllWebContents: jest.fn()}}));
 beforeEach(() => jest.clearAllMocks());
 
@@ -45,4 +46,33 @@ test('a closing window does not prevent delivery to other windows after commit',
     ]);
     await expect(NotificationCenter.deleteAllNotifications()).resolves.toMatchObject({changed: true});
     expect(send).toHaveBeenCalledWith('notifications:on_off:updated', []);
+});
+
+test('persists events before alerting and applies source and severity preferences without losing history', async () => {
+    const {settings} = require('../../src/utils/persistence/store');
+    const send = jest.fn();
+    webContents.getAllWebContents.mockReturnValue([{send, isDestroyed: () => false}]);
+    notificationStorage.mockImplementation(async (operation, value) => ({changed: true, notifications: [value]}));
+    settings.get.mockReturnValue({successToasts: false});
+    await NotificationCenter.addNotification({title: 'Updated', source: 'gitops', type: 'success'});
+    expect(send.mock.calls.filter(([channel]) => channel.endsWith(':alert'))).toHaveLength(0);
+    expect(notificationStorage).toHaveBeenCalledWith('add', expect.objectContaining({source: 'gitops', title: 'Updated'}));
+    settings.get.mockReturnValue({failureToasts: true});
+    await NotificationCenter.addNotification({title: 'Failed', source: 'gitops', type: 'danger', groupKey: 'incident'});
+    expect(send.mock.calls.filter(([channel]) => channel.endsWith(':alert'))).toHaveLength(1);
+    settings.get.mockReturnValue({mutedSources: ['gitops']});
+    await NotificationCenter.addNotification({title: 'Failed', source: 'gitops', type: 'danger', groupKey: 'incident'});
+    expect(send.mock.calls.filter(([channel]) => channel.endsWith(':alert'))).toHaveLength(1);
+});
+
+test('only the first failure in a group alerts, and recovery without an incident is silent', async () => {
+    const {settings} = require('../../src/utils/persistence/store');
+    settings.get.mockReturnValue({});
+    const send = jest.fn();
+    webContents.getAllWebContents.mockReturnValue([{send, isDestroyed: () => false}]);
+    notificationStorage.mockResolvedValue({changed: true, notifications: [], notification: {source: 'gitops', type: 'danger'}, alert: false});
+    await NotificationCenter.addNotification({title: 'Failure', type: 'danger', groupKey: 'incident'});
+    expect(send.mock.calls.filter(([channel]) => channel.endsWith(':alert'))).toHaveLength(0);
+    notificationStorage.mockResolvedValue({changed: false, notifications: null});
+    expect(await NotificationCenter.addNotification({title: 'Recovered', type: 'success', groupKey: 'incident', status: 'resolved'})).toBeNull();
 });

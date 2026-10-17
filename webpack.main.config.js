@@ -66,6 +66,8 @@ module.exports = {
             patterns: [
                 {from: 'src/utils/persistence/notificationWorker.cjs', to: 'notificationWorker.cjs'},
                 {from: 'src/utils/persistence/notificationDatabase.cjs', to: 'notificationDatabase.cjs'},
+                {from: 'src/utils/persistence/observabilityWorker.cjs', to: 'observabilityWorker.cjs'},
+                {from: 'src/utils/persistence/observabilityDatabase.cjs', to: 'observabilityDatabase.cjs'},
                 {from: 'src/utils/persistence/chatWorker.cjs', to: 'chatWorker.cjs'},
                 {from: 'src/utils/persistence/chatDatabase.cjs', to: 'chatDatabase.cjs'},
                 // Keep the SDK's lazy local-runtime chunks intact, together with

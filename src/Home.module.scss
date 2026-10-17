@@ -70,6 +70,7 @@
 }
 
 .plugin-workspace {
+    isolation: isolate;
     min-height: calc(100vh - 50px);
     height: calc(100vh - 50px);
     position: relative;
@@ -137,16 +138,30 @@
     display: inline-block;
 }
 
-.notification-dot {
+.notification-button:global(.bp6-button) {
+    position: relative;
+    width: 36px;
+    height: 32px;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.notification-badge {
     position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 8px;
-    height: 8px;
-    background-color: #2d72d2;
-    border-radius: 50%;
-    z-index: 1;
-    box-shadow: 0 0 0 2px #1e1e1e;
+    top: -3px;
+    right: -3px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: #2d72d2;
+    color: white;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+    pointer-events: none;
 }
 
 .footer {

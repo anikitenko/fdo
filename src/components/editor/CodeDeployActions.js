@@ -1,3 +1,5 @@
+import {operationError, publishNotification, failureNotification} from '../../utils/desktop/notificationContent';
+import {workspaceNotificationName} from './utils/workspaceNotificationName';
 import {Alert, Button, ButtonGroup, Dialog, Divider, HTMLSelect, Switch, ProgressBar} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 import SidebarSection from "../common/SidebarSection.jsx";
@@ -21,9 +23,9 @@ const CodeDeployActions = ({
     pluginDirectory,
     renderOnLoadTemplates = [],
     renderOnLoadTemplateId = "",
-    onRenderOnLoadTemplateIdChange = () => {},
+    onRenderOnLoadTemplateIdChange,
     renderOnLoadStrictMode = true,
-    onRenderOnLoadStrictModeChange = () => {},
+    onRenderOnLoadStrictModeChange,
     showRenderOnLoadStrictToggle = false,
     renderOnLoadTemplateApplying = false,
     onApplyRenderOnLoadTemplate = async () => {},
@@ -103,7 +105,7 @@ const CodeDeployActions = ({
         const rootCerts = await window.electron.settings.certificates.getRoot()
         setRootCertificates(rootCerts)
         if (rootCerts.length === 0) {
-            (AppToaster).show({message: `No root certificate found. Please add one.`, intent: "danger"});
+            (AppToaster).show({message: "No signing certificate is available. Create or import one in Settings → Certificates before deploying this plugin.", intent: "danger"});
             return null
         }
 
@@ -212,7 +214,7 @@ const CodeDeployActions = ({
             setDeployStatus({progress: 100, message: "Deployment complete", intent: "success"});
         } catch (error) {
             setDeployStatus((previous) => ({...previous, message: `Deployment failed: ${error.message}`, intent: "danger"}));
-            (await AppToaster).show({message: `Deployment failed: ${error.message}`, intent: "danger"});
+            publishNotification(failureNotification({source: 'builds', title: `${await workspaceNotificationName(virtualFS)}: deployment failed`, message: 'The deployment did not complete. Review the deployment output and signer, then try again.', error}));
         } finally {
             deployRequestRef.current = null;
             setDeployInProgress(false);
@@ -260,7 +262,7 @@ const CodeDeployActions = ({
 
             const metadata = await virtualFS.build.getMetadata()
             if (!metadata) {
-                (await AppToaster).show({message: `No metadata found.`, intent: "danger"});
+                (await AppToaster).show({message: "The plugin metadata is missing. Define a name, version, and author before saving.", intent: "danger"});
                 return
             }
 
@@ -274,12 +276,12 @@ const CodeDeployActions = ({
                 content
             })
             if (!result.success) {
-                (await AppToaster).show({message: `${result.error}`, intent: "danger"});
+                (await AppToaster).show({message: operationError(`Could not save ${await workspaceNotificationName(virtualFS)}`, result.error, "Review the plugin metadata and signer, then try again."), intent: "danger"});
                 return;
             }
             localStorage.removeItem("sandbox_" + name)
         } catch (error) {
-            (await AppToaster).show({message: `Save failed: ${error.message}`, intent: "danger"});
+            publishNotification(failureNotification({source: "builds", title: `${await workspaceNotificationName(virtualFS)}: save failed`, message: "The plugin changes were not fully saved. Keep the editor open, check the output and disk access, then try again.", error}));
         } finally {
             setSaveAndCloseInProgress(false);
         }
@@ -340,7 +342,7 @@ const CodeDeployActions = ({
                         <HTMLSelect
                             fill={true}
                             value={renderOnLoadTemplateId}
-                            onChange={(event) => onRenderOnLoadTemplateIdChange(event.target.value)}
+                            onChange={(event) => onRenderOnLoadTemplateIdChange?.(event.target.value)}
                             className={styles["renderOnLoadSidebarSelect"]}
                             aria-label="renderOnLoad template picker"
                         >
@@ -359,7 +361,7 @@ const CodeDeployActions = ({
                                 <Switch
                                     checked={renderOnLoadStrictMode}
                                     label="Strict mode"
-                                    onChange={(event) => onRenderOnLoadStrictModeChange(event.target.checked)}
+                                    onChange={(event) => onRenderOnLoadStrictModeChange?.(event.target.checked)}
                                     className={styles["renderOnLoadSidebarStrict"]}
                                 />
                             )}

@@ -1,3 +1,4 @@
+import {operationError} from '../../../utils/desktop/notificationContent';
 import {Card, Switch} from "@blueprintjs/core";
 import {useEffect, useState} from "react";
 
@@ -31,7 +32,7 @@ export const GeneralPanel = () => {
                                     if (result.error === "skip") {
                                         return
                                     }
-                                    (AppToaster).show({message: `${result.error}`, intent: "danger"});
+                                    (AppToaster).show({message: operationError("Could not remove the fdo terminal command", result.error, "Check shell integration permissions and try again."), intent: "danger"});
                                 }
                             })
                         } else {
@@ -42,7 +43,7 @@ export const GeneralPanel = () => {
                                     if (result.error === "skip") {
                                         return
                                     }
-                                    (AppToaster).show({message: `${result.error}`, intent: "danger"});
+                                    (AppToaster).show({message: operationError("Could not install the fdo terminal command", result.error, "Check shell integration permissions and try again."), intent: "danger"});
                                 }
                             })
                         }

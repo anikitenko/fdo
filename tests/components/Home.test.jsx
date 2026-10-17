@@ -30,12 +30,12 @@ jest.mock("../../src/components/plugin/PluginPage.jsx", () => ({
 }));
 
 jest.mock("../../src/components/PluginContainer.jsx", () => ({
-    PluginContainer: ({ plugin, onStageChange }) => {
+    PluginContainer: ({ plugin, onStageChange, active }) => {
         require("react").useEffect(() => {
             pluginContainerMounts.push(plugin);
             onStageChange?.("mock-mounted");
         }, [plugin, onStageChange]);
-        return <div data-testid="plugin-container">{plugin}</div>;
+        return <div data-testid="plugin-container" data-active={active}>{plugin}</div>;
     },
 }));
 
@@ -52,6 +52,43 @@ jest.mock("../../src/components/SideBar.jsx", () => ({
 }));
 
 describe("Home plugin runtime backfill", () => {
+    test.each(['plugin-1', 'plugin-2'])('announces a GitOps update to %s once without switching the current plugin', async updatedId => {
+        const plugins = ['plugin-1', 'plugin-2'].map((id, index) => ({id, home: `/old/${id}`,
+            metadata: {name: `Plugin ${index + 1}`, version: '1.0.0', icon: 'cog'},
+            gitops: {commit: 'a'.repeat(40)},
+        }));
+        window.electron.plugin.getAll.mockResolvedValue({plugins});
+        window.electron.plugin.getActivated.mockResolvedValue({plugins: ['plugin-1', 'plugin-2']});
+        window.electron.settings.gitops = {onUpdated: jest.fn(() => jest.fn())};
+        const {AppToaster} = require('../../src/components/AppToaster.jsx');
+        const toaster = await AppToaster;
+        render(<Home/>);
+        fireEvent.click(await screen.findByRole('button', {name: 'Plugin 1'}));
+        const selectedContainer = () => screen.getAllByTestId('plugin-container').find(node => node.dataset.active === 'true');
+        await waitFor(() => expect(selectedContainer()).toHaveTextContent('plugin-1'));
+        toaster.show.mockClear();
+        const notify = window.electron.settings.gitops.onUpdated.mock.calls[0][0];
+        // An ordinary check is silent.
+        await act(async () => notify());
+        expect(toaster.show).not.toHaveBeenCalled();
+        window.electron.plugin.getAll.mockResolvedValue({plugins: plugins.map(plugin => plugin.id === updatedId
+            ? {...plugin, home: `/new/${plugin.id}`, gitops: {commit: 'b'.repeat(40)}} : plugin)});
+        // Multiple status events for the same version must not create duplicate notices.
+        await act(async () => {notify(); notify(); notify();});
+        expect(toaster.show).not.toHaveBeenCalled();
+        await act(async () => window.electron.notifications.onAlert.mock.calls[0][0]({id: 'notice', source: 'gitops', type: 'success',
+            title: `Plugin ${updatedId === 'plugin-1' ? 1 : 2} updated via GitOps`, message: 'Installed 1.0.0 (bbbbbbb). The plugin was reloaded.'}));
+        await waitFor(() => expect(toaster.show).toHaveBeenCalledTimes(1));
+        expect(toaster.show).toHaveBeenCalledWith(expect.objectContaining({intent: 'success', timeout: 10000,
+            message: `Plugin ${updatedId === 'plugin-1' ? 1 : 2} updated via GitOps. Installed 1.0.0 (bbbbbbb). The plugin was reloaded.`,
+        }), 'notification:notice');
+        expect(selectedContainer()).toHaveTextContent('plugin-1');
+        fireEvent.click(screen.getByRole('button', {name: 'Open notifications (0 unread)'}));
+        await waitFor(() => expect(toaster.dismiss).toHaveBeenCalledWith('notification:notice'));
+        await act(async () => window.electron.notifications.onAlert.mock.calls[0][0]({id: 'next', title: 'Another update', type: 'success'}));
+        expect(toaster.show).toHaveBeenCalledTimes(1);
+    });
+
     test('restores actions after active plugin reconciliation without another init event', async () => {
         const original = window.electron.plugin.getRuntimeStatus.getMockImplementation();
         window.electron.plugin.getRuntimeStatus.mockImplementation(async (...args) => {
@@ -133,6 +170,7 @@ describe("Home plugin runtime backfill", () => {
     beforeEach(() => {
         pluginContainerMounts.length = 0;
         window.electron.notifications = {
+            onAlert: jest.fn(() => jest.fn()),
             get: jest.fn().mockResolvedValue([]),
             on: {
                 updated: jest.fn(),

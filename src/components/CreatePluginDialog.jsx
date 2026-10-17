@@ -1,3 +1,4 @@
+import {operationError} from '../utils/desktop/notificationContent';
 import {
     Button,
     Dialog,
@@ -152,10 +153,10 @@ export const CreatePluginDialog = ({show, close}) => {
                 setPluginEntrypoint(pluginData.entryPoint);
                 setUpdateInitial(false);
             } else {
-                (await AppToaster).show({message: `Error: ${pluginData.error}`, intent: "danger"});
+                (await AppToaster).show({message: operationError("Could not import the selected plugin directory", pluginData.error, "Check its entry file and metadata, then select the directory again."), intent: "danger"});
             }
         } else {
-            (await AppToaster).show({message: "Problem with opening plugin directory", intent: "danger"});
+            (await AppToaster).show({message: "The selected plugin directory could not be read. Check file access, then select it again.", intent: "danger"});
         }
         setUploadLoading(false);
     };
@@ -170,13 +171,12 @@ export const CreatePluginDialog = ({show, close}) => {
         }).then(async (result) => {
             if (result) {
                 if (result.success) {
-                    (await AppToaster).show({message: "New plugin was added!", intent: "success"});
                     close()
                 } else {
-                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
+                    (await AppToaster).show({message: operationError(`Could not add ${pluginName || "the plugin"}`, result.error, "Review the plugin metadata and installation before trying again."), intent: "danger"});
                 }
             } else {
-                (await AppToaster).show({message: "Problem with saving plugin", intent: "danger"});
+                (await AppToaster).show({message: `Could not add ${pluginName || "the plugin"}. Check disk access and try again.`, intent: "danger"});
             }
         })
         setCreateLoading(false);
@@ -237,7 +237,7 @@ export const CreatePluginDialog = ({show, close}) => {
                         </Button>)}
                     </div>
                     <div className={styles.templateFeatures} aria-live="polite">
-                        <span>Included:</span> {selectedTemplate.features.map(feature => <Tag key={feature} minimal>{feature}</Tag>)}
+                        <span>Included:</span> {selectedTemplate.features.map(feature => <Tag key={feature} variant="minimal">{feature}</Tag>)}
                     </div>
                 </fieldset>
                 <Button fill type="submit" text={`Open editor · ${selectedTemplate.title}`} intent="primary"

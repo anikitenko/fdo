@@ -1,0 +1,5 @@
+.toaster:global(.bp6-toast-container) {
+    /* Header controls must remain reachable while a toast is hovered. */
+    top: 64px !important;
+    max-height: calc(100vh - 64px);
+}

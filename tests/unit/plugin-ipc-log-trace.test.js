@@ -181,6 +181,8 @@ jest.mock("../../src/utils/desktop/NotificationCenter", () => ({
                 message: "unrelated",
                 createdAt: "2026-03-29T10:00:21.000Z",
             },
+            {title: 'Rose Calculator: deployment completed', message: 'Signed and installed.', actions: [{kind: 'manage-plugin', pluginId: 'trace-plugin'}]},
+            {title: 'Rose Calculator: interface could not open', message: 'Review logs.', details: 'Plugin ID: trace-plugin\nUI import failed'},
         ]),
     },
 }));
@@ -280,6 +282,9 @@ describe("plugin IPC log trace", () => {
         expect(response.combined).toContain("[stdout] plugin says hi");
         expect(response.combined).toContain("Related host notifications:");
         expect(response.combined).toContain("Plugin trace-plugin alert");
+        expect(response.combined).toContain('Rose Calculator: deployment completed');
+        expect(response.combined).toContain('UI import failed');
+        expect(response.notifications).toHaveLength(3);
     });
 
     test("reads exact sdk log lines from the per-plugin logs directory under userData", async () => {

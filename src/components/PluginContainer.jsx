@@ -1,3 +1,4 @@
+import {failureNotification, publishNotification, pluginDisplayName} from '../utils/desktop/notificationContent';
 import {subscribePluginEvent} from '../utils/plugins/runtime/subscribePluginEvent';
 import {loadPluginHostDocument} from './plugin/utils/loadPluginHostDocument';
 import {samePluginRenderContent} from './plugin/utils/pluginRenderContent';
@@ -154,6 +155,7 @@ function getHandshakeCompatibilityMessage(compatibility = null) {
 export const PluginContainer = ({
     plugin,
     capabilities,
+    pluginName,
     active = true,
     onStageChange,
     onCapabilityDenied,
@@ -175,11 +177,21 @@ export const PluginContainer = ({
 
     const [hostDocument, setHostDocument] = useState(null);
     const [hostError, setHostError] = useState("");
+    const uiIncidentRef = useRef(false);
+    useEffect(() => {
+        if (!hostError) return;
+        uiIncidentRef.current = true;
+        publishNotification(failureNotification({source: 'plugins', groupKey: `plugin-ui:${plugin}`,
+            title: `${pluginName || pluginDisplayName({id: plugin})}: interface could not open`,
+            message: 'The plugin interface could not be displayed. Try reloading it. If it still fails, review its logs or contact its maintainer.',
+            error: hostError, details: `Plugin ID: ${plugin}`,
+            actions: [{kind: 'manage-plugin', pluginId: plugin}, {kind: 'open-plugin-logs', pluginId: plugin}]}));
+    }, [hostError, plugin, pluginName]);
     const [debugStage, setDebugStage] = useState("mounting");
     const [renderAttempt, setRenderAttempt] = useState(0);
     const [showRecovery, setShowRecovery] = useState(false);
     const [pluginCanRender, setPluginCanRender] = useState(false);
-    const [content, setContent] = useState("");
+    const [content, setContent] = useState(null);
     const [iframeLoaded, setIframeLoaded] = useState(false);
     const [iframeHello, setIframeHello] = useState(false);
     const [iframeDocumentVersion, setIframeDocumentVersion] = useState(0);
@@ -514,7 +526,7 @@ export const PluginContainer = ({
             setDebugStage("plugin-render-request-retry-pending");
             scheduledRetryTimer = window.setTimeout(() => {
                 scheduledRetryTimer = null;
-                requestRender();
+                void requestRender();
             }, delayMs);
         };
 
@@ -598,7 +610,14 @@ export const PluginContainer = ({
                 if (event.data.stage === "iframe-component-mounted" || event.data.stage === "iframe-dom-after-mount") {
                     setIframeMounted(true);
                 }
+                if (/iframe-(?:module-import-failed|default-export-missing|render-handle-failed|render-crashed)/.test(event.data.stage)) setHostError(event.data.message || 'The plugin interface failed to render.');
                 if (event.data.stage === "iframe-dom-after-mount") {
+                    setHostError('');
+                    if (uiIncidentRef.current) {
+                        uiIncidentRef.current = false;
+                        publishNotification({source: 'plugins', groupKey: `plugin-ui:${plugin}`, status: 'resolved', type: 'success',
+                            title: `${pluginName || pluginDisplayName({id: plugin})}: interface recovered`, message: 'The plugin interface loaded successfully after the earlier failure.'});
+                    }
                     if (layoutRecoveryAttemptsRef.current > 0 || stageRecoveryAttemptsRef.current > 0) {
                         emitIframeMetric("plugin_iframe_recovery_success", plugin, {
                             layoutRecoveries: layoutRecoveryAttemptsRef.current,
@@ -664,8 +683,8 @@ export const PluginContainer = ({
                             lastCapabilityDeniedToastAtRef.current = now;
                             AppToaster.show({
                                 message: response?.code === "CAPABILITY_DENIED"
-                                    ? `Plugin "${plugin}" is missing required permission${missingCapabilities.length > 1 ? "s" : ""}.`
-                                    : `Plugin "${plugin}" host action failed: ${response?.code || "UNKNOWN_ERROR"}.`,
+                                    ? `${pluginName || pluginDisplayName({id: plugin})} needs additional permission${missingCapabilities.length > 1 ? "s" : ""}. Review the permission request before granting access.`
+                                    : `${pluginName || pluginDisplayName({id: plugin})} could not complete the requested action. Open its diagnostic details to review the cause.`,
                                 intent: response?.code === "CAPABILITY_DENIED" ? "warning" : "danger",
                             });
                         }
