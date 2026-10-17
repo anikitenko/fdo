@@ -2587,10 +2587,16 @@ test('Live UI authors and deploys an input-bound JSON inspector with typed key m
         const original=await editor.evaluate(()=>window.__editorTestApi.getFileContent('/index.ts'));
         const previewOpening=app.waitForEvent('window');await editor.getByRole('button',{name:'Live UI editor',exact:true}).click();
         const visual=await previewOpening,frame=visual.frameLocator('iframe[title="Plugin UI preview"]');
+        await expect(frame.locator('main')).toBeVisible();
         for(const component of ['input','button','result','result','result']) {
+            const controls = frame.locator('textarea, button, pre');
+            const count = await controls.count();
             await visual.getByRole('button',{name:'main',exact:true}).click();
             await visual.getByLabel('Add component',{exact:true}).selectOption(component);
             await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+            // Wait for this draft to reach the iframe before choosing the next
+            // parent; the response can otherwise replace that selection.
+            await expect(controls).toHaveCount(count + 1);
         }
         await visual.getByRole('button',{name:'button · New button',exact:true}).click();
         await visual.getByText('Create backend action',{exact:true}).click();
