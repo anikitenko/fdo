@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const {
   DEFAULT_SDK_EXAMPLES_CANDIDATES,
+  deploySdkExample,
   discoverSdkExampleEntries,
   resolveSdkExamplesPath,
 } = require("../e2e/helpers/sdkExamples");
@@ -86,6 +87,59 @@ describe("sdkExamples helper", () => {
     }
 
     expect(handlers.length).toBeGreaterThan(0);
+  });
+});
+
+describe('SDK fixture signing preflight', () => {
+  let certificates, deploy, roots, page;
+  beforeEach(() => {
+    roots = [];
+    certificates = {
+      getRoot: jest.fn(async () => roots),
+      create: jest.fn(async () => {roots = [{id: 'created', label: 'generated', hasPrivateKey: true}];}),
+      rename: jest.fn(async (id, label) => {roots = roots.map(root => root.id === id ? {...root, label} : root);}),
+      renew: jest.fn(async () => {roots = [{id: 'renewed', label: 'root', hasPrivateKey: true}];}),
+    };
+    // Stop after signing setup so these tests never build or activate a plugin.
+    deploy = jest.fn(async () => ({success: false, error: 'Deployment reached'}));
+    const renderer = {electron: {settings: {certificates}, plugin: {deployToMainFromEditor: deploy}}};
+    page = {evaluate: async (callback, argument) => {
+      // Playwright serializes callbacks; they cannot capture the helper's page parameter.
+      const runInRenderer = new Function('window', 'return (' + callback.toString() + ')')(renderer);
+      return runInRenderer(argument);
+    }};
+  });
+  const deployFixture = () => deploySdkExample(page, {slug: 'signing', relativePath: 'fixtures/signing.ts'}, {compiledContent: 'fixture'});
+
+  test('reports credential-store failure before attempting deployment', async () => {
+    const error = new Error('Certificate private keys require an available OS credential store.');
+    certificates.create.mockRejectedValueOnce(error);
+    await expect(deployFixture()).rejects.toMatchObject({
+      message: expect.stringContaining('OS credential store'), cause: error,
+    });
+    expect(deploy).not.toHaveBeenCalled();
+    expect(certificates.renew).not.toHaveBeenCalled();
+  });
+
+  test('rejects certificate creation that produces no signing key', async () => {
+    certificates.create.mockImplementationOnce(async () => {roots = [{id: 'public', label: 'generated', hasPrivateKey: false}];});
+    await expect(deployFixture()).rejects.toThrow('did not produce a signing identity');
+    expect(deploy).not.toHaveBeenCalled();
+  });
+
+  test('renews a public-only root instead of introducing duplicate root labels', async () => {
+    roots = [{id: 'public', label: 'root', hasPrivateKey: false}];
+    await expect(deployFixture()).rejects.toThrow('Deployment reached');
+    expect(certificates.renew).toHaveBeenCalledWith('root');
+    expect(certificates.create).not.toHaveBeenCalled();
+    expect(deploy).toHaveBeenCalledTimes(1);
+  });
+
+  test('verifies the newly created signing identity before deployment', async () => {
+    await expect(deployFixture()).rejects.toThrow('Deployment reached');
+    expect(certificates.rename).toHaveBeenCalledWith('created', 'root');
+    expect(roots).toEqual([{id: 'created', label: 'root', hasPrivateKey: true}]);
+    expect(deploy).toHaveBeenCalledTimes(1);
   });
 });
 

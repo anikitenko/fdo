@@ -96,14 +96,20 @@ test('rejects missing references, abbreviated SHAs, and suffix-only matches', as
 });
 
 test('isolates credentials from global Git config and scopes the authorization header to this URL', async () => {
-    const env = gitEnvironment(input, os.tmpdir());
-    expect(env.GIT_TERMINAL_PROMPT).toBe('0');
-    expect(env.GIT_CONFIG_GLOBAL).toBe(os.devNull);
-    const matched = await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', `${input.url}/info/refs`], {env});
-    expect(matched.stdout.trim()).toBe(`Authorization: Basic ${Buffer.from('alice:secret-value').toString('base64')}`);
-    await expect(execute('git', ['config', '--get-urlmatch', 'http.extraHeader', 'https://github.com/acme/another.git/info/refs'], {env})).rejects.toThrow();
-    const publicEnv = gitEnvironment({...input, authType: 'none'}, os.tmpdir());
-    expect(JSON.stringify(publicEnv)).not.toContain(Buffer.from('alice:secret-value').toString('base64'));
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'fdo-gitops-config-'));
+    try {
+        // Match production's fresh bare repository, never the CI checkout's local auth config.
+        await execute('git', ['init', '--bare', '--template=', directory]);
+        const env = gitEnvironment(input, directory);
+        const options = {cwd: directory, env};
+        expect(env.GIT_TERMINAL_PROMPT).toBe('0');
+        expect(env.GIT_CONFIG_GLOBAL).toBe(os.devNull);
+        const matched = await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', `${input.url}/info/refs`], options);
+        expect(matched.stdout.trim()).toBe(`Authorization: Basic ${Buffer.from('alice:secret-value').toString('base64')}`);
+        await expect(execute('git', ['config', '--get-urlmatch', 'http.extraHeader', 'https://github.com/acme/another.git/info/refs'], options)).rejects.toThrow();
+        const publicEnv = gitEnvironment({...input, authType: 'none'}, directory);
+        expect(JSON.stringify(publicEnv)).not.toContain(Buffer.from('alice:secret-value').toString('base64'));
+    } finally {await rm(directory, {recursive: true, force: true});}
 });
 
 test('redacts server failures and always cleans up after failed verification', async () => {

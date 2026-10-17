@@ -46,6 +46,11 @@ npm run build
 npm run package
 ```
 
+Linux CI runs Electron tests through `bash scripts/run-linux-e2e.sh <command>`.
+The wrapper starts Xvfb and an isolated GNOME keyring on a private D-Bus session,
+then verifies Electron's `gnome_libsecret` encryption before running the suite.
+It requires `gnome-keyring`, `libsecret-tools`, `libglib2.0-bin`, `dbus-x11`, and `xvfb`.
+
 ## Plugin Development
 
 FDO uses the [@anikitenko/fdo-sdk](https://github.com/anikitenko/fdo-sdk) for plugin development.

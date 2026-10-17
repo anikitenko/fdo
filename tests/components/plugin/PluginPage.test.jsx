@@ -10,6 +10,8 @@ describe("PluginPage host contract", () => {
         window.Worker = jest.fn();
         window.SharedWorker = jest.fn();
         window.RTCPeerConnection = jest.fn();
+        URL.createObjectURL = jest.fn(() => 'blob:missing-plugin-render-fixture');
+        URL.revokeObjectURL = jest.fn();
         Object.defineProperty(window.navigator, "sendBeacon", {
             configurable: true,
             writable: true,
@@ -48,6 +50,7 @@ describe("PluginPage host contract", () => {
     });
 
     test("registers the message listener before announcing readiness so a fast parent render message is not missed", async () => {
+        URL.createObjectURL.mockImplementation(() => {throw new Error('Fixture module preparation failed');});
         const addEventListenerSpy = jest.spyOn(window, "addEventListener");
         const postMessageSpy = jest.spyOn(window.parent, "postMessage").mockImplementation((message) => {
             if (message?.type === "PLUGIN_HELLO") {
@@ -69,17 +72,14 @@ describe("PluginPage host contract", () => {
         expect(addEventListenerSpy).toHaveBeenCalledWith("message", expect.any(Function));
 
         await waitFor(() => {
-            expect(window.electron.notifications.add).toHaveBeenCalledWith(
-                "Error rendering plugin",
-                expect.not.stringContaining("before initialization"),
-                "danger",
+            expect(postMessageSpy).toHaveBeenCalledWith(
+                {type: "PLUGIN_STAGE", stage: "iframe-render-handle-failed", message: 'Fixture module preparation failed'},
+                "*",
             );
         });
 
-        expect(postMessageSpy).toHaveBeenCalledWith(
-            expect.objectContaining({ type: "PLUGIN_STAGE", stage: "iframe-render-handle-failed" }),
-            "*",
-        );
+        expect(screen.getByText('Fixture module preparation failed')).toBeInTheDocument();
+        expect(window.electron.notifications.add).not.toHaveBeenCalled();
         expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_HELLO" }, "*");
     });
 
@@ -97,7 +97,7 @@ describe("PluginPage host contract", () => {
     });
 
     test("shows an in-iframe error state when plugin render import fails", async () => {
-        jest.spyOn(window.parent, "postMessage").mockImplementation(() => {});
+        const postMessageSpy = jest.spyOn(window.parent, "postMessage").mockImplementation(() => {});
 
         render(<PluginPage />);
 
@@ -116,11 +116,13 @@ describe("PluginPage host contract", () => {
             expect(screen.getByText("Plugin failed to load")).toBeTruthy();
         });
 
-        expect(window.electron.notifications.add).toHaveBeenCalledWith(
-            "Error rendering plugin",
-            expect.any(String),
-            "danger",
+        expect(postMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({type: "PLUGIN_STAGE", stage: "iframe-module-import-failed", message: expect.any(String)}),
+            "*",
         );
+        const failure = postMessageSpy.mock.calls.find(([message]) => message.stage === 'iframe-module-import-failed')[0];
+        expect(screen.getByText(failure.message)).toBeInTheDocument();
+        expect(window.electron.notifications.add).not.toHaveBeenCalled();
     });
 
     test("bridges Cmd/Ctrl+K to the host command bar", () => {
