@@ -2,7 +2,7 @@ import {withUsageContext, currentTurnUsage} from "../../utils/ai/billing/ledger"
 import {ipcMain} from "electron";
 import {AiChatChannels} from "../channels";
 import {settings} from "../../utils/persistence/store";
-import {chatStorage, initializeChatStorage} from "../../utils/persistence/chatStorage";
+import {chatStorage} from "../../utils/persistence/chatStorage";
 import {
     compressSessionMessages,
     createLlmInstance,
@@ -52,7 +52,7 @@ function buildNewSession(name) {
 }
 
 export function registerAiChatHandlers() {
-    initializeChatStorage().catch(error => console.error('Chat history migration failed; original data retained:', error));
+    chatStorage.ready().catch(error => console.error('Could not open chat history:', error));
     ipcMain.handle(AiChatChannels.SESSIONS_GET, async () => {
         const sessions = await chatStorage.list();
         return Promise.all(sessions.map(session => normalizeSessionStats(session)));

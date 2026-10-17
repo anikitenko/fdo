@@ -25,8 +25,9 @@ export default class PluginORM extends JSONORM {
         if (overwrite) {
             this.removePlugin(pluginName);
         }
-        if (!this.data.plugins.includes(pluginName)) {
+        if (!this.isInstalled(pluginName)) {
             this.data.plugins.push(this.normalizePluginRecord({
+                ...existingPlugin,
                 id: pluginName,
                 metadata: metadata,
                 home,

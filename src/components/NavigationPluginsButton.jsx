@@ -12,6 +12,7 @@ export const NavigationPluginsButton = ({
                                             active,
                                             all, buttonMenuRef, selectPlugin, deselectPlugin, deselectAllPlugins, removePlugin, setSearchActions, refreshPluginsState,
                                             capabilityFocusRequest,
+                                            pluginFocusRequest,
                                             onCapabilityFocusRequestConsumed,
                                             pendingPluginScopeSuggestions,
                                             onPendingPluginScopeSuggestionResolved,
@@ -19,6 +20,10 @@ export const NavigationPluginsButton = ({
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [showManageDialog, setShowManageDialog] = useState(false);
     const [showPluginsPopover, setShowPluginsPopover] = useState(false);
+    useEffect(() => {
+        if (!pluginFocusRequest?.pluginId) return;
+        setShowPluginsPopover(false); setShowManageDialog(true);
+    }, [pluginFocusRequest?.requestId]);
 
     useEffect(() => {
         if (!showPluginsPopover || typeof window === "undefined" || typeof document === "undefined") {
@@ -134,6 +139,7 @@ export const NavigationPluginsButton = ({
                                      deselectPlugin={deselectPlugin} removePlugin={removePlugin} setSearchActions={setSearchActions}
                                      refreshPluginsState={refreshPluginsState}
                                      focusRequest={capabilityFocusRequest}
+                                     initialPluginRequest={pluginFocusRequest}
                                      onFocusRequestConsumed={onCapabilityFocusRequestConsumed}
                                      pendingPluginScopeSuggestions={pendingPluginScopeSuggestions}
                                      onPendingPluginScopeSuggestionResolved={onPendingPluginScopeSuggestionResolved}

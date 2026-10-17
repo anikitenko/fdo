@@ -1,3 +1,4 @@
+import {operationError} from '../../utils/desktop/notificationContent';
 import AiUsagePopover, {MessageUsage} from "./AiUsagePopover";
 import FdoAiMark from '../ai/FdoAiMark';
 import * as styles from "../css/AiChatDialog.module.css";
@@ -282,11 +283,11 @@ function findSelectedMessageContext(messages = [], container = null) {
 
     const anchor = findMessageNode(selection?.anchorNode);
     const focus = findMessageNode(selection?.focusNode);
-    if (!anchor || !focus || anchor.dataset.aiMessageId !== focus.dataset.aiMessageId) {
+    if (!anchor || !focus || anchor.getAttribute("data-ai-message-id") !== focus.getAttribute("data-ai-message-id")) {
         return null;
     }
 
-    const messageId = anchor.dataset.aiMessageId;
+    const messageId = anchor.getAttribute("data-ai-message-id");
     const message = (messages || []).find((item) => item.id === messageId);
     if (!message) return null;
     return {
@@ -593,16 +594,16 @@ function buildComposerSuggestion(input = "", session = null, replyTo = null) {
         }
 
         const lowerTarget = rawTarget.toLowerCase();
-        if (/(^|[\s])(late)$/.test(lowerTarget)) {
+        if (/(^|\s)(late)$/.test(lowerTarget)) {
             return buildResult("latest version of " + activeTopic);
         }
-        if (/(^|[\s])(lates)$/.test(lowerTarget)) {
+        if (/(^|\s)(lates)$/.test(lowerTarget)) {
             return buildResult("latest version of " + activeTopic);
         }
-        if (/(^|[\s])(latest)$/.test(lowerTarget)) {
+        if (/(^|\s)(latest)$/.test(lowerTarget)) {
             return buildResult("latest version of " + activeTopic);
         }
-        if (/(^|[\s])(latest version)$/.test(lowerTarget)) {
+        if (/(^|\s)(latest version)$/.test(lowerTarget)) {
             return buildResult("latest version of " + activeTopic);
         }
     }
@@ -916,7 +917,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                 draftCacheRef.current = readStoredChatDrafts();
                 preferencesHydratedRef.current = true;
             } catch (e) {
-                AppToaster.show({message: e.message, intent: "danger"});
+                AppToaster.show({message: operationError("Could not load AI chat preferences and history", e, "Reopen the chat after checking storage and assistant settings."), intent: "danger"});
             }
         })();
     }, [showAiChatDialog]);
@@ -1324,7 +1325,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
             setRestoredDraftNotice(null);
             removeStoredDraftForSession(updated.id);
         } catch (e) {
-            AppToaster.show({message: e.message, intent: "danger"});
+            AppToaster.show({message: operationError("Your AI message could not be completed", e, "Your draft and attachments are restored below so you can retry."), intent: "danger"});
             setInput(typedContent);
             setReplyTo(pendingReplyTo);
             setAttachments(pendingAttachments);
@@ -1371,7 +1372,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
         if (e.key === 'Enter' && !e.shiftKey && !(e.metaKey || e.ctrlKey)) {
             if (!canSend) return;
             e.preventDefault();
-            onSend();
+            void onSend();
             return;
         }
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -1729,17 +1730,17 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                                 </Tooltip>
                                                 {m.grounded && (
                                                     <div style={{display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8}}>
-                                                        <Tag minimal style={groundedTagStyle("success")}>{t("grounded")}</Tag>
+                                                        <Tag variant="minimal" style={groundedTagStyle("success")}>{t("grounded")}</Tag>
                                                         {sourceTypes.map((type) => (
-                                                            <Tag key={`${m.id}-${type}`} minimal style={groundedTagStyle()}>{sourceTypeLabel(uiLanguage, type)}</Tag>
+                                                            <Tag key={`${m.id}-${type}`} variant="minimal" style={groundedTagStyle()}>{sourceTypeLabel(uiLanguage, type)}</Tag>
                                                         ))}
                                                         {Number.isFinite(m.retrievalConfidence) && (
-                                                            <Tag minimal style={groundedTagStyle(m.retrievalConfidence < 0.55 ? "warning" : "default")}>
+                                                            <Tag variant="minimal" style={groundedTagStyle(m.retrievalConfidence < 0.55 ? "warning" : "default")}>
                                                                 {formatConfidenceLabel(m.retrievalConfidence, t)}
                                                             </Tag>
                                                         )}
                                                         {m.retrievalConflict && (
-                                                            <Tag minimal style={groundedTagStyle("warning")}>{t("mixedSources")}</Tag>
+                                                            <Tag variant="minimal" style={groundedTagStyle("warning")}>{t("mixedSources")}</Tag>
                                                         )}
                                                     </div>
                                                 )}
@@ -2354,7 +2355,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         {/* 🔹 Label tag — model name or "Session Total" */}
                         {stats.lastModel && `${t("lastUsedModel")}: `}
                         <Tag
-                            minimal
+                            variant="minimal"
                             intent="none"
                             style={{opacity: stats.model ? 1 : 0.7}}
                         >
@@ -2365,7 +2366,7 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                         {stats.maxTokens && stats.percentUsed ? (
                             <>
                                 <Tag
-                                    minimal
+                                    variant="minimal"
                                     intent={
                                         stats.percentUsed > 80
                                             ? "danger"
@@ -2379,14 +2380,14 @@ export const AiChatDialog = ({showAiChatDialog, setShowAiChatDialog}) => {
                                         maxTokens: stats.maxTokens.toLocaleString(),
                                     })}
                                 </Tag>
-                                <Tag minimal intent="none">
+                                <Tag variant="minimal" intent="none">
                                     {t("contextTokensRetained", {
                                         count: (stats.estimatedUsed ?? 0).toLocaleString(),
                                     })}
                                 </Tag>
                             </>
                         ) : (
-                            <Tag minimal intent="none">
+                            <Tag variant="minimal" intent="none">
                                 {t("contextTokensRetained", {
                                     count: (stats.totalTokens ?? 0).toLocaleString(),
                                 })}

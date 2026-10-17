@@ -2,22 +2,22 @@ const {test, expect, _electron: electron} = require('@playwright/test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {createRequire} = require('node:module');
-const Conf = createRequire(require.resolve('electron-store'))('conf').default;
+const {openNotificationDatabase} = require('../../src/utils/persistence/notificationDatabase.cjs');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 test('notification scrolling reaches all history with bounded rows, stable anchors and full search', async () => {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-notification-scroll-'));
-    const settings = new Conf({cwd: profile, configName: 'settings', encryptionKey: 'FDO-APPLICATION'});
-    settings.set('notifications', Array.from({length: 1000}, (_, i) => ({id: `scroll-${i}`, title: `Notice ${i}`,
+    const database = openNotificationDatabase(path.join(profile, 'notifications.sqlite'));
+    Array.from({length: 1000}, (_, i) => ({id: `scroll-${i}`, title: `Notice ${i}`,
         message: `Message ${i}. ` + 'Variable height notification content. '.repeat(i % 9 === 0 ? 90 : i % 3 + 1),
-        type: '', read: false, createdAt: new Date(Date.UTC(2026, 9, 16, 10, 0, 0) - i * 1000).toISOString()})));
+        type: '', read: false, createdAt: new Date(Date.UTC(2026, 9, 16, 10, 0, 0) - i * 1000).toISOString()}))
+        .forEach(record => database.execute('add', record, false));
+    database.close();
     let app;
     try {
         app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {FDO_E2E_USER_DATA_DIR: profile}});
         const page = await app.firstWindow();
-        await page.getByRole('button', {name: 'Show right sidebar', exact: true}).click();
-        await page.getByRole('button', {name: 'Notifications', exact: true}).click();
+        await page.getByRole('button', {name: /^Open notifications/}).click();
         const list = page.getByRole('list', {name: 'Notifications'});
         await expect(list.locator('[data-notification-id="scroll-0"]')).toBeVisible();
         const mountedRowCounts = [await list.getByRole('listitem').count()];
@@ -73,7 +73,7 @@ test('notification scrolling reaches all history with bounded rows, stable ancho
         await expect(list.getByRole('listitem')).toHaveCount(1);
         await expect(list.locator('[data-notification-id="scroll-999"]')).toBeVisible();
         await page.getByRole('button', {name: 'Dismiss Notice 999', exact: true}).click();
-        await expect(page.getByText("You're all caught up!", {exact: true})).toBeVisible();
+        await expect(page.getByText('No matching notifications', {exact: true})).toBeVisible();
         await search.fill('');
         await expect(list.locator('[data-notification-id="scroll-0"]')).toBeVisible();
         await page.getByRole('button', {name: 'Mark all as read', exact: true}).click();
@@ -85,7 +85,7 @@ test('notification scrolling reaches all history with bounded rows, stable ancho
         });
         await expect(list.getByRole('listitem').first()).toBeVisible();
         expect(await list.getByRole('listitem').count()).toBeLessThan(50);
-        await page.getByRole('button', {name: 'Remove all', exact: true}).click();
+        await page.getByRole('button', {name: 'Dismiss all', exact: true}).click();
         await expect(page.getByText("You're all caught up!", {exact: true})).toBeVisible();
     } finally {
         await closeElectronApp(app);

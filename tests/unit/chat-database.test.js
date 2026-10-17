@@ -2,7 +2,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {DatabaseSync} = require('node:sqlite');
-const {openChatDatabase} = require('../../src/utils/persistence/chatDatabase.cjs');
+const {openChatDatabase: openDatabase} = require('../../src/utils/persistence/chatDatabase.cjs');
+const openChatDatabase = (filename, records = []) => {
+    const db = openDatabase(filename);
+    for (const record of records) db.execute('put', record);
+    return db;
+};
 
 const now = '2026-10-16T10:00:00Z';
 const message = (id, content = 'Private message content') => ({id, role: 'user', content, createdAt: now,
@@ -19,13 +24,13 @@ const rows = () => {
     finally { connection.close(); }
 };
 
-test('imports once and preserves message details and subsequent edits across reopen', () => {
-    const legacy = [session('first')];
-    database = openChatDatabase(filename, legacy);
-    expect(database.execute('get', 'first')).toEqual(legacy[0]);
+test('preserves message details and subsequent edits across reopen', () => {
+    const records = [session('first')];
+    database = openChatDatabase(filename, records);
+    expect(database.execute('get', 'first')).toEqual(records[0]);
     database.execute('rename', {id: 'first', name: 'Renamed', updatedAt: now});
     database.close();
-    database = openChatDatabase(filename, legacy);
+    database = openChatDatabase(filename);
     expect(database.execute('get', 'first').name).toBe('Renamed');
 });
 
@@ -57,14 +62,6 @@ test('orders sessions by actual recency across valid timestamp offsets', () => {
         {...session('newer'), updatedAt: '2026-10-16T10:30:00Z'},
     ]);
     expect(database.execute('list').map(item => item.id)).toEqual(['newer', 'older']);
-});
-
-test('failed imports are atomic and changed legacy JSON is never silently discarded', () => {
-    expect(() => openChatDatabase(filename, [session('first'), session('first')])).toThrow('Duplicate');
-    database = openChatDatabase(filename, [session('valid')]);
-    expect(database.execute('list').map(item => item.id)).toEqual(['valid']);
-    database.close(); database = null;
-    expect(() => openChatDatabase(filename, [session('changed')])).toThrow('Chat JSON changed');
 });
 
 test('keeps one empty draft and reuses it atomically while preserving populated conversations', () => {

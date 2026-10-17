@@ -6,7 +6,7 @@ import {
     Tabs
 } from "@blueprintjs/core";
 import classNames from "classnames";
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 
 import PropTypes from "prop-types";
 import {GeneralPanel} from "./panels/GeneralPanel.jsx";
@@ -16,9 +16,14 @@ import AICodingInstructionsPanel from "./panels/AICodingInstructionsPanel";
 import AIExtensionsPanel from './panels/AIExtensionsPanel';
 import SharedProcessScopesPanel from "./panels/SharedProcessScopesPanel.jsx";
 import SharedFilesystemScopesPanel from "./panels/SharedFilesystemScopesPanel.jsx";
+import GitOpsPanel from './panels/GitOpsPanel';
+import ObservabilityPanel from './panels/ObservabilityPanel';
 
-export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
+export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog, navigationRequest}) => {
     const [activeTab, setActiveTab] = useState(localStorage.getItem("activeSettingsTab") || "general");
+    useEffect(() => {
+        if (navigationRequest?.tab) {setActiveTab(navigationRequest.tab); localStorage.setItem('activeSettingsTab', navigationRequest.tab);}
+    }, [navigationRequest?.requestId]);
     return (
         <Dialog
             autoFocus={true}
@@ -45,7 +50,7 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                 selectedTabId={activeTab}
                 onChange={(id) => {
                     setActiveTab(id);
-                    localStorage.setItem("activeSettingsTab", id);
+                    localStorage.setItem("activeSettingsTab", String(id));
                 }}
             >
                 <Tab id={"general"}
@@ -70,6 +75,10 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog}) => {
                      panel={
                          <GeneralPanel/>
                      }/>
+                <Tab id="gitops" title={<div style={{width: '180px'}}><Icon icon="git-repo" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>GitOps</span></div>}
+                     panelClassName={styles['panel']} panel={<GitOpsPanel focusRepositoryId={navigationRequest?.repositoryId}/>}/>
+                <Tab id="observability" title={<div style={{width: '180px'}}><Icon icon="timeline-line-chart" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>Observability</span></div>}
+                     panelClassName={styles['panel']} panel={<ObservabilityPanel/>}/>
                 <Tab id={"certificates"}
                      title={
                          <div style={{verticalAlign: "center", width: "180px"}}

@@ -1,3 +1,4 @@
+import {operationError} from '../../../utils/desktop/notificationContent';
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from "react";
 import {Button, Callout, Dialog, DialogBody, DialogFooter, InputGroup, HotkeysTarget, useHotkeys} from "@blueprintjs/core";
 import virtualFS from "../utils/VirtualFS";
@@ -92,7 +93,7 @@ export const SnapshotProvider = ({children}) => {
       setCurrent(virtualFS.fs.version());
     });
     const unsubC = virtualFS.notifications.subscribe("snapshotError", async (payload) => {
-      (await AppToaster).show({message: payload?.message || "Snapshot error", intent: "danger"});
+      (await AppToaster).show({message: operationError("The workspace snapshot operation failed", payload?.message, "Keep the editor open and retry the snapshot operation."), intent: "danger"});
       console.error("snapshotError", payload);
       setCreating(false);
       setSwitching(false);
@@ -151,7 +152,7 @@ export const SnapshotProvider = ({children}) => {
     if (!newId || newId === oldId) return false;
     const ok = virtualFS.fs.renameVersion(oldId, newId);
     if (ok) {
-      (await AppToaster).show({message: `Renamed ${oldId} → ${newId}`, intent: "success"});
+      (await AppToaster).show({message: `Workspace snapshot “${oldId}” renamed to “${newId}”.`, intent: "success"});
     }
     return ok;
   }, []);
@@ -184,7 +185,7 @@ export const SnapshotProvider = ({children}) => {
       // Enhanced toast with the Rename quick action
       const message = (
         <div className={styles["toast-row"]}>
-          <span>Snapshot {created.version} created</span>
+          <span>Workspace snapshot “{created.version}” saved. Your current editor view is unchanged.</span>
           <span style={{flex:1}} />
           <Button size={"small"} variant={"minimal"} intent="primary" onClick={() => switchTo(created.version)}>Switch</Button>
           <Button
@@ -201,7 +202,7 @@ export const SnapshotProvider = ({children}) => {
     } catch (e) {
       await ensureMinimumIndicator(startedAt);
       setCreating(false);
-      (await AppToaster).show({message: `Failed to create snapshot: ${e.message}`, intent: "danger"});
+      (await AppToaster).show({message: operationError("Could not create the workspace snapshot", e, "Your editor remains open. Check disk access and try again."), intent: "danger"});
       return null;
     }
   }, [creating]);
@@ -224,9 +225,9 @@ export const SnapshotProvider = ({children}) => {
         await data.nodeModulesPromise;
       }
       resetUnsaved();
-      (await AppToaster).show({message: `Switched to ${versionId}`, intent: "primary"});
+      (await AppToaster).show({message: `Workspace snapshot “${versionId}” restored in the editor.`, intent: "primary"});
     } catch (e) {
-      (await AppToaster).show({message: `Failed to switch: ${e.message}`, intent: "danger"});
+      (await AppToaster).show({message: operationError(`Could not restore snapshot “${versionId}”`, e, "Review the editor before making further changes."), intent: "danger"});
     } finally {
       await ensureMinimumIndicator(startedAt);
       setSwitching(false);
@@ -240,13 +241,13 @@ export const SnapshotProvider = ({children}) => {
     if (hasUnsavedChanges) {
       setConfirmSwitchTarget(versionId);
     } else {
-      switchTo(versionId);
+      void switchTo(versionId);
     }
   }, [hasUnsavedChanges, switchTo]);
 
   const confirmSwitchCancel = useCallback(() => setConfirmSwitchTarget(null), []);
   const confirmSwitchProceed = useCallback(() => {
-    if (confirmSwitchTarget) switchTo(confirmSwitchTarget);
+    if (confirmSwitchTarget) void switchTo(confirmSwitchTarget);
     setConfirmSwitchTarget(null);
   }, [confirmSwitchTarget, switchTo]);
   const confirmSwitchCreateAndSwitch = useCallback(async () => {
@@ -260,7 +261,7 @@ export const SnapshotProvider = ({children}) => {
   const deleteSnapshot = useCallback(async (id) => {
     const ok = virtualFS.fs.deleteVersion(id);
     if (ok) {
-      (await AppToaster).show({message: `Deleted ${id}`, intent: "warning"});
+      (await AppToaster).show({message: `Workspace snapshot “${id}” deleted.`, intent: "success"});
       // If deleted current, switch to latest
       const latest = virtualFS.fs.version();
       setCurrent(latest);
@@ -291,7 +292,7 @@ export const SnapshotProvider = ({children}) => {
     combo: "mod+shift+s",
     group: "Snapshots",
     label: "Create snapshot",
-    onKeyDown: () => { createSnapshot(); },
+    onKeyDown: () => { void createSnapshot(); },
     preventDefault: true,
     global: true,
   }], [createSnapshot]);
@@ -334,7 +335,7 @@ export const SnapshotProvider = ({children}) => {
                   placeholder="New snapshot name"
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); confirmRenameDialog(); }
+                    if (e.key === "Enter") { e.preventDefault(); void confirmRenameDialog(); }
                     if (e.key === "Escape") { e.preventDefault(); closeRenameDialog(); }
                   }}
                 />

@@ -7,14 +7,15 @@ import path from "node:path";
 import {X509CertificateGenerator, BasicConstraintsExtension, KeyUsagesExtension, KeyUsageFlags} from "@peculiar/x509";
 import {Certs} from "../../src/utils/system/certs";
 import {verifyCertificateChain} from "../../src/utils/system/certificateChain";
-import {settings} from "../../src/utils/persistence/store";
+import {certificateStorage} from "../../src/utils/persistence/certificateStorage";
+import {openCertificateDatabase} from "../../src/utils/persistence/certificateDatabase.cjs";
 
-jest.mock("../../src/utils/persistence/store", () => ({settings: {get: jest.fn(), set: jest.fn()}}));
+jest.mock("../../src/utils/persistence/certificateStorage", () => ({certificateStorage: {list: jest.fn(), put: jest.fn(), update: jest.fn(), remove: jest.fn(), privateKey: jest.fn()}}));
 jest.mock("../../src/utils/desktop/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
 jest.mock("../../src/utils/filesystem/safeReadFileSync", () => ({safeReadFileSync: jest.fn((...args) => require("node:fs").readFileSync(...args))}));
 
 const algorithm = {name: "RSASSA-PKCS1-v1_5", hash: "SHA-256", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1])};
-let root, rootKeys, leaf, leafKeys, pluginDir, store;
+let root, rootKeys, leaf, leafKeys, pluginDir, database;
 
 async function certificate(name, keys, issuer, signingKey, extensions = [], dates = {}) {
     return X509CertificateGenerator.create({
@@ -34,13 +35,18 @@ beforeAll(async () => {
     leaf = await certificate("CN=Developer", leafKeys, root.subject, rootKeys.privateKey);
 });
 beforeEach(() => {
-    store = {};
-    settings.get.mockImplementation(key => store[key]);
-    settings.set.mockImplementation((key, value) => {store[key] = value;});
     pluginDir = fs.mkdtempSync(path.join(os.tmpdir(), "fdo-certs-"));
     fs.writeFileSync(path.join(pluginDir, "index.js"), "export default 1;");
+    database = openCertificateDatabase(path.join(pluginDir, '..', path.basename(pluginDir) + '.sqlite'), {
+        encrypt: key => Buffer.from(key), decrypt: data => data.toString(),
+    });
+    for (const name of Object.keys(certificateStorage)) certificateStorage[name].mockImplementation(database[name]);
 });
-afterEach(() => fs.rmSync(pluginDir, {recursive: true, force: true}));
+afterEach(() => {
+    database.close();
+    fs.rmSync(path.join(pluginDir, '..', path.basename(pluginDir) + '.sqlite'), {force: true});
+    fs.rmSync(pluginDir, {recursive: true, force: true});
+});
 
 async function entry(cert, key, label = "test") {
     const der = await crypto.webcrypto.subtle.exportKey("pkcs8", key);
@@ -49,11 +55,11 @@ async function entry(cert, key, label = "test") {
 
 test("generates a usable root CA and persists its matching private key", async () => {
     await Certs.generateRootCA("generated");
-    const saved = store["certificates.root"][0];
+    const saved = database.list('root')[0];
     const cert = new crypto.X509Certificate(saved.cert);
     expect(cert.ca).toBe(true);
     expect(cert.verify(cert.publicKey)).toBe(true);
-    expect(cert.checkPrivateKey(crypto.createPrivateKey(saved.key))).toBe(true);
+    expect(cert.checkPrivateKey(crypto.createPrivateKey(database.privateKey(saved.id)))).toBe(true);
     expect(Certs.daysUntilExpiry(saved.cert)).toBeGreaterThan(364);
     expect(Certs.signPlugin(pluginDir, "generated")).toEqual({success: true});
     expect(await Certs.verifyPlugin(pluginDir)).toMatchObject({success: true, commonName: {value: "FDO Root CA"}});
@@ -61,7 +67,7 @@ test("generates a usable root CA and persists its matching private key", async (
 
 test("verifies the legacy RSA/SHA-256 format and rejects content or signature tampering", async () => {
     const signer = await entry(root, rootKeys.privateKey);
-    store["certificates.root"] = [signer];
+    database.put(signer);
     expect(Certs.signPlugin(pluginDir, "test")).toEqual({success: true});
     const signature = fs.readFileSync(path.join(pluginDir, "fdo.signature"));
     const digest = Certs.hashPluginDir(pluginDir);
@@ -97,9 +103,10 @@ test("imports a matching key and rejects mismatched keys", async () => {
 });
 
 test("validates developer signatures to the actual trusted issuer", async () => {
-    store["certificates.root"] = [await entry(root, rootKeys.privateKey, "root"), await entry(leaf, leafKeys.privateKey, "developer")];
+    database.put(await entry(root, rootKeys.privateKey, "root"));
+    database.put(await entry(leaf, leafKeys.privateKey, "developer"));
     expect(Certs.signPlugin(pluginDir, "developer")).toEqual({success: true});
-    store["certificates.root"].pop();
+    database.remove("developer");
     expect(await Certs.verifyPlugin(pluginDir)).toMatchObject({success: true, signer: {label: "root"}, commonName: {value: "Developer"}});
 });
 

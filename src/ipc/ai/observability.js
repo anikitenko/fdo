@@ -1,256 +1,85 @@
-import { settings } from "../../utils/persistence/store.js";
-import crypto from "crypto";
+import crypto from 'node:crypto';
+import {storedObservabilityConfig, langfuseConfig, exportDestination} from '../../utils/persistence/observabilityConfig';
+import {saveTrace} from '../../utils/persistence/observabilityStorage';
+import {createIncidentReporter} from '../../utils/desktop/backgroundNotifications';
 
-const LANGFUSE_INGEST_PATH = "/api/public/ingestion";
-const PROMPT_VERSION = "fdo-ai-chat-v1";
+const traceIncident = createIncidentReporter({source: 'observability', groupKey: 'trace-recording', title: 'AI trace could not be saved',
+    message: 'This trace is missing from local history and cannot be exported. Unlock the OS credential store or check disk space, then review Observability settings.',
+    recoveredTitle: 'AI trace recording resumed', recoveredMessage: 'New encrypted traces can be saved again. Traces missed during the failure were not recovered.',
+    actions: [{kind: 'view-settings', tab: 'observability'}]});
 
-function envBool(value) {
-    const normalized = String(value || "").trim().toLowerCase();
-    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+const PROMPT_VERSION = 'fdo-ai-chat-v1';
+const noopSpan = () => ({annotate() {}, finish() {}, fail() {}});
+function prune(value, depth = 0) {
+    if (depth > 5) return '[truncated]';
+    if (value == null) return null;
+    if (typeof value === 'string') return value.slice(0, 8000);
+    if (typeof value === 'number' || typeof value === 'boolean') return value;
+    if (Array.isArray(value)) return value.slice(0, 20).map(item => prune(item, depth + 1));
+    if (typeof value === 'object') return Object.fromEntries(Object.entries(value).slice(0, 50)
+        .filter(([key]) => !/^(authorization|api.?key|secret.*|password|accessToken|refreshToken)$/i.test(key))
+        .map(([key, item]) => [key, prune(item, depth + 1)]));
+    return String(value).slice(0, 2000);
 }
-
-function getLangfuseConfig() {
-    const stored = settings.get("ai.observability.langfuse", {}) || {};
-    const enabled = typeof process?.env?.LANGFUSE_ENABLED !== "undefined"
-        ? envBool(process.env.LANGFUSE_ENABLED)
-        : !!stored.enabled;
-    const host = String(process?.env?.LANGFUSE_HOST || stored.host || "").trim().replace(/\/+$/, "");
-    const publicKey = String(process?.env?.LANGFUSE_PUBLIC_KEY || stored.publicKey || "").trim();
-    const secretKey = String(process?.env?.LANGFUSE_SECRET_KEY || stored.secretKey || "").trim();
-    const environment = String(process?.env?.LANGFUSE_ENV || stored.environment || "production").trim() || "production";
-    const release = String(process?.env?.LANGFUSE_RELEASE || stored.release || "").trim() || null;
-    return {
-        enabled: enabled && !!host && !!publicKey && !!secretKey,
-        host,
-        publicKey,
-        secretKey,
-        environment,
-        release,
-    };
+function metadataFor(value, captureContent) {
+    if (captureContent) return prune(value);
+    return Object.fromEntries(Object.entries(prune(value) || {}).filter(([key, item]) =>
+        typeof item === 'number' || typeof item === 'boolean' ||
+        (typeof item === 'string' && /^(provider|model|route|mode|surface|tool|promptVersion|language|scope|status)$/i.test(key))));
 }
+const attribute = (key, value) => ({key, value: {stringValue: typeof value === 'string' ? value : JSON.stringify(value)}});
+const nanos = value => (BigInt(value) * 1000000n).toString();
 
-function pruneMetadata(value) {
-    if (value === null || typeof value === "undefined") return null;
-    if (typeof value === "string") {
-        return value.length > 2000 ? `${value.slice(0, 1997)}...` : value;
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-        return value;
-    }
-    if (Array.isArray(value)) {
-        return value.slice(0, 20).map((item) => pruneMetadata(item));
-    }
-    if (typeof value === "object") {
-        const out = {};
-        for (const [key, entry] of Object.entries(value)) {
-            if (typeof entry === "undefined") continue;
-            out[key] = pruneMetadata(entry);
-        }
-        return out;
-    }
-    return String(value);
-}
-
-async function sendLangfuseBatch(config, batch = []) {
-    if (!config.enabled || batch.length === 0) return false;
-    const auth = Buffer.from(`${config.publicKey}:${config.secretKey}`).toString("base64");
-    const res = await fetch(`${config.host}${LANGFUSE_INGEST_PATH}`, {
-        method: "POST",
-        headers: {
-            "content-type": "application/json",
-            authorization: `Basic ${auth}`,
-        },
-        body: JSON.stringify({
-            batch,
-            metadata: {
-                sdk_integration: "fdo-ai-chat",
-                sdk_name: "fdo-ai-chat",
-                sdk_version: "1",
-                prompt_version: PROMPT_VERSION,
-            },
-        }),
-    });
-    if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Langfuse ingestion failed (${res.status}): ${text || res.statusText}`);
-    }
-    return true;
-}
-
-function createNoopSpan() {
-    return {
-        annotate() {},
-        finish() {},
-        fail() {},
-    };
-}
-
-export function createAiObservabilityTrace({
-    name = "ai-chat-turn",
-    sessionId = null,
-    userId = null,
-    input = null,
-    metadata = {},
-} = {}) {
-    const config = getLangfuseConfig();
-    if (!config.enabled) {
-        return {
-            enabled: false,
-            id: null,
-            startSpan: () => createNoopSpan(),
-            update() {},
-            async finish() {},
-            async fail() {},
-        };
-    }
-
-    const traceId = crypto.randomUUID();
-    const startedAt = new Date().toISOString();
-    const traceMetadata = {
-        ...pruneMetadata(metadata),
-        promptVersion: PROMPT_VERSION,
-    };
-    const spans = [];
-    let traceOutput = null;
-    let traceStatus = null;
-    let flushed = false;
-
-    function startSpan(spanName, { input: spanInput = null, metadata: spanMetadata = {} } = {}) {
-        const span = {
-            id: crypto.randomUUID(),
-            name: spanName,
-            input: spanInput,
-            metadata: pruneMetadata(spanMetadata),
-            startTime: new Date().toISOString(),
-            endTime: null,
-            output: null,
-            statusMessage: null,
-        };
+export function createAiObservabilityTrace({name = 'ai-chat-turn', sessionId = null, userId = null, input = null, metadata = {}} = {}) {
+    const preferences = storedObservabilityConfig();
+    const config = langfuseConfig({decrypt: false});
+    if (!preferences.localTracing && !config.enabled) return {enabled: false, id: null, startSpan: noopSpan, update() {}, async finish() {}, async fail() {}};
+    const capture = preferences.captureContent;
+    const id = crypto.randomBytes(16).toString('hex'), rootId = crypto.randomBytes(8).toString('hex');
+    const createdAt = Date.now(), spans = [];
+    const traceMetadata = metadataFor({...metadata, promptVersion: PROMPT_VERSION}, capture);
+    let finished = false;
+    function startSpan(spanName, {input: spanInput = null, metadata: spanMetadata = {}} = {}) {
+        if (spans.length >= 100) return noopSpan();
+        const span = {id: crypto.randomBytes(8).toString('hex'), name: String(spanName).slice(0, 200), start: Date.now(),
+            metadata: metadataFor(spanMetadata, capture), input: capture ? prune(spanInput) : null};
         spans.push(span);
         return {
-            annotate(extra = {}) {
-                span.metadata = {
-                    ...(span.metadata || {}),
-                    ...pruneMetadata(extra),
-                };
+            annotate(extra = {}) {Object.assign(span.metadata, metadataFor(extra, capture));},
+            finish({output = null, metadata: extra = {}, statusMessage = null} = {}) {
+                span.end = Date.now(); span.output = capture ? prune(output) : null;
+                span.statusMessage = capture ? String(statusMessage || '').slice(0, 2000) : null;
+                Object.assign(span.metadata, metadataFor(extra, capture));
             },
-            finish({ output = null, metadata: extra = {}, statusMessage = null } = {}) {
-                span.endTime = new Date().toISOString();
-                span.output = output;
-                span.statusMessage = statusMessage;
-                span.metadata = {
-                    ...(span.metadata || {}),
-                    ...pruneMetadata(extra),
-                };
-            },
-            fail(error, extra = {}) {
-                span.endTime = new Date().toISOString();
-                span.statusMessage = String(error?.message || error || "Unknown error");
-                span.metadata = {
-                    ...(span.metadata || {}),
-                    ...pruneMetadata(extra),
-                    failed: true,
-                };
-            },
+            fail(error, extra = {}) {span.end = Date.now(); span.failed = true; span.statusMessage = capture ? String(error?.message || error).slice(0, 2000) : 'Operation failed'; Object.assign(span.metadata, metadataFor(extra, capture));},
         };
     }
-
-    async function flush(failed = false) {
-        if (flushed) return;
-        flushed = true;
-        const finishedAt = new Date().toISOString();
-        const batch = [
-            {
-                id: crypto.randomUUID(),
-                type: "trace-create",
-                timestamp: finishedAt,
-                body: {
-                    id: traceId,
-                    name,
-                    sessionId,
-                    userId,
-                    input,
-                    output: traceOutput,
-                    environment: config.environment,
-                    release: config.release,
-                    metadata: pruneMetadata({
-                        ...traceMetadata,
-                        statusMessage: traceStatus,
-                        failed,
-                        startedAt,
-                        finishedAt,
-                    }),
-                },
-            },
-        ];
-
-        for (const span of spans) {
-            batch.push({
-                id: crypto.randomUUID(),
-                type: "span-create",
-                timestamp: span.startTime,
-                body: {
-                    id: span.id,
-                    traceId,
-                    name: span.name,
-                    input: span.input,
-                    startTime: span.startTime,
-                    metadata: pruneMetadata(span.metadata),
-                },
-            });
-            batch.push({
-                id: crypto.randomUUID(),
-                type: "span-update",
-                timestamp: span.endTime || finishedAt,
-                body: {
-                    id: span.id,
-                    traceId,
-                    endTime: span.endTime || finishedAt,
-                    output: span.output,
-                    statusMessage: span.statusMessage,
-                    metadata: pruneMetadata(span.metadata),
-                },
-            });
-        }
-
-        try {
-            await sendLangfuseBatch(config, batch);
-            console.log("[Langfuse] Trace exported", {
-                traceId,
-                sessionId,
-                spans: spans.length,
-                name,
-            });
-        } catch (error) {
-            console.warn("[Langfuse] Trace export failed", {
-                traceId,
-                sessionId,
-                error: String(error?.message || error),
-            });
-        }
+    async function complete({output = null, metadata: extra = {}, statusMessage = null} = {}, failed = false) {
+        if (finished) return;
+        finished = true;
+        Object.assign(traceMetadata, metadataFor(extra, capture));
+        const end = Date.now();
+        const root = {id: rootId, name: String(name).slice(0, 200), start: createdAt, end, failed, metadata: traceMetadata,
+            input: capture ? prune(input) : null, output: capture ? prune(output) : null,
+            statusMessage: failed ? (capture ? String(statusMessage || 'Operation failed').slice(0, 2000) : 'Operation failed') : null};
+        const sharedAttributes = [attribute('langfuse.trace.name', root.name), attribute('langfuse.environment', config.environment || 'production')];
+        if (sessionId) sharedAttributes.push(attribute('session.id', sessionId), attribute('langfuse.session.id', sessionId));
+        if (userId) sharedAttributes.push(attribute('user.id', userId));
+        if (config.release) sharedAttributes.push(attribute('langfuse.release', config.release));
+        const otelSpans = [root, ...spans].map(span => ({traceId: id, spanId: span.id, ...(span.id === rootId ? {} : {parentSpanId: rootId}),
+            name: span.name, kind: 1, startTimeUnixNano: nanos(span.start), endTimeUnixNano: nanos(span.end || end),
+            status: {code: span.failed ? 2 : 1, ...(span.statusMessage ? {message: span.statusMessage} : {})},
+            attributes: [...sharedAttributes, attribute('langfuse.observation.type', 'span'),
+                ...Object.entries(span.metadata).map(([key, value]) => attribute(`langfuse.observation.metadata.${key}`, value)),
+                ...(span.input == null ? [] : [attribute('langfuse.observation.input', span.input)]),
+                ...(span.output == null ? [] : [attribute('langfuse.observation.output', span.output)])],
+        }));
+        const trace = {id, name: root.name, sessionId, createdAt, finishedAt: end, status: failed ? 'failed' : 'completed', captureContent: capture,
+            otel: {resourceSpans: [{resource: {attributes: [attribute('service.name', 'fdo')]}, scopeSpans: [{scope: {name: 'fdo-ai-chat', version: '1'}, spans: otelSpans}]}]}};
+        try {await saveTrace(trace, config.enabled ? exportDestination(config) : null); traceIncident.recover();}
+        catch (error) {traceIncident.fail(error);}
     }
-
-    return {
-        enabled: true,
-        id: traceId,
-        startSpan,
-        update(extra = {}) {
-            Object.assign(traceMetadata, pruneMetadata(extra));
-        },
-        async finish({ output = null, metadata: extra = {}, statusMessage = null } = {}) {
-            traceOutput = output;
-            traceStatus = statusMessage;
-            Object.assign(traceMetadata, pruneMetadata(extra));
-            await flush(false);
-        },
-        async fail(error, extra = {}) {
-            traceStatus = String(error?.message || error || "Unknown error");
-            Object.assign(traceMetadata, pruneMetadata(extra));
-            await flush(true);
-        },
-    };
+    return {enabled: true, id, startSpan, update(extra = {}) {Object.assign(traceMetadata, metadataFor(extra, capture));},
+        finish: complete, fail: (error, extra = {}) => complete({metadata: extra, statusMessage: String(error?.message || error)}, true)};
 }
-
-export function getObservabilityPromptVersion() {
-    return PROMPT_VERSION;
-}
+export function getObservabilityPromptVersion() {return PROMPT_VERSION;}

@@ -1,0 +1,26 @@
+.repository { margin-top: 12px; padding: 0; overflow: hidden; }
+.header { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px; border: 0; background: transparent; text-align: left; cursor: pointer; color: inherit; }
+.header:hover { background: rgba(17, 20, 24, .035); }
+.header:focus-visible { outline: 2px solid #2d72d2; outline-offset: -2px; }
+.heading { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.heading strong { font-size: 14px; }
+.heading > span { font-size: 11px; }
+.badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.body { padding: 0 14px 14px; border-top: 1px solid #dce0e5; overflow-wrap: anywhere; }
+.body > p:first-child { margin-top: 12px; }
+.metadata { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; margin: 10px 0; }
+.maintainers { font-size: 12px; }
+.schedule { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0; padding: 12px; background: rgba(17, 20, 24, .035); border-radius: 4px; }
+.schedule > div > span { font-size: 11px; }
+.interval { margin: 0; }
+.intervalControls { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.plugins { padding: 0 4px; }
+.plugins > p { font-size: 12px; }
+.plugin { border-top: 1px solid #dce0e5; padding: 12px 0; }
+.plugin > a { display: block; font-size: 12px; margin-top: 8px; }
+.plugin > p { font-size: 11px; margin-bottom: 8px; }
+.pluginHeader { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pluginHeader strong { flex: 1; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; border-top: 1px solid #dce0e5; padding-top: 12px; margin-top: 12px; }
+.actions > span { margin-left: auto; font-size: 11px; }
+.feedback { margin: 10px 0; }

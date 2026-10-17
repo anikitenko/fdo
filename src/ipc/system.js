@@ -1,3 +1,4 @@
+import {observabilityRequest} from '../utils/persistence/observabilityStorage';
 import {getCachedFdoSdkKnowledgeIndex, resolveFdoSdkDistPath} from '../utils/sdk/installedSdkKnowledge';
 import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
 import PluginManager from "../utils/plugins/runtime/PluginManager";
@@ -405,43 +406,23 @@ export function registerSystemHandlers() {
         }
     });
 
-    ipcMain.handle(SystemChannels.GET_PLUGIN_METRIC, (event, id, fromTime, toTime) => {
-        let plugin = PluginManager.getLoadedPluginInstance(id);
-        // If plugin is not found, try to retrieve it from `AppMetrics`
-        if (!plugin) {
-            const matchingEntry = AppMetrics.find(({metrics}) =>
-                metrics.some((m) => m.name === `plugin-${id}`)
-            );
-
-            if (matchingEntry) {
-                const matchedMetric = matchingEntry.metrics.find((m) => m.name === `plugin-${id}`);
-                if (matchedMetric) {
-                    plugin = {pid: matchedMetric.pid};
-                }
-            }
-        }
-
-        if (!plugin) return []; // Still not found, return empty
-
-        const startTime = fromTime || 0; // Default to 0 to get all metrics if not provided
-        const endTime = toTime || Date.now(); // Default to now
-
-        let filteredData = AppMetrics
-            .filter(({date, metrics}) =>
-                date >= startTime && date <= endTime && metrics.some(m => m.pid === plugin.pid)
-            )
-            .map(({date, metrics}) => ({
-                date,
-                metric: metrics.find(m => m.pid === plugin.pid)
-            }));
-
-        // Adjust data density based on time range
-        const durationMs = endTime - startTime;
-        const interval = metricDensityReductionInterval(durationMs)
-
-        filteredData = filteredData.filter((_, index) => index % Math.floor(interval / 1000) === 0);
-
-        return filteredData;
+    ipcMain.handle(SystemChannels.GET_PLUGIN_METRIC, async (event, id, fromTime, toTime) => {
+        if (typeof id !== 'string' || id.length > 500) return [];
+        const startTime = Number.isFinite(fromTime) ? fromTime : 0;
+        const endTime = Number.isFinite(toTime) ? toTime : Date.now();
+        if (endTime < startTime) return [];
+        const persisted = await observabilityRequest('runtime', {pluginId: id, from: startTime, to: endTime, interval: metricDensityReductionInterval(endTime - startTime)});
+        const plugin = PluginManager.getLoadedPluginInstance(id);
+        const live = AppMetrics.filter(sample => sample.date >= startTime && sample.date <= endTime)
+            .flatMap(sample => {
+                const metric = sample.metrics.find(item => (plugin?.pid && item.pid === plugin.pid) || item.name === `plugin-${id}`);
+                return metric ? [{date: sample.date, metric}] : [];
+            });
+        const liveStart = live[0]?.date ?? Infinity;
+        const combined = [...persisted.filter(sample => sample.date < liveStart), ...live].sort((a, b) => a.date - b.date);
+        const interval = metricDensityReductionInterval(endTime - startTime);
+        let lastDate = -Infinity;
+        return combined.filter(sample => {if (sample.date - lastDate < interval) return false; lastDate = sample.date; return true;});
     });
 
     ipcMain.handle(SystemChannels.OPEN_FILE_DIALOG, async (event, params, multiple = false) => {

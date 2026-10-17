@@ -1,3 +1,4 @@
+import {pluginDisplayName} from '../utils/desktop/notificationContent';
 import {enqueuePluginUiBridge} from '../utils/plugins/runtime/pluginUiMessageQueue';
 import {typecheckPluginWorkspace} from '../utils/sdk/pluginWorkspaceTypecheck';
 import {normalizePluginDoctorPresentation} from './pluginDoctorPresentation';
@@ -28,6 +29,7 @@ import {v4 as uuidv4} from 'uuid';
 
 import {ZipArchive} from "archiver"
 import {extractMetadata} from "../utils/plugins/runtime/extractMetadata";
+import {pluginBuildSource} from '../utils/plugins/runtime/pluginBuildArtifact';
 import {normalizeAndValidatePluginMetadata} from "../utils/plugins/runtime/pluginMetadataContract";
 import {runPluginWorkspaceTests} from "../utils/plugins/runtime/pluginTestRunner";
 import {validatePluginWorkspaceSdkContract} from "../utils/sdk/pluginWorkspaceSdkContract";
@@ -646,8 +648,7 @@ export async function buildUsingEsbuild(virtualData) {
         throw new Error(`Plugin SDK contract validation failed:\n${sdkContractErrors.join("\n")}`);
     }
     
-    const srcJson = JSON.parse(virtualData["/package.json"])
-    const pluginEntrypoint = srcJson.source || "index.ts"
+    const pluginEntrypoint = pluginBuildSource(virtualData) || 'index.ts';
     
     // Use Module._load to load esbuild from the unpacked directory
     // This bypasses the normal require() resolution and works with absolute paths
@@ -790,7 +791,9 @@ async function getPluginLogTrace(pluginId, options = {}) {
         .filter((item) => {
             const title = String(item?.title || "").toLowerCase();
             const message = String(item?.message || "").toLowerCase();
-            return pluginToken && (title.includes(pluginToken) || message.includes(pluginToken));
+            const details = String(item?.details || '').toLowerCase();
+            const linked = item?.actions?.some(action => action.pluginId === pluginId);
+            return pluginToken && (linked || title.includes(pluginToken) || message.includes(pluginToken) || details.includes(pluginToken));
         })
         .slice(-maxNotifications);
 
@@ -799,6 +802,7 @@ async function getPluginLogTrace(pluginId, options = {}) {
             return [
                 `- [${item?.createdAt || ""}] ${item?.title || ""}`,
                 String(item?.message || ""),
+                String(item?.details || ''),
             ].join("\n");
         }).join("\n\n")
         : "No recent host notifications mentioning this plugin.";
@@ -862,7 +866,9 @@ export function registerPluginHandlers() {
     pluginTray.configure({
         getPlugin: id => PluginManager.getLoadedPlugin(id),
         invoke: (id, plugin, content) => dispatchPluginUiMessageAndAwaitResult(id, plugin, content),
-        reportError: (id, error) => NotificationCenter.addNotification({title: `${id}: tray action failed`, message: error, type: 'danger'}),
+        reportError: (id, error) => NotificationCenter.addNotification({source: 'plugins',
+            title: `${new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(id)?.metadata?.name || 'Plugin'}: tray action failed`,
+            message: error, type: 'danger', details: `Plugin ID: ${id}`, actions: [{kind: 'view-plugin', pluginId: id}]}),
     });
     const userORM = new UserORM(USER_CONFIG_FILE);
     const syncScopeRegistries = () => {
@@ -905,9 +911,11 @@ export function registerPluginHandlers() {
             if (!privilegedEnvelopeDeprecationShown.has(dedupeKey)) {
                 privilegedEnvelopeDeprecationShown.add(dedupeKey);
                 NotificationCenter.addNotification({
-                    title: "Deprecated privileged request shape",
-                    message: "Plugin should use requestPrivilegedActionFromEnvelope(...) or pass the extracted request object directly. Compatibility auto-unwrapping is temporary.",
-                    type: "warning",
+                    source: 'plugins',
+                    title: `${pluginDisplayName(new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(pluginId))} uses an older permission interface`,
+                    message: "The request still works through compatibility support. Update the plugin when its maintainer publishes a compatible version.",
+                    details: "Maintainer guidance: use requestPrivilegedActionFromEnvelope(...) or pass the extracted request object. Compatibility auto-unwrapping is temporary.",
+                    actions: [{kind: 'manage-plugin', pluginId}], type: "warning",
                 });
             }
         }
@@ -1018,8 +1026,7 @@ export function registerPluginHandlers() {
             const content = await Promise.all(
                 existingFiles.map(async (filePath) => {
                     const relPath = `/${path.relative(pluginPath, filePath).replace(/\\/g, "/")}`;
-                    const buffer = await readFile(filePath);
-                    const text = buffer.toString("utf8");
+                    const text = await readFile(filePath, "utf8");
 
                     if (relPath === "/package.json") {
                         try {
@@ -1076,7 +1083,9 @@ export function registerPluginHandlers() {
                 pluginORM.addPlugin(pluginName, metadata, pluginPath, entrypoint, false, capabilities)
 
                 PluginManager.sendToMainWindow(PluginChannels.on_off.DEPLOY_FROM_EDITOR, pluginName)
-
+                NotificationCenter.addNotification({source: 'plugins', title: `${pluginDisplayName({metadata, name})} added`, type: 'success',
+                    message: 'The plugin was added to FDO. Review its signature and permissions in Manage Plugins before using it.',
+                    actions: [{kind: 'manage-plugin', pluginId: pluginName}]});
                 return { success: true }
             } else {
                 return {success: false, error: "Plugin already installed!"};
@@ -1090,10 +1099,13 @@ export function registerPluginHandlers() {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         try {
             const plugin = pluginORM.getPlugin(id)
+            if (plugin?.gitops) return {success: false, error: 'This plugin is managed by GitOps. Update the collection manifest or remove the repository subscription first.'};
             rmSync(plugin.home, {recursive: true, force: true})
             pluginORM.removePlugin(plugin.id)
             removeHostPluginCustomProcessScopes(plugin.id)
             removeHostPluginCustomFilesystemScopes(plugin.id)
+            NotificationCenter.addNotification({source: 'plugins', title: `${pluginDisplayName(plugin)} removed`, type: 'success',
+                message: 'The plugin registration and installed code were removed from FDO.'});
             return {success: true};
         } catch (error) {
             return {success: false, error: error.message};
@@ -1939,7 +1951,7 @@ export function registerPluginHandlers() {
         try {
             const result = await PluginManager.loadPlugin(id)
             if (!result.success) {
-                return {success: false, error: result.error};
+                return {success: false, error: result.error, ...(result.notified ? {notified: true} : {})};
             }
             userORM.activatePlugin(id)
             return {success: true};
@@ -2229,7 +2241,6 @@ export function registerPluginHandlers() {
             const result = await buildUsingEsbuild(latestContent)
             return {success: true, files: result}
         } catch (error) {
-            NotificationCenter.addNotification({title: `Build error`, message: error.toString(), type: "danger"});
             return {success: false, error: "Build error: "+error.toString()};
         }
     });
@@ -2238,7 +2249,6 @@ export function registerPluginHandlers() {
         try {
             return await runPluginWorkspaceTests(data?.latestContent || {});
         } catch (error) {
-            NotificationCenter.addNotification({title: `Test error`, message: error.toString(), type: "danger"});
             return {success: false, error: `Test error: ${error.toString()}`, output: ""};
         }
     });
@@ -2256,6 +2266,7 @@ export function registerPluginHandlers() {
             const userORM = new UserORM(USER_CONFIG_FILE);
             const plugin = pluginORM.getPlugin(data.name);
             let pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
+            if (plugin?.gitops) return {success: false, error: 'This plugin is managed by GitOps. Commit changes to its repository or remove the subscription before deploying local edits.'};
             if (plugin) {
                 pathToDir = plugin.home
             }
@@ -2288,6 +2299,9 @@ export function registerPluginHandlers() {
             }
             mainWindow?.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
             reportProgress(100, "Deployment complete");
+            NotificationCenter.addNotification({source: 'builds', title: `${metadata.name}: deployment completed`, type: 'success',
+                message: shouldReload ? `Version ${metadata.version} was signed and installed. The enabled plugin was restarted.` : `Version ${metadata.version} was signed and installed. Open Manage Plugins to review its activation and permissions.`,
+                actions: [{kind: 'manage-plugin', pluginId: data.name}]});
             return {success: true}
         } catch (error) {
             return {success: false, error: error.message};
@@ -2299,6 +2313,7 @@ export function registerPluginHandlers() {
             const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
             const plugin = pluginORM.getPlugin(data.name);
             let pathToDir;
+            if (plugin?.gitops) return {success: false, error: 'This plugin is managed by GitOps. Commit changes to its repository or remove the subscription before saving local edits.'};
             if (data.dir === "sandbox" || data.dir.includes(data.sandbox) || !plugin) {
                 pathToDir = path.join(PLUGINS_DIR, data.name)
             } else {
@@ -2322,6 +2337,9 @@ export function registerPluginHandlers() {
                 mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, data.name);
             }
 
+            NotificationCenter.addNotification({source: 'builds', title: `${metadata.name}: plugin changes saved`, type: 'success',
+                message: `Version ${metadata.version} and its source files were saved and signed. Reopen or restart the plugin to use the saved changes.`,
+                actions: [{kind: 'manage-plugin', pluginId: data.name}]});
             const senderWindow = BrowserWindow.fromWebContents(event.sender);
             if (senderWindow && !senderWindow.isDestroyed()) {
                 senderWindow.destroy();
@@ -2359,7 +2377,7 @@ export function registerPluginHandlers() {
         const chunks = [];
 
         archive.on('error', err => {
-            NotificationCenter.addNotification({title: `Export plugin error`, message: err.toString(), type: "danger"});
+            NotificationCenter.addNotification({source: 'plugins', title: `${pluginDisplayName(plugin)} could not be exported`, message: 'The plugin archive could not be created. Check disk space and plugin file access, then export again.', details: err.toString(), type: "danger", actions: [{kind: 'manage-plugin', pluginId: id}]});
         });
 
         passThrough.on('data', chunk => chunks.push(chunk));

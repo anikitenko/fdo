@@ -4,17 +4,20 @@ const os = require('node:os');
 const path = require('node:path');
 const {createRequire} = require('node:module');
 const Conf = createRequire(require.resolve('electron-store'))('conf').default;
+const {openChatDatabase} = require('../../src/utils/persistence/chatDatabase.cjs');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 test('chat picker uses lightweight summaries and loads only the chosen conversation', async () => {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-chat-lazy-'));
     const settings = new Conf({cwd: profile, configName: 'settings', encryptionKey: 'FDO-APPLICATION'});
     const count = 30;
-    settings.set('ai.sessions', Array.from({length: count}, (_, i) => ({
+    const database = openChatDatabase(path.join(profile, 'chat-history.sqlite'));
+    Array.from({length: count}, (_, i) => ({
         id: `session-${i}`, name: `Conversation ${i}`, createdAt: new Date(Date.UTC(2026, 9, 16, 10, i)).toISOString(),
         messages: Array.from({length: 20}, (_, j) => ({id: `message-${j}`, role: 'user',
             content: `History for conversation ${i}, message ${j}.`, createdAt: '2026-10-16T10:00:00Z'})),
-    })));
+    })).forEach(record => database.execute('put', record));
+    database.close();
     settings.set('ai.options.chatDialog.uiLanguage', 'en');
     // A local-only assistant makes stored messages visible; no prompt is sent.
     settings.set('ai.chat', [{id: 'offline-fixture', name: 'Offline fixture', provider: 'ollama', model: 'offline-fixture', apiKey: null, default: true}]);

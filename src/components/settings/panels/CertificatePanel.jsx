@@ -1,3 +1,4 @@
+import {operationError} from '../../../utils/desktop/notificationContent';
 import React, {useEffect, useState} from "react";
 import {differenceInDays, formatDistanceToNow} from "date-fns";
 import * as styles from "../../css/SettingsDialog.module.css";
@@ -15,12 +16,12 @@ export const CertificatePanel = () => {
     const updateCertificates = () => {
         window.electron.settings.certificates.getRoot().then((certificates) => {
             setRootCertificates(certificates)
-        })
+        }).catch(error => AppToaster.show({message: operationError('Could not load certificates', error, 'Unlock your OS credential store and reopen this settings page.'), intent: 'danger'}))
     }
     const handleRootCertLabelChange = React.useCallback((id, newName) => {
         window.electron.settings.certificates.rename(id, newName).then(() => {
             updateCertificates()
-        })
+        }).catch(error => AppToaster.show({message: operationError('Could not rename this certificate', error), intent: 'danger'}))
     }, []);
 
     const showColoredLastUsed = (lastUsed) => {
@@ -48,8 +49,8 @@ export const CertificatePanel = () => {
                     setGenerateRootCertProgress(true)
                     window.electron.settings.certificates.create().then(() => {
                         updateCertificates()
-                        setGenerateRootCertProgress(false)
-                    })
+                    }).catch(error => AppToaster.show({message: operationError('Could not create a signing certificate', error, 'Unlock your OS credential store and check disk access, then retry.'), intent: 'danger'}))
+                        .finally(() => setGenerateRootCertProgress(false))
                 }}/>
                 <Button intent={"primary"} text="Import" icon={"import"} loading={importRootCertProgress}
                         style={{marginLeft: "5px", borderRadius: "6px"}} onClick={async () => {
@@ -67,9 +68,9 @@ export const CertificatePanel = () => {
                             if (response.success) {
                                 updateCertificates()
                             } else {
-                                (AppToaster).show({message: `${response.error}`, intent: "danger"});
+                                (AppToaster).show({message: operationError("Could not import the selected certificate", response.error, "Use a valid PEM certificate with a matching private key if signing is required."), intent: "danger"});
                             }
-                        })
+                        }).catch(error => AppToaster.show({message: operationError('Could not import the selected certificate', error), intent: 'danger'}))
                     }
                     setImportRootCertProgress(false)
                 }}/>
@@ -141,8 +142,8 @@ export const CertificatePanel = () => {
                                             setRenewRootCertProgress(true)
                                             window.electron.settings.certificates.renew(cert.label).then(() => {
                                                 updateCertificates()
-                                            })
-                                            setRenewRootCertProgress(false)
+                                            }).catch(error => AppToaster.show({message: operationError(`Could not renew certificate “${cert.label}”`, error), intent: 'danger'}))
+                                                .finally(() => setRenewRootCertProgress(false))
                                         }}>
                                             Regenerate
                                         </Button>
@@ -167,7 +168,7 @@ export const CertificatePanel = () => {
                                                             document.body.removeChild(a);
                                                         }
                                                         setExportRootCertProgress(false)
-                                                    })
+                                                    }).catch(error => AppToaster.show({message: operationError(`Could not export certificate “${cert.label}”`, error), intent: 'danger'}))
                                                 }}>
                                                     Export
                                                 </Button>
@@ -178,8 +179,8 @@ export const CertificatePanel = () => {
                                                 setDeleteRootCertProgress(true)
                                                 window.electron.settings.certificates.delete(cert.id).then(() => {
                                                     updateCertificates()
-                                                })
-                                                setDeleteRootCertProgress(false)
+                                                }).catch(error => AppToaster.show({message: operationError(`Could not remove certificate “${cert.label}”`, error), intent: 'danger'}))
+                                                    .finally(() => setDeleteRootCertProgress(false))
                                             }}>
                                                 Delete
                                             </Button>

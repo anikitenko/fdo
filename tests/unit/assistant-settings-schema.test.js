@@ -54,3 +54,17 @@ test('Cursor API assistants persist with integration capabilities and no CLI met
     const cursor = {name: 'Cursor coding', provider: 'cursor', model: 'composer-fixture', apiKey: 'fixture', firstResponseTimeoutMs: 300000};
     expect(validate({...cursor, inputCapabilities: assistantInputCapabilities(cursor)})).toBe(true);
 });
+
+test('contains only active configuration, without JSON history fields', () => {
+    const schema = Store.mock.calls.find(([options]) => options.name === 'settings')[0].schema;
+    expect(schema.notifications).toBeUndefined();
+    expect(schema.certificates).toBeUndefined();
+    expect(schema.ai.properties.sessions).toBeUndefined();
+    expect(schema.ai.default.sessions).toBeUndefined();
+    // Assistant and integration configuration remain; historical data does not.
+    expect(schema.ai.properties.coding).toBeDefined();
+    expect(schema.ai.properties.usageLedger).toBeUndefined();
+    expect(schema.ai.properties.metrics).toBeUndefined();
+    expect(schema.ai.properties.observability.properties.langfuse.properties.encryptedSecretKey).toBeDefined();
+    expect(schema.ai.properties.observability.properties.langfuse.properties.secretKey).toBeUndefined();
+});

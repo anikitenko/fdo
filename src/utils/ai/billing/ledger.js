@@ -20,10 +20,27 @@ export class UsageLedger {
         this.now = now;
         this.limit = limit;
         this.persistenceError = false;
+        this.pendingWrites = new Set();
+        this.failedWrites = new Set();
     }
-    changed() {
-        try { this.save(this.entries, this.rates); this.persistenceError = false; }
-        catch { this.persistenceError = true; }
+    changed(entry) {
+        const key = entry?.id || 'configuration';
+        const complete = failed => {
+            if (failed) this.failedWrites.add(key); else this.failedWrites.delete(key);
+            this.persistenceError = this.failedWrites.size > 0;
+        };
+        try {
+            const result = this.save(this.entries, this.rates, entry);
+            if (result?.then) {
+                const pending = Promise.resolve(result).then(() => complete(false), () => complete(true))
+                    .finally(() => this.pendingWrites.delete(pending));
+                this.pendingWrites.add(pending);
+            } else complete(false);
+        } catch {complete(true);}
+    }
+    async flush() {
+        while (this.pendingWrites.size) await Promise.all([...this.pendingWrites]);
+        if (this.persistenceError) throw new Error('Usage history could not be saved.');
     }
     begin(provider, model, scope = context.getStore() || {}) {
         const id = randomUUID(), startedAt = this.now();
@@ -36,7 +53,7 @@ export class UsageLedger {
         const override = this.rates[rateKey(provider, model)];
         const initial = estimateCost({provider, model, usage: {}, rate: override, at: startedAt});
         const rate = (initial.pricing || override) ? structuredClone(initial.pricing || override) : undefined;
-        this.changed();
+        this.changed(record);
         let ended = false;
         return {id, finish: (status, usage, {completeUsage = false, serviceTier} = {}) => {
             if (ended) return record;
@@ -44,7 +61,7 @@ export class UsageLedger {
             Object.assign(record, {status, finishedAt: this.now(), usage: cleanUsage(usage),
                 cost: estimateCost({provider, model, usage: cleanUsage(usage), rate, at: startedAt,
                     completeUsage: completeUsage && USAGE_FIELDS.every(key => usage?.[key] == null || validCount(usage[key])), serviceTier})});
-            this.changed();
+            this.changed(record);
             return record;
         }};
     }

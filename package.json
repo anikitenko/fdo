@@ -138,6 +138,7 @@
     "@babel/traverse": "^8.0.7",
     "@babel/types": "^8.0.6",
     "@blueprintjs/core": "^6.21.0",
+    "@blueprintjs/datetime": "^6.3.0",
     "@blueprintjs/icons": "^6.14.1",
     "@blueprintjs/select": "^6.4.0",
     "@cursor/sdk": "1.0.37",

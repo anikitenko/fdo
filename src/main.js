@@ -1,7 +1,19 @@
+import {failureNotification, pluginDisplayName} from './utils/desktop/notificationContent';
+import crypto from 'node:crypto';
+import {initializeObservabilityStorage, closeObservabilityStorage, recordRuntimeSamples} from './utils/persistence/observabilityStorage';
+import {registerObservabilityHandlers} from './ipc/observability';
+import {usageLedger} from './utils/ai/billing/ledger';
+import {certificateStorage, initializeCertificateStorage, closeCertificateStorage} from './utils/persistence/certificateStorage';
 import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
-import {app, BrowserWindow, dialog, nativeTheme, protocol} from 'electron';
+import {app, BrowserWindow, dialog, nativeTheme, protocol, safeStorage} from 'electron';
+import {registerGitOpsHandlers} from './ipc/gitops';
+import {syncCollection, detachCollection} from './utils/gitops/syncCollection';
+import {readPluginRepository} from './utils/gitops/verifyRepository';
+import {normalizeAndValidatePluginMetadata} from './utils/plugins/runtime/pluginMetadataContract';
+import UserORM from './utils/persistence/UserORM';
+import {SettingsChannels} from './ipc/channels';
 import {installAssistantWindowPolicy} from './utils/desktop/assistantWindowPolicy';
 import nodeUrl from 'node:url';
 import PluginManager from "./utils/plugins/runtime/PluginManager";
@@ -165,7 +177,8 @@ export let USER_CONFIG_FILE;
 export let PLUGINS_REGISTRY_FILE;
 
 export const AppMetrics = [];
-export const MAX_METRICS = 86400;
+export const MAX_METRICS = 300; // Five minutes of full-resolution live samples.
+let runtimeMetricsTimer, observabilityHandlers;
 
 let actionInProgress = false;
 let SIGNAL_FILE;
@@ -433,7 +446,7 @@ sign
         actionInProgress = true;
         console.log(styleText('bold', '📜 Available certificates:'));
         try {
-            const certificates = settings.get('certificates.root') || []
+            const certificates = certificateStorage.list('root')
             for (const cert of certificates) {
                 console.log(`  - ${cert.label} (${cert.id})`);
             }
@@ -535,6 +548,7 @@ if (hasCommand && (isTerminalLaunch || app.isPackaged)) {
     const commanderArgv = [process.argv[0], 'fdo', ...cliArgs];
     
     debugLog(`[MAIN] Commander argv: ${JSON.stringify(commanderArgv)}`);
+    await app.whenReady();
     await program.parseAsync(commanderArgv);
     debugLog('[MAIN] CLI parsing complete');
     
@@ -722,6 +736,18 @@ const createWindow = async () => {
 
 app.whenReady().then(async () => {
     debugLog('[MAIN] app.whenReady() fired!');
+    try {initializeCertificateStorage();}
+    catch (error) {
+        dialog.showErrorBox('Could not open certificate storage', `${error.message}\nExisting certificates have been preserved. FDO will close so you can resolve the problem and retry.`);
+        app.exit(1);
+        return;
+    }
+
+    try {await initializeObservabilityStorage();}
+    catch (error) {
+        dialog.showErrorBox('Could not open observability storage', `${error.message}\nExisting data has been preserved. Resolve the problem and restart FDO.`);
+        app.exit(1); return;
+    }
 
     protocol.handle("static", async (req) => {
         try {
@@ -792,16 +818,18 @@ app.whenReady().then(async () => {
             console.error('[PLUGIN PROTOCOL] Error:', err.message, 'for URL:', request.url);
             if (err.code === 'ENOENT') {
                 NotificationCenter.addNotification({
-                    title: `Plugin loading`,
-                    message: `Plugin file not found: ${request.url}`,
+                    source: "plugins", title: "A plugin interface file is missing",
+                    message: "FDO could not load part of a plugin interface. Reopen the plugin; if it still fails, review its installation in Manage Plugins.",
+                    details: `Resource: ${request.url}`, groupKey: "plugin-host-resource",
                     type: 'warning'
                 });
                 return new Response('File not found', { status: 404 });
             }
 
             NotificationCenter.addNotification({
-                title: `Plugin loading`,
-                message: `Unexpected error in plugin protocol handler: ${err.message}`,
+                source: "plugins", title: "A plugin interface could not be loaded",
+                message: "FDO could not read a plugin interface resource. Reopen the plugin or review file access and disk space.",
+                details: err.message, groupKey: "plugin-host-resource",
                 type: 'warning'
             });
             return new Response('Internal error', { status: 500 });
@@ -916,64 +944,93 @@ app.whenReady().then(async () => {
         dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
     })
 
-    setInterval(() => {
-        const metrics = app.getAppMetrics();
-        AppMetrics.push({date: Date.now(), metrics});
-
-        if (AppMetrics.length > MAX_METRICS) {
-            AppMetrics.shift();
+    let lastPersistedRuntime = 0;
+    const runtimeSessionId = crypto.randomUUID();
+    runtimeMetricsTimer = setInterval(() => {
+        const metrics = app.getAppMetrics(), date = Date.now();
+        AppMetrics.push({date, metrics});
+        if (AppMetrics.length > MAX_METRICS) AppMetrics.shift();
+        if (date - lastPersistedRuntime >= 10000) {
+            lastPersistedRuntime = date;
+            const pluginsByPid = new Map(Object.entries(PluginManager.loadedPlugins || {}).map(([id, plugin]) => [plugin.instance?.pid, id]));
+            recordRuntimeSamples({createdAt: date, sessionId: runtimeSessionId, metrics: metrics.map(metric => ({
+                pluginId: pluginsByPid.get(metric.pid) || (metric.name?.startsWith('plugin-') ? metric.name.slice(7) : null),
+                metric: {pid: metric.pid, type: metric.type, name: metric.name || '', cpu: metric.cpu, memory: metric.memory},
+            }))});
         }
     }, 1000);
 
     registerNotificationHandlers();
     registerSettingsHandlers();
+    const gitops = registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainWindow: () => PluginManager.mainWindow,
+        sync: async ({source, secret, pluginName, pruneOnly}) => {
+            const {updatedPlugins, ...result} = await syncCollection({source, secret, pluginName, pruneOnly, pluginsDir: PLUGINS_DIR, registryFile: PLUGINS_REGISTRY_FILE,
+                fetchPlugin: readPluginRepository, build: buildUsingEsbuild, normalizeMetadata: normalizeAndValidatePluginMetadata,
+                sign: (home, label) => Certs.signPlugin(home, label), verifySignature: home => Certs.verifyPlugin(home), runtime: PluginManager,
+                activatedIds: () => new UserORM(USER_CONFIG_FILE).getActivatedPlugins(),
+                removeActivated: ids => {
+                    if (!ids.length) return;
+                    const user = new UserORM(USER_CONFIG_FILE);
+                    user.set('config', {...user.get('config'), plugins: user.getActivatedPlugins().filter(id => !ids.includes(id))});
+                }});
+            for (const plugin of updatedPlugins) {
+                // NotificationCenter reports storage failures independently of a successful plugin update.
+                void NotificationCenter.addNotification({
+                    title: `${pluginDisplayName(new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(plugin.id), plugin.name)} updated via GitOps`, type: 'success', source: 'gitops',
+                    message: `Version ${plugin.version} is installed.${plugin.reloaded ? ' The running plugin was restarted with the update.' : ' Its activation state was preserved.'}`,
+                    details: `Collection: ${source.manifest?.metadata?.displayName || source.manifest?.metadata?.name || source.url}\nVersion: ${plugin.version}\nRevision: ${plugin.targetRevision}\nCommit: ${plugin.commit}\nRepository: ${plugin.repository}`,
+                    actions: [{kind: 'view-plugin', pluginId: plugin.id}, {kind: 'view-gitops', repositoryId: source.id},
+                        {kind: 'open-repository', url: plugin.repository}],
+                });
+            }
+            return result;
+        },
+        detach: id => detachCollection(PLUGINS_REGISTRY_FILE, id),
+        report: notification => NotificationCenter.addNotification(notification),
+        notify: () => {
+            const window = PluginManager.mainWindow;
+            if (!window || window.isDestroyed()) return;
+            window.webContents.send(SettingsChannels.gitops.UPDATED);
+        },
+    });
+    app.once('before-quit', () => gitops.stop());
     registerSystemHandlers();
     registerPluginHandlers();
-    registerAiUsageHandlers();
+    await registerAiUsageHandlers();
+    observabilityHandlers = registerObservabilityHandlers({ipcMain});
     registerAiChatHandlers();
     registerAiCodingAgentHandlers();
     registerAiCodingActivityHandlers({rendererUrl: MAIN_WINDOW_WEBPACK_ENTRY});
 
     const skipE2ECertBootstrap = process.env.FDO_E2E === "1" && process.env.FDO_E2E_MULTI_INSTANCE === "1";
     if (!skipE2ECertBootstrap) {
-        const allRoots = settings.get('certificates.root') || [];
+        const allRoots = certificateStorage.list('root');
         const rootCert = allRoots.find(cert =>
             cert.label === 'root' &&
             cert.cert &&
-            cert.key
+            cert.hasPrivateKey
         );
 
         if (rootCert) {
             const days = Certs.daysUntilExpiry(rootCert.cert);
 
             if (days < Certs.EXPIRY_THRESHOLD_DAYS) {
-                NotificationCenter.addNotification({
-                    title: `FDO Root Certificate`,
-                    message: `⚠️ Expiring in ${Math.floor(days)} days. Regenerating...`,
-                    type: 'warning'
-                });
                 try {
                     await Certs.generateRootCA('root', true);
                 } catch (e) {
                     log.warn('❌ Failed to regenerate "FDO Root Certificate":', e);
+                    NotificationCenter.addNotification(failureNotification({source: 'security', title: 'The default signing certificate could not be renewed', message: 'FDO could not prepare its signing identity. Unlock your OS credential store or check disk access, then restart FDO.', error: e, actions: [{kind: 'view-settings', tab: 'certificates'}]}));
+                    dialog.showErrorBox('Could not renew the signing certificate', e.message);
                     app.quit();
                 }
-            } else {
-                NotificationCenter.addNotification({
-                    title: `FDO Root Certificate`,
-                    message: `✔ Valid for ${Math.floor(days)} more days.`
-                });
             }
         } else {
-            NotificationCenter.addNotification({
-                title: `FDO Root Certificate`,
-                message: `❌ Not found. Generating new...`,
-                type: 'warning'
-            });
             try {
                 await Certs.generateRootCA('root');
             } catch (e) {
                 log.warn('❌ Failed to generate "FDO Root Certificate":', e);
+                NotificationCenter.addNotification(failureNotification({source: 'security', title: 'The default signing certificate could not be created', message: 'FDO could not prepare its signing identity. Unlock your OS credential store or check disk access, then restart FDO.', error: e, actions: [{kind: 'view-settings', tab: 'certificates'}]}));
+                dialog.showErrorBox('Could not create the signing certificate', e.message);
                 app.quit();
             }
         }
@@ -986,6 +1043,7 @@ app.whenReady().then(async () => {
     PluginManager.setUserConfigFile(USER_CONFIG_FILE)
     PluginManager.setPluginsRegistryFile(PLUGINS_REGISTRY_FILE)
     await PluginManager.loadPlugins()
+    gitops.start();
 });
 
 // Quit when all windows are closed, except on macOS. There, it's common
@@ -1009,13 +1067,18 @@ app.on('before-quit', () => {
 
 app.on("will-quit", (event) => {
     recordE2EWindowLifecycle("app-will-quit");
+    if (storageDrained) closeCertificateStorage();
     // Windows can cancel quitting (for example, an unsaved editor). Keep the
     // stores usable until every window has accepted closing.
     if (!storageDrained) {
         event.preventDefault();
         if (storageDrainStarted) return;
         storageDrainStarted = true;
-        Promise.allSettled([closeNotificationStorage(), closeChatStorage()]).then(results => {
+        clearInterval(runtimeMetricsTimer);
+        Promise.resolve(observabilityHandlers?.stop()).then(async () => {
+            try {await usageLedger.flush();} catch (error) {console.error('Usage persistence failed:', error.message);}
+            return Promise.allSettled([closeNotificationStorage(), closeChatStorage(), closeObservabilityStorage()]);
+        }).then(results => {
             for (const result of results) if (result.status === 'rejected') console.error('Storage shutdown failed:', result.reason);
         })
             .finally(() => { storageDrained = true; app.quit(); });

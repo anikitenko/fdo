@@ -112,3 +112,12 @@ test('Cursor charges normalized cache categories without billing reasoning a sec
         .toMatchObject({status: 'estimated', inputCost: .00279, outputCost: .001, totalCost: .00379});
     expect(estimateCost({provider: 'cursor', model: 'unpriced', usage: {input_tokens: 10, output_tokens: 1}})).toMatchObject({status: 'unknown'});
 });
+
+test('a successful unrelated save cannot hide an asynchronous accounting failure', async () => {
+    const ledger = new UsageLedger({save: (_entries, _rates, entry) => entry ? Promise.reject(new Error('Disk full')) : Promise.resolve()});
+    ledger.begin('openai', 'test-model');
+    await expect(ledger.flush()).rejects.toThrow('could not be saved');
+    ledger.changed();
+    await expect(ledger.flush()).rejects.toThrow('could not be saved');
+    expect(ledger.snapshot().persistenceError).toBe(true);
+});

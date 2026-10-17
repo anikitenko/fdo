@@ -8,7 +8,7 @@ const {openChatDatabase} = require('../../src/utils/persistence/chatDatabase.cjs
 test.each(['notification', 'chat'])('%s worker commits queued writes before acknowledging close', async kind => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-notification-worker-'));
     const filename = path.join(directory, 'notifications.sqlite');
-    const worker = new Worker(path.resolve(`src/utils/persistence/${kind}Worker.cjs`), {workerData: {filename, legacy: []}});
+    const worker = new Worker(path.resolve(`src/utils/persistence/${kind}Worker.cjs`), {workerData: {filename}});
     const messages = [];
     const exited = new Promise((resolve, reject) => {
         worker.on('message', message => messages.push(message));

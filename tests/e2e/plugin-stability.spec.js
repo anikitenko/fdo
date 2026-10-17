@@ -64,7 +64,7 @@ async function installSignedE2EPlugin(window, options = {}) {
   await window.evaluate(async () => {
     const hasRootWithKey = async () => {
       const roots = await window.electron.settings.certificates.getRoot();
-      return (roots || []).some((item) => item?.label === 'root' && item?.key);
+      return (roots || []).some((item) => item?.label === 'root' && item?.hasPrivateKey);
     };
 
     if (!(await hasRootWithKey())) {
@@ -72,7 +72,7 @@ async function installSignedE2EPlugin(window, options = {}) {
       const beforeIds = new Set((before || []).map((item) => item?.id).filter(Boolean));
       await window.electron.settings.certificates.create().catch(() => {});
       const after = await window.electron.settings.certificates.getRoot();
-      const created = (after || []).find((item) => item?.id && !beforeIds.has(item.id) && item?.key);
+      const created = (after || []).find((item) => item?.id && !beforeIds.has(item.id) && item?.hasPrivateKey);
       if (created?.id && created?.label !== 'root') {
         await window.electron.settings.certificates.rename(created.id, 'root').catch(() => {});
       }

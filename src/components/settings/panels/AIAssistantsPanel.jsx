@@ -1,3 +1,4 @@
+import {operationError} from '../../../utils/desktop/notificationContent';
 import React, { useState, useEffect } from "react";
 import {
     Button,
@@ -237,9 +238,13 @@ export default function AIAssistantsPanel() {
     }, [codexAuthDialog.open, codexAuthDialog.assistant?.id, codexAuthDialog.assistant?.codexAuth?.status]);
 
     const handleAdd = async () => {
+        const validationError = !form.name.trim() ? "Assistant name is required."
+            : !["codex-cli", "gemini-cli", "ollama"].includes(form.provider) && !form.apiKey.trim() ? "API key is required." : "";
+        if (validationError) {
+            AppToaster.show({message: validationError, intent: "danger"});
+            return;
+        }
         try {
-            if (!form.name.trim()) throw new Error("Assistant name is required.");
-            if (!["codex-cli", "gemini-cli", "ollama"].includes(form.provider) && !form.apiKey.trim()) throw new Error("API key is required.");
             setIsLoading(true);
             const {baseUrl, contextLength, accountId, firstResponseTimeoutMs, executablePath, ...assistantForm} = form;
             const nextForm = {
@@ -304,7 +309,7 @@ export default function AIAssistantsPanel() {
                 firstResponseTimeoutMs: "",
             });
         } catch (err) {
-            AppToaster.show({ message: err.message, intent: "danger" });
+            AppToaster.show({ message: operationError("Could not add the AI assistant", err, "Review the assistant configuration and try again."), intent: "danger" });
         } finally {
             setIsLoading(false);
         }
@@ -316,7 +321,7 @@ export default function AIAssistantsPanel() {
             const list = await window.electron.settings.ai.getAssistants();
             setAssistants(list);
         } catch (err) {
-            AppToaster.show({ message: err.message, intent: "danger" });
+            AppToaster.show({ message: operationError("Could not change the default AI assistant", err, "Review the assistant configuration and try again."), intent: "danger" });
         }
     };
 
@@ -325,9 +330,9 @@ export default function AIAssistantsPanel() {
             await window.electron.settings.ai.removeAssistant(data);
             const list = await window.electron.settings.ai.getAssistants();
             setAssistants(list);
-            AppToaster.show({ message: `AI Assistant “${data.name}” removed.`, intent: "warning" });
+            AppToaster.show({ message: `AI Assistant “${data.name}” removed.`, intent: "success" });
         } catch (err) {
-            AppToaster.show({ message: err.message, intent: "danger" });
+            AppToaster.show({ message: operationError("Could not remove the AI assistant", err, "Review the assistant configuration and try again."), intent: "danger" });
         }
     };
 
@@ -384,7 +389,7 @@ export default function AIAssistantsPanel() {
             }));
         } catch (err) {
             setCodexAuthDialog((prev) => ({ ...prev, loading: false, action: "" }));
-            AppToaster.show({ message: err.message, intent: "danger" });
+            AppToaster.show({ message: operationError("Could not complete AI provider sign-in", err, "Review the assistant configuration and try again."), intent: "danger" });
         }
     };
 
@@ -459,7 +464,6 @@ export default function AIAssistantsPanel() {
         codexAuthDialog.action === "login" ? `Signing in to ${authProviderLabel}...` :
             codexAuthDialog.action === "logout" ? `Signing out of ${authProviderLabel}...` :
                 codexAuthDialog.action === "check" ? `Checking ${authProviderLabel} auth...` : "";
-    const codexCanSignIn = !codexAuthDialog.loading && !["authorized", "pending"].includes(codexAuthStatus);
     const codexCanPrimaryAction = !codexAuthDialog.loading && codexAuthStatus !== "pending";
     const codexCanSignOut = !codexAuthDialog.loading && ["authorized", "error"].includes(codexAuthStatus);
     const codexCanCheck = !codexAuthDialog.loading;
@@ -498,7 +502,7 @@ export default function AIAssistantsPanel() {
                                     variant={"minimal"}
                                     intent="danger"
                                     style={{ float: "right" }}
-                                    onClick={(e) => { e.stopPropagation(); handleDelete({name: a.name, purpose: a.purpose, id: a.id}); }}
+                                    onClick={(e) => { e.stopPropagation(); void handleDelete({name: a.name, purpose: a.purpose, id: a.id}); }}
                                 />
                             </div>
                             <p>
@@ -561,7 +565,7 @@ export default function AIAssistantsPanel() {
                                     {["codex-cli", "gemini-cli"].includes(a.provider) ? (
                                         <div className={styles["assistant-card-actions"]}>
                                             <Button
-                                                small
+                                                size="small"
                                                 text="Manage Auth"
                                                 icon="key"
                                                 onClick={(e) => {
@@ -840,7 +844,7 @@ export default function AIAssistantsPanel() {
                                     AppToaster.show({ message: `${authProviderLabel} is ready to use in AI Coding Agent.`, intent: "success" });
                                     return;
                                 }
-                                runCodexAuthAction("login");
+                                void runCodexAuthAction("login");
                             }}
                             loading={codexAuthDialog.loading && codexAuthDialog.action === "login"}
                             disabled={!codexCanPrimaryAction}

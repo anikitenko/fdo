@@ -2,12 +2,15 @@
  * Startup Metrics Module
  * 
  * Tracks application launch performance from process start to interactive UI.
- * Logs metrics to both console (developer feedback) and file (historical analysis).
+ * Logs timings to console and stores historical diagnostics in SQLite.
  * 
  * Based on specs/001-app-loading-improvement/data-model.md
  */
 
 import fs from 'fs';
+import {createInterface} from 'node:readline';
+import {createHash} from 'node:crypto';
+import {initializeObservabilityStorage, recordStartupEvent, importStartupEvents, flushObservability} from '../persistence/observabilityStorage';
 import path from 'path';
 import { app } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,7 +20,6 @@ import { hasCliOnlyCommand, getCleanCliArgs } from './cliCommands.js';
 let startTime = null;
 let lastEventTime = null;
 let sessionId = null;
-let logFilePath = null;
 let appVersion = null;
 let electronVersion = null;
 let logBuffer = []; // Buffer for logs before file system is ready
@@ -45,7 +47,7 @@ function initMetrics() {
   
   // Set up file logging when app is ready
   if (app.isReady()) {
-    setupLogging();
+    void setupLogging();
   } else {
     app.whenReady().then(setupLogging);
   }
@@ -57,31 +59,36 @@ function initMetrics() {
  * Set up logging infrastructure after app is ready
  * @private
  */
-function setupLogging() {
+async function setupLogging() {
   try {
-    // Now we can safely get app paths
     appVersion = app.getVersion();
-    
-    const userDataPath = app.getPath('userData');
-    const logsDir = path.join(userDataPath, 'logs');
-    logFilePath = path.join(logsDir, 'startup.log');
-    
-    // Ensure logs directory exists
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-    
-    isReady = true;
-    
-    // Flush buffered logs to file
-    if (logBuffer.length > 0) {
-      for (const entry of logBuffer) {
-        writeLogEntry(entry);
+    await initializeObservabilityStorage();
+    const legacyPath = path.join(app.getPath('userData'), 'logs', 'startup.log');
+    if (fs.existsSync(legacyPath)) {
+      const createdAt = fs.statSync(legacyPath).mtimeMs;
+      const lines = createInterface({input: fs.createReadStream(legacyPath), crlfDelay: Infinity});
+      let batch = [], index = 0;
+      for await (const line of lines) {
+        if (!line.trim()) continue;
+        const entry = JSON.parse(line);
+        const id = createHash('sha256').update(`${index++}:${line}`).digest('hex');
+        batch.push({id, entry, createdAt});
+        if (batch.length >= 100) {await importStartupEvents(batch); batch = [];}
       }
-      logBuffer = [];
+      if (batch.length) await importStartupEvents(batch);
+      // Old logs lack wall-clock dates; imported events retain this marker and file date.
+      fs.unlinkSync(legacyPath);
     }
+    isReady = true;
+    for (const entry of logBuffer) writeLogEntry(entry);
+    logBuffer = [];
+    await flushObservability();
   } catch (error) {
-    console.error('[STARTUP] Failed to setup logging:', error.message);
+    console.error('[STARTUP] Could not import old diagnostic history:', error.message);
+    // A damaged old log must not prevent new startup timings from being saved.
+    isReady = true;
+    for (const entry of logBuffer) writeLogEntry(entry);
+    logBuffer = [];
   }
 }
 
@@ -110,6 +117,7 @@ function logMetric(event, metadata = {}) {
   // Build log entry
   const entry = {
     event,
+    createdAt: Date.now(),
     timestamp: now.toString(),
     elapsed: `${elapsed}ms`,
     delta: `${delta}ms`,
@@ -143,7 +151,7 @@ function logMetric(event, metadata = {}) {
   if (!isCliOnlyMode) {
     const slowFlag = entry.slow ? ' ⚠️ SLOW' : '';
     const memFlag = entry.memoryWarning ? ' 🔥 HIGH MEMORY' : '';
-    console.log(`[STARTUP${slowFlag}${memFlag}] ${event}: ${elapsed}ms (Δ${delta}ms) [MEM: ${formatMemory(resources.memory.rss)}, CPU: ${resources.cpu.toFixed(1)}%]`, metadata);
+    console.log(`[STARTUP${slowFlag}${memFlag}] ${event}: ${elapsed}ms (Δ${delta}ms) [MEM: ${formatMemory(resources.memory.rss)}, CPU: ${resources.cpu.toFixed(1)}%]`);
   }
   
   // File output (asynchronous, non-blocking)
@@ -267,10 +275,11 @@ function isSlowStartup() {
  * @param {object} context - Additional context about the error
  */
 function logStartupError(phase, error, context = {}) {
-  console.error(`[STARTUP ERROR] ${phase}:`, error.message, context);
+  console.error(`[STARTUP ERROR] ${phase}. Details are stored in encrypted diagnostics.`);
   
   const entry = {
     event: `error:${phase}`,
+    createdAt: Date.now(),
     timestamp: process.hrtime.bigint().toString(),
     elapsed: `${getElapsedTime()}ms`,
     error: {
@@ -315,35 +324,13 @@ function checkSlowStartupWarning(phase) {
 }
 
 /**
- * Write log entry to file asynchronously
+ * Queue an event for encrypted SQLite persistence
  * 
  * @param {object} entry - Log entry object
  */
 function writeLogEntry(entry) {
-  // Buffer logs until file system is ready
-  if (!isReady || !logFilePath) {
-    logBuffer.push(entry);
-    return;
-  }
-  
-  // Convert to NDJSON format (newline-delimited JSON)
-  const line = JSON.stringify(entry) + '\n';
-  
-  // Async append (non-blocking)
-  fs.appendFile(logFilePath, line, 'utf-8', (err) => {
-    if (err) {
-      console.error('[STARTUP] Failed to write log:', err.message);
-    }
-  });
-}
-
-/**
- * Get the log file path
- * 
- * @returns {string|null} Path to startup.log file
- */
-function getLogFilePath() {
-  return logFilePath;
+  if (!isReady) {logBuffer.push(entry); return;}
+  recordStartupEvent(entry).catch(() => console.error('[STARTUP] Could not save diagnostic event.'));
 }
 
 /**
@@ -363,7 +350,6 @@ export {
   isSlowStartup,
   logStartupError,
   checkSlowStartupWarning,
-  getLogFilePath,
   getSessionId
 };
 

@@ -1,6 +1,8 @@
-import {Button, Callout, H5} from '@blueprintjs/core';
-import {formatDistanceToNow} from 'date-fns';
-import {memo, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {Button, Callout, H5, Tag, Tooltip} from '@blueprintjs/core';
+import {formatDistance} from 'date-fns';
+import {memo, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {notificationSource} from '../utils/desktop/notificationModel';
+import {SOURCE_LABELS} from './NotificationPreferences';
 import PropTypes from 'prop-types';
 import * as styles from './css/NotificationsPanel.module.css';
 
@@ -18,23 +20,68 @@ function rowAt(offsets, position) {
     return Math.min(low, Math.max(0, offsets.length - 2));
 }
 
-const NotificationItem = memo(function NotificationItem({notification}) {
-    return <Callout intent={notification.type} className={styles.callout}>
+const ACTION_LABELS = {'view-plugin': 'View plugin', 'manage-plugin': 'Manage plugin', 'open-plugin-logs': 'Open plugin logs', 'view-settings': 'Open settings', 'view-gitops': 'View GitOps repository', 'open-repository': 'Open repository', 'retry-gitops': 'Retry'};
+const NotificationItem = memo(function NotificationItem({notification, expanded, onExpand, onDismiss, onAction, onError, now}) {
+    const [busy, setBusy] = useState(false);
+    const perform = async action => {
+        onError?.('');
+        setBusy(true);
+        try {await action();}
+        catch (reason) {onError?.(reason.message || 'Could not complete this action. Please try again.');}
+        finally {setBusy(false);}
+    };
+    const timestamp = notification.lastOccurredAt || notification.createdAt;
+    const date = new Date(timestamp);
+    const summary = notification.summary || (notification.message.length > 220 ? `${notification.message.slice(0, 180)}…` : notification.message);
+    const details = notification.details || (summary !== notification.message ? notification.message : '');
+    return <Callout intent={notification.status === 'resolved' ? 'success' : notification.type} className={styles.callout}>
         <H5 className={styles.titleRow}>
             <span className={!notification.read ? styles.unreadTitle : undefined}>
-                {notification.title} <span className={`bp6-text-small bp6-text-muted bp6-running-text ${styles.timestamp}`}>
-                    {formatDistanceToNow(new Date(notification.createdAt), {addSuffix: true})}
-                </span>
+                {notification.title} <time dateTime={timestamp} title={Number.isFinite(date.getTime()) ? date.toLocaleString() : undefined}
+                    className={`bp6-text-small bp6-text-muted bp6-running-text ${styles.timestamp}`}>
+                    {Number.isFinite(date.getTime()) ? formatDistance(date, new Date(now), {addSuffix: true}) : 'Time unavailable'}
+                </time>
             </span>
+            <div className={styles.itemControls}>
+            <Tooltip content={notification.read ? 'Mark as unread' : 'Mark as read'}>
+                <Button icon={notification.read ? 'envelope' : 'dot'} variant="minimal" size="small"
+                    aria-label={`${notification.read ? 'Mark unread' : 'Mark read'}: ${notification.title}`}
+                    className={!notification.read ? styles.unreadControl : undefined} disabled={busy}
+                    onClick={() => perform(() => notification.read ? window.electron.notifications.markAsUnread(notification.id) : window.electron.notifications.markAsRead(notification.id))}/>
+            </Tooltip>
             <Button icon="cross" variant="minimal" size="small" aria-label={`Dismiss ${notification.title}`}
-                    onClick={() => window.electron.notifications.remove(notification.id)}/>
+                    disabled={busy} onClick={() => onDismiss(notification.id)}/>
+            </div>
         </H5>
-        {notification.message}
+        <div className={styles.cardMeta}><Tag variant="minimal">{SOURCE_LABELS[notificationSource(notification)]}</Tag>
+            {!notification.read && <Tag variant="minimal" intent="primary">Unread</Tag>}
+            {notification.status === 'resolved' && <Tag variant="minimal" intent="success">Resolved</Tag>}
+            {notification.occurrences > 1 && <Tag variant="minimal">{notification.occurrences} occurrences</Tag>}
+        </div>
+        {summary && <p className={styles.summary}>{summary}</p>}
+        {details && <><Button size="small" variant="minimal" icon={expanded ? 'chevron-up' : 'chevron-down'} aria-expanded={expanded} onClick={onExpand}>
+            {expanded ? 'Hide details' : 'Show details'}</Button>
+            {expanded && <pre className={styles.details}>{details}</pre>}</>}
+        {!!notification.actions?.length && <div className={styles.cardActions}>
+            {(notification.actions || []).filter(action => ACTION_LABELS[action.kind] && !(action.kind === 'retry-gitops' && notification.status === 'resolved')).map((action, index) =>
+                <Button key={index} size="small" variant="outlined" disabled={busy || !onAction} loading={busy} onClick={() => perform(() => onAction(action, notification))}>{ACTION_LABELS[action.kind]}</Button>)}
+        </div>}
     </Callout>;
 });
 NotificationItem.propTypes = {notification: PropTypes.object.isRequired};
 
-export function NotificationList({notifications}) {
+export function NotificationList({notifications, onDismiss, onAction, onError, focusRequest}) {
+    const [expanded, setExpanded] = useState({});
+    const [highlight, setHighlight] = useState(null);
+    const handledFocusRef = useRef(null);
+    useEffect(() => {
+        if (!highlight) return;
+        const timer = setTimeout(() => setHighlight(null), 3500);
+        return () => clearTimeout(timer);
+    }, [highlight]);
+    const [, setTime] = useState(0);
+    const now = Date.now();
+    useEffect(() => {const timer = setInterval(() => setTime(value => value + 1), 60000); return () => clearInterval(timer);}, []);
     const scrollerRef = useRef(/** @type {HTMLDivElement | null} */ (null));
     const geometryRef = useRef(null);
     const widthRef = useRef(null);
@@ -73,6 +120,23 @@ export function NotificationList({notifications}) {
     }, [geometry, offsets]);
 
     useLayoutEffect(() => {
+        if (!focusRequest?.notificationId || handledFocusRef.current === focusRequest) return;
+        const index = geometry.indices.get(focusRequest.notificationId);
+        if (index === undefined) return;
+        const scroller = scrollerRef.current;
+        const row = [...scroller.querySelectorAll('[data-notification-id]')].find(node => node.dataset.notificationId === focusRequest.notificationId);
+        if (!row) {
+            scroller.scrollTop = offsets[index];
+            setViewport(previous => ({...previous, top: scroller.scrollTop}));
+            return;
+        }
+        row.scrollIntoView({block: 'nearest'});
+        row.focus({preventScroll: true});
+        handledFocusRef.current = focusRequest;
+        setHighlight(focusRequest);
+    }, [focusRequest, geometry, offsets, start, end]);
+
+    useLayoutEffect(() => {
         const scroller = scrollerRef.current;
         const rows = Array.from(scroller.querySelectorAll('[data-notification-id]'));
         const measure = () => {
@@ -109,13 +173,17 @@ export function NotificationList({notifications}) {
                     setViewport(previous => previous.top === top && previous.height === height ? previous : {top, height: height || previous.height});
                 }}>
         <div className={styles.virtualContent} style={{height: offsets[notifications.length]}}>
-            {notifications.slice(start, end).map((notification, index) => <div key={notification.id}
+            {notifications.slice(start, end).map((notification, index) => <div key={`${notification.id}:${focusRequest?.notificationId === notification.id ? focusRequest.requestId : ''}`}
                 role="listitem" aria-posinset={start + index + 1} aria-setsize={notifications.length}
-                data-notification-id={notification.id} className={styles.virtualRow}
+                tabIndex={-1} data-notification-id={notification.id}
+                data-notification-highlighted={highlight?.notificationId === notification.id ? 'true' : undefined}
+                className={`${styles.virtualRow} ${highlight?.notificationId === notification.id ? styles.focusedRow : ''}`}
                 style={{top: offsets[start + index]}}>
-                <NotificationItem notification={notification}/>
+                <NotificationItem notification={notification} now={now} expanded={!!expanded[notification.id]}
+                    onExpand={() => setExpanded(previous => ({...previous, [notification.id]: !previous[notification.id]}))}
+                    onDismiss={onDismiss} onAction={onAction} onError={onError}/>
             </div>)}
         </div>
     </div>;
 }
-NotificationList.propTypes = {notifications: PropTypes.array.isRequired};
+NotificationList.propTypes = {notifications: PropTypes.array.isRequired, onDismiss: PropTypes.func, onAction: PropTypes.func, onError: PropTypes.func};

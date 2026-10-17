@@ -1,3 +1,4 @@
+import {pluginDisplayName, operationError} from './utils/desktop/notificationContent';
 import {subscribePluginEvent} from './utils/plugins/runtime/subscribePluginEvent';
 import React, {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react'
 import classNames from "classnames";
@@ -589,18 +590,31 @@ export const Home = () => {
     });
     const [showCommandSearch, setShowCommandSearch] = useState(false)
     const [notifications, setNotifications] = useState([]);
+    const unreadNotificationCount = notifications.filter(item => !item.read).length;
     const [pluginReadiness, setPluginReadiness] = useState(new Map());
     const [pluginInitStatus, setPluginInitStatus] = useState(new Map());
     const restorePluginUiActions = useRef(null);
     const [pluginRuntimeStatuses, setPluginRuntimeStatuses] = useState(new Map());
     const [pluginRenderEpochs, setPluginRenderEpochs] = useState(new Map());
     const [sideBarActionItems, setSideBarActionItems] = useState([
-        {id: "system-notifications", icon: "notifications", name: "Notifications", notifications},
         {id: "system-settings", icon: "settings", name: "Settings"},
         {id: "system-ai-chat", icon: "chat", name: "Chat with AI Assistant"},
     ])
     const [notificationsShow, setNotificationsShow] = useState(false)
+    const notificationsOpenRef = useRef(false);
+    const notificationToastKeysRef = useRef(new Set());
+    notificationsOpenRef.current = notificationsShow;
+    useEffect(() => {
+        if (!notificationsShow) {setNotificationFocusRequest(null); return;}
+        void Promise.resolve(AppToaster).then(toaster => {
+            for (const key of notificationToastKeysRef.current) toaster.dismiss(key);
+            notificationToastKeysRef.current.clear();
+        });
+    }, [notificationsShow]);
     const [showSettingsDialog, setShowSettingsDialog] = useState(false)
+    const [notificationPluginRequest, setNotificationPluginRequest] = useState(null);
+    const [settingsNavigation, setSettingsNavigation] = useState(null);
+    const [notificationFocusRequest, setNotificationFocusRequest] = useState(null);
     const [showAiChatDialog, setShowAiChatDialog] = useState(false)
     const [capabilityFocusRequest, setCapabilityFocusRequest] = useState(null);
     const [capabilityDeniedNotice, setCapabilityDeniedNotice] = useState({
@@ -905,8 +919,7 @@ export const Home = () => {
             return "Active plugin";
         }
         const pluginRecord = (stateRef.current?.plugins || []).find((item) => item?.id === resolvedId);
-        const name = String(pluginRecord?.name || "").trim();
-        return name || resolvedId;
+        return pluginDisplayName(pluginRecord || {id: resolvedId});
     }, []);
 
     const openPrivilegedAuditDialog = useCallback(async (pluginId) => {
@@ -1223,11 +1236,11 @@ export const Home = () => {
                     pluginIds.forEach((id) => expectedManualUnloadRef.current.delete(id));
                     // Find which plugins failed to deactivate
                     const failedPlugins = results
-                        .map((result, index) => !result.success ? pluginIds[index] : null)
+                        .map((result, index) => !result?.success ? pluginIds[index] : null)
                         .filter(Boolean);
 
                     (await AppToaster).show({
-                        message: `Error: Failed to deactivate plugins: ${failedPlugins.join(", ")}`,
+                        message: `Could not stop ${failedPlugins.map(getPluginDisplayName).join(", ")}. Review their logs in Manage Plugins and try again.`,
                         intent: "danger"
                     });
                 }
@@ -1238,7 +1251,7 @@ export const Home = () => {
             .catch(async () => {
                 pluginIds.forEach((id) => expectedManualUnloadRef.current.delete(id));
                 (await AppToaster).show({
-                    message: `Failed to deactivate plugins`,
+                    message: `Could not stop the active plugins. Review their logs in Manage Plugins and try again.`,
                     intent: "danger"
                 });
             });
@@ -1272,11 +1285,11 @@ export const Home = () => {
                     }
                 } else {
                     expectedManualUnloadRef.current.delete(plugin.id);
-                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
+                    (await AppToaster).show({message: operationError(`Could not stop ${pluginDisplayName(plugin)}`, result.error), intent: "danger"});
                 }
             } else {
                 expectedManualUnloadRef.current.delete(plugin.id);
-                (await AppToaster).show({message: `Failed to deactivate plugin`, intent: "danger"});
+                (await AppToaster).show({message: `Could not stop ${pluginDisplayName(plugin)}. Try again from Manage Plugins.`, intent: "danger"});
             }
         });
 
@@ -1357,11 +1370,11 @@ export const Home = () => {
                     }
                 } else {
                     pendingActivationStartedAtRef.current.delete(plugin.id);
-                    (await AppToaster).show({message: `Error: ${result.error}`, intent: "danger"});
+                    if (!result.notified) (await AppToaster).show({message: operationError(`Could not start ${pluginDisplayName(plugin)}`, result.error), intent: "danger"});
                 }
             } else {
                 pendingActivationStartedAtRef.current.delete(plugin.id);
-                (await AppToaster).show({message: `Failed to activate plugin`, intent: "danger"});
+                (await AppToaster).show({message: `Could not start ${pluginDisplayName(plugin)}. Try again from Manage Plugins.`, intent: "danger"});
             }
         });
     };
@@ -1559,12 +1572,40 @@ export const Home = () => {
             plugins: allPluginRecords,
             activePlugins: allPluginRecords.filter((plugin) => activatedIds.has(plugin.id)),
         }));
+        return allPluginRecords;
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        let knownPlugins;
+        let pending = Promise.resolve();
+        const unsubscribe = window.electron.settings?.gitops?.onUpdated?.(() => {
+            // Serialize status events so one installed version produces one notification and remount.
+            pending = pending.then(async () => {
+                if (cancelled) return;
+                const previous = knownPlugins || new Map(stateRef.current.plugins.map(plugin => [plugin.id, plugin.home]));
+                const records = await refreshPluginsState();
+                if (cancelled) return;
+                knownPlugins = new Map(records.map(plugin => [plugin.id, plugin.home]));
+                const updated = records.filter(plugin => previous.has(plugin.id) && previous.get(plugin.id) !== plugin.home);
+                if (updated.length) setPluginRenderEpochs(epochs => {
+                    const next = new Map(epochs);
+                    updated.forEach(plugin => next.set(plugin.id, (next.get(plugin.id) || 0) + 1));
+                    return next;
+                });
+                if (selectedPluginRef.current && !records.some(plugin => plugin.id === selectedPluginRef.current)) {
+                    selectedPluginRef.current = '';
+                    setPlugin('');
+                }
+            }).catch(() => {});
+        });
+        return () => {cancelled = true; unsubscribe?.();};
+    }, [refreshPluginsState]);
 
     useEffect(() => {
         if (pluginsInitialLoad.current) return;
         pluginsInitialLoad.current = true;
-        refreshPluginsState();
+        void refreshPluginsState();
 
     }, [refreshPluginsState]);
 
@@ -1572,7 +1613,7 @@ export const Home = () => {
     const activePluginsLoadingKey = state.activePlugins.map((item) => `${item.id}:${item.loading ? 1 : 0}`).join("|");
 
     useEffect(() => {
-        syncActivePluginLoadingState(state.activePlugins);
+        void syncActivePluginLoadingState(state.activePlugins);
     }, [activePluginIdsKey]);
 
     useEffect(() => {
@@ -1637,7 +1678,7 @@ export const Home = () => {
             }
         };
 
-        pollRuntimeStatus();
+        void pollRuntimeStatus();
 
         return () => {
             cancelled = true;
@@ -1675,7 +1716,7 @@ export const Home = () => {
             const result = await window.electron.system.openPluginLogs(pluginId);
             if (!result?.success) {
                 (await AppToaster).show({
-                    message: `Could not open logs folder: ${result?.error || "unknown error"}`,
+                    message: operationError(`Could not open logs for ${getPluginDisplayName(pluginId)}`, result?.error),
                     intent: "warning",
                 });
             }
@@ -1695,12 +1736,12 @@ export const Home = () => {
             try {
                 await navigator.clipboard.writeText(payload);
                 (await AppToaster).show({
-                    message: `${pluginId}: diagnostic report copied to clipboard.`,
+                    message: `${getPluginDisplayName(pluginId)}: diagnostic report copied to clipboard.`,
                     intent: "success",
                 });
             } catch (error) {
                 (await AppToaster).show({
-                    message: `${pluginId}: failed to copy report. ${error?.message || String(error)}`,
+                    message: `${getPluginDisplayName(pluginId)}: could not copy the diagnostic report. ${error?.message || String(error)}`,
                     intent: "warning",
                 });
             }
@@ -1714,7 +1755,7 @@ export const Home = () => {
             window.electron.plugin.activate(pluginId).then(async (result) => {
                 if (!result?.success) {
                     (await AppToaster).show({
-                        message: `${pluginId}: retry failed. ${result?.error || "unknown error"}`,
+                        message: `${getPluginDisplayName(pluginId)}: could not restart. ${result?.error || "unknown error"}`,
                         intent: "danger",
                     });
                     return;
@@ -1728,7 +1769,7 @@ export const Home = () => {
             timeout: 10000,
             message: (
                 <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
-                    <div>{pluginId}: {summary}</div>
+                    <div>{getPluginDisplayName(pluginId)}: {summary}</div>
                     <div style={{display: "flex", gap: "8px", flexWrap: "wrap"}}>
                         {canRetry && (
                             <Button size="small" variant="minimal" icon="refresh" onClick={retryPluginOpen}>
@@ -1825,12 +1866,7 @@ export const Home = () => {
                             fallbackIcon: resolvedSidePanelIcon.icon,
                             reason: resolvedSidePanelIcon.reason,
                         });
-                        Promise.resolve(AppToaster).then((toaster) => {
-                            toaster.show({
-                                intent: "warning",
-                                message: `${getPluginDisplayName(id)} uses unsupported side panel icon "${sidePanelActions.icon}". Fallback "${resolvedSidePanelIcon.icon}" was applied.`,
-                            });
-                        });
+
                     }
                 }
                 return [
@@ -1912,6 +1948,7 @@ export const Home = () => {
                     : (unloadedPluginEvent || {});
                 const unloadedPluginId = unloadedPlugin.id;
                 const reason = unloadedPlugin.reason || "unloaded";
+                if (reason === 'gitops_sync' || reason === 'gitops_rollback') return;
                 const wasSelectedPlugin = unloadedPluginId && unloadedPluginId === selectedPluginRef.current;
                 let isUnexpectedManualUnload = false;
                 pluginTrace("home.event.unloaded", {
@@ -2013,7 +2050,7 @@ export const Home = () => {
                         setSelectedPluginStatusMessage("");
                         return;
                     }
-                    await showPluginErrorToast({
+                    if (!unloadedPlugin.notificationReported) await showPluginErrorToast({
                         pluginId: unloadedPluginId,
                         reason,
                         details: unloadedPlugin.message,
@@ -2024,7 +2061,7 @@ export const Home = () => {
                     return;
                 }
                 if (reason !== "manual_unload" && unloadedPluginId) {
-                    await showPluginErrorToast({
+                    if (!unloadedPlugin.notificationReported) await showPluginErrorToast({
                         pluginId: unloadedPluginId,
                         reason,
                         details: unloadedPlugin.message,
@@ -2069,13 +2106,6 @@ export const Home = () => {
         const handleNotificationsUpdate = (_, updatedNotifications) => {
             setNotifications(updatedNotifications);
 
-            setSideBarActionItems(prev =>
-                prev.map(item =>
-                    item.id === "system-notifications"
-                        ? { ...item, notifications: updatedNotifications }
-                        : item
-                )
-            );
         };
 
         // Fetch initial notifications without the IPC event parameter
@@ -2084,11 +2114,68 @@ export const Home = () => {
         });
 
         window.electron.notifications.on.updated(handleNotificationsUpdate);
+        const unsubscribeAlerts = window.electron.notifications.onAlert?.(notification => {
+            if (notificationsOpenRef.current) return;
+            const key = `notification:${notification.id}`;
+            const body = notification.summary || notification.message || '';
+            const preview = body.length > 180 ? `${body.slice(0, 180)}…` : body;
+            notificationToastKeysRef.current.add(key);
+            void Promise.resolve(AppToaster).then(toaster => toaster.show({
+                icon: notification.source === 'gitops' ? 'git-repo' : 'notifications',
+                intent: notification.type || 'primary', timeout: 10000,
+                message: `${notification.title}${preview ? `. ${preview}` : ''}`,
+                action: {text: 'View', onClick: () => {
+                    setNotificationFocusRequest(previous => ({notificationId: notification.id, requestId: (previous?.requestId || 0) + 1}));
+                    setNotificationsShow(true);
+                }},
+                onDismiss: () => notificationToastKeysRef.current.delete(key),
+            }, key));
+        });
 
         return () => {
             window.electron.notifications.off.updated(handleNotificationsUpdate);
+            unsubscribeAlerts?.();
         };
     }, []);
+
+    const handleNotificationAction = async action => {
+        if (action.kind === 'view-settings') {
+            if (!['general', 'certificates', 'observability', 'ai', 'gitops'].includes(action.tab)) throw new Error('This settings page is unavailable.');
+            setNotificationsShow(false);
+            setSettingsNavigation({tab: action.tab, requestId: Date.now()});
+            setShowSettingsDialog(true);
+        } else if (action.kind === 'manage-plugin') {
+            if (!stateRef.current.plugins.some(item => item.id === action.pluginId)) throw new Error('This plugin is no longer installed.');
+            setNotificationsShow(false);
+            setNotificationPluginRequest({pluginId: action.pluginId, requestId: Date.now()});
+        } else if (action.kind === 'open-plugin-logs') {
+            const result = await window.electron.system.openPluginLogs(action.pluginId);
+            if (!result?.success) throw new Error(result?.error || 'Could not open the plugin logs folder.');
+        } else if (action.kind === 'view-plugin') {
+            const target = stateRef.current.plugins.find(item => item.id === action.pluginId);
+            if (!target) throw new Error('This plugin is no longer installed.');
+            setNotificationsShow(false);
+            if (stateRef.current.activePlugins.some(item => item.id === target.id)) handlePluginChange(target.id);
+            else setNotificationPluginRequest({pluginId: target.id, requestId: Date.now()});
+        } else if (action.kind === 'view-gitops') {
+            const result = await window.electron.settings.gitops.list();
+            if (!result.success || !result.repositories.some(item => item.id === action.repositoryId)) throw new Error('This repository subscription no longer exists.');
+            setNotificationsShow(false);
+            setSettingsNavigation({tab: 'gitops', repositoryId: action.repositoryId, requestId: Date.now()});
+            setShowSettingsDialog(true);
+        } else if (action.kind === 'open-repository') {
+            const url = new URL(action.url);
+            if (url.protocol !== 'https:' || url.username || url.password) throw new Error('This repository link is unavailable.');
+            await window.electron.system.openExternal(url.href);
+        } else if (action.kind === 'retry-gitops') {
+            const api = window.electron.settings.gitops;
+            const result = action.pluginName ? await api.syncPlugin(action.repositoryId, action.pluginName) : await api.sync(action.repositoryId);
+            if (!result.success) throw new Error(result.error || 'The repository check failed.');
+            const repository = result.repositories.find(item => item.id === action.repositoryId);
+            const error = action.pluginName ? repository?.pluginStatuses?.find(item => item.name === action.pluginName)?.error : repository?.syncError;
+            if (error) throw new Error(error);
+        } else throw new Error('This notification action is unavailable.');
+    };
 
     const handlePluginChange = (newPlugin, actionId = "") => {
         pluginTrace("home.handlePluginChange", {next: newPlugin || "", prev: selectedPluginRef.current || ""});
@@ -2108,12 +2195,12 @@ export const Home = () => {
             }
             return newPlugin;
         });
-        syncActivePluginLoadingState(state.activePlugins.filter((item) => item.id === newPlugin));
+        void syncActivePluginLoadingState(state.activePlugins.filter((item) => item.id === newPlugin));
 
         if (actionId === "plugin-audit") {
-            openPrivilegedAuditDialog(newPlugin);
+            void openPrivilegedAuditDialog(newPlugin);
         } else if (actionId === "plugin-validate") {
-            openRuntimeValidationDialog(newPlugin);
+            void openRuntimeValidationDialog(newPlugin);
         } else if (actionId === "plugin-capabilities") {
             setCapabilityFocusRequest({
                 requestId: `${Date.now()}`,
@@ -2385,7 +2472,7 @@ export const Home = () => {
             const result = await window.electron.plugin.setCapabilities(pluginId, nextCapabilities);
             if (!result?.success) {
                 (await AppToaster).show({
-                    message: `Failed to grant missing capabilities: ${result?.error || "unknown error"}`,
+                    message: operationError(`Could not save permissions for ${getPluginDisplayName(pluginId)}`, result?.error),
                     intent: "danger",
                 });
                 return;
@@ -2395,7 +2482,7 @@ export const Home = () => {
             await syncActivePluginLoadingState(stateRef.current.activePlugins);
             setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
             (await AppToaster).show({
-                message: `Granted ${autoGrantableMissingCapabilities.length} capability${autoGrantableMissingCapabilities.length > 1 ? "ies" : "y"} for ${pluginId}.`,
+                message: `Granted ${autoGrantableMissingCapabilities.length} permission${autoGrantableMissingCapabilities.length === 1 ? "" : "s"} for ${getPluginDisplayName(pluginId)}.`,
                 intent: "success",
             });
         } finally {
@@ -2416,7 +2503,7 @@ export const Home = () => {
             const result = await window.electron.plugin.allowPluginProcessScopeCwdRoot(pluginId, scopeId, cwdRoot);
             if (!result?.success) {
                 (await AppToaster).show({
-                    message: `Failed to allow directory for scope "${scopeId}": ${result?.error || "unknown error"}`,
+                    message: operationError(`Could not allow this directory for ${getPluginDisplayName(pluginId)} in scope “${scopeId}”`, result?.error),
                     intent: "danger",
                 });
                 return;
@@ -2425,8 +2512,8 @@ export const Home = () => {
             setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
             (await AppToaster).show({
                 message: result?.alreadyPresent
-                    ? `Directory already allowed for "${scopeId}" in ${pluginId}.`
-                    : `Allowed ${cwdRoot} for scope "${scopeId}" in ${pluginId}.`,
+                    ? `Directory already allowed for "${scopeId}" for ${getPluginDisplayName(pluginId)}.`
+                    : `Allowed ${cwdRoot} for scope "${scopeId}" for ${getPluginDisplayName(pluginId)}.`,
                 intent: "success",
             });
         } catch (error) {
@@ -2458,7 +2545,7 @@ export const Home = () => {
             );
             if (!result?.success) {
                 (await AppToaster).show({
-                    message: `Failed to allow argument "${blockedArgument}" for scope "${scopeId}": ${result?.error || "unknown error"}`,
+                    message: operationError(`Could not allow this argument for ${getPluginDisplayName(pluginId)} in scope “${scopeId}”`, result?.error),
                     intent: "danger",
                 });
                 return;
@@ -2467,8 +2554,8 @@ export const Home = () => {
             setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
             (await AppToaster).show({
                 message: result?.alreadyPresent
-                    ? `Argument "${blockedArgument}" is already allowed for "${scopeId}" in ${pluginId}.`
-                    : `Allowed argument "${blockedArgument}" for scope "${scopeId}" in ${pluginId}.`,
+                    ? `Argument "${blockedArgument}" is already allowed for "${scopeId}" for ${getPluginDisplayName(pluginId)}.`
+                    : `Allowed argument "${blockedArgument}" for scope "${scopeId}" for ${getPluginDisplayName(pluginId)}.`,
                 intent: "success",
             });
         } catch (error) {
@@ -2494,7 +2581,7 @@ export const Home = () => {
             const result = await window.electron.plugin.allowPluginProcessScopeEnvKey(pluginId, scopeId, envKey);
             if (!result?.success) {
                 (await AppToaster).show({
-                    message: `Failed to allow env key "${envKey}" for scope "${scopeId}": ${result?.error || "unknown error"}`,
+                    message: operationError(`Could not allow environment variable “${envKey}” for ${getPluginDisplayName(pluginId)} in scope “${scopeId}”`, result?.error),
                     intent: "danger",
                 });
                 return;
@@ -2503,8 +2590,8 @@ export const Home = () => {
             setCapabilityDeniedNotice((prev) => ({...prev, open: false}));
             (await AppToaster).show({
                 message: result?.alreadyPresent
-                    ? `Env key "${envKey}" is already allowed for "${scopeId}" in ${pluginId}.`
-                    : `Allowed env key "${envKey}" for scope "${scopeId}" in ${pluginId}.`,
+                    ? `Env key "${envKey}" is already allowed for "${scopeId}" for ${getPluginDisplayName(pluginId)}.`
+                    : `Allowed env key "${envKey}" for scope "${scopeId}" for ${getPluginDisplayName(pluginId)}.`,
                 intent: "success",
             });
         } catch (error) {
@@ -2626,13 +2713,13 @@ export const Home = () => {
                     id: "plugin-validate",
                     icon: "endorsed",
                     name: "Plugin Doctor",
-                    labelElement: runtimeNeedsReview ? <Tag minimal intent="warning">Needs review</Tag> : null,
+                    labelElement: runtimeNeedsReview ? <Tag variant="minimal" intent="warning">Needs review</Tag> : null,
                 },
                 {
                     id: "plugin-capabilities",
                     icon: "shield",
                     name: "Capabilities",
-                    labelElement: capabilityNeedsAttention ? <Tag minimal intent={statusChip.intent || "primary"}>Review</Tag> : null,
+                    labelElement: capabilityNeedsAttention ? <Tag variant="minimal" intent={statusChip.intent || "primary"}>Review</Tag> : null,
                 },
                 {
                     id: "plugin-audit",
@@ -2699,6 +2786,7 @@ export const Home = () => {
                                                  setSearchActions={setSearchActions}
                                                  refreshPluginsState={refreshPluginsState}
                                                  capabilityFocusRequest={capabilityFocusRequest}
+                                                 pluginFocusRequest={notificationPluginRequest}
                                                  onCapabilityFocusRequestConsumed={handleCapabilityFocusRequestConsumed}
                                                  pendingPluginScopeSuggestions={pendingPluginScopeSuggestions}
                                                  onPendingPluginScopeSuggestionResolved={clearPendingPluginScopeSuggestion}
@@ -2710,7 +2798,7 @@ export const Home = () => {
                             className={styles["header-search-wrapper"]}
                             leftIcon={"search"} placeholder={"Search..."} inputClassName={styles["header-search"]}
                             aria-label={"Open command search"}
-                            rightElement={<Tag minimal={true} className={"bp6-monospace-text"}
+                            rightElement={<Tag variant="minimal" className={"bp6-monospace-text"}
                                                style={{fontSize: "0.6rem", background: "black"}}>{navigator.platform.toLowerCase().includes("mac") ? "Cmd+K" : "Ctrl+K"}</Tag>}
                             onClick={() => setShowCommandSearch(true)}
                             value=""
@@ -2718,18 +2806,19 @@ export const Home = () => {
                         />
                         <NavbarDivider/>
                         <div className={styles["notification-container"]}>
+                            <Button className={styles["notification-button"]} variant="minimal" icon="notifications" aria-expanded={notificationsShow}
+                                aria-label={`Open notifications (${unreadNotificationCount} unread)`}
+                                title="Notifications" onClick={() => setNotificationsShow(true)}>
+                                {unreadNotificationCount > 0 && <span className={styles["notification-badge"]} aria-hidden="true">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}
+                            </Button>
                             <Button variant="minimal" icon="layout" aria-label="Customize plugin shortcuts" title="Customize plugin shortcuts"
                                     onClick={() => setShowPluginShortcuts(true)}/>
                             <Button variant={"minimal"} icon={showRightSideBar ? "menu-open" : "menu-closed"}
                                     aria-label={showRightSideBar ? "Hide right sidebar" : "Show right sidebar"} title={showRightSideBar ? "Hide right sidebar" : "Show right sidebar"}
                                     onClick={() => {
                                         setShowRightSideBar(!showRightSideBar);
-                                        localStorage.setItem("showRightSideBar", !showRightSideBar)
+                                        localStorage.setItem("showRightSideBar", String(!showRightSideBar))
                                     }}/>
-                            <span
-                                className={styles["notification-dot"]}
-                                hidden={!notifications || notifications.filter(n => !n.read).length === 0 || showRightSideBar}
-                            />
                         </div>
                     </NavbarGroup>
                 </Navbar>
@@ -2744,7 +2833,8 @@ export const Home = () => {
                 )}
                 <div style={{
                     marginLeft: (state.plugins.length > 0 ? "50px" : ""),
-                    marginRight: (showRightSideBar ? "50px" : ""),
+                    // The fixed sidebar overlays the workspace without resizing its iframe.
+                    marginRight: "0",
                     marginTop: "0"
                 }}>
                     <div className={styles["plugin-workspace"]} data-testid="fdo-plugin-workspace">
@@ -2755,6 +2845,7 @@ export const Home = () => {
                                 <PluginContainer
                                     key={`${pluginId}:${pluginRenderEpochs.get(pluginId) || 0}`}
                                     plugin={pluginId}
+                                    pluginName={getPluginDisplayName(pluginId)}
                                     capabilities={Array.isArray(activePlugin.capabilities) ? activePlugin.capabilities : []}
                                     active={isSelected}
                                     onStageChange={isSelected ? setSelectedPluginLifecycleStage : undefined}
@@ -2824,7 +2915,7 @@ export const Home = () => {
                         })}
                     </div>
                 </div>
-            <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} />
+            <NotificationsPanel notificationsShow={notificationsShow} setNotificationsShow={setNotificationsShow} notifications={notifications} plugins={state.plugins} onAction={handleNotificationAction} focusRequest={notificationFocusRequest}/>
             <Dialog
                 isOpen={capabilityDeniedNotice.open}
                 onClose={() => setCapabilityDeniedNotice((prev) => ({...prev, open: false}))}
@@ -2847,7 +2938,7 @@ export const Home = () => {
                             <div style={{display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px"}}>
                                 {deniedCapabilityItems.map(({id, label, description, remediation, action}) => (
                                     <div key={id}>
-                                        <Tag intent="warning" minimal>{label}</Tag>
+                                        <Tag intent="warning" variant="minimal">{label}</Tag>
                                         <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
                                             {description}
                                         </div>
@@ -2945,7 +3036,7 @@ export const Home = () => {
                     ) : null}
                     {privilegedIssueDiagnostics.workflow ? (
                         <div style={{marginTop: "12px"}}>
-                            <Tag minimal intent="primary">Workflow</Tag>
+                            <Tag variant="minimal" intent="primary">Workflow</Tag>
                             <div className="bp6-text-small bp6-text-muted" style={{marginTop: "4px"}}>
                                 ID: <code>{privilegedIssueDiagnostics.workflow.workflowId || "unknown"}</code>
                                 {privilegedIssueDiagnostics.workflow.title ? (
@@ -2970,7 +3061,7 @@ export const Home = () => {
                     ) : null}
                     {privilegedIssueDiagnostics.steps.length > 0 ? (
                         <div style={{marginTop: "12px"}}>
-                            <Tag minimal intent="danger">Step failures</Tag>
+                            <Tag variant="minimal" intent="danger">Step failures</Tag>
                             <div style={{display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px"}}>
                                 {privilegedIssueDiagnostics.steps.map((step) => (
                                     <div key={`${step.stepId}-${step.correlationId || step.command || step.title}`}>
@@ -3115,7 +3206,7 @@ export const Home = () => {
                                         {pluginHandshakeFeatureFlags.length > 0 ? (
                                             <div style={{display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px"}}>
                                                 {pluginHandshakeFeatureFlags.map(([flag, enabled]) => (
-                                                    <Tag key={flag} minimal intent={enabled ? "success" : "warning"}>
+                                                    <Tag key={flag} variant="minimal" intent={enabled ? "success" : "warning"}>
                                                         {flag}: {enabled ? "enabled" : "missing"}
                                                     </Tag>
                                                 ))}
@@ -3198,9 +3289,9 @@ export const Home = () => {
                                         </Card>
                                     ) : null}
                                     <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px"}}>
-                                        <Tag minimal intent="danger">Errors: {String(pluginDoctorPanelModel.counts?.error || 0)}</Tag>
-                                        <Tag minimal intent="warning">Warnings: {String(pluginDoctorPanelModel.counts?.warning || 0)}</Tag>
-                                        <Tag minimal intent="primary">Info: {String(pluginDoctorPanelModel.counts?.info || 0)}</Tag>
+                                        <Tag variant="minimal" intent="danger">Errors: {String(pluginDoctorPanelModel.counts?.error || 0)}</Tag>
+                                        <Tag variant="minimal" intent="warning">Warnings: {String(pluginDoctorPanelModel.counts?.warning || 0)}</Tag>
+                                        <Tag variant="minimal" intent="primary">Info: {String(pluginDoctorPanelModel.counts?.info || 0)}</Tag>
                                     </div>
                                     <div style={{display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: "12px"}}>
                                         <Switch
@@ -3288,7 +3379,7 @@ export const Home = () => {
                                                 return (
                                                     <div key={String(section?.category || section?.title || "section")}>
                                                         <div className="bp6-text-small" style={{fontWeight: 600, marginBottom: "6px"}}>
-                                                            <Tag minimal>
+                                                            <Tag variant="minimal">
                                                                 {section?.title || section?.category || "Section"}
                                                             </Tag>
                                                             {" "}
@@ -3453,7 +3544,7 @@ export const Home = () => {
                     ) : null}
                     {!privilegedAuditDialog.loading && privilegedWorkflowContracts.length > 0 ? (
                         <div style={{marginBottom: "16px"}}>
-                            <Tag minimal intent="primary">Workflow Contracts</Tag>
+                            <Tag variant="minimal" intent="primary">Workflow Contracts</Tag>
                             <div style={{display: "flex", flexDirection: "column", gap: "12px", marginTop: "8px"}}>
                                 {privilegedWorkflowContracts.map((workflow) => (
                                     <div key={workflow.workflowId} style={{border: "1px solid #eef0f2", borderRadius: "6px", padding: "10px", background: "#fafbfc"}}>
@@ -3493,7 +3584,7 @@ export const Home = () => {
                     ) : null}
                     {!privilegedAuditDialog.loading && privilegedAuditDialog.events.length > 0 ? (
                         <div style={{display: "flex", flexDirection: "column", gap: "12px"}}>
-                            <Tag minimal>Audit Events</Tag>
+                            <Tag variant="minimal">Audit Events</Tag>
                             {privilegedAuditDialog.events.map((event, index) => (
                                 <div key={`${event.timestamp || "ts"}-${event.correlationId || "corr"}-${index}`}>
                                     <div className="bp6-text-small">
@@ -3546,7 +3637,7 @@ export const Home = () => {
                 </div>
             </Dialog>
             <Suspense fallback={null}>
-                <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} />
+                <SettingsDialog setShowSettingsDialog={setShowSettingsDialog} showSettingsDialog={showSettingsDialog} navigationRequest={settingsNavigation}/>
                 <AiChatDialog setShowAiChatDialog={setShowAiChatDialog} showAiChatDialog={showAiChatDialog} />
             </Suspense>
         </div>

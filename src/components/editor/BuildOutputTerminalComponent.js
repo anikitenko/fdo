@@ -5,7 +5,7 @@ import AiTimeEstimate from '../ai/AiTimeEstimate';
 import {AnsiOutput} from "./AnsiOutput";
 import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import virtualFS from "./utils/VirtualFS";
-import {PropTypes} from 'prop-types';
+import PropTypes from 'prop-types';
 import * as styles from "./EditorPage.module.css";
 import {AppToaster} from "../AppToaster.jsx";
 import {v4 as uuidv4} from 'uuid';
@@ -160,11 +160,14 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
         setSelectedTabId('ai-agent');
         setActivityOpenRequest(value => value + 1);
     }), [setSelectedTabId]);
-    useEffect(() => virtualFS.notifications.subscribe('liveUiAiSelection', ({workspaceId}) => {
+    useEffect(() => {
+        const unsubscribe = virtualFS.notifications.subscribe('liveUiAiSelection', ({workspaceId}) => {
         if (workspaceId !== virtualFS.sandboxName) return;
         setSelectedTabId('ai-agent');
         setSelectionFocusRequest(value => value + 1);
-    }), [setSelectedTabId]);
+        });
+        return () => {unsubscribe();};
+    }, [setSelectedTabId]);
     const [aiActivity, setAiActivity] = useState({
         isLoading: false,
         hasResponse: false,
@@ -213,10 +216,11 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
                 withToaster((toaster) => toaster.show?.({
                     icon: buildOutputStatus.message.kind === "test" ? "endorsed" : "build",
                     message: (
-                        <ProgressBar
-                            intent={buildOutputStatus.progress < 100 ? isErrorIntent : Intent.SUCCESS}
-                            value={buildOutputStatus.progress / 100}
-                        />
+                        <div>
+                            <div>{buildOutputStatus.message.kind === 'test' ? 'Running plugin tests' : 'Building plugin'} · {buildOutputStatus.progress}%</div>
+                            <div className="bp6-text-small">{String(buildOutputStatus.message.message || '').split('\n')[0].slice(0, 160)}</div>
+                            <ProgressBar intent={buildOutputStatus.progress < 100 ? isErrorIntent : Intent.SUCCESS} value={buildOutputStatus.progress / 100}/>
+                        </div>
                     ),
                     timeout: 60000
                 }, 'build-output'))

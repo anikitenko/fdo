@@ -1,3 +1,4 @@
+import {pluginDisplayName, operationError} from '../utils/desktop/notificationContent';
 import {
     Alert,
     Button,
@@ -54,6 +55,7 @@ import {
 import {getPluginTrustTier} from "../utils/plugins/security/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "../utils/plugins/security/pluginCapabilityDeclaration";
 import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
+import GitOpsBadge from './plugin/GitOpsBadge';
 
 function scopeCategoryLabel(scopeItem = {}) {
     if (scopeItem?.userDefined === true) {
@@ -128,7 +130,7 @@ function isValidEnvKey(value = "") {
 }
 
 function isValidOptionToken(value = "") {
-    return /^-{1,2}[^\s]+$/.test(String(value || "").trim());
+    return /^-{1,2}\S+$/.test(String(value || "").trim());
 }
 
 function customScopeTokenValidation(field, token) {
@@ -236,7 +238,7 @@ function TokenListInput({
                     {tokens.map((token) => (
                         <Tag
                             key={`${label}-${token}`}
-                            minimal
+                            variant="minimal"
                             interactive
                             onRemove={() => onRemoveToken(token)}
                         >
@@ -260,9 +262,9 @@ function PolicyDetailList({label, values = [], maxVisible = 4}) {
             <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "4px"}}>{label}</div>
             <div style={{display: "flex", gap: "6px", flexWrap: "wrap"}}>
                 {visibleValues.map((value) => (
-                    <Tag key={`${label}-${value}`} minimal>{value}</Tag>
+                    <Tag key={`${label}-${value}`} variant="minimal">{value}</Tag>
                 ))}
-                {remaining > 0 ? <Tag minimal>{`+${remaining} more`}</Tag> : null}
+                {remaining > 0 ? <Tag variant="minimal">{`+${remaining} more`}</Tag> : null}
             </div>
         </div>
     );
@@ -502,11 +504,15 @@ export const ManagePluginsDialog = ({
                                         setSearchActions,
                                         refreshPluginsState,
                                         focusRequest,
+                                        initialPluginRequest,
                                         onFocusRequestConsumed,
                                         pendingPluginScopeSuggestions,
                                         onPendingPluginScopeSuggestionResolved,
                                     }) => {
     const [selectedTabId, setSelectedTabId] = useState(null);
+    useEffect(() => {
+        if (initialPluginRequest?.pluginId) setSelectedTabId(initialPluginRequest.pluginId);
+    }, [initialPluginRequest?.requestId]);
     const [sortedPlugins, setSortedPlugins] = useState([]);
     const [scopePolicies, setScopePolicies] = useState([]);
     const [runtimeStatusByPluginId, setRuntimeStatusByPluginId] = useState(new Map());
@@ -571,7 +577,8 @@ export const ManagePluginsDialog = ({
 
         // Set the default tab only if it's null or the selected tab no longer exists
         if (!selectedTabId || !sorted.some(plugin => plugin.id === selectedTabId)) {
-            setSelectedTabId(sorted.length > 0 ? sorted[0].id : null);
+            setSelectedTabId(sorted.some(plugin => plugin.id === initialPluginRequest?.pluginId)
+                ? initialPluginRequest.pluginId : sorted[0]?.id || null);
         }
     }, [plugins, activePlugins]);
 
@@ -707,7 +714,6 @@ export const ManagePluginsDialog = ({
                                      panelClassName={styles["panel"]}
                                      panel={
                                          <SelectPluginPanel plugin={plugin} activePlugins={activePlugins}
-                                                            plugins={plugins}
                                                             selectPlugin={selectPlugin}
                                                             deselectPlugin={deselectPlugin} removePlugin={removePlugin}
                                                             setSelectedTabId={setSelectedTabId}
@@ -777,7 +783,6 @@ ManagePluginsDialog.propTypes = {
 
 const SelectPluginPanel = ({
                                plugin,
-                               plugins,
                                activePlugins,
                                deselectPlugin,
                                selectPlugin,
@@ -1052,10 +1057,6 @@ const SelectPluginPanel = ({
         }, {});
     }, [customProcessScopes]);
 
-    const normalizedCustomScopeSlug = useMemo(
-        () => normalizeCustomScopeSlugInput(customScopeDraft.scope),
-        [customScopeDraft.scope]
-    );
     const persistentSuggestedScopeIds = useMemo(
         () => (Array.isArray(persistentScopeSuggestion?.scopeIds) ? persistentScopeSuggestion.scopeIds : [])
             .map((scopeId) => String(scopeId || "").trim())
@@ -1368,7 +1369,7 @@ const SelectPluginPanel = ({
             closeCustomFilesystemScopeEditor();
         }
         (await AppToaster).show({
-            message: `Filesystem scope deleted for ${plugin?.id || "plugin"}.`,
+            message: `Filesystem scope “${normalizedScopeId}” removed from ${pluginDisplayName(plugin)}.`,
             intent: "success",
         });
     };
@@ -2004,13 +2005,13 @@ const SelectPluginPanel = ({
             const result = await window.electron.plugin.setCapabilities(plugin.id, nextCapabilities);
             if (!result?.success) {
                 (await AppToaster).show({
-                    message: `Failed to save capabilities: ${result?.error || "unknown error"}`,
+                    message: operationError(`Could not save permissions for ${pluginDisplayName(plugin)}`, result?.error),
                     intent: "danger",
                 });
                 return;
             }
             (await AppToaster).show({
-                message: `Capabilities updated for ${plugin.id}.`,
+                message: `Permissions saved for ${pluginDisplayName(plugin)}.`,
                 intent: "success",
             });
             setStagedCapabilityWorkflow(null);
@@ -2095,7 +2096,7 @@ const SelectPluginPanel = ({
                 return;
             }
             (await AppToaster).show({
-                message: `Scope saved for ${plugin.id}. Grant required capabilities manually in Capabilities.`,
+                message: `Process scope “${normalizedScopeId}” saved for ${pluginDisplayName(plugin)}. Review and grant its required permissions in Capabilities.`,
                 intent: "success",
             });
             await refreshRuntimeStatuses?.([plugin.id]);
@@ -2235,7 +2236,7 @@ const SelectPluginPanel = ({
         if (!result?.success) {
             setCustomScopeError(result?.error || "Could not delete custom scope.");
             (await AppToaster).show({
-                message: `Could not delete scope: ${result?.error || "unknown error"}`,
+                message: operationError(`Could not remove process scope “${normalizedScopeId}” from ${pluginDisplayName(plugin)}`, result?.error),
                 intent: "danger",
             });
             return;
@@ -2270,7 +2271,7 @@ const SelectPluginPanel = ({
             setShowCustomScopeEditor(false);
         }
         (await AppToaster).show({
-            message: `Scope deleted for ${plugin?.id || "plugin"}.`,
+            message: `Process scope “${normalizedScopeId}” removed from ${pluginDisplayName(plugin)}.`,
             intent: "success",
         });
     };
@@ -2432,7 +2433,7 @@ const SelectPluginPanel = ({
         window.electron.plugin.remove(plugin.id).then((result) => {
             if (!result.success) {
                 (AppToaster).show({
-                    message: `Error: Failed to remove plugin: ${result.error}`,
+                    message: operationError(`Could not remove ${pluginDisplayName(plugin)}`, result.error),
                     intent: "danger"
                 });
                 setIsOpenRemove(false)
@@ -2526,21 +2527,27 @@ const SelectPluginPanel = ({
     return (
         <Card className={styles["card-panel"]}>
             <div className={styles["card-setting-header"]}>
-                <span className={"bp6-heading"}
-                      style={{fontSize: "1rem", margin: "0"}}>{plugin.name} {pluginVerification?.success ? (
-                    <Tag intent="success" icon="shield" style={{verticalAlign: "bottom"}}>Certified</Tag>
-                ) : (
-                    <TooltipBP
-                        content={pluginVerification?.error}
-                        intent="warning"
-                        placement="bottom"
-                    >
-                        <Tag intent="warning" icon="warning-sign" style={{verticalAlign: "bottom"}}>Uncertified</Tag>
-                    </TooltipBP>
-                )}</span>
+                <div className={styles["plugin-identity"]}>
+                    <span className={"bp6-heading"}
+                          style={{fontSize: "1rem", margin: "0", padding: 0, display: "block"}}>{plugin.name}</span>
+                    <div className={styles["plugin-badges"]}>
+                    {pluginVerification?.success ? (
+                        <Tag intent="success" icon="shield" style={{verticalAlign: "bottom"}}>Certified</Tag>
+                    ) : (
+                        <TooltipBP
+                            content={pluginVerification?.error}
+                            intent="warning"
+                            placement="bottom"
+                        >
+                            <Tag intent="warning" icon="warning-sign" style={{verticalAlign: "bottom"}}>Uncertified</Tag>
+                        </TooltipBP>
+                    )}
+                    {plugin.gitops && <GitOpsBadge plugin={plugin} verification={pluginVerification}/>}
+                    </div>
+                </div>
                 {(creationTime && activePlugins?.some((p) => p.id === plugin.id)) && (
-                    <span className={"bp6-code"}
-                          style={{marginLeft: "auto"}}>Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
+                    <span className={classNames("bp6-text-small", "bp6-text-muted", styles["plugin-started"])}>
+                        Started {formatDistanceToNow(creationTime, {addSuffix: true})}</span>
                 )}
             </div>
             <span className={classNames("bp6-text-small", "bp6-text-muted")}>{plugin.description}</span>
@@ -2620,9 +2627,10 @@ const SelectPluginPanel = ({
                         setRootCertificates(rootCerts)
                         if (rootCerts.length === 0) {
                             (AppToaster).show({
-                                message: `No root certificate found. Please add one.`,
+                                message: `No signing certificate is available. Create or import one in Settings → Certificates before re-signing ${pluginDisplayName(plugin)}.`,
                                 intent: "danger"
                             });
+                            setResignProgress(false);
                             return
                         }
 
@@ -2640,7 +2648,7 @@ const SelectPluginPanel = ({
                         window.electron.plugin.sign(plugin.id, selectedLabel).then(async (response) => {
                             if (!response.success) {
                                 (AppToaster).show({
-                                    message: `Failed to resign plugin: ${response.error}`,
+                                    message: operationError(`Could not re-sign ${pluginDisplayName(plugin)}`, response.error, "Review the selected certificate in Settings → Certificates."),
                                     intent: "danger"
                                 });
                             } else {
@@ -2683,7 +2691,7 @@ const SelectPluginPanel = ({
                                 const result = await window.electron.system.openPluginInEditor(selectedEditor, plugin.id)
                                 if (!result.success) {
                                     (AppToaster).show({
-                                        message: `Failed to open plugin in editor: ${result.error}`,
+                                        message: operationError(`Could not open ${pluginDisplayName(plugin)} in ${selectedEditor}`, result.error, "Check that the editor is installed and can access the plugin files."),
                                         intent: "danger"
                                     });
                                 }
@@ -2700,7 +2708,7 @@ const SelectPluginPanel = ({
                             `declareCapabilities()` is an early intent manifest for preflight and diagnostics. Grants still decide what this plugin can actually execute.
                         </div>
                     </div>
-                    <Tag minimal intent={capabilityIntentSummary.intent === "none" ? "primary" : capabilityIntentSummary.intent}>
+                    <Tag variant="minimal" intent={capabilityIntentSummary.intent === "none" ? "primary" : capabilityIntentSummary.intent}>
                         {capabilityIntentSummary.title}
                     </Tag>
                 </div>
@@ -2709,8 +2717,8 @@ const SelectPluginPanel = ({
                         {capabilityIntentSummary.summary}
                     </div>
                     <Button
-                        minimal
-                        small
+                        variant="minimal"
+                        size="small"
                         icon={showCapabilityIntent ? "chevron-up" : "chevron-down"}
                         onClick={() => setShowCapabilityIntent((prev) => !prev)}
                     >
@@ -2727,7 +2735,7 @@ const SelectPluginPanel = ({
                         </div>
                         <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
                             {unresolvedDeclaredScopeCapabilities.map((capability) => (
-                                <Tag key={capability} minimal intent="warning">
+                                <Tag key={capability} variant="minimal" intent="warning">
                                     <code>{capability}</code>
                                 </Tag>
                             ))}
@@ -2745,7 +2753,7 @@ const SelectPluginPanel = ({
                         <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
                             {unresolvedDeclaredProcessScopeCapabilities.length > 0 ? (
                                 <Button
-                                    small
+                                    size="small"
                                     intent="primary"
                                     onClick={handleCreateDraftForMissingDeclaredScope}
                                 >
@@ -2754,7 +2762,7 @@ const SelectPluginPanel = ({
                             ) : null}
                             {unresolvedDeclaredFilesystemScopeCapabilities.length > 0 ? (
                                 <Button
-                                    small
+                                    size="small"
                                     intent="primary"
                                     onClick={handleCreateDraftForMissingDeclaredFilesystemScope}
                                 >
@@ -2793,11 +2801,11 @@ const SelectPluginPanel = ({
                             </Card>
                         ) : null}
                         <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px", marginBottom: "8px"}}>
-                            <Tag minimal>Declared: {capabilityIntent.declared.length}</Tag>
-                            <Tag minimal intent={capabilityIntent.missingDeclared.length > 0 ? "warning" : "success"}>
+                            <Tag variant="minimal">Declared: {capabilityIntent.declared.length}</Tag>
+                            <Tag variant="minimal" intent={capabilityIntent.missingDeclared.length > 0 ? "warning" : "success"}>
                                 Missing declared: {capabilityIntent.missingDeclared.length}
                             </Tag>
-                            <Tag minimal intent={capabilityIntent.undeclaredGranted.length > 0 ? "primary" : "success"}>
+                            <Tag variant="minimal" intent={capabilityIntent.undeclaredGranted.length > 0 ? "primary" : "success"}>
                                 Granted but undeclared: {capabilityIntent.undeclaredGranted.length}
                             </Tag>
                         </div>
@@ -2813,7 +2821,7 @@ const SelectPluginPanel = ({
                                         {values.map((capability) => {
                                             const presentation = getCapabilityPresentation(capability, scopePolicies);
                                             return (
-                                                <Tag key={`${label}-${capability}`} minimal intent={intent}>
+                                                <Tag key={`${label}-${capability}`} variant="minimal" intent={intent}>
                                                     {presentation.title} <code>{capability}</code>
                                                 </Tag>
                                             );
@@ -2833,7 +2841,7 @@ const SelectPluginPanel = ({
                                     {capabilityPreflightMissingItems.map((item, index) => (
                                         <Card key={`preflight-missing-${item.capability || index}`} style={{border: "1px solid #f6d667", background: "#fff8db"}}>
                                             <div style={{display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap"}}>
-                                                <Tag minimal intent="warning">{item.label || item.capability}</Tag>
+                                                <Tag variant="minimal" intent="warning">{item.label || item.capability}</Tag>
                                                 {item.capability ? <code>{item.capability}</code> : null}
                                             </div>
                                             {item.description ? (
@@ -2860,7 +2868,7 @@ const SelectPluginPanel = ({
                                     {capabilityPreflightUndeclaredDescriptors.map((item, index) => (
                                         <Card key={`preflight-undeclared-${item.capability || index}`} style={{border: "1px solid #d8e1f0", background: "#f7f9fc"}}>
                                             <div style={{display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap"}}>
-                                                <Tag minimal intent="primary">{item.label || item.capability}</Tag>
+                                                <Tag variant="minimal" intent="primary">{item.label || item.capability}</Tag>
                                                 {item.capability ? <code>{item.capability}</code> : null}
                                             </div>
                                             {item.description ? (
@@ -2890,7 +2898,7 @@ const SelectPluginPanel = ({
                         </div>
                     </div>
                     <Button
-                        small
+                        size="small"
                         icon="add"
                         onClick={() => {
                             resetCustomScopeDraft();
@@ -2916,22 +2924,22 @@ const SelectPluginPanel = ({
                         </div>
                         <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
                             {unresolvedGrantedProcessScopeCapabilities.map((capability) => (
-                                <Tag key={capability} minimal intent="warning">
+                                <Tag key={capability} variant="minimal" intent="warning">
                                     <code>{capability}</code>
                                 </Tag>
                             ))}
                         </div>
                         <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
                             <Button
-                                small
+                                size="small"
                                 intent="primary"
                                 onClick={handleCreateDraftForUnresolvedGrantedScope}
                             >
                                 Create Missing Scope Draft
                             </Button>
                             <Button
-                                small
-                                minimal
+                                size="small"
+                                variant="minimal"
                                 intent="warning"
                                 onClick={handleRemoveUnresolvedGrantedScopes}
                             >
@@ -2963,13 +2971,13 @@ const SelectPluginPanel = ({
                         </div>
                         <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
                             <Button
-                                small
+                                size="small"
                                 intent="primary"
                                 onClick={() => openSuggestedScopeDraft(scopeSetupSuggestion.scopeId, scopeSetupSuggestion.commandPath)}
                             >
                                 Use Suggested Scope Draft
                             </Button>
-                            <Button small minimal onClick={dismissScopeSetupSuggestion}>
+                            <Button size="small" variant="minimal" onClick={dismissScopeSetupSuggestion}>
                                 Dismiss Suggestion
                             </Button>
                         </div>
@@ -2984,7 +2992,7 @@ const SelectPluginPanel = ({
                                         <div className={"bp6-text-small"} style={{fontWeight: 600}}>{meta.label}</div>
                                         <div className={classNames("bp6-text-small", "bp6-text-muted")}>{meta.description}</div>
                                     </div>
-                                    <Tag minimal intent={meta.intent}>{scopes.length} scope{scopes.length === 1 ? "" : "s"}</Tag>
+                                    <Tag variant="minimal" intent={meta.intent}>{scopes.length} scope{scopes.length === 1 ? "" : "s"}</Tag>
                                 </div>
                                 <div style={{display: "flex", flexDirection: "column", gap: "8px"}}>
                                     {scopes.map((scope) => {
@@ -3000,20 +3008,20 @@ const SelectPluginPanel = ({
                                                         </div>
                                                     </div>
                                                     <div style={{display: "flex", gap: "6px", alignItems: "center"}}>
-                                                        <Button small minimal icon="duplicate" onClick={() => handleCloneCustomScope(scope)}>Clone</Button>
-                                                        <Button small minimal icon="edit" onClick={() => handleEditCustomScope(scope)}>Edit</Button>
-                                                        <Button small minimal intent="danger" icon="trash" onClick={() => handleDeleteCustomScope(scope.scope)}>Delete</Button>
+                                                        <Button size="small" variant="minimal" icon="duplicate" onClick={() => handleCloneCustomScope(scope)}>Clone</Button>
+                                                        <Button size="small" variant="minimal" icon="edit" onClick={() => handleEditCustomScope(scope)}>Edit</Button>
+                                                        <Button size="small" variant="minimal" intent="danger" icon="trash" onClick={() => handleDeleteCustomScope(scope.scope)}>Delete</Button>
                                                     </div>
                                                 </div>
                                                 <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
                                                     {scope.description}
                                                 </div>
                                                 <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
-                                                    <Tag minimal>{(scope.allowedExecutables || []).length} command path{(scope.allowedExecutables || []).length === 1 ? "" : "s"}</Tag>
-                                                    <Tag minimal>timeout max: {scope.timeoutCeilingMs || 30000}ms</Tag>
-                                                    <Tag minimal>confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
-                                                    <Tag minimal>policy v{scope.policyVersion || PROCESS_SCOPE_POLICY_VERSION}</Tag>
-                                                    <Tag minimal intent="primary">Plugin-owned scope</Tag>
+                                                    <Tag variant="minimal">{(scope.allowedExecutables || []).length} command path{(scope.allowedExecutables || []).length === 1 ? "" : "s"}</Tag>
+                                                    <Tag variant="minimal">timeout max: {scope.timeoutCeilingMs || 30000}ms</Tag>
+                                                    <Tag variant="minimal">confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
+                                                    <Tag variant="minimal">policy v{scope.policyVersion || PROCESS_SCOPE_POLICY_VERSION}</Tag>
+                                                    <Tag variant="minimal" intent="primary">Plugin-owned scope</Tag>
                                                 </div>
                                                 {Array.isArray(scope.allowedExecutables) && scope.allowedExecutables.length > 0 ? (
                                                     <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
@@ -3048,7 +3056,7 @@ const SelectPluginPanel = ({
                         </div>
                     </div>
                     <Button
-                        small
+                        size="small"
                         icon="add"
                         onClick={() => {
                             resetCustomFilesystemScopeDraft();
@@ -3071,22 +3079,22 @@ const SelectPluginPanel = ({
                         </div>
                         <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
                             {unresolvedGrantedFilesystemScopeCapabilities.map((capability) => (
-                                <Tag key={capability} minimal intent="warning">
+                                <Tag key={capability} variant="minimal" intent="warning">
                                     <code>{capability}</code>
                                 </Tag>
                             ))}
                         </div>
                         <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
                             <Button
-                                small
+                                size="small"
                                 intent="primary"
                                 onClick={handleCreateDraftForUnresolvedGrantedFilesystemScope}
                             >
                                 Create Missing Filesystem Scope Draft
                             </Button>
                             <Button
-                                small
-                                minimal
+                                size="small"
+                                variant="minimal"
                                 intent="warning"
                                 onClick={handleRemoveUnresolvedGrantedFilesystemScopes}
                             >
@@ -3109,18 +3117,18 @@ const SelectPluginPanel = ({
                                         </div>
                                     </div>
                                     <div style={{display: "flex", gap: "6px", alignItems: "center"}}>
-                                        <Button small minimal icon="edit" onClick={() => handleEditCustomFilesystemScope(scope)}>Edit</Button>
-                                        <Button small minimal intent="danger" icon="trash" onClick={() => handleDeleteCustomFilesystemScope(scope.scope)}>Delete</Button>
+                                        <Button size="small" variant="minimal" icon="edit" onClick={() => handleEditCustomFilesystemScope(scope)}>Edit</Button>
+                                        <Button size="small" variant="minimal" intent="danger" icon="trash" onClick={() => handleDeleteCustomFilesystemScope(scope.scope)}>Delete</Button>
                                     </div>
                                 </div>
                                 <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
                                     {scope.description}
                                 </div>
                                 <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
-                                    <Tag minimal>{(scope.allowedRoots || []).length} root{(scope.allowedRoots || []).length === 1 ? "" : "s"}</Tag>
-                                    <Tag minimal>{(scope.allowedOperationTypes || []).length} operation{(scope.allowedOperationTypes || []).length === 1 ? "" : "s"}</Tag>
-                                    <Tag minimal>confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
-                                    <Tag minimal intent="primary">Plugin-owned scope</Tag>
+                                    <Tag variant="minimal">{(scope.allowedRoots || []).length} root{(scope.allowedRoots || []).length === 1 ? "" : "s"}</Tag>
+                                    <Tag variant="minimal">{(scope.allowedOperationTypes || []).length} operation{(scope.allowedOperationTypes || []).length === 1 ? "" : "s"}</Tag>
+                                    <Tag variant="minimal">confirm: {scope.requireConfirmation ? "required" : "no"}</Tag>
+                                    <Tag variant="minimal" intent="primary">Plugin-owned scope</Tag>
                                 </div>
                                 {Array.isArray(scope.allowedRoots) && scope.allowedRoots.length > 0 ? (
                                     <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "8px"}}>
@@ -3154,7 +3162,7 @@ const SelectPluginPanel = ({
                         <div className={classNames("bp6-text-small", "bp6-text-muted")}>
                             Define the exact command paths and policy envelope the host should approve for this plugin-owned scope. Plugin code can reference it, but only the host user can change it.
                         </div>
-                        <Tag minimal>{editingCustomScopeId ? "Existing scope" : "New scope"}</Tag>
+                        <Tag variant="minimal">{editingCustomScopeId ? "Existing scope" : "New scope"}</Tag>
                     </div>
                     <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginBottom: "10px"}}>
                         <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
@@ -3171,9 +3179,9 @@ const SelectPluginPanel = ({
                         </div>
                     </Card>
                     <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px"}}>
-                        <Tag minimal>Broad grant: <code>system.process.exec</code></Tag>
-                        <Tag minimal intent="primary">Narrow grant: <code>{capabilityPreviewId}</code></Tag>
-                        <Tag minimal intent="warning">Visible only to this plugin</Tag>
+                        <Tag variant="minimal">Broad grant: <code>system.process.exec</code></Tag>
+                        <Tag variant="minimal" intent="primary">Narrow grant: <code>{capabilityPreviewId}</code></Tag>
+                        <Tag variant="minimal" intent="warning">Visible only to this plugin</Tag>
                     </div>
                     <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px"}}>
                         <FormGroup
@@ -3401,7 +3409,7 @@ const SelectPluginPanel = ({
                         {" "}This is a host-managed plugin-specific scope reference. Using it in plugin code does not grant permission by itself, and other plugins cannot use it.
                     </div>
                     <div className="bp6-dialog-footer-actions">
-                        <Button minimal onClick={() => {
+                        <Button variant="minimal" onClick={() => {
                             closeCustomScopeEditor({
                                 suppressAutoOpen: Boolean(scopeSetupSuggestion?.scopeId && !editingCustomScopeId),
                             });
@@ -3425,7 +3433,7 @@ const SelectPluginPanel = ({
                         <div className={classNames("bp6-text-small", "bp6-text-muted")}>
                             Define exact filesystem roots and operation types approved for this plugin-owned scope.
                         </div>
-                        <Tag minimal>{editingCustomFilesystemScopeId ? "Existing scope" : "New scope"}</Tag>
+                        <Tag variant="minimal">{editingCustomFilesystemScopeId ? "Existing scope" : "New scope"}</Tag>
                     </div>
                     <Card style={{border: "1px solid #eef0f2", background: "#fcfcfd", marginBottom: "10px"}}>
                         <div className={"bp6-text-small"} style={{fontWeight: 600, marginBottom: "6px"}}>
@@ -3442,9 +3450,9 @@ const SelectPluginPanel = ({
                         </div>
                     </Card>
                     <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px"}}>
-                        <Tag minimal>Broad grant: <code>{HOST_WRITE_CAPABILITY}</code></Tag>
-                        <Tag minimal intent="primary">Narrow grant: <code>{filesystemCapabilityPreviewId}</code></Tag>
-                        <Tag minimal intent="warning">Visible only to this plugin</Tag>
+                        <Tag variant="minimal">Broad grant: <code>{HOST_WRITE_CAPABILITY}</code></Tag>
+                        <Tag variant="minimal" intent="primary">Narrow grant: <code>{filesystemCapabilityPreviewId}</code></Tag>
+                        <Tag variant="minimal" intent="warning">Visible only to this plugin</Tag>
                     </div>
                     <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px"}}>
                         <FormGroup
@@ -3511,7 +3519,7 @@ const SelectPluginPanel = ({
                                 {customFilesystemScopeDraft.allowedRoots.map((token) => (
                                     <Tag
                                         key={`filesystem-root-${token}`}
-                                        minimal
+                                        variant="minimal"
                                         interactive
                                         onRemove={() => removeFilesystemRootToken(token)}
                                     >
@@ -3559,7 +3567,7 @@ const SelectPluginPanel = ({
                         {" "}This is a host-managed plugin-specific scope reference. Using it in plugin code does not grant permission by itself, and other plugins cannot use it.
                     </div>
                     <div className="bp6-dialog-footer-actions">
-                        <Button minimal onClick={closeCustomFilesystemScopeEditor}>Cancel</Button>
+                        <Button variant="minimal" onClick={closeCustomFilesystemScopeEditor}>Cancel</Button>
                         <Button intent="primary" loading={customFilesystemScopeSaving} onClick={handleSaveCustomFilesystemScope}>
                             {editingCustomFilesystemScopeId ? "Save Changes" : "Save Scope"}
                         </Button>
@@ -3581,14 +3589,14 @@ const SelectPluginPanel = ({
                                 {activePolicyDetails.description}
                             </div>
                             <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px"}}>
-                                <Tag minimal>Technical ID: <code>{activePolicyDetails.capability}</code></Tag>
-                                <Tag minimal>Depends on: <code>{activePolicyDetails.baseCapability}</code></Tag>
-                                <Tag minimal>confirm: {activePolicyDetails.requireConfirmation ? "required" : "no"}</Tag>
+                                <Tag variant="minimal">Technical ID: <code>{activePolicyDetails.capability}</code></Tag>
+                                <Tag variant="minimal">Depends on: <code>{activePolicyDetails.baseCapability}</code></Tag>
+                                <Tag variant="minimal">confirm: {activePolicyDetails.requireConfirmation ? "required" : "no"}</Tag>
                                 {activePolicyDetails.timeoutCeilingMs ? (
-                                    <Tag minimal>timeout max: {activePolicyDetails.timeoutCeilingMs}ms</Tag>
+                                    <Tag variant="minimal">timeout max: {activePolicyDetails.timeoutCeilingMs}ms</Tag>
                                 ) : null}
                                 {activePolicyDetails.userDefined === true ? (
-                                    <Tag minimal intent={activePolicyDetails.shared === true ? "success" : "primary"}>
+                                    <Tag variant="minimal" intent={activePolicyDetails.shared === true ? "success" : "primary"}>
                                         {activePolicyDetails.shared === true ? "Shared custom scope (cross-plugin)" : "Plugin-specific custom scope"}
                                     </Tag>
                                 ) : null}
@@ -3610,7 +3618,7 @@ const SelectPluginPanel = ({
                 </div>
                 <div className="bp6-dialog-footer">
                     <div className="bp6-dialog-footer-actions">
-                        <Button minimal onClick={() => setActivePolicyDetails(null)}>Close</Button>
+                        <Button variant="minimal" onClick={() => setActivePolicyDetails(null)}>Close</Button>
                     </div>
                 </div>
             </Dialog>
@@ -3643,20 +3651,20 @@ const SelectPluginPanel = ({
                         style={{flex: "1 1 420px", minWidth: "360px", maxWidth: "560px"}}
                     />
                         <TooltipBP content={`${trustTier.title}. ${trustTier.description}`}>
-                            <Tag minimal intent={trustTier.intent}>
+                            <Tag variant="minimal" intent={trustTier.intent}>
                                 Trust tier: {getShortTrustTierLabel(trustTier)}
                             </Tag>
                         </TooltipBP>
-                    <Tag minimal>
+                    <Tag variant="minimal">
                         Selected scopes: {selectedScopeCount}
                     </Tag>
-                    <Tag minimal>
+                    <Tag variant="minimal">
                         Available scopes: {availableChildCapabilityCount}
                     </Tag>
                     </div>
                     <Button
-                        minimal
-                        small
+                        variant="minimal"
+                        size="small"
                         icon={showCapabilitiesPanel ? "chevron-up" : "chevron-down"}
                         onClick={() => setShowCapabilitiesPanel((prev) => !prev)}
                     >
@@ -3679,7 +3687,7 @@ const SelectPluginPanel = ({
                         </div>
                         <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px"}}>
                             {unresolvedGrantedFilesystemScopeCapabilities.map((capability) => (
-                                <Tag key={capability} minimal intent="warning">
+                                <Tag key={capability} variant="minimal" intent="warning">
                                     <code>{capability}</code>
                                 </Tag>
                             ))}
@@ -3689,8 +3697,8 @@ const SelectPluginPanel = ({
                         </div>
                         <div style={{display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap"}}>
                             <Button
-                                small
-                                minimal
+                                size="small"
+                                variant="minimal"
                                 onClick={() => {
                                     void reloadScopePolicies?.(plugin?.id);
                                 }}
@@ -3698,7 +3706,7 @@ const SelectPluginPanel = ({
                                 Refresh Host Scope Policies
                             </Button>
                             <Button
-                                small
+                                size="small"
                                 intent="warning"
                                 onClick={handleRemoveUnresolvedGrantedFilesystemScopes}
                             >
@@ -3729,7 +3737,7 @@ const SelectPluginPanel = ({
                     return (
                         <Card key={baseCapability} style={{marginBottom: "8px", border: "1px solid #eef0f2"}}>
                             {highlightedSet.has(baseCapability) ? (
-                                <Tag intent="warning" minimal style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
+                                <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
                             ) : null}
                             <Checkbox
                                 checked={baseEnabled}
@@ -3759,7 +3767,7 @@ const SelectPluginPanel = ({
                                             </div>
                                             <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
                                                 <Button
-                                                    small
+                                                    size="small"
                                                     intent="primary"
                                                     icon="floppy-disk"
                                                     loading={isSavingCapabilities}
@@ -3768,8 +3776,8 @@ const SelectPluginPanel = ({
                                                     Save Capabilities
                                                 </Button>
                                                 <Button
-                                                    small
-                                                    minimal
+                                                    size="small"
+                                                    variant="minimal"
                                                     onClick={() => setStagedCapabilityWorkflow(null)}
                                                 >
                                                     Keep Editing
@@ -3798,7 +3806,7 @@ const SelectPluginPanel = ({
                                                     </div>
                                                     <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
                                                         <Button
-                                                            small
+                                                            size="small"
                                                             intent="primary"
                                                             disabled={!hasSecurePublicWebScope}
                                                             onClick={enableSecurePublicWebBundle}
@@ -3806,7 +3814,7 @@ const SelectPluginPanel = ({
                                                             Enable Secure Public Web
                                                         </Button>
                                                         {!hasSecurePublicWebScope ? (
-                                                            <Tag minimal intent="warning">Host scope unavailable</Tag>
+                                                            <Tag variant="minimal" intent="warning">Host scope unavailable</Tag>
                                                         ) : null}
                                                     </div>
                                                 </Card>
@@ -3822,7 +3830,7 @@ const SelectPluginPanel = ({
                                                     </div>
                                                     <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
                                                         <Button
-                                                            small
+                                                            size="small"
                                                             intent="none"
                                                             disabled={!hasLoopbackDevScope}
                                                             onClick={enableLoopbackDevBundle}
@@ -3830,7 +3838,7 @@ const SelectPluginPanel = ({
                                                             Enable Loopback Dev
                                                         </Button>
                                                         {!hasLoopbackDevScope ? (
-                                                            <Tag minimal intent="warning">Host scope unavailable</Tag>
+                                                            <Tag variant="minimal" intent="warning">Host scope unavailable</Tag>
                                                         ) : null}
                                                     </div>
                                                 </Card>
@@ -3847,7 +3855,7 @@ const SelectPluginPanel = ({
                                             </div>
                                             <div style={{display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px"}}>
                                                 <Button
-                                                    small
+                                                    size="small"
                                                     intent="warning"
                                                     disabled={!hasSecurePublicWebScope}
                                                     onClick={switchHttpToHttpsBundle}
@@ -3865,7 +3873,7 @@ const SelectPluginPanel = ({
                                         <Card key={`${baseCapability}-${categoryLabel}`} style={{marginTop: "8px", border: "1px solid #eef0f2", background: "#fafbfc"}}>
                                             <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "8px"}}>
                                                 <div className={"bp6-text-small"} style={{fontWeight: 600}}>{categoryLabel}</div>
-                                                <Tag minimal>{categoryScopes.length} scope{categoryScopes.length === 1 ? "" : "s"}</Tag>
+                                                <Tag variant="minimal">{categoryScopes.length} scope{categoryScopes.length === 1 ? "" : "s"}</Tag>
                                             </div>
                                             {categoryScopes
                                                 .slice()
@@ -3889,7 +3897,7 @@ const SelectPluginPanel = ({
                                                         }}
                                                     >
                                                         {highlightedSet.has(scopeItem.capability) ? (
-                                                            <Tag intent="warning" minimal style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
+                                                            <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
                                                         ) : null}
                                                         <Checkbox
                                                             checked={hasCapability(scopeItem.capability)}
@@ -3901,20 +3909,20 @@ const SelectPluginPanel = ({
                                                             {presentation.description}
                                                         </div>
                                                         <div style={{display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px", marginBottom: "6px"}}>
-                                                            <Tag minimal>Technical ID: <code>{scopeItem.capability}</code></Tag>
+                                                            <Tag variant="minimal">Technical ID: <code>{scopeItem.capability}</code></Tag>
                                                             {scopeItem.userDefined === true ? (
-                                                                <Tag minimal intent={scopeItem.shared === true ? "success" : "primary"}>
+                                                                <Tag variant="minimal" intent={scopeItem.shared === true ? "success" : "primary"}>
                                                                     {scopeItem.shared === true ? "Shared custom scope (cross-plugin)" : "Plugin-specific custom scope"}
                                                                 </Tag>
                                                             ) : null}
-                                                            <Tag minimal>risk: {presentation.risk}</Tag>
+                                                            <Tag variant="minimal">risk: {presentation.risk}</Tag>
                                                             {typeof scopeItem.requireConfirmation === "boolean" ? (
-                                                                <Tag minimal>confirm: {scopeItem.requireConfirmation ? "required" : "no"}</Tag>
+                                                                <Tag variant="minimal">confirm: {scopeItem.requireConfirmation ? "required" : "no"}</Tag>
                                                             ) : null}
-                                                            {scopeItem.timeoutCeilingMs ? <Tag minimal>timeout max: {scopeItem.timeoutCeilingMs}ms</Tag> : null}
-                                                            {scopeItem.allowedExecutables.length > 0 ? <Tag minimal>{scopeItem.allowedExecutables.length} command path{scopeItem.allowedExecutables.length === 1 ? "" : "s"}</Tag> : null}
-                                                            {scopeItem.allowedHostPatterns?.length > 0 ? <Tag minimal>{scopeItem.allowedHostPatterns.length} host pattern{scopeItem.allowedHostPatterns.length === 1 ? "" : "s"}</Tag> : null}
-                                                            {hasArgumentPolicy ? <Tag minimal>argument policy</Tag> : null}
+                                                            {scopeItem.timeoutCeilingMs ? <Tag variant="minimal">timeout max: {scopeItem.timeoutCeilingMs}ms</Tag> : null}
+                                                            {scopeItem.allowedExecutables.length > 0 ? <Tag variant="minimal">{scopeItem.allowedExecutables.length} command path{scopeItem.allowedExecutables.length === 1 ? "" : "s"}</Tag> : null}
+                                                            {scopeItem.allowedHostPatterns?.length > 0 ? <Tag variant="minimal">{scopeItem.allowedHostPatterns.length} host pattern{scopeItem.allowedHostPatterns.length === 1 ? "" : "s"}</Tag> : null}
+                                                            {hasArgumentPolicy ? <Tag variant="minimal">argument policy</Tag> : null}
                                                         </div>
                                                         {scopeSummary ? (
                                                             <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "4px"}}>
@@ -3924,8 +3932,8 @@ const SelectPluginPanel = ({
                                                         {scopeItem.kind !== "capability" ? (
                                                             <div style={{marginTop: "10px"}}>
                                                                 <Button
-                                                                    minimal
-                                                                    small
+                                                                    variant="minimal"
+                                                                    size="small"
                                                                     icon="document-open"
                                                                     onClick={() => setActivePolicyDetails({
                                                                         capability: scopeItem.capability,
@@ -4088,7 +4096,7 @@ const SelectPluginPanel = ({
                         <Tooltip labelFormatter={chartTooltipLabelFormatter}/>
 
                         {/* Legend */}
-                        <Legend verticalAlign="top" layout="horizontal" align="center"
+                        <Legend position="top" layout="horizontal"
                                 wrapperStyle={{paddingBottom: "15px"}}/>
 
                         {/* Render Lines with Static Colors */}
@@ -4162,7 +4170,6 @@ const SelectPluginPanel = ({
 }
 SelectPluginPanel.propTypes = {
     plugin: PropTypes.object,
-    plugins: PropTypes.array,
     activePlugins: PropTypes.array,
     selectPlugin: PropTypes.func,
     deselectPlugin: PropTypes.func,

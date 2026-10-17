@@ -1,3 +1,4 @@
+import {NotificationCenter} from '../utils/desktop/NotificationCenter';
 import {listGeminiModels} from "../utils/ai/providers/geminiProvider.cjs";
 import {listAnthropicModels} from "../utils/ai/providers/catalog";
 import {codingFirstResponseTimeoutMs} from "../utils/ai/generation/codingRequestPolicy.cjs";
@@ -16,6 +17,7 @@ import {registerAiExtensionsHandlers} from './aiExtensions';
 import {SettingsChannels} from "./channels";
 import {settings} from "../utils/persistence/store";
 import {Certs} from "../utils/system/certs";
+import {certificateStorage} from "../utils/persistence/certificateStorage";
 import LLM from "../utils/ai/providers/aiProviderClient"
 import { fetchOpenAICapabilities } from "./ai/model_capabilities/fetchers/openai_fetcher";
 import { readCodexAuthStatus, resolveCodexCliInvocation, runCodexLogout } from "../utils/ai/codex/codexCli.js";
@@ -378,7 +380,7 @@ function monitorGeminiTerminalSession(assistant, invocation, loginLaunchResult) 
 export function registerSettingsHandlers() {
     registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, settings, openExternal: url => shell.openExternal(url)});
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
-        return settings.get('certificates.root') || [];
+        return certificateStorage.list('root');
     });
 
     ipcMain.handle(SettingsChannels.certificates.CREATE, async () => {
@@ -407,9 +409,11 @@ export function registerSettingsHandlers() {
 
     ipcMain.handle(SettingsChannels.certificates.DELETE, async (event, id) => {
         if (id) {
-            const roots = settings.get('certificates.root') || [];
-            const newRoots = roots.filter((root) => root.id !== id);
-            settings.set('certificates.root', newRoots);
+            const certificate = certificateStorage.list('root').find(entry => entry.id === id);
+            certificateStorage.remove(id);
+            if (certificate) NotificationCenter.addNotification({source: 'security', title: `Certificate “${certificate.label}” removed`, type: 'success',
+                message: 'This signer is no longer trusted. Plugins signed by it may fail verification until you import the certificate again.',
+                actions: [{kind: 'view-settings', tab: 'certificates'}]});
         }
     });
 
