@@ -61,7 +61,8 @@ async function launchElectronApp(electron, options = {}) {
   for (let attempt = 1; attempt <= maxLaunchAttempts; attempt += 1) {
     try {
       app = await electron.launch({
-        args: ['.'],
+        // Electron loads this after Playwright's own preload, before app ready.
+        args: ['-r', require.resolve('./credentialStoreBootstrap.cjs'), '.'],
         env: {
           ...process.env,
           FDO_E2E: '1',

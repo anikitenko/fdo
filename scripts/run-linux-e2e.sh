@@ -35,7 +35,7 @@ printf '%s' 'fdo-keyring-ready' | timeout 15s secret-tool store --label='FDO CI 
 [[ "$(timeout 15s secret-tool lookup fdo-ci readiness)" == 'fdo-keyring-ready' ]]
 
 xvfb-run -a bash -e -c '
-    # Match the default Playwright sandbox setting for Linux Electron test launches.
-    ./node_modules/.bin/electron --no-sandbox scripts/check-ci-keyring.cjs
+    # Check the actual Playwright launch path, including its Electron loader.
+    node scripts/check-ci-keyring.cjs
     exec "$@"
 ' bash "$@"

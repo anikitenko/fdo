@@ -48,7 +48,8 @@ npm run package
 
 Linux CI runs Electron tests through `bash scripts/run-linux-e2e.sh <command>`.
 The wrapper starts Xvfb and an isolated GNOME keyring on a private D-Bus session,
-then verifies Electron's `gnome_libsecret` encryption before running the suite.
+then verifies `gnome_libsecret` encryption through the same Playwright launch as the suite.
+The test preload restores Secret Service after Playwright's plaintext password-store override.
 It requires `gnome-keyring`, `libsecret-tools`, `libglib2.0-bin`, `dbus-x11`, and `xvfb`.
 
 ## Plugin Development
