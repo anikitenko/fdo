@@ -255,24 +255,27 @@ async function compileSdkExample(entry) {
 
 async function ensureRootCertificate(window) {
   await window.evaluate(async () => {
-    const hasRootWithKey = async () => {
-      const roots = await window.electron.settings.certificates.getRoot();
-      return (roots || []).some((item) => item?.label === "root" && item?.hasPrivateKey);
-    };
-
-    if (!(await hasRootWithKey())) {
-      const before = await window.electron.settings.certificates.getRoot();
-      const beforeIds = new Set((before || []).map((item) => item?.id).filter(Boolean));
-      await window.electron.settings.certificates.create().catch(() => {});
-      const after = await window.electron.settings.certificates.getRoot();
+    const certificates = window.electron.settings.certificates;
+    const before = await certificates.getRoot();
+    if (before.some(item => item?.label === "root" && item?.hasPrivateKey)) return;
+    if (before.some(item => item?.label === "root")) {
+      await certificates.renew("root");
+    } else {
+      const beforeIds = new Set(before.map(item => item?.id).filter(Boolean));
+      await certificates.create();
+      const after = await certificates.getRoot();
       const created = (after || []).find((item) => item?.id && !beforeIds.has(item.id) && item?.hasPrivateKey);
+      if (!created) throw new Error('Certificate creation did not produce a signing identity with a private key.');
       if (created?.id && created?.label !== "root") {
-        await window.electron.settings.certificates.rename(created.id, "root").catch(() => {});
+        await certificates.rename(created.id, "root");
       }
     }
-    if (!(await hasRootWithKey())) {
-      await window.electron.settings.certificates.renew("root").catch(() => {});
+    const roots = await certificates.getRoot();
+    if (!roots.some(item => item?.label === "root" && item?.hasPrivateKey)) {
+      throw new Error('SDK fixture signing requires a root certificate with an accessible private key.');
     }
+  }).catch(error => {
+    throw new Error(`Could not prepare the SDK fixture signing certificate: ${error.message}`, {cause: error});
   });
 }
 

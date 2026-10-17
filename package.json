@@ -380,5 +380,13 @@
   },
   "engines": {
     "node": ">=24.11.0"
+  },
+  "allowScripts": {
+    "@google/genai@2.30.0": true,
+    "@parcel/watcher@2.6.0": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.28.2": true,
+    "protobufjs@7.6.6": true,
+    "unrs-resolver@1.12.2": true
   }
 }
