@@ -1,6 +1,7 @@
+import {HOST_SERVICES_AUTHORING_SUMMARY} from './hostServicesAuthoringGuide';
 // Public plugin-facing authoring context. Keep this independent of FDO host
 // implementation details so every coding provider receives the same contract.
-export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.15";
+export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.18";
 
 export const PLUGIN_STYLE_RENDERING_GUIDANCE = "CSS entries are objects, not strings: never test typeof css.panel === 'string', stringify an entry, or fall back to literal selector names. Share one DOM across child renderers, register styles there and finish with dom.renderHTML(html). In SDK 1.6, collectStylesFrom() starts an isolated retained collector; attach helpers before styling. Legacy collection is shared and drained. DOMStyleMap supports nested rules and numbers without automatic units. Plugin render() must call this composition entry; an unused renderShell does not style the deployed UI. Register palette/custom-property styles on an ancestor of every styled region. For repairs, inspect the actual entry-to-render call chain, replace string-only style lookups, preserve state and handlers, and test the deployed render path and emitted CSS, not only class attributes or stylesheet text.";
 
@@ -50,6 +51,7 @@ export const PLUGIN_RUNTIME_CATALOG = Object.freeze([
         availability: "window.goober in iframe UI runtime",
         use: "Use for scoped UI styling when the current render convention can access it. Do not use it in backend/bootstrap code.",
     },
+    {name: 'FDOTerminal', availability: 'window.FDOTerminal in iframe UI runtime', use: 'Host-owned xterm.js interactive SSH renderer. Use bytes and consumption callbacks, explicit focus and disposal. No SSH or X11 credentials are exposed.'},
     {
         name: "Ace",
         availability: "window.ace in iframe UI runtime",
@@ -89,6 +91,8 @@ WORKING METHOD
 - Validate against source/import checks, compiler and editor diagnostics, tests, and rendered results when available. Treat each failure as new evidence: locate its owner, inspect that owner's dependencies and consumers, repair only the cause, then repeat validation. Preserve assertions and required behavior. A type assertion is not runtime validation. Bundling alone does not establish type correctness.
 - Return complete changed files in the requested format. Distinguish verified outcomes from assumptions. Never claim a build, test or visual inspection happened without tool evidence.
 
+${HOST_SERVICES_AUTHORING_SUMMARY}
+
 PLUGIN CONTRACT
 - Stay within the plugin workspace and public @anikitenko/fdo-sdk API. Host implementation, settings, credentials and arbitrary host paths are outside the task. Preserve the SDK lifecycle and registration contracts shown in the supplied declarations.
 - Keep backend and iframe responsibilities separate. Serialized browser handlers cannot access module closures automatically. Use supported SDK lifecycle bindings; data-bound and element.dataset.bound are reserved for host bindings.
@@ -100,13 +104,12 @@ PLUGIN CONTRACT
 DEFAULT VISUAL QUALITY
 - The attached screenshot is visual evidence: infer hierarchy, proportions, spacing, typography, palette, shapes and states. Preserve behavior and reference intent across viewports. Do not invent unseen screens or claim visual verification from source alone.
 - Keep a coherent, distinctive visual identity. Check navigation, state visibility, keyboard focus, accessible labels, contrast, overflow, narrow layouts and reduced motion. Preserve design during code-only repairs.
-- Repair owning components using supplied screenshots and interaction results.
 
 VERIFIED IFRAME RUNTIME
 ${libraries}
 data-fdo-ui-open="id" (type=button): FDO mounts/cleans SDK Dialog/Popover openers. Confirmation requires data-fdo-ui-confirm-selector='[data-fdo-result="visual-result-1"]' + data-fdo-ui-confirm-text: explicit onConfirm writes text to one passive p/pre/span/output; Cancel/Escape preserves it.
 Preserve data-fdo-ui-toast-* queue bindings.
-These are supplied by the host; do not add package dependencies for them. Use only capabilities relevant to the task.
+Host supplies these libraries; do not add dependencies.
 
 PLUGIN STYLESHEET CONTRACT
 - Relative .css imports produce style maps, not global stylesheets. Selector keys omit the leading dot. Register style entries through the documented SDK API and apply the returned class names to their elements.

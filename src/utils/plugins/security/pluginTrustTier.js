@@ -52,7 +52,7 @@ export function getPluginTrustTier(capabilities = []) {
 }
 
 export function summarizePrivilegedRuntime(events = []) {
-    const ordered = (Array.isArray(events) ? events : []).slice().sort((left, right) => String(right?.timestamp || "").localeCompare(String(left?.timestamp || "")));
+    const ordered = (Array.isArray(events) ? events : []).slice().reverse().sort((left, right) => String(right?.timestamp || "").localeCompare(String(left?.timestamp || "")));
     const latestFailure = ordered.find((event) => event?.success === false) || null;
     return {
         totalEvents: ordered.length,
@@ -60,7 +60,17 @@ export function summarizePrivilegedRuntime(events = []) {
         failureCount: ordered.filter((event) => event?.success === false).length,
         workflowCount: ordered.filter((event) => typeof event?.workflowId === "string" && event.workflowId.trim()).length,
         approvalDenialCount: ordered.filter((event) => String(event?.confirmationDecision || "") === "denied").length,
+        latestFailureId: latestFailure ? (latestFailure.id || [latestFailure.timestamp, latestFailure.correlationId, latestFailure.stepCorrelationId, latestFailure.error?.code].join(':')) : '',
         latestFailureCode: latestFailure?.error?.code || "",
         latestFailureAt: latestFailure?.timestamp || "",
     };
+}
+
+export function pluginFailureReviewKey(summary = {}) {
+    if (!Number(summary?.failureCount)) return '';
+    return summary.latestFailureId || [summary.latestFailureAt, summary.latestFailureCode, summary.failureCount].join(':');
+}
+export function hasUnreviewedPluginFailures(summary, reviewedKey) {
+    const key = pluginFailureReviewKey(summary);
+    return !!key && key !== reviewedKey;
 }

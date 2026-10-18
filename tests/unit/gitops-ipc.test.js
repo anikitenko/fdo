@@ -220,3 +220,28 @@ test('reports a stable incident key for repeated plugin failures and resolves it
     await invoke('SYNC_PLUGIN', {id: store[0].id, pluginName: 'example'});
     expect(report).toHaveBeenCalledWith(expect.objectContaining({groupKey: failure.groupKey, status: 'resolved', type: 'success'}));
 });
+
+test('pending updates persist as approval state, notify once, and expose no staged filesystem paths',async()=>{
+ const pending={name:'example',pluginId:'managed',reviewId:'review-one',version:'2.0.0',currentVersion:'1.0.0',currentCommit:'a'.repeat(40),commit:'b'.repeat(40),addedCapabilities:['ssh.status.watch'],removedCapabilities:[],newReview:true};
+ sync.mockResolvedValue({pendingUpdates:[pending],installedPlugins:[{id:'managed',name:'example',commit:'a'.repeat(40)}]});
+ const result=await invoke('SAVE',input);await Promise.resolve();
+ expect(result.repository.pluginStatuses[0]).toMatchObject({state:'awaiting_approval',pendingUpdate:{reviewId:'review-one'}});
+ expect(result.repository).not.toHaveProperty('pendingUpdates');
+ expect(report.mock.calls.filter(([notification])=>notification.title?.includes('permission approval'))).toHaveLength(1);
+ sync.mockResolvedValue({pendingUpdates:[{...pending,newReview:false}],installedPlugins:store[0].installedPlugins});
+ await invoke('SYNC',store[0].id);await Promise.resolve();
+ expect(report.mock.calls.filter(([notification])=>notification.title?.includes('permission approval'))).toHaveLength(1);
+});
+
+test('approval IPC is main-window only and updates visible status from an authoritative review callback',async()=>{
+ let records=[{id:'repo',url:input.url,...verified,authType:'none',installedPlugins:[{id:'managed',name:'example',commit:'a'.repeat(40)}],pluginStatuses:[{name:'example',state:'awaiting_approval'}]}];
+ const callbacks={},review=jest.fn(async()=>({state:'synced',commit:'b'.repeat(40)}));
+ const local=registerGitOpsHandlers({ipcMain:{handle:(channel,callback)=>callbacks[channel]=callback},settings:{get:()=>records,set:(_key,value)=>{records=value;}},safeStorage,getMainWindow:()=>({isDestroyed:()=>false,webContents:event.sender}),review});
+ try{
+  const callback=callbacks[SettingsChannels.gitops.REVIEW_UPDATE],data={id:'repo',pluginName:'example',reviewId:'review',decision:'approve',capabilities:['ssh.status.watch']};
+  expect((await callback({...event,senderFrame:{}},data)).success).toBe(false);expect(review).not.toHaveBeenCalled();
+  const result=await callback(event,data);expect(result.success).toBe(true);expect(review).toHaveBeenCalledWith(expect.objectContaining({reviewId:'review',capabilities:['ssh.status.watch']}));
+  expect(result.repositories[0].pluginStatuses[0]).toMatchObject({state:'synced',commit:'b'.repeat(40)});
+  expect(result.repositories[0].installedPlugins[0].commit).toBe('b'.repeat(40));
+ }finally{local.stop();}
+});

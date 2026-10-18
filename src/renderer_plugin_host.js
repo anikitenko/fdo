@@ -1,3 +1,4 @@
+import {installTerminalRenderer} from './components/plugin/utils/terminalRenderer';
 import ReactDOM from 'react-dom/client';
 import React from 'react';
 import {PluginPage} from "./components/plugin/PluginPage.jsx";
@@ -6,6 +7,7 @@ import {PluginPage} from "./components/plugin/PluginPage.jsx";
 const rootElement = document.getElementById('plugin-root');
 
 if (rootElement) {
+    installTerminalRenderer();
     // We're in a plugin window - mount React
     const root = ReactDOM.createRoot(rootElement);
     

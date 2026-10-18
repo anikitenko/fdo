@@ -323,6 +323,7 @@ function systemOpenEditorWindow(data) {
 
     const encodedData = encodeURIComponent(JSON.stringify(data));
     const editorWindowInstance = editorWindow.createWindow()
+    editorWindowInstance.__fdoPluginId = String(data.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const confirmState = createEditorWindowConfirmState();
     editorWindowInstance.loadURL(`${MAIN_WINDOW_WEBPACK_ENTRY}#/editor?data=${encodedData}`).then(() => {
     });

@@ -1,4 +1,3 @@
-import {operationError} from '../utils/desktop/notificationContent';
 import {
     Button,
     Dialog,
@@ -9,26 +8,27 @@ import {
     Icon,
     InputGroup,
     Tag,
-    Spinner
+    Spinner, Card, Callout, HTMLSelect
 } from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
 
 import * as styles from './css/CreatePluginDialog.module.css'
-import {AppToaster} from "./AppToaster.jsx";
 import {PLUGIN_TEMPLATES, resolvePluginTemplate} from "../utils/plugins/authoring/pluginTemplateCatalog";
 import PropTypes from "prop-types";
 import {validateNewPluginName} from '../utils/plugins/authoring/pluginNameValidation';
+import {archiveDraftAndRelease, archivedDrafts, restoreArchivedDraft} from './editor/utils/draftIdRelease';
 import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 
 export const CreatePluginDialog = ({show, close}) => {
     const [uploadLoading, setUploadLoading] = useState(false);
     const [createLoading, setCreateLoading] = useState(false);
     const [pluginName, setPluginName] = useState('');
-    const [pluginMetadata, setPluginMetadata] = useState(null)
-    const [pluginUrl, setPluginUrl] = useState('');
+    const [importPreview, setImportPreview] = useState(null);
+    const [importMode, setImportMode] = useState('bundle');
+    const [importError, setImportError] = useState('');
+    const [draftBusy, setDraftBusy] = useState(false);
+    const [draftMessage, setDraftMessage] = useState('');
     const [updateInitial, setUpdateInitial] = useState(true);
-    const [pluginContent, setPluginContent] = useState('');
-    const [pluginEntrypoint, setPluginEntrypoint] = useState('');
     const [pluginTemplate, setPluginTemplate] = useState('blank');
     const selectedTemplate = resolvePluginTemplate(pluginTemplate);
     const [nameTouched, setNameTouched] = useState(false);
@@ -37,9 +37,17 @@ export const CreatePluginDialog = ({show, close}) => {
     const [, refreshStorage] = useState(0);
     const inventoryEpoch = useRef(0);
     const openingRef = useRef(null);
+    const uploadingRef = useRef(false);
+    const previewRef = useRef(null);
     const hasSavedWorkspace = id => localStorage.getItem(`sandbox_${id}`) !== null;
     const validation = validateNewPluginName(pluginName, {plugins: nameInventory.plugins, hasSavedWorkspace});
+    const pluginMetadata = importMode === 'build' ? importPreview?.sourceMetadata || importPreview?.metadata : importPreview?.metadata;
+    const importMetadataError = importMode === 'build' ? importPreview?.sourceMetadataError : importPreview?.metadataError;
+    let archives = [];
+    try {archives = archivedDrafts(localStorage, validation.id);} catch { /* Storage errors are shown during validation. */ }
     const nameError = (nameTouched || !!pluginName) && !validation.valid;
+    useEffect(() => {setDraftMessage('');}, [pluginName]);
+    useEffect(() => {if (importPreview) previewRef.current?.scrollIntoView?.({block: 'start'});}, [importPreview]);
     const loadPluginInventory = async () => {
         const response = await window.electron.plugin.getAll();
         if (response?.success === false || !Array.isArray(response?.plugins)) throw new Error('Plugin list unavailable.');
@@ -61,12 +69,11 @@ export const CreatePluginDialog = ({show, close}) => {
             setOpeningEditor(false);
             return;
         }
-        if (!updateInitial) return;
         void refreshNameInventory();
         const onStorage = event => {
             if (event.key === null || event.key?.startsWith('sandbox_')) refreshStorage(value => value + 1);
         };
-        const onFocus = () => { if (!openingRef.current) void refreshNameInventory(); };
+        const onFocus = () => { if (!openingRef.current && !uploadingRef.current) void refreshNameInventory(); };
         window.addEventListener('storage', onStorage);
         window.addEventListener('focus', onFocus);
         return () => {
@@ -74,7 +81,7 @@ export const CreatePluginDialog = ({show, close}) => {
             window.removeEventListener('storage', onStorage);
             window.removeEventListener('focus', onFocus);
         };
-    }, [show, updateInitial]);
+    }, [show]);
 
     const openEditor = async (event, mode = 'new') => {
         event?.preventDefault();
@@ -112,12 +119,10 @@ export const CreatePluginDialog = ({show, close}) => {
         openingRef.current = null;
         setNameTouched(false);
         setOpeningEditor(false);
-        setPluginMetadata(null)
+        setImportPreview(null); setImportError(''); setDraftMessage(''); setDraftBusy(false);
         setUpdateInitial(true);
         setPluginName('');
         setPluginTemplate('blank');
-        setPluginContent('');
-        setPluginEntrypoint('');
     }
 
     const dialogClose = () => {
@@ -126,69 +131,78 @@ export const CreatePluginDialog = ({show, close}) => {
         handleReset()
     }
 
-    const normalizeImportedMetadata = (metadata) => ({
-        ...metadata,
-        icon: typeof metadata?.icon === "string" ? metadata.icon.toLowerCase() : metadata?.icon,
-    });
-
-    const handleFileUpload = async () => {
-        setUploadLoading(true);
-        const selectedPluginPath = await window.electron.system.openFileDialog({
-            title: 'Select plugin directory',
-            buttonLabel: 'Select',
-            properties: ['openDirectory'],
-        })
-        if (!selectedPluginPath) {
-            setUploadLoading(false);
-            return
-        }
-            const pluginData = await window.electron.plugin.getData(selectedPluginPath);
-        if (pluginData) {
-            if (pluginData.success) {
-                const metadata = normalizeImportedMetadata(pluginData.metadata)
-
-                setPluginContent(pluginData.content);
-                setPluginName(pluginData.metadata.name);
-                setPluginMetadata(metadata);
-                setPluginEntrypoint(pluginData.entryPoint);
-                setUpdateInitial(false);
-            } else {
-                (await AppToaster).show({message: operationError("Could not import the selected plugin directory", pluginData.error, "Check its entry file and metadata, then select the directory again."), intent: "danger"});
-            }
-        } else {
-            (await AppToaster).show({message: "The selected plugin directory could not be read. Check file access, then select it again.", intent: "danger"});
-        }
-        setUploadLoading(false);
+    const changeDraftReservation = async (archiveKey = null) => {
+        const id = validation.id, epoch = inventoryEpoch.current;
+        setDraftBusy(true); setDraftMessage('');
+        try {
+            const plugins = await loadPluginInventory();
+            const check = validateNewPluginName(id, {plugins});
+            if (!check.valid) {if (inventoryEpoch.current === epoch) setDraftMessage(check.message); return;}
+            const guard = await window.electron.plugin.checkDraftRelease(id);
+            if (!guard?.success) {if (inventoryEpoch.current === epoch) setDraftMessage(guard?.error || 'Could not verify whether the ID can be released safely. Restart FDO and try again.'); return;}
+            if (inventoryEpoch.current !== epoch) return;
+            if (archiveKey) restoreArchivedDraft(localStorage, id, archiveKey);
+            else archiveDraftAndRelease(localStorage, id);
+            setNameInventory({status: 'ready', plugins});
+            refreshStorage(value => value + 1);
+            setDraftMessage(archiveKey ? 'Draft restored. Resume it to continue editing.' : 'ID released. Your draft is archived below and can be restored.');
+        } catch (error) {if (inventoryEpoch.current === epoch) setDraftMessage(error.message);}
+        finally {if (inventoryEpoch.current === epoch) setDraftBusy(false);}
     };
-
-    const createPlugin = () => {
-        setCreateLoading(true);
-        window.electron.plugin.save({
-            name: pluginName,
-            content: pluginContent,
-            metadata: pluginMetadata,
-            entrypoint: pluginEntrypoint
-        }).then(async (result) => {
-            if (result) {
-                if (result.success) {
-                    close()
-                } else {
-                    (await AppToaster).show({message: operationError(`Could not add ${pluginName || "the plugin"}`, result.error, "Review the plugin metadata and installation before trying again."), intent: "danger"});
-                }
-            } else {
-                (await AppToaster).show({message: `Could not add ${pluginName || "the plugin"}. Check disk access and try again.`, intent: "danger"});
-            }
-        })
-        setCreateLoading(false);
-    }
+    const draftControls = <>
+        {validation.code === 'workspace_exists' && <Button size="small" variant="minimal" icon="unlock" type="button" loading={draftBusy}
+            disabled={openingEditor || nameInventory.status !== 'ready'} onClick={() => changeDraftReservation()}>Safe release ID</Button>}
+        {draftMessage && <div aria-live="polite">{draftMessage}</div>}
+        {archives.length > 0 && <details><summary>Archived drafts ({archives.length})</summary>
+            <p>Releasing an ID keeps a recovery copy. Restoring never replaces a current draft or installed plugin.</p>
+            {archives.map(archive => <div key={archive.key}><Button size="small" variant="minimal" type="button" disabled={!validation.valid || draftBusy || openingEditor}
+                onClick={() => changeDraftReservation(archive.key)}>Restore draft · {new Date(archive.createdAt).toLocaleString()}</Button></div>)}
+        </details>}
+    </>;
+    const handleFileUpload = async () => {
+        if (uploadingRef.current) return;
+        uploadingRef.current = true;
+        setUploadLoading(true); setImportError('');
+        const epoch = inventoryEpoch.current;
+        try {
+            const directory = await window.electron.system.openFileDialog({title: 'Select plugin project or exported plugin folder', buttonLabel: 'Inspect folder', properties: ['openDirectory']});
+            if (!directory) return;
+            const preview = await window.electron.plugin.inspectFolder(directory);
+            if (inventoryEpoch.current !== epoch) return;
+            if (!preview?.success) {setImportError(preview?.error || 'The selected folder could not be inspected.'); return;}
+            const plugins = await loadPluginInventory();
+            if (inventoryEpoch.current !== epoch) return;
+            setImportPreview(preview);
+            setPluginName(preview.proposedId);
+            setImportMode(preview.hasCompiled ? 'bundle' : 'build');
+            setNameTouched(true);
+            setUpdateInitial(false);
+            setNameInventory({status: 'ready', plugins});
+        } catch (error) {if (inventoryEpoch.current === epoch) setImportError(error.message);}
+        finally {uploadingRef.current = false; setUploadLoading(false);}
+    };
+    const createPlugin = async () => {
+        if (createLoading || !validation.valid || !importPreview) return;
+        setCreateLoading(true); setImportError('');
+        try {
+            const plugins = await loadPluginInventory();
+            const latest = validateNewPluginName(pluginName, {plugins, hasSavedWorkspace});
+            setNameInventory({status: 'ready', plugins});
+            if (!latest.valid) {setImportError(latest.message); return;}
+            const result = await window.electron.plugin.installFolder({token: importPreview.token, id: latest.id, mode: importMode});
+            if (!result?.success) {setImportError(result?.error || 'The plugin was not imported.'); return;}
+            dialogClose();
+        } catch (error) {setImportError(error.message);}
+        finally {setCreateLoading(false);}
+    };
 
     return (
         <Dialog autoFocus={true}
                 canEscapeKeyClose={false}
                 canOutsideClickClose={false}
                 isOpen={show}
-                isCloseButtonShown={true}
-                onClose={dialogClose}
+                isCloseButtonShown={!createLoading}
+                onClose={createLoading ? undefined : dialogClose}
                 className={styles["create-plugin-dialog"]}
                 title={<><Icon icon={"console"} intent={"primary"} size={20}/><span className={"bp6-heading"}
                                                                                     style={{fontSize: "1.2rem"}}>Create Plugin</span></>}
@@ -212,12 +226,13 @@ export const CreatePluginDialog = ({show, close}) => {
                                     ? 'Checking existing plugin names…' : validation.valid ? validation.message : 'Use a descriptive name for your plugin.'}</div>
                             {validation.id && <div>Plugin ID: <code>{validation.id}</code></div>}
                             {nameInventory.status === 'error' && <Button size="small" variant="minimal" type="button" icon="refresh" onClick={refreshNameInventory}>Retry name check</Button>}
+                            {draftControls}
                             {validation.code === 'workspace_exists' && <Button size="small" variant="minimal" type="button" disabled={openingEditor || nameInventory.status !== 'ready'} onClick={event => openEditor(event, 'resume')}>Resume saved workspace</Button>}
                             {validation.code === 'plugin_exists' && <Button size="small" variant="minimal" type="button" disabled={openingEditor || nameInventory.status !== 'ready'} onClick={event => openEditor(event, 'existing')}>Open existing plugin</Button>}
                         </div>}
                     >
                         <InputGroup id={"plugin-name"} value={pluginName} onValueChange={value => {setPluginName(value); setNameTouched(true);}}
-                                    disabled={openingEditor} onBlur={() => setNameTouched(true)}
+                                    disabled={openingEditor || draftBusy} onBlur={() => setNameTouched(true)}
                                     aria-describedby="plugin-name-feedback" aria-invalid={nameError || nameInventory.status === 'error'}
                                     rightElement={nameInventory.status === 'loading' ? <Spinner size={16}/> : validation.valid && nameInventory.status === 'ready' ? <Icon icon="tick" intent="success"/> : undefined}
                                     placeholder="Name of plugin" fill={true} autoFocus={true}/>
@@ -244,58 +259,53 @@ export const CreatePluginDialog = ({show, close}) => {
                         endIcon="share" loading={openingEditor} disabled={!validation.valid || nameInventory.status !== 'ready' || openingEditor}/>
                     </form>
                 )}
-                {pluginMetadata && (
-                    <div style={{
-                        backgroundColor: "#f5f8fa",
-                        padding: "1rem",
-                        borderRadius: "10px",
-                        boxShadow: "0 1px 5px rgba(0,0,0,0.1)",
-                        fontSize: "1rem",
-                        lineHeight: "1.8"
-                    }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-                            <span style={{ fontSize: "1.5rem" }}>🧩</span>
-                            <Icon icon={sanitizeBlueprintIcon(pluginMetadata.icon)} intent="primary" size={24} />
-                            <span style={{ fontWeight: "bold", fontSize: "1.2rem" }}>{pluginMetadata.name}</span>
-                        </div>
-
-                        <div>🔖 <b>Version:</b> {pluginMetadata.version}</div>
-                        <div>👨‍💻 <b>Author:</b> {pluginMetadata.author}</div>
-
-                        <div style={{ marginTop: "0.75rem" }}>
-                            📝 <b>Description:</b>
-                            <div style={{ marginTop: "0.25rem", backgroundColor: "#ffffff", padding: "0.5rem", borderRadius: "6px", color: "#394b59" }}>
-                                {pluginMetadata.description}
-                            </div>
-                        </div>
+                {importPreview && <div ref={previewRef}><Card>
+                    <div style={{display: 'flex', alignItems: 'center', gap: 8}}><Icon icon={sanitizeBlueprintIcon(pluginMetadata?.icon)} size={24}/><strong>{pluginMetadata?.name || 'Plugin folder'}</strong></div>
+                    <p>{pluginMetadata?.description}</p>
+                    <div style={{display: 'flex', flexWrap: 'wrap', gap: 8}}>
+                        <Tag>{importPreview.hasCompiled ? 'Compiled runtime found' : 'Source project'}</Tag>
+                        {importPreview.hasSource && <Tag>Source included</Tag>}
+                        <Tag>{importPreview.fileCount} files</Tag>
+                        <Tag>{pluginMetadata?.version || 'Version missing'}</Tag>
                     </div>
-                )}
+                    <FormGroup label="Plugin ID" labelFor="import-plugin-id" helperText={<>{validation.message}{draftControls}</>} intent={!validation.valid ? 'danger' : 'none'} style={{marginTop: 16}}>
+                        <InputGroup id="import-plugin-id" value={pluginName} disabled={createLoading || draftBusy} onValueChange={setPluginName}/>
+                    </FormGroup>
+                    <p className="bp6-text-muted">{importPreview.hasSource ? `Source: ${importPreview.sourceEntry}. ` : ''}{importPreview.hasCompiled ? `Runtime: ${importPreview.entryPoint}.` : 'A runtime bundle will be built locally.'}</p>
+                    <FormGroup label="Import as" labelFor="plugin-import-mode">
+                        <HTMLSelect id="plugin-import-mode" value={importMode} disabled={createLoading} onChange={event => setImportMode(event.target.value)} options={[
+                            ...(importPreview.hasCompiled ? [{value: 'bundle', label: 'Install existing compiled bundle'}] : []),
+                            ...(importPreview.hasSource ? [{value: 'build', label: 'Build from source and install'}] : []),
+                        ]}/>
+                    </FormGroup>
+                    <Callout icon="info-sign" title={importMode === 'build' ? 'Build and sign locally' : 'Preserve the exported bundle'}>
+                        {importMode === 'build' ? 'FDO compiles the source using its existing build pipeline and signs it with the default root certificate. Package install/build scripts are not run.'
+                            : importPreview.signed ? 'The supplied signature is verified before installation. Source files and binary assets are preserved.' : 'This bundle is unsigned. Review and sign it in Manage Plugins before using it.'}
+                        <p>Files are snapshotted when inspected. Select the folder again to include later changes.</p>
+                        <p>Imported plugins stay inactive and receive no capability grants. Existing plugins are never overwritten.</p>
+                        {importMode === 'bundle' && importPreview.hasSource && <p>If the source changed after the last build, choose Build from source and install.</p>}
+                    </Callout>
+                    {importMetadataError && <Callout intent="danger" title="Cannot use this import mode">{importMetadataError} Correct the folder and select it again, or choose another available import mode.</Callout>}
+                </Card></div>}
+                {importError && <Callout intent="danger" role="alert" title="Import did not complete" style={{marginTop: 12}}>{importError}</Callout>}
                 <Divider/>
                 <FormGroup
-                    label="...or you may upload your plugin:"
+                    label="Import an existing plugin folder"
                     labelFor="plugin-upload"
                 >
-                    <Button id={"plugin-upload"} loading={uploadLoading} disabled={openingEditor} icon="upload" text="Select folder"
+                    <p className="bp6-text-muted">Select a folder containing package.json. FDO detects source projects and compiled exports, including exports that contain both.</p>
+                    <Button id={"plugin-upload"} aria-label="Select folder" loading={uploadLoading} disabled={openingEditor || createLoading} icon="upload" text="Select folder"
                             onClick={async () => {
                                 await handleFileUpload()
                             }}/>
                     {!updateInitial && (
-                        <Button icon="reset" text="Reset" intent={"warning"}
+                        <Button icon="reset" text="Reset" disabled={createLoading} intent={"warning"}
                                 onClick={handleReset}/>
                     )}
                 </FormGroup>
-                <Divider/>
-                <FormGroup
-                    label="...or you may download from URL:"
-                    labelFor="plugin-from-url"
-                >
-                    <InputGroup id={"plugin-from-url"} value={pluginUrl} onValueChange={setPluginUrl}
-                                placeholder="https://dl.plugins.fdo.alexvwan.me/example-plugin"
-                                fill={true} rightElement={<Button text={"Download"}/>}/>
-                </FormGroup>
             </DialogBody>
-            {!updateInitial && <DialogFooter actions={<Button onClick={createPlugin} loading={createLoading} disabled={!pluginName || !pluginContent}
-                                           intent="success">Save imported plugin</Button>}/>}
+            {!updateInitial && <DialogFooter actions={<Button onClick={createPlugin} loading={createLoading} disabled={!validation.valid || draftBusy || !!importMetadataError || nameInventory.status !== 'ready'}
+                                           intent="success">{importMode === 'build' ? 'Build and install plugin' : 'Install compiled plugin'}</Button>}/>}
         </Dialog>
     )
 }

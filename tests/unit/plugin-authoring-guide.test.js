@@ -37,7 +37,7 @@ process.stdout.write(result.renderView());`;
             expect(hostHtml).toContain(asset);
         }
         expect(PLUGIN_RUNTIME_CATALOG.map((item) => item.name)).toEqual([
-            "Pure CSS", "Font Awesome", "Split Grid", "highlight.js", "Notyf", "Goober", "Ace",
+            "Pure CSS", "Font Awesome", "Split Grid", "highlight.js", "Notyf", "Goober", "FDOTerminal", "Ace",
         ]);
     });
 
@@ -96,7 +96,7 @@ process.stdout.write(result.renderView());`;
         expect(guide).toContain("A type assertion is not runtime validation");
         expect(guide).toContain("Bundling alone does not establish");
         expect(guide).not.toMatch(/jsonInspectorBound|category\/title|\/features\/seo/);
-        expect(guide.length).toBeLessThan(7500);
+        expect(guide.length).toBeLessThan(8000);
         expect(guide).toContain("never test typeof css.panel === 'string'");
         expect(guide).toContain('renderBody(dom)');
         expect(guide).toContain('emitted CSS');
@@ -111,7 +111,7 @@ process.stdout.write(result.renderView());`;
 
     test("supplies the guide to API system prompts and CLI prompts", () => {
         const source = fs.readFileSync(path.resolve("src/ipc/ai_coding_agent.js"), "utf8");
-        expect(source).toContain("reviewReport ? WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()");
+        expect(source).toContain('reviewReport ? typeof reviewReport === "string" ? reviewReport : WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()');
         expect(source).toMatch(/const providerPrompt = isCliProvider && !reviewReport\s*\? `\$\{buildPluginCodingPrompt\(prompt\)}\$\{providerInstructions}`\s*: prompt;/);
     });
 });

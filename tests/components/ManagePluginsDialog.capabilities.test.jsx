@@ -230,6 +230,20 @@ describe("ManagePluginsDialog capability UX", () => {
         );
     }
 
+    test('highlights all six missing Git/SSH grants from preflight without a focused permission error', async () => {
+        const missing = ['system.process.exec', 'system.process.scope.git', 'ssh.use', 'ssh.exec', 'secrets.use', 'secrets.consume'];
+        const policies = await window.electron.plugin.getScopePolicies();
+        window.electron.plugin.getScopePolicies.mockResolvedValue({...policies, scopes: [...policies.scopes, {scope: 'git', kind: 'process', description: 'Git', allowedExecutables: ['/usr/bin/git'], allowedCwdRoots: ['/tmp']}]});
+        window.electron.plugin.getRuntimeStatus.mockResolvedValue({success: true, statuses: [{id: 'plugin-a', capabilityIntent: {available: true, hasDeclaration: true, declared: missing, granted: [], missingDeclared: missing, undeclaredGranted: [], missingDiagnostics: missing.map(capability => ({capability})), remediations: []}}]});
+        renderDialog();
+        fireEvent.click(await screen.findByRole('button', {name: 'Expand'}));
+        for (const capability of missing) await waitFor(() => expect(document.querySelector(`[data-capability-id="${capability}"]`)).toHaveAttribute('data-capability-missing', 'true'));
+        fireEvent.click(document.querySelector('[data-capability-id="secrets.use"] input'));
+        expect(document.querySelector('[data-capability-id="secrets.use"]')).not.toHaveAttribute('data-capability-missing');
+        expect(document.querySelector('[data-capability-id="secrets.consume"]')).toHaveAttribute('data-capability-missing', 'true');
+        expect(document.querySelector('[data-capability-id="secrets.consume"] input')).not.toBeChecked();
+    });
+
     test("shows friendly labels with technical IDs", async () => {
         renderDialog();
 
@@ -289,7 +303,13 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(screen.getByRole("button", {name: "Enable Secure Public Web"})).toBeInTheDocument();
     });
 
-    test("filters scope groups without hiding the base capability controls", async () => {
+    test('explains why GitOps plugins cannot be deleted locally', async () => {
+        renderDialog({gitops:{sourceId:'collection',declaredId:'plugin-a',repository:'https://example.com/plugin',targetRevision:'main',commit:'a'.repeat(40)}});
+        expect(await screen.findByRole('button', {name:'Remove plugin',exact:true})).toBeDisabled();
+        expect(screen.getByText(/To delete it locally, first remove the repository subscription/)).toBeInTheDocument();
+    });
+
+    test("filters out unrelated families while retaining the matching child's base control", async () => {
         renderDialog();
 
         await waitFor(() => {
@@ -308,6 +328,9 @@ describe("ManagePluginsDialog capability UX", () => {
 
         expect(screen.getAllByText("Allow Scoped Tool Execution").length).toBeGreaterThan(0);
         expect(screen.queryByRole("checkbox", {name: "Docker CLI Scope"})).not.toBeInTheDocument();
+        expect(document.querySelector('[data-capability-id="ssh.use"]')).toBeNull();
+        expect(document.querySelector('[data-capability-id="storage"]')).toBeNull();
+        expect(screen.queryByText('No scopes matched the current filter for this capability family.')).not.toBeInTheDocument();
 
         fireEvent.change(
             screen.getByPlaceholderText("Filter scopes, commands, capability IDs"),
@@ -317,6 +340,36 @@ describe("ManagePluginsDialog capability UX", () => {
         await waitFor(() => {
             expect(screen.getByRole("button", {name: "Expand"})).toBeInTheDocument();
         });
+    });
+
+    test('combines Missing only with search and removes grants from the filtered list as they are selected', async () => {
+        renderDialog({capabilities:['system.process.exec']});
+        fireEvent.click(await screen.findByRole('checkbox', {name:'Missing only'}));
+        await waitFor(() => expect(document.querySelector('[data-capability-id="system.process.scope.docker-cli"]')).toBeInTheDocument());
+        expect(document.querySelector('[data-capability-id="system.process.exec"]')).toBeInTheDocument();
+        expect(document.querySelector('[data-capability-id="system.process.scope.system-inspect"]')).toBeNull();
+        expect(document.querySelector('[data-capability-id="ssh.use"]')).toBeNull();
+        const search = screen.getByPlaceholderText('Filter scopes, commands, capability IDs');
+        fireEvent.change(search, {target:{value:'no-such-capability'}});
+        expect(await screen.findByText('No matching capabilities')).toBeInTheDocument();
+        expect(document.querySelector('[data-capability-id="system.process.exec"]')).toBeNull();
+        fireEvent.change(search, {target:{value:'docker'}});
+        const child = document.querySelector('[data-capability-id="system.process.scope.docker-cli"] input');
+        expect(child).toBeEnabled(); fireEvent.click(child);
+        expect(await screen.findByText('No missing capabilities')).toBeInTheDocument();
+        expect(screen.getByRole('button', {name:'Save Capabilities'})).toBeEnabled();
+        fireEvent.click(screen.getByRole('button', {name:'Clear filters'}));
+        expect(search).toHaveValue('');
+        expect(screen.getByRole('checkbox', {name:'Missing only'})).not.toBeChecked();
+    });
+
+    test('searches base capability titles and IDs as well as child policies', async () => {
+        renderDialog();
+        const search = await screen.findByPlaceholderText('Filter scopes, commands, capability IDs');
+        fireEvent.change(search, {target:{value:'ssh.use'}});
+        await waitFor(() => expect(document.querySelector('[data-capability-id="ssh.exec"]')).toBeInTheDocument());
+        expect(document.querySelector('[data-capability-id="ssh.use"]')).toBeInTheDocument();
+        expect(document.querySelector('[data-capability-id="system.process.exec"]')).toBeNull();
     });
 
     test("shows argument-policy visibility in process scope details", async () => {
@@ -923,4 +976,40 @@ describe("ManagePluginsDialog capability UX", () => {
             expect(screen.getByText(/No plugin-specific process scopes yet/i)).toBeInTheDocument();
         });
     });
+
+test('SSH execution is an explicit child and never approves prerequisites', async () => {
+    const plugin = {id: 'git-example', name: 'Git example', icon: 'git-repo', version: '1.0.0', author: 'FDO', description: 'Git', capabilities: []};
+    window.electron.plugin.getScopePolicies = jest.fn().mockResolvedValue({success: true, scopes: []});
+    window.electron.plugin.getRuntimeStatus = jest.fn().mockResolvedValue({success: true, statuses: []});
+    window.electron.plugin.setCapabilities = jest.fn().mockResolvedValue({success: true});
+    render(<ManagePluginsDialog show={true} setShow={jest.fn()} plugins={[plugin]} activePlugins={[]} deselectPlugin={jest.fn()} selectPlugin={jest.fn()} removePlugin={jest.fn()} setSearchActions={jest.fn()} refreshPluginsState={jest.fn()} focusRequest={null}/>);
+    await screen.findByText('Capabilities & Privileged Access');
+    fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
+    const base = screen.getByRole('checkbox', {name: 'SSH connections'});
+    const git = screen.getByRole('checkbox', {name: 'Run remote SSH commands'});
+    expect(git).toBeDisabled();
+    fireEvent.click(base);
+    expect(screen.getByRole('button', {name: 'Save Capabilities'})).toBeDisabled();
+    expect(screen.getByText(/Choose at least one SSH operation/)).toBeInTheDocument();
+    fireEvent.click(git);
+    expect(git).toBeChecked();
+    expect(screen.queryByText(/Choose at least one SSH operation/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Save Capabilities'}));
+    await waitFor(() => expect(window.electron.plugin.setCapabilities).toHaveBeenCalledWith('git-example', ['ssh.use', 'ssh.exec']));
+    const saved = window.electron.plugin.setCapabilities.mock.calls[0][1];
+    expect(saved).toHaveLength(2);
+    expect(saved).toContain('ssh.exec');
+    expect(saved).not.toContain('secrets.consume');
+    expect(saved).not.toContain('system.process.exec');
+});
+
+    test('enabling the AI parent never grants its operation capabilities', async () => {
+        renderDialog();
+        await screen.findByText('Capabilities & Privileged Access');
+        fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
+        fireEvent.click(screen.getByRole('checkbox', {name: 'Host AI access'}));
+        fireEvent.click(screen.getByRole('button', {name: 'Save Capabilities'}));
+        await waitFor(() => expect(window.electron.plugin.setCapabilities).toHaveBeenCalledWith('plugin-a', ['system.ai']));
+    });
+
 });

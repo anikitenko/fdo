@@ -1,6 +1,8 @@
 // Shared by the creation dialog and workspace scaffolder. No Electron dependencies.
 export const PLUGIN_TEMPLATES = Object.freeze([
     {value: 'blank', title: 'Blank', icon: 'document', description: 'A small plugin with a working status action. Build your own workflow.', features: ['Status action', 'Render tests', 'Development guide']},
+    {value: 'ssh', title: 'SSH connections', icon: 'key', description: 'Run a policy-approved command through host-managed SSH profiles and encrypted credential references.', features: ['Explicit capabilities', 'Trusted SSH profiles', 'Backend-only execution']},
+    {value: 'gitSsh', title: 'Git with SSH profiles', icon: 'git-repo', description: 'Inspect two Git repositories using separate SSH profiles through the existing Git CLI operator API.', features: ['Per-repository keys', 'Explicit repository policy', 'Read-only starter action']},
     {value: 'utility', title: 'Local utility', icon: 'code', description: 'Inspect JSON locally with a labelled editor and clear success/error feedback.', features: ['Input → result', 'Pure logic module', 'No external access']},
     {value: 'service', title: 'Service monitor', icon: 'cloud', description: 'A service adapter, environment selector, loading feedback and results. Starts with labelled demo data.', features: ['Demo adapter', 'Error handling', 'No credentials needed']},
     {value: 'dashboard', title: 'Dashboard', icon: 'dashboard', description: 'A responsive operations overview with status cards, refresh, quick actions and a sidebar menu.', features: ['Responsive cards', 'Quickbar + sidebar', 'Demo metrics']},

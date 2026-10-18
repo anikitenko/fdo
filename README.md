@@ -54,6 +54,14 @@ It requires `gnome-keyring`, `libsecret-tools`, `libglib2.0-bin`, `dbus-x11`, an
 
 ## Plugin Development
 
+Open a `.md` or `.markdown` file in the built-in IDE to switch between **Code**, **Preview**, and **Split** views. Markdown previews follow unsaved edits; switching views preserves Monaco's cursor and undo history.
+
+Create Plugin → **Select folder** inspects local source projects and extracted FDO exports. A compiled export can be installed with its existing signature, or rebuilt from its included source. Source projects use FDO's compiler and default `root` signing certificate; install/build scripts are not executed. Imports preserve source and binary assets, stay inactive with no grants, and never overwrite installed IDs. Fix missing dependencies or metadata in the source folder and select it again if inspection/build fails. URL import is no longer offered here.
+
+If an undeployed saved workspace occupies an ID, **Safe release ID** archives the draft before releasing it. Close its editor first. Expand **Archived drafts** under that ID to restore it when no current draft or installed plugin uses the ID.
+
+Settings → **Credentials & SSH** manages plugin-scoped encrypted credentials and pinned SSH profiles. Plugins adopting SDK 1.8 must request explicit base and operation grants in Manage Plugins. See [host secret and SSH support](docs/HOST_SECRETS_AND_SSH.md) for policies, limits, verification and profile-aware Git. SSH is bundled. Git operations require an installed, allowlisted Git executable and reuse authorized SSH profiles.
+
 FDO uses the [@anikitenko/fdo-sdk](https://github.com/anikitenko/fdo-sdk) for plugin development.
 
 Example plugin:

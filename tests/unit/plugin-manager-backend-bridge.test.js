@@ -198,3 +198,18 @@ describe("PluginManager backend bridge routing", () => {
         expect(mockExecuteHostPrivilegedAction).not.toHaveBeenCalled();
     });
 });
+
+test('retains safe Git audit diagnostics and assigns distinct IDs without command/output secrets', () => {
+    const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+    manager.privilegedAuditByPlugin = {};
+    const event = {scope: 'git', success: false, correlationId: 'request-42', command: 'SECRET_COMMAND', args: ['SECRET_ARG'], cwd: 'SECRET_FOLDER', error: {
+        code: 'CONNECTION_FAILED', error: 'SECRET_PROVIDER_MESSAGE', diagnosticDetails: {reason: 'AUTHENTICATION_FAILED', exitCode: 128, stdout: 'SECRET_OUTPUT'},
+    }};
+    manager.recordPrivilegedAudit('plugin-a', event);
+    manager.recordPrivilegedAudit('plugin-a', event);
+    const [first, second] = manager.getPrivilegedAuditTrail('plugin-a');
+    expect(first.id).not.toBe(second.id);
+    expect(first.error.diagnosticDetails).toEqual({reason: 'AUTHENTICATION_FAILED', exitCode: 128});
+    expect(first.error.code).toBe('CONNECTION_FAILED');
+    expect(JSON.stringify(first)).not.toContain('SECRET_');
+});

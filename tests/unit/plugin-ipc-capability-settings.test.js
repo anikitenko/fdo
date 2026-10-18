@@ -1,4 +1,5 @@
 jest.mock("electron", () => ({
+    BrowserWindow: {getAllWindows: jest.fn(() => [])},
     app: {
         isPackaged: false,
         getAppPath: jest.fn(() => "/tmp/app"),
@@ -108,7 +109,7 @@ jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginW
 describe("plugin IPC capability settings", () => {
     test("returns scope policies and persists capability updates", async () => {
         jest.resetModules();
-        const {ipcMain} = require("electron");
+        const {ipcMain, BrowserWindow} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
         const {PluginChannels} = require("../../src/ipc/channels");
         const PluginManager = require("../../src/utils/plugins/runtime/PluginManager").default;
@@ -148,7 +149,11 @@ describe("plugin IPC capability settings", () => {
         }));
         expect(sourceControlScope?.argumentPolicy?.rulesByExecutable?.git?.pathRestrictedLeadingOptions).toEqual(expect.arrayContaining(["-C"]));
 
+        const send = jest.fn();
+        BrowserWindow.getAllWindows.mockReturnValue([{__fdoEditorWindow:true,isDestroyed:() => false,webContents:{send}}]);
         const updateResult = await setCapabilitiesHandler({}, "plugin-a", ["system.hosts.write"]);
+        expect(send).toHaveBeenCalledWith(PluginChannels.on_off.CAPABILITIES_CHANGED, {pluginId:'plugin-a'});
+        BrowserWindow.getAllWindows.mockReturnValue([]);
         expect(mockSetPluginCapabilities).toHaveBeenCalledWith("plugin-a", ["system.hosts.write"]);
         expect(updateResult).toEqual(expect.objectContaining({
             success: true,
@@ -445,7 +450,7 @@ describe("plugin IPC capability settings", () => {
         expect(PluginManager.loadPlugin).toHaveBeenCalledWith("plugin-a");
     });
 
-    test("does not restart loaded runtime when non-storage capabilities change", async () => {
+    test("restarts loaded runtime when process grants change so SDK permissions cannot remain stale", async () => {
         jest.resetModules();
         const {ipcMain} = require("electron");
         const {registerPluginHandlers} = require("../../src/ipc/plugin");
@@ -469,15 +474,15 @@ describe("plugin IPC capability settings", () => {
 
         const loadedPlugin = {grantedCapabilities: ["storage", "storage.json"]};
         PluginManager.getLoadedPlugin.mockReturnValue(loadedPlugin);
+        PluginManager.loadPlugin.mockResolvedValue({success: true});
         mockSetPluginCapabilities.mockImplementation((_id, caps) => ({success: true, capabilities: caps}));
 
         const updateResult = await setCapabilitiesHandler({}, "plugin-a", ["storage", "storage.json", "system.process.exec"]);
         expect(updateResult.success).toBe(true);
-        expect(updateResult.runtimeRestarted).toBe(false);
+        expect(updateResult.runtimeRestarted).toBe(true);
         expect(updateResult.runtimeRestartError).toBe("");
-        expect(PluginManager.unLoadPlugin).not.toHaveBeenCalled();
-        expect(PluginManager.loadPlugin).not.toHaveBeenCalled();
-        expect(loadedPlugin.grantedCapabilities).toEqual(["storage", "storage.json", "system.process.exec"]);
+        expect(PluginManager.unLoadPlugin).toHaveBeenCalledWith('plugin-a', {force: true, reason: 'capabilities_changed'});
+        expect(PluginManager.loadPlugin).toHaveBeenCalledWith('plugin-a');
     });
 
     test("restarts loaded runtime when network capability family changes", async () => {

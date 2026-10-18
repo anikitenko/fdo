@@ -1,3 +1,5 @@
+import {inspectPluginFolder, installPluginFolder} from '../utils/plugins/importing/pluginFolderImport';
+import {validateNewPluginName} from '../utils/plugins/authoring/pluginNameValidation';
 import {pluginDisplayName} from '../utils/desktop/notificationContent';
 import {enqueuePluginUiBridge} from '../utils/plugins/runtime/pluginUiMessageQueue';
 import {typecheckPluginWorkspace} from '../utils/sdk/pluginWorkspaceTypecheck';
@@ -10,6 +12,7 @@ import {readFile, readdir, stat} from 'node:fs/promises';
 import Module from 'node:module';
 import PluginORM from "../utils/persistence/PluginORM";
 import {PLUGINS_DIR, PLUGINS_REGISTRY_FILE, USER_CONFIG_FILE} from "../main.js";
+import {invalidateHostServices, removeHostServices} from '../utils/hostServices/runtime';
 import generatePluginName from "../components/editor/utils/generatePluginName";
 import path from "node:path";
 import UserORM from "../utils/persistence/UserORM";
@@ -863,6 +866,61 @@ async function getPluginLogTrace(pluginId, options = {}) {
 }
 
 export function registerPluginHandlers() {
+    const folderPreviews = new Map();
+    const importingIds = new Set();
+    const inspectingFolders = new Set();
+    const watchedImportOwners = new WeakSet();
+    ipcMain.handle(PluginChannels.CHECK_DRAFT_RELEASE, (_event, id) => {
+        if (typeof id !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return {success: false, error: 'Invalid plugin ID.'};
+        const plugins = new PluginORM(PLUGINS_REGISTRY_FILE).getAllPlugins();
+        if (validateNewPluginName(id, {plugins}).code === 'plugin_exists') return {success: false, error: 'An installed plugin uses this ID. Its workspace cannot be released here.'};
+        if (BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && (window.__fdoPluginId === id || window.__fdoEditorWindow && !window.__fdoPluginId))) return {success: false, error: 'Close the editor for this plugin before releasing its ID.'};
+        return {success: true};
+    });
+    ipcMain.handle(PluginChannels.INSPECT_FOLDER, async (event, directory) => {
+        const owner = event.sender.id;
+        for (const [key, preview] of folderPreviews) if (preview.expires < Date.now()) folderPreviews.delete(key);
+        if (inspectingFolders.has(owner)) return {success: false, error: 'Folder inspection is already in progress.'};
+        if (!folderPreviews.has(owner) && folderPreviews.size + inspectingFolders.size >= 4) return {success: false, error: 'Finish another folder import before opening another preview.'};
+        inspectingFolders.add(owner);
+        folderPreviews.delete(owner);
+        if (!watchedImportOwners.has(event.sender)) {
+            watchedImportOwners.add(event.sender);
+            event.sender.once('destroyed', () => folderPreviews.delete(owner));
+        }
+        try {
+            const snapshot = await inspectPluginFolder(directory);
+            if (event.sender.isDestroyed()) return {success: false, error: 'The importing window was closed.'};
+            const token = uuidv4();
+            folderPreviews.set(owner, {token, snapshot, expires: Date.now() + 10 * 60 * 1000});
+            let metadataError = snapshot.bundleError || '', sourceMetadataError = '';
+            try {normalizeAndValidatePluginMetadata(snapshot.metadata);} catch (error) {metadataError = error.message;}
+            if (snapshot.sourceMetadata) try {normalizeAndValidatePluginMetadata(snapshot.sourceMetadata);} catch (error) {sourceMetadataError = error.message;}
+            const previewMetadata = value => value ? Object.fromEntries(['name', 'version', 'author', 'description', 'icon'].map(key => [key, typeof value[key] === 'string' ? value[key] : ''])) : null;
+            return {success: true, token, proposedId: snapshot.proposedId, metadata: previewMetadata(snapshot.metadata), metadataError, sourceMetadata: previewMetadata(snapshot.sourceMetadata), sourceMetadataError,
+                hasSource: !!snapshot.sourceEntry, hasCompiled: snapshot.hasCompiled, signed: snapshot.signed,
+                sourceEntry: snapshot.sourceEntry, entryPoint: snapshot.runtimeEntry, fileCount: snapshot.files.length, bytes: snapshot.bytes};
+        } catch (error) {return {success: false, error: error.message};}
+        finally {inspectingFolders.delete(owner);}
+    });
+    ipcMain.handle(PluginChannels.INSTALL_FOLDER, async (event, data = {}) => {
+        if (!data || typeof data !== 'object') return {success: false, error: 'Invalid import request.'};
+        const pending = folderPreviews.get(event.sender.id);
+        if (!pending || pending.token !== data.token || pending.expires < Date.now()) return {success: false, error: 'This import preview expired. Select the folder again.'};
+        if (importingIds.has(data.id)) return {success: false, error: 'An import for this ID is already in progress.'};
+        importingIds.add(data.id);
+        try {
+            const result = await installPluginFolder(pending.snapshot, {id: data.id, mode: data.mode,
+                pluginsDir: PLUGINS_DIR, registry: () => new PluginORM(PLUGINS_REGISTRY_FILE), build: buildUsingEsbuild,
+                normalizeMetadata: normalizeAndValidatePluginMetadata, sign: (home, label) => Certs.signPlugin(home, label), verify: home => Certs.verifyPlugin(home)});
+            folderPreviews.delete(event.sender.id);
+            PluginManager.sendToMainWindow(PluginChannels.on_off.DEPLOY_FROM_EDITOR, result.id);
+            NotificationCenter.addNotification({source: 'plugins', type: 'success', title: `${pending.snapshot.metadata.name}: imported`,
+                message: 'The plugin was installed inactive with no granted capabilities. Review it in Manage Plugins before activation.', actions: [{kind: 'manage-plugin', pluginId: result.id}]});
+            return result;
+        } catch (error) {return {success: false, error: error.message};}
+        finally {importingIds.delete(data.id);}
+    });
     pluginTray.configure({
         getPlugin: id => PluginManager.getLoadedPlugin(id),
         invoke: (id, plugin, content) => dispatchPluginUiMessageAndAwaitResult(id, plugin, content),
@@ -1100,12 +1158,14 @@ export function registerPluginHandlers() {
         try {
             const plugin = pluginORM.getPlugin(id)
             if (plugin?.gitops) return {success: false, error: 'This plugin is managed by GitOps. Update the collection manifest or remove the repository subscription first.'};
+            await PluginManager.unLoadPlugin(id, {force: true, reason: 'uninstall'});
+            removeHostServices(id);
             rmSync(plugin.home, {recursive: true, force: true})
             pluginORM.removePlugin(plugin.id)
             removeHostPluginCustomProcessScopes(plugin.id)
             removeHostPluginCustomFilesystemScopes(plugin.id)
             NotificationCenter.addNotification({source: 'plugins', title: `${pluginDisplayName(plugin)} removed`, type: 'success',
-                message: 'The plugin registration and installed code were removed from FDO.'});
+                message: 'The plugin registration, installed code, saved credentials and SSH profiles were removed from FDO.'});
             return {success: true};
         } catch (error) {
             return {success: false, error: error.message};
@@ -2286,7 +2346,7 @@ export function registerPluginHandlers() {
             const shouldReload = !!PluginManager.getLoadedPlugin(data.name) || userORM.getActivatedPlugins().includes(data.name);
             if (shouldReload) {
                 reportProgress(90, "Restarting plugin…");
-                PluginManager.unLoadPlugin(data.name, {force: true});
+                await PluginManager.unLoadPlugin(data.name, {force: true});
                 const reloadResult = await PluginManager.loadPlugin(data.name);
                 if (!reloadResult?.success) {
                     return {success: false, error: reloadResult?.error || `Failed to reload plugin "${data.name}" after deploy.`};
@@ -2384,7 +2444,7 @@ export function registerPluginHandlers() {
 
         archive.pipe(passThrough);
 
-        const ig = await getIgnoreInstance(plugin.home, []);
+        const ig = await getIgnoreInstance(plugin.home, [], {includeDist: true});
         const existingFiles = await getAllFilesWithIgnorance(plugin.home, relativePath => !ig.ignores(relativePath));
 
         for (const absFile of existingFiles) {
@@ -2392,12 +2452,11 @@ export function registerPluginHandlers() {
             archive.file(absFile, { name: relativePath });
         }
 
-        await archive.finalize();
-
         return new Promise((resolve, reject) => {
             passThrough.on('end', () => resolve(Buffer.concat(chunks)));
             passThrough.on('error', reject);
             archive.on('error', reject);
+            void archive.finalize().catch(reject);
         });
     })
 
@@ -2412,6 +2471,14 @@ export function registerPluginHandlers() {
             if (!result.success) {
                 return result;
             }
+            // Diagnostics reflect persisted grants even for inactive plugins or
+            // when restarting an active worker subsequently fails.
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed() && window.__fdoEditorWindow) {
+                    window.webContents.send(PluginChannels.on_off.CAPABILITIES_CHANGED, {pluginId: id});
+                }
+            }
+            invalidateHostServices(id);
             const plugin = pluginORM.getPlugin(id);
             const nextGrantedCapabilities = Array.isArray(result.capabilities)
                 ? [...result.capabilities]
@@ -2421,12 +2488,17 @@ export function registerPluginHandlers() {
             if (loadedPlugin) {
                 const storageChanged = didStorageCapabilityFamilyChange(previousGrantedCapabilities, nextGrantedCapabilities);
                 const networkChanged = didNetworkCapabilityFamilyChange(previousGrantedCapabilities, nextGrantedCapabilities);
-                if (storageChanged || networkChanged) {
+                const hostServicesChanged = JSON.stringify(previousGrantedCapabilities.filter(cap => /^(secrets|ssh)\./.test(cap)).sort()) !== JSON.stringify(nextGrantedCapabilities.filter(cap => /^(secrets|ssh)\./.test(cap)).sort());
+                // Every SDK grant and the sandbox policy are installed at worker
+                // bootstrap. Updating only the host record leaves process grants stale.
+                const grantsChanged = JSON.stringify([...previousGrantedCapabilities].sort()) !== JSON.stringify([...nextGrantedCapabilities].sort());
+                if (grantsChanged) {
                     const restartReason = storageChanged
                         ? "capabilities_storage_changed"
-                        : "capabilities_network_changed";
+                        : networkChanged ? "capabilities_network_changed"
+                            : hostServicesChanged ? "capabilities_host_services_changed" : "capabilities_changed";
                     try {
-                        PluginManager.unLoadPlugin(id, {force: true, reason: restartReason});
+                        await PluginManager.unLoadPlugin(id, {force: true, reason: restartReason});
                         const restartResult = await PluginManager.loadPlugin(id);
                         if (restartResult?.success) {
                             runtimeRestarted = true;

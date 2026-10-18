@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import {mkdtemp, rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {bundledGit, environment as bundledGitEnvironment} from '../git/bundledGit.cjs';
 import {MAX_MANIFEST_BYTES, repositoryUrl, revision, repositoryPath, validateCollection, validateRepository} from './manifest';
 
 const execute = promisify(execFile);
@@ -49,23 +50,25 @@ export async function withGitRepository(input, action, run = execute) {
     const repository = {...input, url: repositoryUrl(input.url), targetRevision: revision(input.targetRevision)};
     const directory = await mkdtemp(path.join(os.tmpdir(), 'fdo-gitops-'));
     try {
-        const options = {cwd: directory, env: gitEnvironment({...input, ...repository}, directory),
+        const git = bundledGit();
+        const options = {cwd: directory, env: bundledGitEnvironment(gitEnvironment({...input, ...repository}, directory),git),
             timeout: 30000, maxBuffer: MAX_MANIFEST_BYTES + 1024, windowsHide: true, encoding: 'utf8'};
         let commit;
         try {
-            await run('git', ['init', '--bare', '--template=', '.'], options);
+            await run(git.command, ['init', '--bare', '--template=', '.'], options);
             const ref = repository.revisionType === 'auto'
-                ? (await resolveTargetRevision(repository.targetRevision, repository.url, args => run('git', args, options))).ref
+                ? (await resolveTargetRevision(repository.targetRevision, repository.url, args => run(git.command, args, options))).ref
                 : `refs/${repository.revisionType === 'branch' ? 'heads' : 'tags'}/${repository.targetRevision}`;
-            await run('git', ['fetch', '--depth=1', '--no-tags', '--', repository.url, ref], options);
-            ({stdout: commit} = await run('git', ['rev-parse', 'FETCH_HEAD^{commit}'], options));
+            await run(git.command, ['fetch', '--depth=1', '--no-tags', '--', repository.url, ref], options);
+            ({stdout: commit} = await run(git.command, ['rev-parse', 'FETCH_HEAD^{commit}'], options));
         } catch (error) {
-            if (error.code === 'ENOENT') throw new Error('Git is required. Install Git and make it available on PATH.');
+            if (error.code === 'ENOENT') throw new Error('The bundled Git runtime could not start. Reinstall FDO or rebuild its bundled Git resources.');
+            if (['EACCES', 'EPERM'].includes(error.code)) throw new Error('FDO’s bundled Git cannot run because executable permission was denied. Rebuild FDO’s main process or reinstall FDO. Repository credentials have not been checked.');
             if (error instanceof RevisionResolutionError) throw error;
             // Never forward Git stderr: servers and URLs may contain secrets.
             throw new Error('Repository verification failed. Check the URL, branch, tag or commit, credentials, and network access.');
         }
-        return await action({commit: commit.trim(), command: (args, overrides = {}) => run('git', args, {...options, ...overrides})});
+        return await action({commit: commit.trim(), command: (args, overrides = {}) => run(git.command, args, {...options, ...overrides})});
     } finally {
         await rm(directory, {recursive: true, force: true});
     }

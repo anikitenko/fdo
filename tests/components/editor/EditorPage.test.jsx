@@ -114,6 +114,48 @@ function resetVirtualFs() {
 }
 
 describe("EditorPage baseline snapshot", () => {
+    test('preserves an installed GitOps alias when looking up its independently granted clipboard capabilities', async () => {
+        const previous=window.electron.plugin.get;
+        const id='gitops_00000000-0000-4000-8000-000000000001_tools';
+        window.electron.plugin.get=jest.fn(async key=>({plugin:key===id?{id,capabilities:['system.host.write','system.clipboard.write']}:undefined}));
+        const data=encodeURIComponent(JSON.stringify({name:id,dir:'/installed/plugin',template:'blank'}));
+        const view=render(<MemoryRouter initialEntries={[`/editor?data=${data}`]}><EditorPage/></MemoryRouter>);
+        try {await waitFor(()=>expect(window.electron.plugin.get).toHaveBeenCalledWith(id));}
+        finally {view.unmount();window.electron.plugin.get=previous;}
+    });
+    test('refreshes capability diagnostics in active and background files after grant changes and revocation', async () => {
+        const previousGet = window.electron.plugin.get;
+        const previousOn = window.electron.plugin.on;
+        const unsubscribe = jest.fn();
+        let changed;
+        window.electron.plugin.on = {...previousOn, capabilitiesChanged:jest.fn(callback => {changed = callback; return unsubscribe;})};
+        window.electron.plugin.get = jest.fn(async () => ({plugin:{id:'test-plugin',capabilities:[]}}));
+        const data = encodeURIComponent(JSON.stringify({name:'Test Plugin',template:'blank',dir:'sandbox'}));
+        const view = render(<MemoryRouter initialEntries={[`/editor?data=${data}`]}><EditorPage/></MemoryRouter>);
+        const latest = model => monaco.editor.setModelMarkers.mock.calls.filter(([target, owner]) => target === model && owner === 'fdo-capability').at(-1)?.[2] || [];
+        const missing = model => latest(model).some(marker => String(marker.code).startsWith('FDO_MISSING_'));
+        try {
+            await waitFor(() => expect(virtualFS.getModel('/render.tsx')).toBeTruthy());
+            const models = ['/index.ts','/render.tsx'].map(file => virtualFS.getModel(file));
+            models.forEach(model => model.setValue('createProcessExecActionRequest({scope:"git",command:"/usr/bin/git",args:["status"]});'));
+            await act(async () => window.dispatchEvent(new Event('focus')));
+            await waitFor(() => models.forEach(model => expect(missing(model)).toBe(true)));
+            expect(window.electron.plugin.get).toHaveBeenCalledWith('test-plugin');
+            const calls = window.electron.plugin.get.mock.calls.length;
+            await act(async () => changed({pluginId:'other-plugin'}));
+            expect(window.electron.plugin.get).toHaveBeenCalledTimes(calls);
+            window.electron.plugin.get.mockResolvedValue({plugin:{id:'test-plugin',capabilities:['system.process.exec','system.process.scope.git']}});
+            await act(async () => changed({pluginId:'test-plugin'}));
+            await waitFor(() => models.forEach(model => expect(missing(model)).toBe(false)));
+            window.electron.plugin.get.mockResolvedValue({plugin:{id:'test-plugin',capabilities:[]}});
+            await act(async () => window.dispatchEvent(new Event('focus')));
+            await waitFor(() => models.forEach(model => expect(missing(model)).toBe(true)));
+        } finally {
+            view.unmount(); expect(unsubscribe).toHaveBeenCalledTimes(1);
+            window.electron.plugin.get = previousGet;
+            window.electron.plugin.on = previousOn;
+        }
+    });
     beforeEach(() => {
         resetVirtualFs();
         __resetRenderOnLoadSdkSupportCacheForTests();
@@ -433,7 +475,7 @@ describe("EditorPage baseline snapshot", () => {
             dir: "sandbox",
         }));
         const secondPluginData = encodeURIComponent(JSON.stringify({
-            name: "Existing Plugin",
+            name: "existing-plugin",
             template: "blank",
             dir: "/plugins/existing-plugin",
         }));

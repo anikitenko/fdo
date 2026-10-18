@@ -326,6 +326,15 @@ export const PluginContainer = ({
     };
 
     useEffect(() => {
+        const api=window.electron?.credentialSettings;
+        if(!plugin||!api?.terminalView)return;
+        const leaseId=crypto.randomUUID();
+        const renew=()=>{void api.terminalView(plugin,leaseId,true).catch(()=>{});};renew();
+        const timer=setInterval(renew,10000);
+        return ()=>{clearInterval(timer);void api.terminalView(plugin,leaseId,false).catch(()=>{});};
+    },[plugin,renderAttempt]);
+
+    useEffect(() => {
         onCapabilityDeniedRef.current = onCapabilityDenied;
     }, [onCapabilityDenied]);
 

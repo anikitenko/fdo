@@ -185,10 +185,12 @@
 }
 
 .file-tabs-wrapper {
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background: #1e1e1e;
-    padding-top: 1px;
+    background: #191b1d;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .editorSubtleStatus {
@@ -234,7 +236,8 @@
 }
 
 .file-tabs-mirror {
-    height: 4px;
+    height: 0;
+    flex: 0 0 auto;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-color: #555 #1e1e1e; /* For Firefox */
@@ -244,15 +247,16 @@
     margin: 0;
     border: none;
 }
+.file-tabs-mirror[data-overflow="true"] { height: 6px; }
 
 /* WebKit browsers (Chrome, Electron, Safari) */
 .file-tabs-mirror::-webkit-scrollbar {
-    height: 4px;
+    height: 6px;
     background: transparent; /* Transparent track background */
 }
 
 .file-tabs-mirror::-webkit-scrollbar-thumb {
-    background-color: transparent;
+    background-color: #60656d;
     transition: background-color 0.2s;
     border-radius: 2px;
     border: none;
@@ -269,6 +273,9 @@
     padding: 4px 10px;
     border-bottom: 1px solid #333;
     overflow-x: auto;
+    overflow-y: hidden;
+    position: relative;
+    scrollbar-width: none;
 }
 
 .file-tabs::-webkit-scrollbar {
@@ -276,12 +283,8 @@
 }
 
 .file-tab-tooltip {
-    background: #bbb;
-    border-radius: 5px 5px 0 0;
-}
-
-.file-tab-marker {
-    text-decoration: underline 1px wavy #ff0033;
+    display: inline-flex;
+    background: transparent;
 }
 
 .file-tab {
@@ -379,10 +382,13 @@
 
 .editor-header-center {
     display: flex;
+    gap: 8px;
     align-items: center;
     justify-content: center;
     width: 400px;
 }
+.markdownHeaderControls { flex: 0 0 auto; }
+.markdownHeaderControls:empty { display: none; }
 
 .editor-header-right {
     display: flex;
@@ -638,7 +644,7 @@
 }
 
 @keyframes ai-aurora-drift {
-    from { background-position: 0% 0; }
+    from { background-position: 0 0; }
     to { background-position: 200% 0; }
 }
 
@@ -728,7 +734,7 @@
 .ai-agent-status-popover {
     position: relative;
     box-sizing: border-box;
-    color: var(--bp6-light-gray-5, #f6f7f9);
+    color: #f6f7f9;
     min-width: 250px;
     padding: 10px 12px;
     max-height: min(320px, 60vh);
@@ -749,7 +755,7 @@
     border: 0;
     border-radius: 3px;
     background: transparent;
-    color: var(--bp6-gray-3, #abb3bf);
+    color: #abb3bf;
     cursor: pointer;
 }
 
@@ -759,7 +765,7 @@
 }
 
 .ai-agent-status-popover-close:focus-visible {
-    outline: 2px solid var(--bp6-blue-3, #2d72d2);
+    outline: 2px solid #2d72d2;
     outline-offset: 1px;
 }
 
@@ -779,14 +785,14 @@
 
 .ai-agent-status-popover-heading time {
     flex-shrink: 0;
-    color: var(--bp6-gray-3, #abb3bf);
+    color: #abb3bf;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
 .ai-agent-status-popover p {
-    color: var(--bp6-gray-3, #abb3bf);
+    color: #abb3bf;
     font-size: 12px;
     line-height: 1.4;
     margin: 6px 0 0;
@@ -799,7 +805,7 @@
 }
 
 .ai-agent-activity-summary:focus-visible :global(.bp6-callout) {
-    outline: 2px solid var(--bp6-intent-primary, #2d72d2);
+    outline: 2px solid #2d72d2;
     outline-offset: 2px;
 }
 
@@ -952,10 +958,27 @@
 
 /* Tabs dense mode */
 .compact .file-tabs { padding: 2px 6px; }
-.compact .file-tabs-mirror { height: 3px; }
 
 /* Terminal header/tabs compact spacing */
 .compact .terminal-output-console { padding-top: 2px; }
 
 /* Toggle alignment */
 .compact-toggle { margin-right: 8px; }
+
+/* Compact file tabs: a single rounded surface encloses label and close action. */
+.file-tabs { gap: 6px; padding: 5px 8px; height: 44px; min-height: 44px; box-sizing: border-box; flex: 0 0 auto; background: #191b1d; }
+.fileTabItem { display: flex; align-items: center; flex: 0 0 auto; min-width: 0; height: 32px; box-sizing: border-box; border: 1px solid transparent; border-radius: 6px; overflow: hidden; }
+.fileTabItem:hover { background: #ffffff08; }
+.fileTabItem.active { background: #2b2e32; border-color: #50555d; }
+.fileTabItem .file-tab { margin: 0; border: 0; border-radius: 0; background: transparent !important; padding: 5px 9px; color: #aeb2bb; font-size: 13px; }
+.fileTabItem .file-tab.active { border: 0; color: #78b5ff !important; }
+.fileTabItem .file-tab :global(.bp6-button-text) { display: flex; gap: 7px; align-items: center; }
+.fileTabItem .close-tab-btn { opacity: .55; visibility: visible; padding: 4px; margin-right: 4px; min-width: 22px; min-height: 22px; color: #aeb2bb !important; }
+.fileTabItem:hover .close-tab-btn, .fileTabItem:focus-within .close-tab-btn { opacity: 1; }
+.fileTabItem .close-tab-btn:hover { border-radius: 4px; background: #ffffff16 !important; }
+.fileTabDiagnostics { color: #f4c166; font-size: 10px; font-weight: 600; min-width: 14px; text-align: center; }
+.fileTabDiagnostics[data-severity="error"] { color: #ff8085; }
+.editor-header-search-wrapper { flex: 1 1 auto; min-width: 0; }
+.fileBreadcrumbs { flex: 0 0 auto; min-width: 0; height: 28px; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px; overflow: hidden; background: #1e1e1e; border-bottom: 1px solid #303236; }
+.fileBreadcrumbs :global(.bp6-breadcrumbs) { flex-wrap: nowrap; margin: 0; min-width: 0; }
+.fileBreadcrumbs :global(.bp6-breadcrumb-current), .fileBreadcrumbs :global(.bp6-breadcrumb) { color: #aeb2bb; }

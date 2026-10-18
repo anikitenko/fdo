@@ -1,4 +1,5 @@
 import {getGrantedNetworkScopePolicies, isNetworkScopeCapabilityId} from "./networkScopeRegistry";
+import HOST_SERVICE_CAPABILITIES from '../../hostServices/capabilities.json';
 
 export const HOST_WRITE_CAPABILITY = "system.host.write";
 export const HOST_WRITE_CAPABILITY_LEGACY = "system.hosts.write";
@@ -27,6 +28,7 @@ const CANONICAL_TO_ALIAS = Object.freeze(
 );
 
 export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
+    ...Object.fromEntries(HOST_SERVICE_CAPABILITIES.map(id => [id, Object.freeze({description: `Host-managed ${id}. Requires explicit base and operation grants.`})])),
     "system.tray": Object.freeze({
         description: "Allows a plugin-owned system tray icon and menu actions while the plugin is running.",
     }),

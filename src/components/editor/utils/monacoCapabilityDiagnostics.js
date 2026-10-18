@@ -687,7 +687,10 @@ export function computeCapabilityAndDeprecationMarkers({
 export function mergeMonacoValidationMarkers(baseMarkers = [], capabilityMarkers = []) {
     const safeBase = Array.isArray(baseMarkers) ? baseMarkers : [];
     const safeCapability = Array.isArray(capabilityMarkers) ? capabilityMarkers : [];
-    return [...safeBase, ...safeCapability];
+    // Monaco's onValidate reports markers from all owners, including an older
+    // FDO permission pass. Only the current pass may contribute FDO markers.
+    return [...safeBase.filter(marker => String(marker?.source || '').toLowerCase() !== 'fdo-capability'
+        && !String(marker?.code?.value ?? marker?.code ?? '').startsWith('FDO_')), ...safeCapability];
 }
 
 function getLineIndentation(source = "", index = 0) {

@@ -153,3 +153,49 @@
         width: 100%;
     }
 }
+
+.connection-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 24px 0 12px;
+}
+.connection-section-heading h4, .connection-section-heading p { margin: 0; }
+.connection-section-heading p { margin-top: 6px; }
+.credential-list-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.credential-entry-card { margin: 16px 0; }
+.connection-profile-list { display: grid; gap: 12px; }
+.connection-profile-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.connection-profile-summary { min-width: 0; overflow-wrap: anywhere; }
+.connection-profile-summary h4 { margin: 0 0 6px; }
+.connection-profile-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.connection-profile-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.connection-profile-dialog { width: 680px; max-width: calc(100vw - 32px); }
+.connection-profile-body { max-height: 65vh; overflow-y: auto; }
+.connection-profile-body h4:not(:first-child) { margin-top: 24px; }
+.connection-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.connection-profile-footer { border-top: 1px solid rgba(127, 127, 127, 0.25); }
+@media (max-width: 600px) {
+    .connection-fields { grid-template-columns: minmax(0, 1fr); }
+    .connection-profile-card { flex-direction: column; }
+    .connection-profile-actions { align-self: flex-end; }
+}
+
+.connection-profile-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
+.connection-profile-form { display: flex; flex-direction: column; min-height: 0; }
+.connection-profile-body { min-height: 0; flex: 1 1 auto; }
+.connection-profile-footer { flex: 0 0 auto; }
+.connection-profile-footer :global(.bp6-callout) { margin-bottom: 12px; }
+.connection-profile-footer { flex-wrap: wrap; }
+.connection-profile-footer :global(.bp6-dialog-footer-main-section) { min-width: 0; flex: 1 1 320px; }
+.connection-profile-footer :global(.bp6-dialog-footer-actions) { flex: 0 0 auto; align-self: flex-end; }
+.connection-profile-footer :global(.bp6-dialog-footer-actions .bp6-button) { white-space: nowrap; }
+.host-key-fingerprint { display: block; margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
+.host-key-command { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.host-key-command pre { flex: 1 1 240px; min-width: 0; margin: 0; }
+.host-key-command :global(.bp6-button) { flex-shrink: 0; }
+.unrestricted-command-access { margin: 12px 0; padding: 12px; border: 1px solid #cd4246; border-radius: 4px; }
+.unrestricted-command-access > :global(.bp6-checkbox) { color: #cd4246; font-weight: 600; }
+.unrestricted-command-access > p { margin-bottom: 8px; font-size: 12px; }

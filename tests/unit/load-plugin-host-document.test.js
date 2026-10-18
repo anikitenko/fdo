@@ -1,9 +1,9 @@
 import {expect, jest, test} from '@jest/globals';
 import {loadPluginHostDocument} from '../../src/components/plugin/utils/loadPluginHostDocument';
 
-test('shares an in-flight host fetch and HTML parse across frames and refreshes', async () => {
+test('shares in-flight fetch/parse across frames but refetches HTML for subsequent frames and reloads', async () => {
     let finish;
-    const text = jest.fn(() => /* language=TEXT */ '<html lang="end"><head><script src="./host.js"></script></head><body>Host</body></html>');
+    const text = jest.fn(() => /* language=TEXT */ '<html lang="en"><head><script src="./host.js"></script></head><body>Host</body></html>');
     const pending = new Promise(resolve => {finish = () => resolve(undefined);});
     const fetcher = jest.fn(async () => {await pending;return {ok: true, text};});
     const parse = jest.spyOn(DOMParser.prototype, 'parseFromString');
@@ -13,10 +13,13 @@ test('shares an in-flight host fetch and HTML parse across frames and refreshes'
         await Promise.resolve();
         finish();
         expect(await first).toContain('static://host/host.js');
-        expect(await loadPluginHostDocument(fetcher)).toBe(await first);
         expect(fetcher).toHaveBeenCalledTimes(1);
-        expect(text).toHaveBeenCalledTimes(1);
-        expect(parse).toHaveBeenCalledTimes(1);
+        text.mockReturnValueOnce(/* language=TEXT */ '<html lang="en"><head><script src="./updated-host.js"></script></head><body>New build</body></html>');
+        expect(await loadPluginHostDocument(fetcher)).toContain('static://host/updated-host.js');
+        expect(fetcher).toHaveBeenCalledTimes(2);
+        expect(fetcher.mock.calls[1][1].cache).toBe('no-store');
+        expect(text).toHaveBeenCalledTimes(2);
+        expect(parse).toHaveBeenCalledTimes(2);
     } finally {parse.mockRestore();}
 });
 

@@ -197,3 +197,10 @@ describe("parseMissingCapabilitiesFromError", () => {
         expect(result).toEqual([]);
     });
 });
+
+test('parses every SSH/Git/secret grant, including the final capability followed by guidance', () => {
+    const capabilities = ['system.process.exec', 'system.process.scope.git', 'ssh.use', 'ssh.exec', 'secrets.use', 'secrets.consume'];
+    const message = 'Missing required capabilities: ' + capabilities.join(', ') + '. In Manage Plugins, select each listed grant independently.';
+    expect(parseMissingCapabilitiesFromError(message)).toEqual(capabilities);
+    expect(parseMissingCapabilityDiagnosticsFromError(message).map(item => item.capability)).toEqual(capabilities);
+});

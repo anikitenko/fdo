@@ -78,11 +78,11 @@ describe("PluginContainer message hardening", () => {
         expect(iframe.srcdoc).toBe(hostDocument);
 
         rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network", "system.network.https"]} />);
-        await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(2));
         await waitFor(() => expect(iframe.srcdoc).toContain("system.network.https"));
         rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network.https", "system.network", "system.network"]} />);
         await act(async () => {});
-        expect(window.fetch).toHaveBeenCalledTimes(1);
+        expect(window.fetch).toHaveBeenCalledTimes(2);
     });
 
     test("does not start handshake recovery for an empty frame while host HTML is loading", async () => {
@@ -140,7 +140,7 @@ describe("PluginContainer message hardening", () => {
                 else expect(container.querySelector('iframe')).toBe(iframe);
             }
             expect(screen.getByText('Plugin UI failed to load')).toBeInTheDocument();
-            expect(window.fetch).toHaveBeenCalledTimes(1);
+            expect(window.fetch).toHaveBeenCalledTimes(3);
             fireEvent.click(screen.getByRole('button', {name: 'Reload plugin frame'}));
             await act(async () => {});
             expect(screen.queryByText('Plugin UI failed to load')).not.toBeInTheDocument();
@@ -199,7 +199,7 @@ describe("PluginContainer message hardening", () => {
             expect(window.electron.plugin.render).toHaveBeenCalled();
         });
 
-        expect(window.fetch).toHaveBeenCalledWith("static://host/plugin_host.html", {signal: expect.any(AbortSignal)});
+        expect(window.fetch).toHaveBeenCalledWith("static://host/plugin_host.html", {signal: expect.any(AbortSignal),cache:'no-store'});
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('src="static://host/plugin_host.test.js"');
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('name="fdo-plugin-capabilities"');
         expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain('system.network.https');

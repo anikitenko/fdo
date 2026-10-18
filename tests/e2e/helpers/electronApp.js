@@ -53,6 +53,8 @@ async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
 }
 
 async function launchElectronApp(electron, options = {}) {
+  const executablePath = process.env.FDO_E2E_EXECUTABLE || '';
+  const packagedLoader = executablePath ? path.join(path.dirname(require.resolve('playwright-core/package.json')), 'lib/server/electron/loader.js') : '';
   const isolatedUserDataDir = options?.isolatedUserDataDir === true;
   const userDataDir = isolatedUserDataDir ? createE2EUserDataDir() : ensureE2EUserDataDir();
   let app = null;
@@ -61,8 +63,9 @@ async function launchElectronApp(electron, options = {}) {
   for (let attempt = 1; attempt <= maxLaunchAttempts; attempt += 1) {
     try {
       app = await electron.launch({
+        ...(executablePath ? {executablePath} : {}),
         // Electron loads this after Playwright's own preload, before app ready.
-        args: ['-r', require.resolve('./credentialStoreBootstrap.cjs'), '.'],
+        args: [...(packagedLoader ? ['-r', packagedLoader] : []), '-r', require.resolve('./credentialStoreBootstrap.cjs'), ...(executablePath ? [] : ['.'])],
         env: {
           ...process.env,
           FDO_E2E: '1',

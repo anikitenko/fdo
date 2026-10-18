@@ -21,7 +21,7 @@ function normalizeCapabilityId(value) {
 }
 
 function isCapabilityId(value) {
-    return typeof value === "string" && /^(system|storage|sudo)\.[a-zA-Z0-9._-]+$/.test(value.trim());
+    return typeof value === "string" && /^(system|storage|sudo|secrets|ssh)\.[a-zA-Z0-9._-]+$/.test(value.trim());
 }
 
 function uniqueDiagnostics(items = []) {
@@ -42,7 +42,7 @@ function inferNetworkCompanionCapabilities({capability = "", action = "", fullTe
     }
 
     const haystack = `${String(action || "")} ${String(fullText || "")}`.toLowerCase();
-    const mentionsLoopback = /\blocalhost\b|127\.0\.0\.1|\[::1\]|\b::1\b|\bloopback\b/.test(haystack);
+    const mentionsLoopback = /\blocalhost\b|127\.0\.0\.1|\[::1]|\b::1\b|\bloopback\b/.test(haystack);
     const mentionsWebSocket = /\bwebsocket\b|\bws:\/\/|\bwss:\/\//.test(haystack);
     const mentionsExplicitHttp = /\bhttp:\/\/|\bplaintext http\b/.test(haystack);
     const mentionsWebFetch = /\bprefetch\b|\bfetch\b|\brequest\b|\bdownload\b|\bload\b|\brepository metadata\b|\bapi\b|\burl\b|\bendpoint\b/.test(haystack);
@@ -138,7 +138,7 @@ export function parseMissingCapabilityDiagnosticsFromError(errorText) {
         return [];
     }
 
-    const sdkStyleMatch = text.match(/Capability "([^"]+)" is required to ([\s\S]+?)\. Configure PluginRegistry\.configureCapabilities\(\{ granted: \["[^"]+"\] \}\) in the host before plugin initialization\./);
+    const sdkStyleMatch = text.match(/Capability "([^"]+)" is required to ([\s\S]+?)\. Configure PluginRegistry\.configureCapabilities\(\{ granted: \["[^"]+"] }\) in the host before plugin initialization\./);
     if (sdkStyleMatch?.[1]) {
         const capability = normalizeCapabilityId(sdkStyleMatch[1]);
         const action = sdkStyleMatch[2] || "";
@@ -184,7 +184,7 @@ export function parseMissingCapabilitiesFromError(errorText) {
         const parts = missingRequiredMatch[1]
             .replace(/\.\s*$/, "")
             .split(/\s*,\s*|\s+and\s+/i)
-            .map(normalizeCapabilityId)
+            .map(part => normalizeCapabilityId(part.match(/^["']?((?:system|storage|sudo|secrets|ssh)\.[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)/)?.[1] || ''))
             .filter((item) => isCapabilityId(item));
         return [...new Set(parts)];
     }

@@ -2,6 +2,10 @@ function normalizeText(value = "") {
     return String(value || "").toLowerCase();
 }
 
+function isHostServiceQuery(query = "") {
+    return /\b(?:ssh|terminals?|pty|x11|xquartz|git|secrets?|credentials?|submodules?|lfs)\b|listProfiles|SSHProfileSummary|watchStatus|remote commands?|persistent.*sav|json.*flush/i.test(query);
+}
+
 function tokenizeQuery(query = "") {
     return normalizeText(query)
         .split(/[^a-z0-9_@./-]+/i)
@@ -208,6 +212,7 @@ export function searchFdoSdkKnowledge(index = [], query = "", options = {}) {
     const { limit = 6 } = options;
     const terms = unique(tokenizeQuery(query));
     const operatorStyleQuery = isOperatorStyleQuery(query);
+    const hostServiceQuery = isHostServiceQuery(query);
 
     if (terms.length === 0) {
         return index.slice(0, limit).map(({ searchableText, ...entry }) => entry);
@@ -225,12 +230,27 @@ export function searchFdoSdkKnowledge(index = [], query = "", options = {}) {
             if (operatorStyleQuery) {
                 score += getOperatorFixtureBoost(entry.path, query);
             }
+            if (hostServiceQuery) {
+                if (/fdo-host\/SECRETS_SSH_GIT\.md$/i.test(entry.path)) score += 90;
+                if (/(?:^|\/)SECRETS_AND_SSH\.md$/i.test(entry.path)) score += 65;
+                if (/\bSSHProfileSummary\s*=/.test(entry.content) && /profile|host|port|username|fingerprint|metadata|authenticationType/i.test(query)) score += 100;
+            }
             return { entry, score };
         })
         .filter(({ score }) => score > 0)
         .sort((a, b) => b.score - a.score || a.entry.path.localeCompare(b.entry.path));
 
-    return scored.slice(0, limit).map(({ entry, score }) => {
+    // Keep host policy and the installed SDK contract together instead of
+    // allowing many chunks from one document to crowd out the other source.
+    const evidence = hostServiceQuery ? [
+        scored.find(({entry})=>/fdo-host\/SECRETS_SSH_GIT\.md$/i.test(entry.path)),
+        scored.find(({entry})=>/(?:^|\/)SECRETS_AND_SSH\.md$/i.test(entry.path)),
+        /status|watch|monitor|stream|cancel|flush|persist|remote command/i.test(query)
+            ? scored.find(({entry})=>/(?:^|\/)FDO_HOST_REMOTE_COMMANDS_HANDOFF\.md$/i.test(entry.path)) : undefined,
+        scored.find(({entry})=>/\bSSHProfileSummary\s*=/.test(entry.content)),
+    ].filter(Boolean) : [];
+    const selected = [...evidence, ...scored.filter(item=>!evidence.includes(item))];
+    return selected.slice(0, limit).map(({ entry, score }) => {
         const { searchableText, ...rest } = entry;
         return { ...rest, score };
     });
@@ -256,6 +276,7 @@ export function shouldUseFdoSdkKnowledge({ action = "", prompt = "", code = "", 
     if (!explicitHaystack && !contextHaystack) {
         return false;
     }
+    if (isHostServiceQuery(explicitHaystack)) return true;
 
     const strongSignals = [
         "@anikitenko/fdo-sdk",

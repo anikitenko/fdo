@@ -18,7 +18,7 @@ export function publicRepository(repository) {
         hasCredentials: !!repository.encryptedCredentials};
 }
 
-export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainWindow, verify = verifyRepository, sync, detach, notify = () => {}, report = () => {}}) {
+export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainWindow, verify = verifyRepository, sync, detach, review, notify = () => {}, report = () => {}}) {
     const channels = SettingsChannels.gitops;
     const repositories = () => settings.get('gitops.repositories', []);
     let busy = false;
@@ -62,14 +62,22 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
             requireDeclaredPlugin(declarations, pluginName);
             const statuses = new Map((current.pluginStatuses || []).filter(status => declarations.some(plugin => plugin.name === status.name)).map(status => [status.name, status]));
             for (const plugin of declarations.filter(plugin => !pluginName || plugin.name === pluginName)) {
-                statuses.set(plugin.name, {name: plugin.name, state: 'checking'});
+                statuses.set(plugin.name, {...statuses.get(plugin.name),name:plugin.name,state:'checking'});
                 current = {...current, pluginStatuses: [...statuses.values()]};
                 replace(current); notify();
                 try {
                     const result = await sync({source: current, secret, pluginName: plugin.name});
-                    current = {...current, ...result};
+                    const {pendingUpdates=[],reviewStatuses=[],...snapshot}=result;
+                    current = {...current, ...snapshot};
+                    const pending=pendingUpdates.find(item=>item.name===plugin.name);
+                    const declined=reviewStatuses.find(item=>item.name===plugin.name&&item.state==='declined');
                     const installed = current.installedPlugins?.find(item => item.name === plugin.name);
-                    statuses.set(plugin.name, {name: plugin.name, state: 'synced', checkedAt: new Date().toISOString(), ...(installed ? {commit: installed.commit} : {})});
+                    statuses.set(plugin.name, {name: plugin.name, state:pending?'awaiting_approval':declined?'declined':'synced', checkedAt:new Date().toISOString(), ...(installed?{commit:installed.commit}:{}), ...(pending?{pendingUpdate:pending}:{}), ...(declined?{commit:declined.commit}:{})});
+                    if(pending?.newReview)void Promise.resolve().then(()=>report({source:'gitops',type:'warning',groupKey:`gitops-review:${current.id}:${pending.pluginId}`,
+                        title:`${plugin.name} update needs permission approval`,
+                        message:pending.inspectionError?'The permission declaration needs attention. The approved version is still installed.':`Version ${pending.version} requests ${pending.addedCapabilities.length} additional ${pending.addedCapabilities.length===1?'capability':'capabilities'}. The approved version is still installed.`,
+                        details:`Current: ${pending.currentVersion} (${pending.currentCommit})\nCandidate: ${pending.version} (${pending.commit})\nAdditional capabilities:\n${pending.addedCapabilities.join('\n')}${pending.inspectionError?'\n'+pending.inspectionError:''}`,
+                        actions:[{kind:'view-gitops',repositoryId:current.id}]})).catch(()=>{});
                     incident(current, plugin.name);
                 } catch (error) {
                     statuses.set(plugin.name, {name: plugin.name, state: 'error', checkedAt: new Date().toISOString(), error: error.message});
@@ -79,7 +87,8 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
                 replace(current); notify();
             }
             if (!pluginName && current.installedPlugins?.some(installed => !declarations.some(plugin => plugin.name === installed.name))) {
-                current = {...current, ...await sync({source: current, secret, pruneOnly: true})};
+                const {pendingUpdates,reviewStatuses,...result}=await sync({source:current,secret,pruneOnly:true});
+                current={...current,...result};
             }
             const failures = [...statuses.values()].filter(status => status.state === 'error').length;
             current = {...current, pluginStatuses: [...statuses.values()], lastCheckedAt: new Date().toISOString(),
@@ -173,6 +182,26 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
             await synchronize(repository, false, pluginName);
             return {repositories: repositories().map(publicRepository)};
         } finally { busy = false; }
+    });
+    handle(channels.REVIEW_UPDATE, async input => {
+        if(busy)throw new Error('Wait for the current repository operation to finish.');
+        if(!review)throw new Error('Update review is unavailable.');
+        const repository=repositories().find(item=>item.id===input?.id);
+        if(!repository)throw new Error('Repository no longer exists.');
+        requireDeclaredPlugin(repository.manifest.spec.plugins,input.pluginName);
+        if(!input.pluginName)throw new Error('Choose a plugin update to review.');
+        busy=true;
+        try {
+            const result=await review({source:repository,pluginName:input.pluginName,reviewId:input.reviewId,decision:input.decision,capabilities:input.capabilities});
+            if(result.state==='checking')await synchronize(repository,false,input.pluginName);
+            else {
+                const statuses=(repository.pluginStatuses||[]).filter(status=>status.name!==input.pluginName);
+                statuses.push({name:input.pluginName,state:result.state,commit:result.commit,checkedAt:new Date().toISOString()});
+                const installedPlugins=(repository.installedPlugins||[]).map(plugin=>plugin.name===input.pluginName&&result.state==='synced'?{...plugin,commit:result.commit}:plugin);
+                replace({...repository,pluginStatuses:statuses,installedPlugins});notify();
+            }
+            return {repositories:repositories().map(publicRepository)};
+        } finally {busy=false;}
     });
     handle(channels.SET_INTERVAL, ({id, minutes}) => {
         if (busy) throw new Error('Wait for the current repository check to finish.');

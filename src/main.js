@@ -1,4 +1,6 @@
 import {failureNotification, pluginDisplayName} from './utils/desktop/notificationContent';
+import {closeHostServices, removeHostServices} from './utils/hostServices/runtime';
+import {registerHostServiceSettings} from './ipc/hostServices';
 import crypto from 'node:crypto';
 import {initializeObservabilityStorage, closeObservabilityStorage, recordRuntimeSamples} from './utils/persistence/observabilityStorage';
 import {registerObservabilityHandlers} from './ipc/observability';
@@ -9,7 +11,7 @@ import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
 import {app, BrowserWindow, dialog, nativeTheme, protocol, safeStorage} from 'electron';
 import {registerGitOpsHandlers} from './ipc/gitops';
-import {syncCollection, detachCollection} from './utils/gitops/syncCollection';
+import {syncCollection, detachCollection, decideGitOpsUpdate} from './utils/gitops/syncCollection';
 import {readPluginRepository} from './utils/gitops/verifyRepository';
 import {normalizeAndValidatePluginMetadata} from './utils/plugins/runtime/pluginMetadataContract';
 import UserORM from './utils/persistence/UserORM';
@@ -775,7 +777,7 @@ app.whenReady().then(async () => {
             return new Response(data, {
                 headers: {
                     'Content-Type': mimeType,
-                    'Cache-Control': isDev ? 'no-store, no-cache, must-revalidate' : 'public, max-age=31536000, immutable',
+                    'Cache-Control': isDev || normalizedRelativePath.endsWith('.html') ? 'no-store, no-cache, must-revalidate' : 'public, max-age=31536000, immutable',
                 },
             });
         } catch (err) {
@@ -962,28 +964,43 @@ app.whenReady().then(async () => {
 
     registerNotificationHandlers();
     registerSettingsHandlers();
+    registerHostServiceSettings({ipcMain, getMainWindow: () => PluginManager.mainWindow,
+        getPlugins: () => new PluginORM(PLUGINS_REGISTRY_FILE).getAllPlugins()});
     const gitops = registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainWindow: () => PluginManager.mainWindow,
         sync: async ({source, secret, pluginName, pruneOnly}) => {
-            const {updatedPlugins, ...result} = await syncCollection({source, secret, pluginName, pruneOnly, pluginsDir: PLUGINS_DIR, registryFile: PLUGINS_REGISTRY_FILE,
+            const {updatedPlugins, createdPlugins, ...result} = await syncCollection({source, secret, pluginName, pruneOnly, pluginsDir: PLUGINS_DIR, registryFile: PLUGINS_REGISTRY_FILE,
                 fetchPlugin: readPluginRepository, build: buildUsingEsbuild, normalizeMetadata: normalizeAndValidatePluginMetadata,
                 sign: (home, label) => Certs.signPlugin(home, label), verifySignature: home => Certs.verifyPlugin(home), runtime: PluginManager,
                 activatedIds: () => new UserORM(USER_CONFIG_FILE).getActivatedPlugins(),
                 removeActivated: ids => {
+                    for (const id of ids) removeHostServices(id);
                     if (!ids.length) return;
                     const user = new UserORM(USER_CONFIG_FILE);
                     user.set('config', {...user.get('config'), plugins: user.getActivatedPlugins().filter(id => !ids.includes(id))});
                 }});
-            for (const plugin of updatedPlugins) {
+            for (const plugin of [...createdPlugins.map(item => ({...item, imported:true})), ...updatedPlugins]) {
                 // NotificationCenter reports storage failures independently of a successful plugin update.
                 void NotificationCenter.addNotification({
-                    title: `${pluginDisplayName(new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(plugin.id), plugin.name)} updated via GitOps`, type: 'success', source: 'gitops',
-                    message: `Version ${plugin.version} is installed.${plugin.reloaded ? ' The running plugin was restarted with the update.' : ' Its activation state was preserved.'}`,
+                    title: `${pluginDisplayName(new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(plugin.id), plugin.name)} ${plugin.imported ? 'imported' : 'updated'} via GitOps`, type: 'success', source: 'gitops',
+                    message: plugin.imported ? `Version ${plugin.version} was installed inactive with no granted capabilities. Review it in Manage Plugins before enabling it.`
+                        : `Version ${plugin.version} is installed.${plugin.reloaded ? ' The running plugin was restarted with the update.' : ' Its activation state was preserved.'}`,
                     details: `Collection: ${source.manifest?.metadata?.displayName || source.manifest?.metadata?.name || source.url}\nVersion: ${plugin.version}\nRevision: ${plugin.targetRevision}\nCommit: ${plugin.commit}\nRepository: ${plugin.repository}`,
-                    actions: [{kind: 'view-plugin', pluginId: plugin.id}, {kind: 'view-gitops', repositoryId: source.id},
+                    actions: [{kind: plugin.imported ? 'manage-plugin' : 'view-plugin', pluginId: plugin.id}, {kind: 'view-gitops', repositoryId: source.id},
                         {kind: 'open-repository', url: plugin.repository}],
                 });
             }
             return result;
+        },
+        review: async ({source,pluginName,reviewId,decision,capabilities}) => {
+            const result=await decideGitOpsUpdate({source,sourceId:source.id,pluginName,reviewId,decision,capabilities,
+                registryFile:PLUGINS_REGISTRY_FILE,pluginsDir:PLUGINS_DIR,verifySignature:home=>Certs.verifyPlugin(home),runtime:PluginManager,
+                activatedIds:()=>new UserORM(USER_CONFIG_FILE).getActivatedPlugins()});
+            if(result.state!=='checking')void NotificationCenter.addNotification({source:'gitops',type:result.state==='synced'?'success':'info',status:'resolved',
+                groupKey:`gitops-review:${source.id}:${result.plugin.id}`,
+                title:`${pluginDisplayName(result.plugin)} update ${result.state==='synced'?'approved':'declined'}`,
+                message:result.state==='synced'?`Version ${result.plugin.metadata.version} was applied with the explicitly approved permissions.`:'This version was declined. The previous version and its permissions were kept.',
+                actions:[{kind:'view-gitops',repositoryId:source.id},{kind:'manage-plugin',pluginId:result.plugin.id}]});
+            return {state:result.state,commit:result.state==='declined'?result.pending.commit:result.plugin.gitops.commit};
         },
         detach: id => detachCollection(PLUGINS_REGISTRY_FILE, id),
         report: notification => NotificationCenter.addNotification(notification),
@@ -1076,8 +1093,9 @@ app.on("will-quit", (event) => {
         storageDrainStarted = true;
         clearInterval(runtimeMetricsTimer);
         Promise.resolve(observabilityHandlers?.stop()).then(async () => {
+            await PluginManager.drainPluginWorkers();
             try {await usageLedger.flush();} catch (error) {console.error('Usage persistence failed:', error.message);}
-            return Promise.allSettled([closeNotificationStorage(), closeChatStorage(), closeObservabilityStorage()]);
+            return Promise.allSettled([closeHostServices(), closeNotificationStorage(), closeChatStorage(), closeObservabilityStorage()]);
         }).then(results => {
             for (const result of results) if (result.status === 'rejected') console.error('Storage shutdown failed:', result.reason);
         })

@@ -1,0 +1,21 @@
+.surface { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.panes { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.codePane { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.codePane[hidden] { display: none; }
+.preview { flex: 1; min-width: 0; overflow: auto; padding: 20px 28px; background: #1e1e1e; color: #d4d4d4; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.panes[data-mode="split"] > .preview { border-left: 1px solid #404040; }
+.preview h1, .preview h2, .preview h3, .preview h4, .preview h5, .preview h6 { color: #f1f5f9; line-height: 1.3; margin: 1.2em 0 .6em; }
+.preview h1 { font-size: 2em; }
+.preview h2 { font-size: 1.5em; }
+.preview h1, .preview h2 { border-bottom: 1px solid #404040; padding-bottom: .3em; }
+.preview > div > :first-child { margin-top: 0; }
+.preview a { color: #7cb8f7; }
+.preview pre { background: #292c31; padding: 12px 16px; border-radius: 5px; overflow: auto; white-space: pre; }
+.preview code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; background: #ffffff12; border-radius: 3px; padding: .1em .3em; font-size: .9em; }
+.preview pre code { padding: 0; background: transparent; }
+.preview blockquote { margin: 1em 0; padding: 0 1em; border-left: 3px solid #64748b; color: #aebacb; }
+.preview table { display: block; overflow: auto; border-collapse: collapse; margin: 1em 0; }
+.preview th, .preview td { padding: 6px 12px; border: 1px solid #526070; }
+.preview img { max-width: 100%; height: auto; }
+.preview hr { border: 0; border-top: 1px solid #526070; }
+.preview input[type="checkbox"] { margin-right: 6px; }

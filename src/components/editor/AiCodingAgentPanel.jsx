@@ -1,3 +1,4 @@
+import {isInvestigationPrompt, investigationAllowsRepair, investigationBudget, runCodingInvestigation, createInvestigationActions, initialInvestigationActions} from './utils/aiCodingAgentInvestigation';
 import {pluginGuideRecoveryMetadata} from '../../utils/ai/assistant/pluginGuideRecovery';
 import {generationRecoveryReducer, initialGenerationRecovery} from './utils/aiGenerationRecoveryState';
 import AiCodingConfidence from '../ai/AiCodingConfidence';
@@ -121,6 +122,7 @@ export function getRequestProgressStage(phase = "", hasResponse = false, attempt
     // The orchestrator knows whether this file is being generated, repaired or
     // split. A prior provider retry is not an attempt to correct every later file.
     if (workspaceStage) return workspaceStage;
+    if (String(phase).startsWith("investigation-")) return "Investigating plugin";
     let stage;
     switch (String(phase || "").trim()) {
         case "tests": stage = "Running plugin tests"; break;
@@ -862,6 +864,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const scopeRetryInFlightRef = useRef(false);
     const panelContentRef = useRef(null);
     const cancelledRequestIdsRef = useRef(new Set());
+    const investigationAbortRef = useRef(null);
     const timedOutRequestIdsRef = useRef(new Set());
     const promptInputRef = useRef(null);
     useEffect(() => {
@@ -1347,6 +1350,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
 
         return () => {
             panelMountedRef.current = false;
+            investigationAbortRef.current?.abort();
             if (submitInFlightRef.current) {
                 const requestId = currentRequestRef.current?.requestId || streamingRequestIdRef.current;
                 if (requestId) cancelledRequestIdsRef.current.add(requestId);
@@ -2898,6 +2902,7 @@ Rules:
     };
 
     const handleStopRequest = async () => {
+        investigationAbortRef.current?.abort();
         const activeRequestId = streamingRequestIdRef.current;
         if (!activeRequestId) {
             return;
@@ -3364,13 +3369,16 @@ Rules:
     const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride, migrateGuide = false} = {}) => {
         if (submitInFlightRef.current) return;
         const requestPrompt = String(promptOverride ?? prompt).trim();
-        const reviewRequest = isWorkspaceQualityReviewPrompt(requestPrompt);
+        const investigationRequest = !isNewPluginCreationRequest(requestPrompt) && (isInvestigationPrompt(requestPrompt)
+            || /^(?:please )?(?:continue|keep going|go on)[.!]?$/i.test(requestPrompt) && responseRef.current.includes('Investigation actions:'));
+        const reviewRequest = isWorkspaceQualityReviewPrompt(requestPrompt) || investigationRequest;
         const requestAction = reviewRequest ? "smart" : (actionOverride ?? action);
         let reviewTests = null;
         let reviewChangesApplied = false;
         let reviewReport = null;
         let requestSucceeded = false;
-        const requestAutoApply = typeof autoApplyOverride === "boolean" ? autoApplyOverride : autoApplyRef.current;
+        const requestAutoApply = (!investigationRequest || isWorkspaceQualityReviewPrompt(requestPrompt) || investigationAllowsRepair(requestPrompt))
+            && (typeof autoApplyOverride === "boolean" ? autoApplyOverride : autoApplyRef.current);
         if (!requestPrompt) return;
         
         // Validate assistant is selected
@@ -3589,7 +3597,7 @@ Rules:
                 if (testRepairComplete) return;
             }
 
-            if (!requestedRepairPaths && (reviewRequest || shouldRunTestsBeforeAiRequest(finalPrompt)) && !testsAlreadyRun) {
+            if (!reviewRequest && !requestedRepairPaths && shouldRunTestsBeforeAiRequest(finalPrompt) && !testsAlreadyRun) {
                 pushRequestStatus("Running plugin tests before diagnosing errors.", { phase: "tests" });
                 const testRunResult = await runPluginTests();
                 if (reviewRequest) reviewTests = testRunResult;
@@ -3623,13 +3631,13 @@ Rules:
             const buildOutputContext = getBuildOutputContext(refreshedProjectFiles);
             const runtimeIntent = runtimeIntentForAction;
             const currentPluginId = await resolvePluginIdFromPrompt(finalPrompt);
-            const runtimeProbeResult = runtimeIntent.shouldProbe
+            const runtimeProbeResult = !reviewRequest && runtimeIntent.shouldProbe
                 ? await runPluginRuntimeProbe({
                     promptText: finalPrompt,
                     pluginId: currentPluginId,
                 })
                 : { context: "", traceResult: null };
-            const pluginLogsContext = runtimeIntent.shouldProbe || runtimeIntent.wantsLogs
+            const pluginLogsContext = !reviewRequest && (runtimeIntent.shouldProbe || runtimeIntent.wantsLogs)
                 ? await getPluginLogsContext({
                     preloadedTraceResult: runtimeProbeResult?.traceResult || null,
                 })
@@ -3789,7 +3797,42 @@ Rules:
                 : ""), { phase: "generation" });
 
             let result;
-            switch (effectiveAction) {
+            if (reviewRequest) {
+                const controller = new AbortController(); investigationAbortRef.current = controller;
+                const baseline=JSON.stringify(getAllProjectFiles());
+                const assertCurrent=()=>{assertSnapshotUnchanged();if(baseline!==JSON.stringify(getAllProjectFiles()))throw new Error('The workspace changed during investigation. Start again with the current files.');};
+                const latestContent=Object.fromEntries(refreshedProjectFiles.map(file=>[file.path,file.content]));
+                let firstAnalysis=true;
+                const cancel=()=>window.electron.aiCodingAgent.cancelRequest?.({requestId:streamingRequestIdRef.current});
+                const report=await runCodingInvestigation({prompt:requestPrompt,files:refreshedProjectFiles,
+                    context:`${getProblemsContext()}${getBuildOutputContext(refreshedProjectFiles)}\n${conversationContext}`,
+                    budget:investigationBudget(refreshedProjectFiles,requestPrompt,selectedAssistant.firstResponseTimeoutMs),
+                    signal:controller.signal,assertCurrent,cancel,
+                    initialActions:initialInvestigationActions(refreshedProjectFiles,requestPrompt),
+                    onProgress:({message,phase,budget})=>{
+                        setWorkspaceStage('Investigating plugin');
+                        pushRequestStatus(`${message} About ${Math.round(budget.tokens).toLocaleString()} estimated tokens and ${Math.ceil(budget.milliseconds/1000)}s remain.`,{phase});
+                    },
+                    ask:async ({prompt:investigationPrompt,maxOutputTokens})=>{
+                        const id=firstAnalysis?requestId:`${requestId}-analysis-${Math.random().toString(36).slice(2)}`;firstAnalysis=false;
+                        beginStreamingRequest(id);setWorkspaceStage('Investigating plugin');scheduleRequestTimeout(selectedAssistant.provider||'');
+                        return window.electron.aiCodingAgent.smartMode({requestId:id,prompt:requestPrompt,context:investigationPrompt,assistantId:selectedAssistant.id,
+                            investigation:true,maxOutputTokens,language});
+                    },
+                    perform:createInvestigationActions(refreshedProjectFiles,{
+                        sourceChecks:()=>isWorkspaceQualityReviewPrompt(requestPrompt)?workspaceReviewContext(refreshedProjectFiles):{styles:findWorkspaceStyleIssues(refreshedProjectFiles),note:'Source diagnostics only; this does not verify rendering, runtime health or current tests.'},
+                        typecheck:()=>window.electron.plugin?.typecheck?.({latestContent})??{success:false,error:'Typechecker unavailable.'},
+                        build:async()=>{const result=await window.electron.plugin?.build?.({latestContent});return result?{success:result.success,error:result.error,errors:result.errors,warnings:result.warnings}:{success:false,error:'Builder unavailable.'};},
+                        tests:async()=>{reviewTests=await runPluginTests();return reviewTests;},
+                        runtime:()=>{const id=getCurrentPluginId();return id?window.electron.plugin?.getRuntimeStatus?.([id])??{success:false,error:'Runtime status unavailable.'}:{success:false,error:'This workspace has no installed plugin runtime.'};},
+                        logs:async()=>{const logs=await getPluginLogsContext();return logs||{success:false,error:'No plugin trace is available.'};},
+                        sdk:async({query})=>await getRelevantSdkKnowledgeContext(query)||{success:false,error:'SDK evidence unavailable.'},
+                    }),
+                });
+                if(controller.signal.aborted)return;
+                assertCurrent();flushStreamContent();clearRequestTimeout();streamingRequestIdRef.current=null;
+                result={success:true,requestId,content:JSON.stringify(report)};
+            } else switch (effectiveAction) {
                 case "smart":
                     result = await window.electron.aiCodingAgent.smartMode({
                         requestId,
@@ -3923,7 +3966,7 @@ Rules:
                 });
             };
 
-            console.log('[AI Coding Agent] IPC result received', result);
+            console.log('[AI Coding Agent] IPC result received', {success:result?.success,requestId:result?.requestId});
 
             if (cancelledRequestIdsRef.current.has(requestId) || result?.cancelled) {
                 console.log('[AI Coding Agent] Ignoring cancelled request result', { requestId });
@@ -3963,16 +4006,16 @@ Rules:
 
                 if (reviewRequest) {
                     assertSnapshotUnchanged();
-                    const report = includeWorkspaceAuthoringFindings(
-                        parseWorkspaceReviewReport(result.content || responseRef.current, getAllProjectFiles()), getAllProjectFiles());
+                    const parsedReport=parseWorkspaceReviewReport(result.content || responseRef.current,getAllProjectFiles());
+                    const report=isWorkspaceQualityReviewPrompt(requestPrompt)?includeWorkspaceAuthoringFindings(parsedReport,getAllProjectFiles()):parsedReport;
                     reviewReport = report;
                     if (report.status === "completed" && (!reviewTests?.success || reviewTests?.skipped)) {
                         report.status = "partial";
-                        report.limitations.push(reviewTests?.skipped ? "No plugin tests were available to verify behavior."
+                        report.limitations.push(!reviewTests ? "Plugin tests were not run during this investigation." : reviewTests?.skipped ? "No plugin tests were available to verify behavior."
                             : "Host plugin tests did not pass or could not complete.");
                     }
                     let repairSummary = "";
-                    const testSummary = value => value?.skipped ? "Tests: no plugin tests were found."
+                    const testSummary = value => !value ? "Tests: not run during this investigation." : value?.skipped ? "Tests: no plugin tests were found."
                         : value?.success ? "Tests: the host ran plugin tests successfully."
                             : "Tests: plugin tests did not pass or could not complete. See the Tests output.";
                     const publishReport = () => {
@@ -3982,7 +4025,7 @@ Rules:
                         setResponse(responseRef.current);
                     };
                     publishReport();
-                    if (requestAutoApply && report.status !== "blocked" && (report.findings.length || migrateGuide)) {
+                    if (requestAutoApply && report.status !== "blocked" && (!report.budget || report.budget.tokens >= 4000 && report.budget.milliseconds > 0) && (report.findings.length || migrateGuide)) {
                         const repairPaths = [...new Set([...(migrateGuide ? ["/SKILL.md"] : []), ...report.findings.map(finding => finding.file)])];
                         assertSnapshotUnchanged();
                         const repairRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -4223,6 +4266,7 @@ Rules:
             }
         } catch (err) {
             requestSucceeded = false;
+            if (err.name === 'AbortError') return;
             if (reviewRequest) {
                 const recovery = pluginGuideRecoveryMetadata(err);
                 if (recovery) setGuideRecovery({prompt: requestPrompt, workspace: virtualFS.sandboxName});
@@ -4246,6 +4290,7 @@ Rules:
             scopeRetryInFlightRef.current = false;
         }
         finally {
+            investigationAbortRef.current = null;
             workspaceReviewInProgressRef.current = false;
             preparedRecoveryRef.current = null;
             if (responseRef.current.trim() && !isClassificationOnly(responseRef.current)) {

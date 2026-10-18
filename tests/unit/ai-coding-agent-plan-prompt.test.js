@@ -112,3 +112,10 @@ test('smart documentation requests allow configured MCP retrieval and require a 
     expect(prompt).toContain('return prose and retrieved links; keep the workspace unchanged');
     expect(prompt).toContain('do not emit SOLUTION markers or file replacements');
 });
+
+test('investigation mode requests host observations and a report without a source-generation contract',()=>{
+    const prompt=buildSmartModePrompt({prompt:'Investigate UI startup',context:'Host typecheck failed.',investigation:true});
+    expect(prompt).toContain('PLUGIN INVESTIGATION PROTOCOL');expect(prompt).toContain('Host typecheck failed.');
+    expect(prompt).toContain('readFiles');expect(prompt).toContain('remaining token/time budgets');
+    expect(prompt).not.toContain('Return complete workspace file sections');
+});

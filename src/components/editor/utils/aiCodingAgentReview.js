@@ -57,6 +57,7 @@ export function formatWorkspaceReviewReport(report, {repairSummary = '', tests =
         findings ? `${changed ? 'Findings identified before repair:' : 'Confirmed findings:'}\n\n${findings}`
             : 'No confirmed issues were reported in the supplied evidence. This does not establish that the workspace is clean.',
         report.limitations.length ? `Limitations:\n${report.limitations.map(item => `- ${item}`).join('\n')}` : '',
+        report.observations ? `Investigation actions: ${report.observations.map(item => item.action.tool).join(' → ') || 'none'}.\nBudget used: approximately ${Math.round(report.budget?.spentTokens || 0).toLocaleString()} tokens of ${Math.round(report.budget?.tokenLimit || 0).toLocaleString()}.` : '',
         repairSummary, tests, changed ? 'Workspace changes were applied.' : 'Workspace files were unchanged.'].filter(Boolean).join('\n\n');
 }
 import {findWorkspaceStyleIssues} from './validateGeneratedPluginFiles';

@@ -1,3 +1,5 @@
+import {PluginDoctorFailures} from './components/PluginDoctorFailures';
+import {summarizePrivilegedRuntime, pluginFailureReviewKey, hasUnreviewedPluginFailures} from './utils/plugins/security/pluginTrustTier';
 import {pluginDisplayName, operationError} from './utils/desktop/notificationContent';
 import {subscribePluginEvent} from './utils/plugins/runtime/subscribePluginEvent';
 import React, {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react'
@@ -648,6 +650,7 @@ export const Home = () => {
         diagnostics: null,
         doctorOptions: DEFAULT_PLUGIN_DOCTOR_OPTIONS,
     });
+    const [reviewedPluginFailures, setReviewedPluginFailures] = useState({});
     const [doctorPresentationResult, setDoctorPresentationResult] = useState(null);
     useEffect(() => {
         const diagnostics = runtimeValidationDialog.diagnostics;
@@ -974,14 +977,18 @@ export const Home = () => {
         });
         try {
             const [auditResult, diagnosticsResult] = await Promise.all([
-                window.electron.plugin.getPrivilegedAudit(targetPluginId, {limit: 80}),
-                window.electron.plugin.uiMessage(targetPluginId, {
+                Promise.resolve().then(() => window.electron.plugin.getPrivilegedAudit(targetPluginId, {limit: 80})).catch(() => ({success: false, error: "Could not load host audit history."})),
+                Promise.resolve().then(() => window.electron.plugin.uiMessage(targetPluginId, {
                     handler: "__sdk.getDiagnostics",
                     content: {
                         notificationsLimit: 5,
                     },
-                }),
+                })).catch(() => null),
             ]);
+            if (auditResult?.success) {
+                const key = pluginFailureReviewKey(summarizePrivilegedRuntime(auditResult.events));
+                setReviewedPluginFailures(previous => ({...previous, [targetPluginId]: key}));
+            }
             setRuntimeValidationDialog({
                 open: true,
                 pluginId: targetPluginId,
@@ -1427,6 +1434,8 @@ export const Home = () => {
                     || !!prevStatus.loaded !== !!nextStatus.loaded
                     || !!prevStatus.ready !== !!nextStatus.ready
                     || !!prevStatus.inited !== !!nextStatus.inited
+                    || pluginFailureReviewKey(prevStatus.diagnosticsSummary) !== pluginFailureReviewKey(nextStatus.diagnosticsSummary)
+                    || JSON.stringify(prevStatus.capabilityIntent) !== JSON.stringify(nextStatus.capabilityIntent)
                 ) {
                     return statusById;
                 }
@@ -1538,6 +1547,8 @@ export const Home = () => {
                     || !!prevStatus.loaded !== !!nextStatus.loaded
                     || !!prevStatus.ready !== !!nextStatus.ready
                     || !!prevStatus.inited !== !!nextStatus.inited
+                    || pluginFailureReviewKey(prevStatus.diagnosticsSummary) !== pluginFailureReviewKey(nextStatus.diagnosticsSummary)
+                    || JSON.stringify(prevStatus.capabilityIntent) !== JSON.stringify(nextStatus.capabilityIntent)
                 ) {
                     return runtimeStatusById;
                 }
@@ -1632,12 +1643,11 @@ export const Home = () => {
         // Immediate reconciliation after active set changes.
         poll().catch(() => {});
 
-        // Keep reconciling while any plugin still reports loading to prevent stale spinners.
-        if (state.activePlugins.some((item) => item.loading)) {
-            intervalId = window.setInterval(() => {
-                poll().catch(() => {});
-            }, 900);
-        }
+        // Continue observing failures after initialization, including failures in
+        // background plugins. Loading plugins need a faster reconciliation loop.
+        intervalId = window.setInterval(() => {
+            poll().catch(() => {});
+        }, state.activePlugins.some(item => item.loading) ? 900 : 3000);
 
         return () => {
             cancelled = true;
@@ -1948,7 +1958,7 @@ export const Home = () => {
                     : (unloadedPluginEvent || {});
                 const unloadedPluginId = unloadedPlugin.id;
                 const reason = unloadedPlugin.reason || "unloaded";
-                if (reason === 'gitops_sync' || reason === 'gitops_rollback') return;
+                if (['gitops_sync', 'gitops_rollback', 'gitops_approval', 'gitops_approval_rollback'].includes(reason)) return;
                 const wasSelectedPlugin = unloadedPluginId && unloadedPluginId === selectedPluginRef.current;
                 let isUnexpectedManualUnload = false;
                 pluginTrace("home.event.unloaded", {
@@ -2695,7 +2705,7 @@ export const Home = () => {
             capabilityIntentSummary,
             !!runtimeStatus?.capabilityIntent
         );
-        const runtimeNeedsReview = Number(diagnosticsSummary?.failureCount || 0) > 0;
+        const runtimeNeedsReview = hasUnreviewedPluginFailures(diagnosticsSummary, reviewedPluginFailures[pluginItem.id]);
         const sidebarIntent = runtimeNeedsReview
             ? "warning"
             : "none";
@@ -3273,6 +3283,7 @@ export const Home = () => {
                                     </div>
                                 ) : null}
                             </Card>
+                            <PluginDoctorFailures events={runtimeValidationDialog.events}/>
                             {pluginDoctorPresentation.mode === "doctor" && pluginDoctorPanelModel ? (
                                 <>
                                     <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>

@@ -1,3 +1,4 @@
+import {INVESTIGATION_CONTRACT} from '../components/editor/utils/aiCodingAgentInvestigation';
 import {pluginGuideRecoveryMetadata} from '../utils/ai/assistant/pluginGuideRecovery';
 import {selectedCodexHooks} from '../utils/ai/codex/codexHooks';
 import {selectedCodexMcpServers} from '../utils/ai/codex/codexMcp';
@@ -323,7 +324,7 @@ plugin files, diagnostics, and public plugin SDK declarations. Do not request,
 infer, or describe product-host source, settings, credentials, internal logs,
 or application architecture.
 
-${reviewReport ? WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()}
+${reviewReport ? typeof reviewReport === "string" ? reviewReport : WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()}
 ${providerInstructions}
 `);
     return llm;
@@ -832,7 +833,7 @@ async function runGeminiCliStream(event, requestId, assistantInfo, prompt, {defe
     } finally {if (!cliSession) await isolation.cleanup();}
 }
 
-async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null, workspace = false, workspaceFiles, repairPaths, userRequirements, generationCheckpoint } = {}) {
+async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image = null, workspace = false, workspaceFiles, repairPaths, userRequirements, generationCheckpoint, investigationStep = false, maxOutputTokens } = {}) {
     registerActiveCodingRequest(requestId);
     let stopObservingSender = () => {};
     let cliSession;
@@ -858,6 +859,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
         const staged = useStagedWorkspaceGeneration(assistantInfo.provider, workspace, repairPaths, !!generationCheckpoint);
         if (initialEvidence && !staged) prompt = `${prompt}\n\n${initialEvidence}`;
         stopObservingSender = observeIpcSender(event, () => cancelActiveCodingRequest(requestId));
+        if (investigationStep) return await runCodingPromptAttempt(event,requestId,assistantInfo,prompt,{maxOutputTokens,maximumResponseCharacters:24000});
         if (!staged && ["codex-cli", "gemini-cli"].includes(assistantInfo.provider)) {
             const entry = usageLedger.begin(assistantInfo.provider, assistantInfo.model);
             try {
@@ -1117,7 +1119,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
         const providerInstructions = buildAiProviderInstructionBlock(
             getAiProviderInstructions(settings.get("ai.providerInstructions", {}), assistantInfo.provider),
         );
-        const reviewReport = prompt.includes(WORKSPACE_REVIEW_REPORT_CONTRACT);
+        const reviewReport = prompt.includes(INVESTIGATION_CONTRACT) ? INVESTIGATION_CONTRACT : prompt.includes(WORKSPACE_REVIEW_REPORT_CONTRACT);
         const providerPrompt = isCliProvider && !reviewReport
             ? `${buildPluginCodingPrompt(prompt)}${providerInstructions}`
             : prompt;
@@ -1355,7 +1357,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
                 ...(Number.isFinite(completedResponse?.usage?.input_tokens) ? {inputTokens: completedResponse.usage.input_tokens} : {}),
                 ...(Number.isFinite(completedResponse?.usage?.output_tokens) ? {outputTokens: completedResponse.usage.output_tokens} : {})});
             if (!deferCompletion) sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_DONE, { requestId, fullContent });
-            return { success: true, requestId, content: fullContent };
+            return { success: true, requestId, content: fullContent, ...(completedResponse?.usage ? {usage:completedResponse.usage} : {}) };
         }
         //noinspection ExceptionCaughtLocallyJS
         throw new Error("Invalid response from assistant backend");
@@ -1677,7 +1679,8 @@ async function handleFixCode(event, data) {
     }
 }
 
-export function buildSmartModePrompt({ prompt, code, language, context } = {}) {
+export function buildSmartModePrompt({ prompt, code, language, context, investigation = false } = {}) {
+    if(investigation)return context?.includes(INVESTIGATION_CONTRACT) ? context : `${INVESTIGATION_CONTRACT}\n\nUSER REQUEST\n${prompt}\nHOST EVIDENCE\n${context || ""}`;
     const selectedCode = code
         ? `Selected code in ${language || "current file"}:\n\`\`\`${language || ""}\n${code}\n\`\`\`\n\n`
         : "";
@@ -1693,15 +1696,15 @@ For implementation requests, return complete workspace file sections that use vi
 
 // Handle smart mode - AI determines the action
 async function handleSmartMode(event, data) {
-    const { requestId, prompt, code, language, context, assistantId } = data;
+    const { requestId, prompt, code, language, context, assistantId, investigation, maxOutputTokens } = data;
 
     console.log('[AI Coding Agent Backend] Smart mode request', { requestId, language, promptLength: prompt?.length, hasCode: !!code, hasContext: !!context });
 
     try {
         const assistantInfo = selectCodingAssistant(assistantId);
-        const fullPrompt = buildSmartModePrompt({ prompt, code, language, context });
+        const fullPrompt = buildSmartModePrompt({ prompt, code, language, context, investigation:investigation===true });
         console.log('[AI Coding Agent Backend] Sending to coding backend');
-        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt);
+        return await runCodingPrompt(event, requestId, assistantInfo, fullPrompt, investigation===true ? {investigationStep:true,maxOutputTokens:Number.isInteger(maxOutputTokens)?Math.max(800,Math.min(3000,maxOutputTokens)):3000} : {});
     } catch (error) {
         console.error('[AI Coding Agent Backend] Error in handleSmartMode', error);
         sendCodingEvent(event, AiCodingAgentChannels.on_off.STREAM_ERROR, {

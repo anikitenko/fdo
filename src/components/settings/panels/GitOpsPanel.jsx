@@ -45,7 +45,7 @@ export default function GitOpsPanel({focusRepositoryId}) {
             const result = successfulResult(await window.electron.settings.gitops.save(draft));
             setRepositories(result.repositories); setDraft(null);
             setExpanded(previous => ({...previous, [result.repository?.id || result.repositories.at(-1)?.id]: true}));
-            setNotice(result.repository?.syncError ? 'Repository saved. Plugin synchronization needs attention below.' : 'Repository saved and plugins synchronized.');
+            setNotice(result.repository?.pluginStatuses?.some(status=>status.state==='awaiting_approval') ? 'Repository saved. Review pending permission updates below.' : result.repository?.syncError ? 'Repository saved. Plugin synchronization needs attention below.' : 'Repository saved and plugins synchronized.');
         } catch (reason) { setFormError(reason.message); }
         finally { setBusy(false); }
     };
@@ -57,13 +57,15 @@ export default function GitOpsPanel({focusRepositoryId}) {
             setRepositories(result.repositories);
             const messages = {verify: 'Repository access and manifest verified.', sync: 'Plugin checks completed. See each plugin for its result.',
                 syncPlugin: `Check completed for ${value}.`, setInterval: 'Automatic check interval saved.',
-                setAutoSync: value ? 'Automatic synchronization enabled.' : 'Automatic synchronization paused.'};
+                reviewUpdate: 'Update review saved.', setAutoSync: value ? 'Automatic synchronization enabled.' : 'Automatic synchronization paused.'};
             if (method === 'remove') setNotice('Subscription and credentials removed. Installed plugins are now managed locally.');
             else setFeedback(previous => ({...previous, [id]: {intent: 'primary', message: messages[method]}}));
+            return result;
         } catch (reason) {
             setFeedback(previous => ({...previous, [id]: {intent: 'danger', message: reason.message}}));
             const refreshed = await window.electron.settings.gitops.list().catch(() => null);
             if (refreshed?.success) setRepositories(refreshed.repositories);
+            return {success:false,error:reason.message};
         }
         finally { setBusy(false); }
     };

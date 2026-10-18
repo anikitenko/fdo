@@ -5,7 +5,7 @@ import {mkdtemp, readFile, writeFile, rm, readdir, access} from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import {X509CertificateGenerator, BasicConstraintsExtension} from '@peculiar/x509';
-import {syncCollection, managedPluginId, detachCollection} from '../../src/utils/gitops/syncCollection';
+import {syncCollection, managedPluginId, detachCollection, decideGitOpsUpdate} from '../../src/utils/gitops/syncCollection';
 import {Certs} from '../../src/utils/system/certs';
 import {certificateStorage} from '../../src/utils/persistence/certificateStorage';
 
@@ -63,6 +63,8 @@ test('builds, automatically signs with root, verifies, and installs under a stab
     expect(options.runtime.loadPlugin).not.toHaveBeenCalled();
     expect(result.installedPlugins[0]).toMatchObject({id: managed.id, name: 'example', commit: 'a'.repeat(40)});
     expect(result.updatedPlugins).toEqual([]);
+    expect(result.createdPlugins).toEqual([{id:managed.id,name:'Example',version:'1.0.0',repository:managed.gitops.repository,
+        targetRevision:'main',commit:'a'.repeat(40),reloaded:false}]);
 });
 
 test('does not rebuild unchanged signed commits and repairs code tampering', async () => {
@@ -70,6 +72,7 @@ test('does not rebuild unchanged signed commits and repairs code tampering', asy
     const original = (await readRegistry()).plugins[0];
     const unchanged = await syncCollection(options);
     expect(unchanged.updatedPlugins).toEqual([]);
+    expect(unchanged.createdPlugins).toEqual([]);
     expect(options.build).toHaveBeenCalledTimes(1);
     expect((await readRegistry()).plugins[0].home).toBe(original.home);
     await writeFile(path.join(original.home, original.entry), 'tampered');
@@ -90,6 +93,7 @@ test('updates active plugins while retaining permissions and removes the old cod
     options.fetchPlugin.mockResolvedValue({commit: 'b'.repeat(40), files: files('updated')});
     options.activatedIds = () => [old.id];
     const updated = await syncCollection(options);
+    expect(updated.createdPlugins).toEqual([]);
     const current = (await readRegistry()).plugins[0];
     expect(updated.updatedPlugins).toEqual([{id: old.id, name: 'Example', version: '1.0.0',
         repository: declaration('example').repository, targetRevision: 'main', commit: 'b'.repeat(40), reloaded: true}]);
@@ -234,4 +238,96 @@ test('rebuilds an old GitOps installation once with the corrected shared build p
     expect((await readRegistry()).plugins[0].home).not.toBe(oldHome);
     await syncCollection(options);
     expect(options.build).toHaveBeenCalledTimes(2);
+});
+
+const compiledSSH=monitor=>`const sdk=require('@anikitenko/fdo-sdk');class App {declareCapabilities(){return sdk.createSSHCapabilityBundle(${monitor?'{monitorStatus:true}':''});}}`;
+async function pendingSSHUpdate() {
+ options.build.mockResolvedValue({outputFiles:[{text:compiledSSH(false)}]});await syncCollection(options);
+ const saved=await readRegistry(),old=saved.plugins[0];
+ old.capabilities=[...old.gitops.requestedCapabilities];await writeFile(options.registryFile,JSON.stringify(saved));
+ options.activatedIds=()=>[old.id];
+ options.fetchPlugin.mockResolvedValue({commit:'b'.repeat(40),files:files('monitoring')});
+ options.build.mockResolvedValue({outputFiles:[{text:compiledSSH(true)}]});
+ const result=await syncCollection(options),pending=(await readRegistry()).plugins[0].gitops.pendingUpdate;
+ return {old,pending,result};
+}
+const decide=(pending,decision='approve',capabilities=['ssh.status.watch'])=>decideGitOpsUpdate({...options,sourceId:options.source.id,pluginName:'example',reviewId:pending.id,decision,capabilities});
+
+test('stages a new capability without unloading the approved version, preserves it across checks, and applies only explicit approval',async()=>{
+ const {old,pending,result}=await pendingSSHUpdate();
+ const staged=(await readRegistry()).plugins[0];
+ expect(staged.home).toBe(old.home);expect(staged.capabilities).toEqual(old.capabilities);
+ expect(pending.addedCapabilities).toEqual(['ssh.status.watch']);expect(result.updatedPlugins).toEqual([]);
+ expect(result.pendingUpdates[0]).toMatchObject({reviewId:pending.id,newReview:true,currentCommit:'a'.repeat(40),commit:'b'.repeat(40)});
+ expect(options.runtime.unLoadPlugin).not.toHaveBeenCalled();expect(options.runtime.loadPlugin).not.toHaveBeenCalled();
+ const repeat=await syncCollection(options);expect(repeat.pendingUpdates[0]).toMatchObject({reviewId:pending.id,newReview:false});expect(options.build).toHaveBeenCalledTimes(2);
+ await expect(decide(pending,'approve',[])).rejects.toThrow('Explicitly select');
+ await expect(decide(pending,'approve',['ssh.status.watch','secrets.get'])).rejects.toThrow('Explicitly select');
+ await decide(pending);
+ const applied=(await readRegistry()).plugins[0];expect(applied.home).toBe(pending.candidate.home);expect(applied.gitops.pendingUpdate).toBeUndefined();
+ expect(applied.capabilities.sort()).toEqual([...old.capabilities,'ssh.status.watch'].sort());expect(options.runtime.loadPlugin).toHaveBeenCalledWith(old.id);
+ await expect(access(old.home)).rejects.toThrow();
+ await expect(decide(pending)).rejects.toThrow('no longer current');
+});
+
+test('decline keeps code/grants/state and suppresses the exact version until Review again',async()=>{
+ const {old,pending}=await pendingSSHUpdate();await decide(pending,'decline',[]);
+ expect((await readRegistry()).plugins[0].home).toBe(old.home);
+ await expect(access(pending.candidate.home)).rejects.toThrow();
+ const repeat=await syncCollection(options);expect(repeat.pendingUpdates).toEqual([]);expect(repeat.reviewStatuses[0]).toMatchObject({state:'declined',commit:'b'.repeat(40)});
+ expect(options.runtime.unLoadPlugin).not.toHaveBeenCalled();
+ await decide({...pending,id:'b'.repeat(40)},'reconsider',[]);
+ expect((await syncCollection(options)).pendingUpdates).toHaveLength(1);
+});
+
+test('newer candidates invalidate earlier reviews and clean obsolete staged code',async()=>{
+ const {pending}=await pendingSSHUpdate();options.fetchPlugin.mockResolvedValue({commit:'c'.repeat(40),files:files('newer')});
+ const next=await syncCollection(options);expect(next.pendingUpdates[0].reviewId).not.toBe(pending.id);
+ await expect(access(pending.candidate.home)).rejects.toThrow();await expect(decide(pending)).rejects.toThrow('no longer current');
+});
+
+test('stale grants, changed signatures and changed collection identities cannot be approved',async()=>{
+ const {pending}=await pendingSSHUpdate();
+ await writeFile(path.join(pending.candidate.home,pending.candidate.entry),'tampered');await expect(decide(pending)).rejects.toThrow('signature');
+ await syncCollection(options);const refreshed=(await readRegistry()).plugins[0].gitops.pendingUpdate;
+ const saved=await readRegistry();saved.plugins[0].capabilities=[];await writeFile(options.registryFile,JSON.stringify(saved));
+ await expect(decide(refreshed)).rejects.toThrow('permissions changed');
+ options.source={...options.source,url:'https://github.com/other/collection'};await expect(decide(refreshed)).rejects.toThrow('no longer current');
+});
+
+test('approval startup failure restores the approved version and grants while retaining the staged review',async()=>{
+ const {old,pending}=await pendingSSHUpdate();options.runtime.loadPlugin.mockResolvedValueOnce({success:false,error:'fixture startup failure'}).mockResolvedValue({success:true});
+ await expect(decide(pending)).rejects.toThrow('could not start');
+ const restored=(await readRegistry()).plugins[0];expect(restored.home).toBe(old.home);expect(restored.capabilities).toEqual(old.capabilities);expect(restored.gitops.pendingUpdate.id).toBe(pending.id);
+ expect((await Certs.verifyPlugin(old.home)).success).toBe(true);
+});
+
+test('revocation while stopping for approval invalidates the commit and preserves revoked grants',async()=>{
+ const {old,pending}=await pendingSSHUpdate();
+ options.runtime.unLoadPlugin.mockImplementationOnce(async()=>{
+  const saved=await readRegistry();saved.plugins[0].capabilities=[];
+  await writeFile(options.registryFile,JSON.stringify(saved));
+ });
+ await expect(decide(pending)).rejects.toThrow('Permissions changed while');
+ const retained=(await readRegistry()).plugins[0];
+ expect(retained.home).toBe(old.home);expect(retained.capabilities).toEqual([]);
+ expect(retained.gitops.pendingUpdate.id).toBe(pending.id);
+ expect(options.runtime.loadPlugin).toHaveBeenCalledWith(old.id);
+});
+
+test('approval waits for the asynchronous worker spawn before checking readiness',async()=>{
+ const {pending}=await pendingSSHUpdate();
+ options.runtime.getLoadedPlugin.mockReturnValue(null);
+ options.runtime.getLoadedPluginReady=jest.fn().mockReturnValueOnce(false).mockReturnValue(true);
+ await expect(decide(pending)).resolves.toMatchObject({state:'synced'});
+ expect(options.runtime.getLoadedPluginReady).toHaveBeenCalledTimes(2);
+});
+
+test('uninspectable declarations stage for maintainer attention and cannot silently update or grant permissions',async()=>{
+ await syncCollection(options);const old=(await readRegistry()).plugins[0];
+ options.fetchPlugin.mockResolvedValue({commit:'b'.repeat(40),files:files('dynamic')});options.build.mockResolvedValue({outputFiles:[{text:`class App{declareCapabilities(){return process.env.PERMISSIONS.split(',');}}`}]});
+ const result=await syncCollection(options);expect(result.pendingUpdates[0].inspectionError).toContain('could not be inspected');
+ const pending=(await readRegistry()).plugins[0].gitops.pendingUpdate;
+ await expect(decide(pending,'approve',[])).rejects.toThrow('could not be inspected');expect((await readRegistry()).plugins[0].home).toBe(old.home);
+ await detachCollection(options.registryFile,options.source.id);await expect(access(pending.candidate.home)).rejects.toThrow();
 });

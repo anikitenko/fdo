@@ -519,6 +519,7 @@ async function removePlugin(window, pluginName) {
 }
 
 module.exports = {
+  ensureRootCertificate,
   DEFAULT_SDK_EXAMPLES_CANDIDATES,
   discoverSdkExampleEntries,
   resolveSdkExamplesPath,
