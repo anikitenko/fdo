@@ -1,3 +1,4 @@
+import {HOST_SERVICES_AUTHORING_GUIDE} from '../plugins/authoring/hostServicesAuthoringGuide';
 import {app} from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,6 +72,7 @@ export function getCachedFdoSdkKnowledgeIndex() {
 
     const topLevelDocsFilter = (file) => /README|CHANGELOG|package\.json/i.test(file.path);
     const files = [
+        {path: 'fdo-host/SECRETS_SSH_GIT.md', content: HOST_SERVICES_AUTHORING_GUIDE},
         ...getFilesTreeSafe(distPath, '@types'),
         ...getFilesTreeSafe(packagePath, '.', topLevelDocsFilter),
         ...getFilesTreeSafe(packagePath, 'docs'),

@@ -1,4 +1,4 @@
-import {Breadcrumbs, Button, ButtonGroup, Tooltip} from "@blueprintjs/core";
+import {Breadcrumbs, Button, Tooltip} from "@blueprintjs/core";
 import PropTypes from 'prop-types';
 import virtualFS from "./utils/VirtualFS";
 import * as styles from './EditorPage.module.css'
@@ -15,7 +15,29 @@ const FileTabs = ({closeTab}) => {
     const topScrollRef = useRef(null);
     const contentScrollRef = useRef(null);
     const mirrorRef = useRef(null);
+    const [tabsOverflow, setTabsOverflow] = useState(false);
     const interactionsBlocked = restoreLoading;
+
+    useEffect(() => {
+        const content = contentScrollRef.current;
+        const mirror = mirrorRef.current;
+        if (!content || !mirror) return;
+        const update = () => {
+            mirror.style.width = `${content.scrollWidth}px`;
+            setTabsOverflow(content.scrollWidth > content.clientWidth + 1);
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(content);
+        for (const child of content.children) observer.observe(child);
+        const active = content.querySelector('[aria-selected="true"]');
+        if (active) {
+            const item = active.closest(`.${styles.fileTabItem}`);
+            if (item && item.offsetLeft < content.scrollLeft) content.scrollLeft = item.offsetLeft;
+            else if (item && item.offsetLeft + item.offsetWidth > content.scrollLeft + content.clientWidth) content.scrollLeft = item.offsetLeft + item.offsetWidth - content.clientWidth;
+        }
+        return () => observer.disconnect();
+    }, [tabs]);
 
     useEffect(() => {
         const unsubscribeFileTabs = virtualFS.notifications.subscribe("fileTabs", setTabs);
@@ -119,33 +141,40 @@ const FileTabs = ({closeTab}) => {
                 </div>
             )}
             <div className={classnames(styles["file-tabs-mirror"], restoreLoading && styles["subtleBusySurface"])}
-                 ref={topScrollRef}>
+                 ref={topScrollRef} data-overflow={tabsOverflow} aria-label="Scroll open files">
                 <div ref={mirrorRef} style={{height: "1px"}}></div>
             </div>
-            <div className={classnames(styles["file-tabs"], restoreLoading && styles["subtleBusySurface"])} style={{height: "39px"}}
-                 ref={contentScrollRef}>
-                {tabs.map((tab) => (
-                    <ButtonGroup key={tab.id}>
+            <div className={classnames(styles["file-tabs"], restoreLoading && styles["subtleBusySurface"])}
+                 ref={contentScrollRef} role="tablist" aria-label="Open files">
+                {tabs.map((tab, index) => (
+                    <div key={tab.id} className={classnames(styles.fileTabItem,tab.active && styles.active)}>
                         <Tooltip content={
                             tab.markers?.length > 0 ? tab.markers?.map((m) => {
                                 return `${m.message} (Here: ${m.startLineNumber}:${m.startColumn})\t`
                             }) : tab.id
                         } placement={"bottom"}
                                  className={styles["file-tab-tooltip"]} compact={true} hoverOpenDelay={500}>
-                            <Button icon={tab.icon} size={"medium"}
+                            <Button variant="minimal" icon={tab.icon} size={"small"} role="tab" aria-selected={!!tab.active} aria-label={tab.label} title={tab.id}
+                                    tabIndex={tab.active ? 0 : -1}
+                                    onKeyDown={event => {
+                                        if (interactionsBlocked || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+                                        event.preventDefault();
+                                        const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+                                        virtualFS.tabs.setActiveTab(tabs[next]);
+                                        event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus();
+                                    }}
                                     className={`
                         ${styles["file-tab"]} 
-                        ${tab.markers?.length > 0 ? styles["file-tab-marker"] : ""}
                         ${tab.active ? styles["active"] : ""} 
                         `}
                                     disabled={interactionsBlocked}
                                     onClick={() => {
                                         if (interactionsBlocked) return;
                                         virtualFS.tabs.setActiveTab(tab)
-                                    }} text={tab.label}
-                            />
+                                    }}><span>{tab.label}</span>{tab.markers?.length > 0 && <span className={styles.fileTabDiagnostics} data-severity={tab.markers.some(marker => marker.severity === 8) ? 'error' : 'warning'} aria-label={`${tab.markers.length} diagnostics`}>{tab.markers.length}</span>}</Button>
                         </Tooltip>
-                        <Button icon={"cross"} size={"small"}
+                        <Button variant="minimal" icon={"cross"} size={"small"}
+                                aria-label={`Close ${tab.label}`} title={`Close ${tab.label}`}
                                 className={`
                     ${styles["close-tab-btn"]} 
                     ${styles["file-tab"]} 
@@ -159,10 +188,10 @@ const FileTabs = ({closeTab}) => {
                                 }}
                         >
                         </Button>
-                    </ButtonGroup>
+                    </div>
                 ))}
             </div>
-            <div style={{flexBasis: "100%", background: "#212733", paddingLeft: "15px"}}>
+            <div className={styles.fileBreadcrumbs}>
                 <Breadcrumbs
                     items={(() => {
                         const parts = (virtualFS.tabs.getActiveTabId() ?? "").split("/").filter(Boolean);

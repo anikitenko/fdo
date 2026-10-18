@@ -4,7 +4,28 @@ import os from 'node:os';
 import path from 'node:path';
 import {readInstalledAuthoringContracts, installedSdkKnowledgeIdentity} from '../../src/utils/sdk/installedAuthoringContracts';
 import {getCachedFdoSdkKnowledgeIndex} from '../../src/utils/sdk/installedSdkKnowledge';
+import {searchFdoSdkKnowledge, shouldUseFdoSdkKnowledge} from '../../src/utils/sdk/fdoSdkKnowledge';
+import {HOST_SERVICES_AUTHORING_GUIDE} from '../../src/utils/plugins/authoring/hostServicesAuthoringGuide';
 jest.mock('electron', () => ({app: {isPackaged: false}}));
+
+test('SSH metadata and advanced Git requests retrieve current installed contracts and shared host guidance', () => {
+    const index = getCachedFdoSdkKnowledgeIndex();
+    for (const prompt of ['Show SSH profile host port username and fingerprint', 'List credentials securely', 'Use named Git remotes with pull submodules and LFS']) {
+        expect(shouldUseFdoSdkKnowledge({action:'smart',prompt})).toBe(true);
+        const results = searchFdoSdkKnowledge(index,prompt,{limit:6});
+        expect(results.some(item=>item.path==='fdo-host/SECRETS_SSH_GIT.md')).toBe(true);
+        expect(results.some(item=>/(?:^|\/)SECRETS_AND_SSH\.md$/.test(item.path))).toBe(true);
+    }
+    const metadata = searchFdoSdkKnowledge(index,'SSHProfileSummary profile host port username metadata',{limit:6});
+    expect(metadata.some(item=>/\.d\.ts$/.test(item.path)&&item.content.includes('host?: string')&&item.content.includes('trustedHostKey?: string'))).toBe(true);
+    expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('Handle absent optional fields');
+    expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('not Git-only bindings');
+    const remote=searchFdoSdkKnowledge(index,'SSH watchStatus streaming output cancel remote commands flush persistent save',{limit:6});
+    expect(remote.some(item=>/(?:^|\/)FDO_HOST_REMOTE_COMMANDS_HANDOFF\.md$/.test(item.path))).toBe(true);
+    expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('ssh.status.watch');
+    expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('store.flush()');
+    expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('remoteProcessStopped:null');
+});
 
 test('reads and schema-validates the installed SDK public contracts and indexes them for coding evidence', () => {
     const result = readInstalledAuthoringContracts(path.resolve('node_modules/@anikitenko/fdo-sdk'));
@@ -40,6 +61,10 @@ test('rejects unsupported majors, malformed contracts and version mismatches; le
         const before = installedSdkKnowledgeIdentity(root, path.join(root, 'dist'));
         write('package.json', {...manifest, version: '1.6.1'});
         expect(installedSdkKnowledgeIdentity(root, path.join(root, 'dist'))).not.toBe(before);
+        const beforeDocs = installedSdkKnowledgeIdentity(root, path.join(root, 'dist'));
+        fs.mkdirSync(path.join(root,'docs'));
+        fs.writeFileSync(path.join(root,'docs/SECRETS_AND_SSH.md'),'Updated SSH profile metadata contract');
+        expect(installedSdkKnowledgeIdentity(root, path.join(root, 'dist'))).not.toBe(beforeDocs);
         write('package.json', {name: '@anikitenko/fdo-sdk', version: '1.5.2'});
         expect(readInstalledAuthoringContracts(root).contracts).toEqual({dom: {status: 'absent'}, components: {status: 'absent'}, previews:{status:'absent'}});
     } finally {fs.rmSync(root, {recursive: true, force: true});}

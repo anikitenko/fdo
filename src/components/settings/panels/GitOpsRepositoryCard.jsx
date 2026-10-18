@@ -1,3 +1,4 @@
+import GitOpsUpdateReview from './GitOpsUpdateReview';
 import React, {useEffect, useState} from 'react';
 import {Button, Callout, Card, Collapse, FormGroup, Icon, Switch, Tag} from '@blueprintjs/core';
 import {TimePicker} from '@blueprintjs/datetime';
@@ -10,11 +11,15 @@ const checked = value => value ? new Date(value).toLocaleString() : 'Not checked
 const openExternal = (event, url) => {event.preventDefault(); window.electron.system.openExternal(url);};
 
 export default function GitOpsRepositoryCard({repository, expanded, onToggle, busy, onAction, onEdit, feedback}) {
-    const [pluginsOpen, setPluginsOpen] = useState(false);
+    const [pluginsOpen, setPluginsOpen] = useState(repository.pluginStatuses?.some(status=>status.state==='awaiting_approval')||false);
+    const reviewIds=(repository.pluginStatuses||[]).map(status=>status.pendingUpdate?.reviewId||'').join(',');
+    useEffect(()=>{if(reviewIds.replace(/,/g,''))setPluginsOpen(true);},[reviewIds]);
     const [interval, setIntervalValue] = useState(repository.checkIntervalMinutes || 5);
     useEffect(() => setIntervalValue(repository.checkIntervalMinutes || 5), [repository.checkIntervalMinutes]);
     const plugins = repository.manifest.spec.plugins;
     const failures = (repository.pluginStatuses || []).filter(status => status.state === 'error').length;
+    const pendingCount=(repository.pluginStatuses||[]).filter(status=>status.state==='awaiting_approval').length;
+    const declinedCount=(repository.pluginStatuses||[]).filter(status=>status.state==='declined').length;
     const checking = (repository.pluginStatuses || []).some(status => status.state === 'checking');
     const title = repository.manifest.metadata.displayName || repository.manifest.metadata.name;
     const anyError = failures > 0 || !!repository.syncError;
@@ -24,8 +29,8 @@ export default function GitOpsRepositoryCard({repository, expanded, onToggle, bu
             <Icon icon={expanded ? 'chevron-down' : 'chevron-right'}/>
             <Icon icon="git-repo" intent="primary"/>
             <span className={styles.heading}><strong>{title}</strong><span className="bp6-text-muted">{repository.url.replace(/^https:\/\//, '')} · {repository.targetRevision}</span></span>
-            <span className={styles.badges}><Tag variant="minimal">{count}</Tag><Tag variant="minimal" intent={checking ? 'primary' : anyError ? 'warning' : 'success'}>
-                {checking ? 'Checking…' : anyError ? 'Needs attention' : repository.lastSyncedAt ? 'Synced' : 'Connected'}
+            <span className={styles.badges}><Tag variant="minimal">{count}</Tag><Tag variant="minimal" intent={checking ? 'primary' : anyError || pendingCount || declinedCount ? 'warning' : 'success'}>
+                {checking ? 'Checking…' : pendingCount ? `${pendingCount} awaiting approval` : declinedCount ? `${declinedCount} declined` : anyError ? 'Needs attention' : repository.lastSyncedAt ? 'Synced' : 'Connected'}
             </Tag>{repository.autoSync === false && <Tag variant="minimal">Paused</Tag>}</span>
         </button>
         <Collapse isOpen={expanded} keepChildrenMounted={false}>
@@ -58,18 +63,18 @@ export default function GitOpsRepositoryCard({repository, expanded, onToggle, bu
                 </Callout>}
                 <Button variant="minimal" fill alignText="left" icon={pluginsOpen ? 'chevron-down' : 'chevron-right'}
                     aria-expanded={pluginsOpen} aria-controls={`gitops-plugins-${repository.id}`} onClick={() => setPluginsOpen(value => !value)}>
-                    Plugins ({plugins.length}){failures > 0 ? ` · ${failures} need attention` : ''}
+                    Plugins ({plugins.length}){pendingCount?` · ${pendingCount} awaiting approval`:failures > 0 ? ` · ${failures} need attention` : ''}
                 </Button>
                 <Collapse isOpen={pluginsOpen} keepChildrenMounted={false}>
                     <div id={`gitops-plugins-${repository.id}`} className={styles.plugins}>
-                        <p className="bp6-text-muted">Checks apply the version declared by the collection. Existing enabled states and permissions are preserved.</p>
+                        <p className="bp6-text-muted">Checks stage updates that need additional permissions. Approved versions keep running until you explicitly approve the new permissions; other updates preserve enabled states and grants.</p>
                         {plugins.map(plugin => {
                             const status = repository.pluginStatuses?.find(item => item.name === plugin.name);
                             const installed = repository.installedPlugins?.find(item => item.name === plugin.name);
                             return <section className={styles.plugin} key={plugin.name} aria-label={`Plugin ${plugin.name}`}>
                                 <div className={styles.pluginHeader}><strong>{plugin.name}</strong>
-                                    <Tag variant="minimal" intent={status?.state === 'error' ? 'danger' : status?.state === 'synced' ? 'success' : 'none'}>
-                                        {status?.state === 'error' ? 'Check failed' : status?.state === 'checking' ? 'Checking…' : installed ? 'Installed' : 'Not installed'}
+                                    <Tag variant="minimal" intent={status?.state === 'error' ? 'danger' : status?.state === 'awaiting_approval' ? 'warning' : status?.state === 'synced' ? 'success' : 'none'}>
+                                        {status?.state === 'awaiting_approval'?'Awaiting approval':status?.state==='declined'?'Version declined':status?.state === 'error' ? 'Check failed' : status?.state === 'checking' ? 'Checking…' : installed ? 'Installed' : 'Not installed'}
                                     </Tag>
                                     <Button size="small" icon="refresh" disabled={busy || status?.state === 'checking'} loading={status?.state === 'checking'} onClick={() => onAction('syncPlugin', repository.id, plugin.name)}>
                                         Check for updates
@@ -80,6 +85,8 @@ export default function GitOpsRepositoryCard({repository, expanded, onToggle, bu
                                     {installed && <span>Installed commit: <code>{installed.commit.slice(0, 12)}</code></span>}
                                 </div>
                                 <p className="bp6-text-muted">Last check: {checked(status?.checkedAt)}</p>
+                                {status?.pendingUpdate&&<GitOpsUpdateReview pending={status.pendingUpdate} busy={busy||status.state==='checking'} onDecision={review=>onAction('reviewUpdate',repository.id,review)}/>}
+                                {status?.state==='declined'&&<Callout icon="lock">This version was declined. The installed version and permissions are unchanged. <Button size="small" disabled={busy} onClick={()=>onAction('reviewUpdate',repository.id,{pluginName:plugin.name,reviewId:status.commit,decision:'reconsider'})}>Review again</Button></Callout>}
                                 {status?.error && <Callout intent="danger" title={`Couldn’t update ${plugin.name}`}>{status.error}</Callout>}
                             </section>;
                         })}

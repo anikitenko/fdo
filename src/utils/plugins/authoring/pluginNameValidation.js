@@ -16,7 +16,7 @@ export function validateNewPluginName(value, {plugins = [], hasSavedWorkspace = 
         .some(candidate => typeof candidate === 'string' && generatePluginName(candidate) === id));
     if (existingPlugin) return result('plugin_exists', 'An installed plugin already uses this name or generated ID. Choose another name to create a new plugin.', {existingPlugin});
     try {
-        if (hasSavedWorkspace(id)) return result('workspace_exists', 'A saved workspace already uses this ID. Resume it, or choose another name to start fresh.');
+        if (hasSavedWorkspace(id)) return result('workspace_exists', 'A saved workspace already uses this ID. Resume it, or use Safe release ID to archive the draft and start fresh.');
     } catch {
         return result('storage_unavailable', 'Could not check saved workspaces. Allow local storage and try again.');
     }

@@ -1,3 +1,4 @@
+import {connectionTemplateFiles} from './connectionTemplates';
 import {SPLIT_GRID_LAYOUT, SPLIT_GRID_STYLES} from './splitGridLayout';
 import {STARTER_STYLES} from './starterStyles';
 import {UTILITY_LOGIC, SERVICE_LOGIC, DASHBOARD_LOGIC} from './starterLogic';
@@ -8,6 +9,7 @@ const escapeSource = `export function escapeText(value: unknown): string {
 }
 `;
 export function starterFiles(name, template) {
+    if (['ssh', 'gitSsh'].includes(template)) return connectionTemplateFiles(name, template);
     if (template === 'dialogs') return {...dialogTemplateFiles(name), '/text.ts': escapeSource};
     const utility = template === 'utility', service = template === 'service';
     const dashboard = !utility && !service;

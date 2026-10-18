@@ -35,6 +35,7 @@ module.exports = {
         ],
     },
     externals: {
+        ssh2: 'commonjs ssh2',
         typescript: "commonjs typescript",
         esbuild: "commonjs esbuild",
         "@cursor/sdk": "commonjs @cursor/sdk",
@@ -52,10 +53,11 @@ module.exports = {
     plugins: [
         {
             apply(compiler) {
-                compiler.hooks.afterEmit.tap('TypeScriptExecutablePermissions', () => {
-                    if (process.platform === 'win32') return;
-                    const binary = path.resolve(__dirname, 'dist/main/node_modules/@typescript', `typescript-${process.platform}-${process.arch}`, 'lib/tsc');
-                    if (fs.existsSync(binary)) fs.chmodSync(binary, 0o755);
+                compiler.hooks.afterEmit.tap('BundledExecutablePermissions', () => {
+                    const output = compiler.options.output.path;
+                    const binary = path.join(output, 'node_modules/@typescript', `typescript-${process.platform}-${process.arch}`, 'lib/tsc');
+                    if (process.platform !== 'win32' && fs.existsSync(binary)) fs.chmodSync(binary, 0o755);
+                    require('./scripts/fix-bundled-binary-permissions.js').fixGitPermissions(output);
                 });
             },
         },
@@ -64,6 +66,12 @@ module.exports = {
         new webpack.IgnorePlugin({resourceRegExp: /^(bufferutil|utf-8-validate)$/, contextRegExp: /node_modules[/\\]ws[/\\]/}),
         new CopyWebpackPlugin({
             patterns: [
+                {from:path.resolve(__dirname,'node_modules/dugite/git'),to:'git'},
+                ...['ssh2', 'asn1', 'safer-buffer', 'bcrypt-pbkdf', 'tweetnacl'].map(name => ({
+                    from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
+                    globOptions: {ignore: ['**/test/**', '**/test.js', '**/build/**', '**/*.node']},
+                })),
+                {from: 'src/utils/hostServices/gitSshHelper.cjs', to: 'gitSshHelper.cjs'},
                 {from: 'src/utils/persistence/notificationWorker.cjs', to: 'notificationWorker.cjs'},
                 {from: 'src/utils/persistence/notificationDatabase.cjs', to: 'notificationDatabase.cjs'},
                 {from: 'src/utils/persistence/observabilityWorker.cjs', to: 'observabilityWorker.cjs'},

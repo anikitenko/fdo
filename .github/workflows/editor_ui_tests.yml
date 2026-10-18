@@ -39,6 +39,11 @@ jobs:
         run: |
           mkdir -p artifacts
           npm run test:ci -- --json --outputFile=artifacts/jest-results.json
+      - name: Verify real X SECURITY isolation and revocation
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb xauth
+          xvfb-run -a -s '-screen 0 800x600x24 +extension SECURITY -nolisten tcp' node scripts/test-xsecurity-display.cjs
       - name: Upload Jest results
         if: always()
         uses: actions/upload-artifact@v7
@@ -69,12 +74,20 @@ jobs:
       - run: npm run build
       - name: Run deterministic Electron regressions (including fault injection)
         run: bash scripts/run-linux-e2e.sh npm run test:e2e:ci -- --shard=${{ matrix.shard }}/4
+      - name: Package host for credential and SSH verification
+        if: matrix.shard == 1
+        run: npx electron-builder --dir --publish never
+      - name: Verify services in packaged Linux host
+        if: matrix.shard == 1
+        run: bash scripts/run-linux-e2e.sh node scripts/run-packaged-host-services.cjs
       - name: Upload regression artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: electron-linux-${{ matrix.shard }}
-          path: playwright-report
+          path: |
+            playwright-report
+            playwright-report-packaged-services
           retention-days: 14
           if-no-files-found: warn
 
@@ -83,7 +96,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: electron-linux-${{ matrix.shard }}-diagnostics
-          path: test-results
+          path: |
+            test-results
+            test-results-packaged-services
           retention-days: 14
           if-no-files-found: ignore
 
@@ -146,7 +161,13 @@ jobs:
       - run: npm run build
       # One invocation preserves every failure artifact; native UI tests run serially.
       - name: Run desktop and Live UI smoke tests
-        run: npm run test:e2e:ci -- tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js
+        run: npm run test:e2e:ci -- tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js tests/e2e/host-services.spec.js tests/e2e/remote-commands.spec.js tests/e2e/ssh-terminal.spec.js
+      - name: Package host for credential and SSH verification
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --dir --publish never
+      - name: Verify services in packaged desktop host
+        run: node scripts/run-packaged-host-services.cjs
       - name: Run full regressions on scheduled and manual runs
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
@@ -160,6 +181,7 @@ jobs:
           path: |
             playwright-report
             playwright-report-full
+            playwright-report-packaged-services
           retention-days: 14
           if-no-files-found: warn
 
@@ -171,6 +193,7 @@ jobs:
           path: |
             test-results
             test-results-full
+            test-results-packaged-services
           retention-days: 14
           if-no-files-found: ignore
 

@@ -18,6 +18,8 @@ import SharedProcessScopesPanel from "./panels/SharedProcessScopesPanel.jsx";
 import SharedFilesystemScopesPanel from "./panels/SharedFilesystemScopesPanel.jsx";
 import GitOpsPanel from './panels/GitOpsPanel';
 import ObservabilityPanel from './panels/ObservabilityPanel';
+import CredentialsPanel from './panels/CredentialsPanel';
+import ToolsPanel from './panels/ToolsPanel';
 
 export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog, navigationRequest}) => {
     const [activeTab, setActiveTab] = useState(localStorage.getItem("activeSettingsTab") || "general");
@@ -79,6 +81,10 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog, navig
                      panelClassName={styles['panel']} panel={<GitOpsPanel focusRepositoryId={navigationRequest?.repositoryId}/>}/>
                 <Tab id="observability" title={<div style={{width: '180px'}}><Icon icon="timeline-line-chart" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>Observability</span></div>}
                      panelClassName={styles['panel']} panel={<ObservabilityPanel/>}/>
+                <Tab id="tools" title={<div style={{width: '180px'}}><Icon icon="wrench" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>Tools & Prerequisites</span></div>}
+                     panelClassName={styles['panel']} panel={<ToolsPanel/>}/>
+                <Tab id="credentials" title={<div style={{width: '180px'}}><Icon icon="key" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>Credentials & SSH</span></div>}
+                     panelClassName={styles['panel']} panel={<CredentialsPanel onOpenTools={() => {setActiveTab('tools'); localStorage.setItem('activeSettingsTab', 'tools');}}/>}/>
                 <Tab id={"certificates"}
                      title={
                          <div style={{verticalAlign: "center", width: "180px"}}

@@ -2,6 +2,7 @@ import {app} from "electron";
 import fs, {chmodSync, existsSync, mkdirSync, statSync} from "node:fs";
 import Module from "node:module";
 import path from "node:path";
+import {compileCssStyleModule} from "../../esbuild/plugins/cssStyleModule";
 
 function resolveHostNodeModulesPath() {
     return !app.isPackaged
@@ -10,7 +11,8 @@ function resolveHostNodeModulesPath() {
 }
 
 export function ensureExecutableEsbuildBinary(nodeModulesPath) {
-    const esbuildBinary = path.join(nodeModulesPath, "@esbuild", `${process.platform}-${process.arch}`, "bin", "esbuild");
+    const esbuildBinary = path.join(nodeModulesPath, "@esbuild", `${process.platform}-${process.arch}`,
+        ...(process.platform === 'win32' ? ['esbuild.exe'] : ['bin', 'esbuild']));
 
     try {
         if (existsSync(esbuildBinary)) {
@@ -46,6 +48,40 @@ export function getHostPluginNodeModulesPath() {
     return resolveHostNodeModulesPath();
 }
 
+// Startup recompilation must use the same CSS style-map contract as the
+// editor and plugin tests. Native esbuild CSS loading exports an empty object.
+export function createRuntimeCssPlugin(pluginHome) {
+    let workspace;
+    const readWorkspace = async () => {
+        const root = await fs.promises.realpath(pluginHome);
+        const files = Object.create(null);
+        const visit = async directory => {
+            for (const entry of await fs.promises.readdir(directory, {withFileTypes: true})) {
+                if (entry.name === "node_modules" || entry.name === ".git") continue;
+                const diskPath = path.join(directory, entry.name);
+                if (entry.isDirectory()) await visit(diskPath);
+                else if (entry.isFile() && entry.name.endsWith(".css")) {
+                    files['/' + path.relative(root, diskPath).split(path.sep).join('/')] = await fs.promises.readFile(diskPath, 'utf8');
+                }
+            }
+        };
+        await visit(root);
+        return {root, files};
+    };
+    return {name: "fdo-runtime-css", setup(build) {
+        build.onLoad({filter: /\.css$/}, async ({path: diskPath}) => {
+            const {root, files} = await (workspace ??= readWorkspace());
+            const relative = path.relative(root, await fs.promises.realpath(diskPath));
+            if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+                throw new Error('Runtime CSS must stay inside the plugin workspace.');
+            }
+            const virtualPath = '/' + relative.split(path.sep).join('/');
+            if (!Object.hasOwn(files, virtualPath)) throw new Error('Runtime CSS is not an authored workspace file.');
+            return {contents: await compileCssStyleModule(files, virtualPath), loader: 'js'};
+        });
+    }};
+}
+
 export async function buildPluginRuntimeBundle(pluginId, pluginHome) {
     const packageJsonPath = path.join(pluginHome, "package.json");
     if (!existsSync(packageJsonPath)) {
@@ -78,6 +114,7 @@ export async function buildPluginRuntimeBundle(pluginId, pluginHome) {
         platform: "node",
         outfile,
         external: ["@anikitenko/fdo-sdk"],
+        plugins: [createRuntimeCssPlugin(pluginHome)],
         absWorkingDir: pluginHome,
         tsconfigRaw: {
             compilerOptions: {

@@ -1,8 +1,9 @@
+import {auditFailureDetails} from './privilegedAuditDiagnostics';
 import {validateHostPrivilegedActionRequest} from "@anikitenko/fdo-sdk";
 import {clipboard as electronClipboard} from "electron";
 import {spawn} from "node:child_process";
 import crypto from "node:crypto";
-import {appendFile, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import path from "node:path";
 import {getHostFsScopePolicy} from "./privilegedFsScopeRegistry";
 import {getHostProcessScopePolicy} from "./privilegedProcessScopeRegistry";
@@ -64,7 +65,12 @@ function formatMissingCapabilitiesMessage(capabilities = []) {
     return `Missing required ${noun}: ${items.join(", ")}.`;
 }
 
+const GIT_FAILURES = new Set(['GIT_EXECUTABLE_OR_CWD_MISSING', 'GIT_EXECUTABLE_NOT_PERMITTED', 'HELPER_ARGUMENTS_REJECTED', 'HELPER_NOT_CONNECTED', 'AUTHENTICATION_FAILED', 'DNS_LOOKUP_FAILED', 'CONNECTION_REFUSED', 'REMOTE_COMMAND_REJECTED', 'REMOTE_EXIT_STATUS_MISSING', 'CONNECTION_CLOSED', 'PROFILE_NOT_FOUND', 'PROFILE_AMBIGUOUS', 'UNSAFE_REPOSITORY_CONFIG', 'REMOTE_NOT_FOUND', 'LFS_HTTPS_DESTINATION_DENIED']);
+function safeGitFailure(value) {return GIT_FAILURES.has(value) ? value : 'TRANSPORT_FAILED';}
 function classifyProcessExecutionError(error, plan = {}, correlationId = "") {
+    if (plan.scope === 'git' && ['ACCESS_DENIED', 'INVALID_REQUEST', 'UNAVAILABLE', 'LOCKED', 'TIMEOUT', 'HOST_KEY_REJECTED', 'CONNECTION_FAILED'].includes(error?.code)) {
+        return errorEnvelope(error.code, 'Git SSH profile operation failed (' + error.code + '). Review repository authorization, the selected profile and supported command syntax in Settings → Credentials & SSH.', correlationId, {details: {gitFailure: safeGitFailure(error?.gitFailure)}});
+    }
     const rawCode = typeof error?.code === "string" ? error.code.trim() : "";
     const commandLabel = plan.command || "requested executable";
 
@@ -556,17 +562,6 @@ function summarizeFsOperation(operation) {
     }
 }
 
-function summarizeProcessRequest({command = "", args = [], cwd = "", scope = "", timeoutMs = 0, dryRun = false} = {}) {
-    return {
-        scope,
-        command,
-        args: Array.isArray(args) ? [...args] : [],
-        cwd: cwd || "",
-        dryRun: !!dryRun,
-        timeoutMs: Number(timeoutMs) || 0,
-    };
-}
-
 function encodeProcessOutput(buffer, encoding = "utf8") {
     const value = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || "");
     return encoding === "base64" ? value.toString("base64") : value.toString("utf8");
@@ -856,14 +851,25 @@ function validateProcessExecutionPlan(plan, policy) {
 }
 
 async function runProcessExecution(plan, deps = {}) {
+    if (plan.scope === 'git' && typeof deps.runGit === 'function') {
+        const result = await deps.runGit(plan);
+        if (result !== null) return result;
+    }
     if (typeof deps.runProcess === "function") {
         return deps.runProcess(plan);
     }
 
     return new Promise((resolve, reject) => {
+        const environment = buildScopedProcessEnvironment(plan.env, plan.allowedEnvKeys, deps.hostEnv);
+        if (plan.scope === 'git') {
+            // Legacy Git remains noninteractive and must never accept an unknown
+            // host key or wait for a password via the host application's terminal.
+            environment.GIT_TERMINAL_PROMPT = '0';
+            environment.GIT_SSH_COMMAND = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes';
+        }
         const child = spawn(plan.command, plan.args, {
             cwd: plan.cwd,
-            env: buildScopedProcessEnvironment(plan.env, plan.allowedEnvKeys, deps.hostEnv),
+            env: environment,
             shell: false,
             stdio: "pipe",
         });
@@ -973,7 +979,10 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
         approvalSessionStore.set(approvalKey, Date.now() + normalizedApprovalTtlMs);
     };
 
+    const executionDeps = {...deps, runGit: context.runGit};
     const audit = (event) => {
+        // Git command output and arguments may contain sensitive user data.
+        if (event.scope === 'git') event = {action: event.action, scope: 'git', dryRun: event.dryRun, success: event.success, timedOut: event.timedOut, confirmationDecision: event.confirmationDecision, error: event.error ? {code: event.error.code, error: 'Git operation failed (' + event.error.code + ').', correlationId, diagnosticDetails: auditFailureDetails(event.error)} : null};
         onAudit({
             pluginId,
             correlationId,
@@ -1423,6 +1432,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
                         cwd: plan.cwd,
                         dryRun: plan.dryRun,
                         allowlistedExecutables: Array.isArray(plan.allowlistedExecutables) ? plan.allowlistedExecutables : [],
+                        allowedCwdRoots: Array.isArray(policy.allowedCwdRoots) ? [...policy.allowedCwdRoots] : [],
                         scopeViolation,
                     },
                 }
@@ -1441,8 +1451,20 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
         }
 
         if (plan.dryRun) {
+            // Metadata checks are limited to this validated, granted Git probe.
+            // A missing installation is a normal discovery result, not a command failure.
+            let availability;
+            if (scope === 'git' && plan.args.length === 1 && plan.args[0] === 'version') {
+                const inspect = deps.stat || stat;
+                const [executable, folder] = await Promise.all([
+                    inspect(plan.command).then(info => info.isFile()).catch(() => false),
+                    inspect(plan.cwd).then(info => info.isDirectory()).catch(() => false),
+                ]);
+                availability = {executable, cwd: folder};
+            }
             const response = successEnvelope(correlationId, {
                 dryRun: true,
+                ...(availability ? {availability} : {}),
                 command: plan.command,
                 args: plan.args,
                 cwd: plan.cwd,
@@ -1525,7 +1547,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
 
         try {
             const processStartedAt = Date.now();
-            const result = await runProcessExecution(plan, deps);
+            const result = await runProcessExecution(plan, executionDeps);
             const durationMs = Date.now() - processStartedAt;
             if (result?.timedOut) {
                 const timedOut = errorEnvelope("TIMEOUT", `Process execution exceeded timeout of ${plan.timeoutMs}ms.`, correlationId);
@@ -1549,6 +1571,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
                 stdout: encodeProcessOutput(result?.stdout, plan.encoding),
                 stderr: encodeProcessOutput(result?.stderr, plan.encoding),
                 timedOut: false,
+                ...(result?.truncated ? {truncated: true} : {}),
                 command: plan.command,
                 args: plan.args,
                 cwd: plan.cwd,
@@ -1873,7 +1896,7 @@ export async function executeHostPrivilegedAction(requestEnvelope, context = {},
 
             const stepStartedAt = Date.now();
             try {
-                const result = await runProcessExecution(plan, deps);
+                const result = await runProcessExecution(plan, executionDeps);
                 const durationMs = Date.now() - stepStartedAt;
                 if (result?.timedOut) {
                     const stepFailure = {

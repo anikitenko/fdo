@@ -182,10 +182,6 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
             ? "network"
             : "filesystem";
 
-    const roots = Array.isArray(scopePolicy.allowedRoots) ? scopePolicy.allowedRoots : [];
-    const cwdRoots = Array.isArray(scopePolicy.allowedCwdRoots) ? scopePolicy.allowedCwdRoots : [];
-    const rootText = roots.length ? roots.join(", ") : "configured roots";
-    const cwdText = cwdRoots.length ? cwdRoots.join(", ") : "configured roots";
 
     if (kind === "process") {
         if (scopePolicy?.userDefined === true) {
@@ -350,6 +346,27 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
 
 export function getCapabilityPresentation(capabilityId, scopePolicies = []) {
     const normalizedCapabilityId = toCanonicalCapabilityId(capabilityId);
+    if (/^(secrets\.(use|set|get|delete|list|consume)|ssh\.(use|exec|profiles\.list|status\.watch|terminal\.open|x11\.forward))$/.test(normalizedCapabilityId)) {
+        const descriptions = {
+            'secrets.use': ['Secret store access', 'Base permission only. Pair with each approved secret operation.'],
+            'secrets.get': ['Read secret values', 'Allows plaintext credentials in this plugin backend. Only grant to trusted code.'],
+            'secrets.set': ['Save secrets', 'Create or replace encrypted credentials in this plugin namespace.'],
+            'secrets.list': ['List secret names', 'List names and update timestamps, without credential values.'],
+            'secrets.delete': ['Delete secrets', 'Permanently delete credentials belonging to this plugin.'],
+            'secrets.consume': ['Use credential references', 'Allow host services to consume credentials without returning plaintext.'],
+            'ssh.use': ['SSH connections', 'Base SSH permission. Profiles, targets and operations still need authorization.'],
+            'ssh.exec': ['Run remote SSH commands', 'Execute exact host-approved shell command strings on an authorized, pinned profile.'],
+            'ssh.status.watch': ['Monitor SSH connection status', 'Observe authenticated SSH reachability using a pinned command profile. Requires credential consumption; no shell health command is run.'],
+            'ssh.terminal.open': ['Interactive SSH terminals', 'Allows arbitrary interactive shell input, bypassing command allowlists. Requires separate profile consent.'],
+            'ssh.x11.forward': ['Forward X11 graphical applications', 'Allows separately approved X11 modes. Trusted forwarding can access local display data and input.'],
+            'ssh.profiles.list': ['List SSH profiles', 'List only profiles authorized for this plugin.'],
+        };
+        const [title, description] = descriptions[normalizedCapabilityId];
+        const dependsOn = ['ssh.exec','ssh.status.watch','ssh.terminal.open'].includes(normalizedCapabilityId) ? ['ssh.use', 'secrets.use', 'secrets.consume']
+            : normalizedCapabilityId === 'ssh.x11.forward' ? ['ssh.use','ssh.terminal.open','secrets.use','secrets.consume'] : normalizedCapabilityId === 'ssh.profiles.list' ? ['ssh.use']
+                : normalizedCapabilityId.startsWith('secrets.') && normalizedCapabilityId !== 'secrets.use' ? ['secrets.use'] : [];
+        return {id: normalizedCapabilityId, title, description, dependsOn, risk: CAPABILITY_RISK_LEVELS.high, category: 'credentials'};
+    }
 
     if (CAPABILITY_PRESENTATION[normalizedCapabilityId]) {
         return CAPABILITY_PRESENTATION[normalizedCapabilityId];

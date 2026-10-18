@@ -1,10 +1,23 @@
 import {createPluginEventRegistry} from './utils/plugins/runtime/pluginEventRegistry';
+import {HostServiceSettingsChannels} from './ipc/channels';
 import {contextBridge, ipcRenderer} from 'electron'
 import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels, LiveUiChannels} from "./ipc/channels";
 
 const {add: addPluginListener, remove: removePluginListener} = createPluginEventRegistry(ipcRenderer);
 
 contextBridge.exposeInMainWorld('electron', {
+    toolSettings: {inspect: () => ipcRenderer.invoke(HostServiceSettingsChannels.TOOLS_STATE, {})},
+    credentialSettings: {
+        checkX11: pluginId => ipcRenderer.invoke(HostServiceSettingsChannels.CHECK_X11, {pluginId}),
+        terminalView: (pluginId, leaseId, active) => ipcRenderer.invoke(HostServiceSettingsChannels.TERMINAL_VIEW, {pluginId, leaseId, active}),
+        fetchHostKey: (pluginId, host, port) => ipcRenderer.invoke(HostServiceSettingsChannels.FETCH_HOST_KEY, {pluginId, host, port}),
+        setGitEnabled: (pluginId, enabled) => ipcRenderer.invoke(HostServiceSettingsChannels.SET_GIT_ENABLED, {pluginId, enabled}),
+        state: pluginId => ipcRenderer.invoke(HostServiceSettingsChannels.STATE, {pluginId}),
+        saveSecret: (pluginId, key, value) => ipcRenderer.invoke(HostServiceSettingsChannels.SAVE_SECRET, {pluginId, key, value}),
+        deleteSecret: (pluginId, key) => ipcRenderer.invoke(HostServiceSettingsChannels.DELETE_SECRET, {pluginId, key}),
+        saveProfile: (pluginId, profile, trustConfirmed) => ipcRenderer.invoke(HostServiceSettingsChannels.SAVE_PROFILE, {pluginId, profile, trustConfirmed}),
+        deleteProfile: (pluginId, id) => ipcRenderer.invoke(HostServiceSettingsChannels.DELETE_PROFILE, {pluginId, id}),
+    },
     liveUi: {
         open: data => ipcRenderer.invoke(LiveUiChannels.OPEN, data),
         publish: (session, data) => ipcRenderer.invoke(LiveUiChannels.PUBLISH, session, data),
@@ -161,6 +174,7 @@ contextBridge.exposeInMainWorld('electron', {
             remove: id => ipcRenderer.invoke(SettingsChannels.gitops.REMOVE, id),
             sync: id => ipcRenderer.invoke(SettingsChannels.gitops.SYNC, id),
             syncPlugin: (id, pluginName) => ipcRenderer.invoke(SettingsChannels.gitops.SYNC_PLUGIN, {id, pluginName}),
+            reviewUpdate: (id, review) => ipcRenderer.invoke(SettingsChannels.gitops.REVIEW_UPDATE, {id,...review}),
             setInterval: (id, minutes) => ipcRenderer.invoke(SettingsChannels.gitops.SET_INTERVAL, {id, minutes}),
             setAutoSync: (id, enabled) => ipcRenderer.invoke(SettingsChannels.gitops.SET_AUTO_SYNC, {id, enabled}),
             onUpdated: callback => {
@@ -249,6 +263,9 @@ contextBridge.exposeInMainWorld('electron', {
     },
     plugin: {
         getDoctorPresentation: (diagnostics, options) => ipcRenderer.invoke(PluginChannels.GET_DOCTOR_PRESENTATION, diagnostics, options),
+        inspectFolder: (directory) => ipcRenderer.invoke(PluginChannels.INSPECT_FOLDER, directory),
+        installFolder: (data) => ipcRenderer.invoke(PluginChannels.INSTALL_FOLDER, data),
+        checkDraftRelease: (id) => ipcRenderer.invoke(PluginChannels.CHECK_DRAFT_RELEASE, id),
         getData: (filePath) => ipcRenderer.invoke(PluginChannels.GET_DATA, filePath),
         save: (content) => ipcRenderer.invoke(PluginChannels.SAVE, content),
         remove: (id) => ipcRenderer.invoke(PluginChannels.REMOVE, id),
@@ -295,6 +312,8 @@ contextBridge.exposeInMainWorld('electron', {
         getLogTail: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TAIL, id, options),
         getLogTrace: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TRACE, id, options),
         on: {
+            capabilitiesChanged: (callback) =>
+                addPluginListener("capabilitiesChanged", PluginChannels.on_off.CAPABILITIES_CHANGED, callback),
             unloaded: (callback) =>
                 addPluginListener("unloaded", PluginChannels.on_off.UNLOADED, callback),
             ready: (callback) =>
@@ -311,6 +330,8 @@ contextBridge.exposeInMainWorld('electron', {
                 addPluginListener("uiMessage", PluginChannels.on_off.UI_MESSAGE, callback),
         },
         off: {
+            capabilitiesChanged: (callback) =>
+                removePluginListener("capabilitiesChanged", PluginChannels.on_off.CAPABILITIES_CHANGED, callback),
             unloaded: (callback) =>
                 removePluginListener("unloaded", PluginChannels.on_off.UNLOADED, callback),
             ready: (callback) =>

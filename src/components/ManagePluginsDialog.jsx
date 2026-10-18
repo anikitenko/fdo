@@ -31,6 +31,7 @@ import {RootCertificateSelectionComponent, selectRootCert} from "./editor/utils/
 import {CodeEditorSelectionComponent, selectCodeEditor} from "./editor/utils/CodeEditorSelectionComponent";
 import {
     applyCapabilityToggle,
+    hasSSHOperationSelection,
     buildScopeCapabilities,
     getSelectedScopeCapabilities,
     hasCapabilitySelectionChanges
@@ -831,6 +832,8 @@ const SelectPluginPanel = ({
         requireConfirmation: true,
     };
     const BASE_PRIVILEGED_CAPABILITIES = [
+        'secrets.use',
+        'ssh.use',
         STORAGE_CAPABILITY,
         NETWORK_CAPABILITY,
         SYSTEM_AI_CAPABILITY,
@@ -857,6 +860,7 @@ const SelectPluginPanel = ({
     const [isSavingCapabilities, setIsSavingCapabilities] = useState(false);
     const [stagedCapabilityWorkflow, setStagedCapabilityWorkflow] = useState(null);
     const [capabilityFilter, setCapabilityFilter] = useState("");
+    const [missingCapabilitiesOnly, setMissingCapabilitiesOnly] = useState(false);
     const [showCapabilityIntent, setShowCapabilityIntent] = useState(false);
     const [showCapabilitiesPanel, setShowCapabilitiesPanel] = useState(false);
     const [persistedFocusRequest, setPersistedFocusRequest] = useState(null);
@@ -922,6 +926,8 @@ const SelectPluginPanel = ({
     const capabilityPanelBeforeFilterRef = useRef(false);
 
     const [exportProgress, setExportProgress] = useState(false)
+
+    useEffect(() => {setMissingCapabilitiesOnly(false);}, [plugin?.id]);
 
     useEffect(() => {
         setCapabilitiesDraft(Array.isArray(plugin?.capabilities) ? plugin.capabilities : []);
@@ -1438,6 +1444,13 @@ const SelectPluginPanel = ({
         },
         // Reserved for future storage capability children (for example: "storage.sqlite").
     ]), []);
+    const hostServiceCapabilityChildren = useMemo(() => [
+        'secrets.set', 'secrets.get', 'secrets.delete', 'secrets.list', 'secrets.consume', 'ssh.exec', 'ssh.profiles.list',
+    ].map(capability => ({id: capability, capability, kind: 'capability',
+        title: getCapabilityPresentation(capability).title, description: getCapabilityPresentation(capability).description,
+        category: capability.startsWith('secrets.') ? 'Credentials' : 'SSH', baseCapability: capability.startsWith('secrets.') ? 'secrets.use' : 'ssh.use',
+        fallback: false, userDefined: false, allowedRoots: [], allowedCwdRoots: [], allowedOperationTypes: [], allowedExecutables: [], allowedEnvKeys: [], timeoutCeilingMs: null, requireConfirmation: null,
+    })), []);
     const networkCapabilityChildren = useMemo(() => ([
         {
             id: "network-https",
@@ -1596,7 +1609,9 @@ const SelectPluginPanel = ({
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             const scopeChildren = scopeCapabilitiesByBase[baseCapability] || [];
             const extraChildren = (
-                baseCapability === HOST_WRITE_CAPABILITY
+                baseCapability === 'secrets.use' || baseCapability === 'ssh.use'
+                    ? hostServiceCapabilityChildren.filter(item => item.baseCapability === baseCapability)
+                    : baseCapability === HOST_WRITE_CAPABILITY
                     ? clipboardCapabilityChildren
                     : baseCapability === STORAGE_CAPABILITY
                         ? storageCapabilityChildren
@@ -1609,7 +1624,7 @@ const SelectPluginPanel = ({
             groups[baseCapability] = [...scopeChildren, ...extraChildren];
             return groups;
         }, {});
-    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, aiCapabilityChildren, networkCapabilityChildren]);
+    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, aiCapabilityChildren, networkCapabilityChildren, hostServiceCapabilityChildren]);
     const unresolvedGrantedScopeCapabilities = useMemo(
         () => [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
             .map((capability) => String(capability || "").trim())
@@ -1645,12 +1660,6 @@ const SelectPluginPanel = ({
                 checked,
                 baseCapability: childItem?.baseCapability || capability,
             });
-            if (checked && capability === SYSTEM_AI_CAPABILITY) {
-                const aiChildCapabilities = (capabilityChildrenByBase[SYSTEM_AI_CAPABILITY] || [])
-                    .map((item) => item.capability)
-                    .filter(Boolean);
-                next = [...new Set([...next, ...aiChildCapabilities])];
-            }
             if (!checked && BASE_PRIVILEGED_CAPABILITIES.includes(capability)) {
                 const childCapabilities = (capabilityChildrenByBase[capability] || []).map((item) => item.capability);
                 next = next.filter((item) => !childCapabilities.includes(item));
@@ -1761,14 +1770,17 @@ const SelectPluginPanel = ({
         ]);
         setStagedCapabilityWorkflow("replace-http-with-https");
     }, [applyNetworkCapabilities]);
-    const highlightedSet = useMemo(
-        () => new Set(Array.isArray(effectiveFocusRequest?.capabilityIds) ? effectiveFocusRequest.capabilityIds : (Array.isArray(highlightedCapabilityIds) ? highlightedCapabilityIds : [])),
-        [effectiveFocusRequest?.capabilityIds, highlightedCapabilityIds]
-    );
+    const highlightedSet = useMemo(() => {
+        const focused = [...(effectiveFocusRequest?.capabilityIds || []), ...(highlightedCapabilityIds || [])];
+        const intent = runtimeStatus?.capabilityIntent;
+        const declaredMissing = [...(intent?.declared || []), ...(intent?.missingDeclared || []), ...(intent?.missingDiagnostics || []).map(item => item.capability)];
+        return new Set([...focused, ...declaredMissing].filter(capability => capability && !hasGrantedCapability(capabilitiesDraft, capability)));
+    }, [effectiveFocusRequest?.capabilityIds, highlightedCapabilityIds, runtimeStatus?.capabilityIntent, capabilitiesDraft]);
     const hasUnsavedCapabilityChanges = useMemo(
         () => hasCapabilitySelectionChanges(plugin?.capabilities, capabilitiesDraft),
         [plugin?.capabilities, capabilitiesDraft]
     );
+    const sshOperationMissing = hasCapability('ssh.use') && !hasSSHOperationSelection(capabilitiesDraft);
     const shouldShowNetworkRecommendations = (
         stagedCapabilityWorkflow && hasUnsavedCapabilityChanges
     ) || selectedNetworkIncludesHttp
@@ -1836,14 +1848,20 @@ const SelectPluginPanel = ({
         () => String(capabilityFilter || "").trim().toLowerCase(),
         [capabilityFilter]
     );
+    const matchingBaseCapabilities = useMemo(() => new Set(BASE_PRIVILEGED_CAPABILITIES.filter(baseCapability => {
+        const presentation = getCapabilityPresentation(baseCapability, scopePolicies);
+        return [baseCapability, presentation.title, presentation.description].join(' ').toLowerCase().includes(normalizedCapabilityFilter);
+    })), [BASE_PRIVILEGED_CAPABILITIES, normalizedCapabilityFilter, scopePolicies]);
+    const matchingBaseFamilyNames = useMemo(() => new Set(BASE_PRIVILEGED_CAPABILITIES.filter(baseCapability => {
+        const presentation = getCapabilityPresentation(baseCapability, scopePolicies);
+        return [baseCapability, presentation.title].join(' ').toLowerCase().includes(normalizedCapabilityFilter);
+    })), [BASE_PRIVILEGED_CAPABILITIES, normalizedCapabilityFilter, scopePolicies]);
     const filteredScopeCapabilitiesByBase = useMemo(() => {
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             const scopes = capabilityChildrenByBase[baseCapability] || [];
-            if (!normalizedCapabilityFilter) {
-                groups[baseCapability] = scopes;
-                return groups;
-            }
             groups[baseCapability] = scopes.filter((scopeItem) => {
+                if (missingCapabilitiesOnly && !highlightedSet.has(scopeItem.capability)) return false;
+                if (!normalizedCapabilityFilter || matchingBaseFamilyNames.has(baseCapability)) return true;
                 const presentation = getCapabilityPresentation(scopeItem.capability, scopePolicies);
                 const haystack = [
                     scopeItem.id,
@@ -1859,10 +1877,13 @@ const SelectPluginPanel = ({
             });
             return groups;
         }, {});
-    }, [BASE_PRIVILEGED_CAPABILITIES, normalizedCapabilityFilter, capabilityChildrenByBase, scopePolicies]);
+    }, [BASE_PRIVILEGED_CAPABILITIES, normalizedCapabilityFilter, capabilityChildrenByBase, scopePolicies, matchingBaseFamilyNames, missingCapabilitiesOnly, highlightedSet]);
+    const visibleBaseCapabilities = BASE_PRIVILEGED_CAPABILITIES.filter(baseCapability =>
+        (filteredScopeCapabilitiesByBase[baseCapability] || []).length > 0
+        || matchingBaseCapabilities.has(baseCapability) && (!missingCapabilitiesOnly || highlightedSet.has(baseCapability)));
 
     useEffect(() => {
-        if (normalizedCapabilityFilter) {
+        if (normalizedCapabilityFilter || missingCapabilitiesOnly) {
             if (!capabilityFilterExpandedRef.current) {
                 capabilityPanelBeforeFilterRef.current = showCapabilitiesPanel;
                 capabilityFilterExpandedRef.current = true;
@@ -1877,7 +1898,7 @@ const SelectPluginPanel = ({
             capabilityFilterExpandedRef.current = false;
             setShowCapabilitiesPanel(capabilityPanelBeforeFilterRef.current);
         }
-    }, [normalizedCapabilityFilter, showCapabilitiesPanel]);
+    }, [normalizedCapabilityFilter, missingCapabilitiesOnly, showCapabilitiesPanel]);
 
     useEffect(() => {
         if (!effectiveFocusRequest?.requestId) return;
@@ -1997,6 +2018,7 @@ const SelectPluginPanel = ({
     }, [dialogOpen, scopeSetupSuggestion?.scopeId, showCustomScopeEditor]);
 
     const saveCapabilities = async () => {
+        if (sshOperationMissing) return;
         setIsSavingCapabilities(true);
         try {
             const nextCapabilities = [...new Set(capabilitiesDraft)];
@@ -3634,7 +3656,7 @@ const SelectPluginPanel = ({
                         intent="primary"
                         icon="floppy-disk"
                         loading={isSavingCapabilities}
-                        disabled={!hasUnsavedCapabilityChanges}
+                        disabled={!hasUnsavedCapabilityChanges || sshOperationMissing}
                         onClick={saveCapabilities}
                     >
                         {hasUnsavedCapabilityChanges ? "Save Capabilities" : "Saved"}
@@ -3650,6 +3672,8 @@ const SelectPluginPanel = ({
                         fill={true}
                         style={{flex: "1 1 420px", minWidth: "360px", maxWidth: "560px"}}
                     />
+                    <Checkbox checked={missingCapabilitiesOnly} onChange={event => setMissingCapabilitiesOnly(event.target.checked)}
+                        label="Missing only" style={{marginBottom: 0}}/>
                         <TooltipBP content={`${trustTier.title}. ${trustTier.description}`}>
                             <Tag variant="minimal" intent={trustTier.intent}>
                                 Trust tier: {getShortTrustTierLabel(trustTier)}
@@ -3715,7 +3739,11 @@ const SelectPluginPanel = ({
                         </div>
                     </Card>
                 ) : null}
-                {BASE_PRIVILEGED_CAPABILITIES.map((baseCapability) => {
+                {visibleBaseCapabilities.length === 0 && <NonIdealState icon={missingCapabilitiesOnly && !highlightedSet.size ? 'tick-circle' : 'search'}
+                    title={missingCapabilitiesOnly && !highlightedSet.size ? 'No missing capabilities' : 'No matching capabilities'}
+                    description={missingCapabilitiesOnly && !highlightedSet.size ? 'All currently known required capabilities are selected. Save any pending changes to apply them.' : 'Try another search or turn off Missing only.'}
+                    action={<Button variant="minimal" onClick={() => {setCapabilityFilter(''); setMissingCapabilitiesOnly(false);}}>Clear filters</Button>}/>}
+                {visibleBaseCapabilities.map((baseCapability) => {
                     const groupedScopes = filteredScopeCapabilitiesByBase[baseCapability] || [];
                     const baseEnabled = !!baseCapabilityEnabled[baseCapability];
                     const allScopesForBase = capabilityChildrenByBase[baseCapability] || [];
@@ -3735,9 +3763,9 @@ const SelectPluginPanel = ({
                         });
 
                     return (
-                        <Card key={baseCapability} style={{marginBottom: "8px", border: "1px solid #eef0f2"}}>
+                        <Card key={baseCapability} data-capability-id={baseCapability} data-capability-missing={highlightedSet.has(baseCapability) || undefined} style={{marginBottom: "8px", border: highlightedSet.has(baseCapability) ? "1px solid #f6d667" : "1px solid #eef0f2", background: highlightedSet.has(baseCapability) ? "#fff8db" : undefined}}>
                             {highlightedSet.has(baseCapability) ? (
-                                <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
+                                <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Missing required capability</Tag>
                             ) : null}
                             <Checkbox
                                 checked={baseEnabled}
@@ -3771,6 +3799,7 @@ const SelectPluginPanel = ({
                                                     intent="primary"
                                                     icon="floppy-disk"
                                                     loading={isSavingCapabilities}
+                                                    disabled={sshOperationMissing}
                                                     onClick={saveCapabilities}
                                                 >
                                                     Save Capabilities
@@ -3889,6 +3918,8 @@ const SelectPluginPanel = ({
                                                 return (
                                                     <Card
                                                         key={scopeItem.capability}
+                                                        data-capability-id={scopeItem.capability}
+                                                        data-capability-missing={highlightedSet.has(scopeItem.capability) || undefined}
                                                         style={{
                                                             marginTop: "8px",
                                                             marginBottom: "8px",
@@ -3897,7 +3928,7 @@ const SelectPluginPanel = ({
                                                         }}
                                                     >
                                                         {highlightedSet.has(scopeItem.capability) ? (
-                                                            <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Required to resolve last permission error</Tag>
+                                                            <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Missing required capability</Tag>
                                                         ) : null}
                                                         <Checkbox
                                                             checked={hasCapability(scopeItem.capability)}
@@ -3971,12 +4002,6 @@ const SelectPluginPanel = ({
                                         </Card>
                                     ))}
                                 </div>
-                            ) : normalizedCapabilityFilter ? (
-                                <Card style={{border: "1px solid #eef0f2", background: "#fafbfc", marginTop: "8px"}}>
-                                    <div className={classNames("bp6-text-small", "bp6-text-muted")}>
-                                        No scopes matched the current filter for this capability family.
-                                    </div>
-                                </Card>
                             ) : null}
                             {!baseEnabled && (selectedScopeCapabilitiesByBase[baseCapability] || []).length > 0 ? (
                                 <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginTop: "8px"}}>
@@ -3995,7 +4020,10 @@ const SelectPluginPanel = ({
                             {baseEnabled && allScopesForBase.length > 0 && (selectedScopeCapabilitiesByBase[baseCapability] || []).length === 0 ? (
                                 <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginTop: "8px"}}>
                                     <div className={classNames("bp6-text-small")}>
-                                        {baseCapability === "system.process.exec"
+                                        {baseCapability === 'ssh.use'
+                                            ? 'Choose at least one SSH operation: run remote SSH commands or list SSH profiles. Git over SSH requires Run remote SSH commands. SSH access alone cannot be saved.'
+                                            : baseCapability === 'secrets.use' ? 'Choose at least one secret operation, such as credential consumption for SSH or Git.'
+                                            : baseCapability === "system.process.exec"
                                             ? "Base tool execution is enabled, but no process scopes are granted yet. Both are required for process execution requests."
                                             : baseCapability === STORAGE_CAPABILITY
                                                 ? "Base storage capability is enabled, but no storage backend is selected yet."
@@ -4107,7 +4135,9 @@ const SelectPluginPanel = ({
             </Card>
             <Card style={{marginBottom: "15px", marginTop: "15px", border: "1px solid red"}}>
                 <div><Button text={"Remove plugin"} intent={"danger"} loading={isLoadingClean}
+                             disabled={!!plugin.gitops}
                              onClick={() => setIsOpenRemove(true)}/></div>
+                {plugin.gitops && <p style={{marginTop: 10, marginBottom: 0}}>This plugin is managed by GitOps. Remove it from the collection manifest to remove it on the next synchronization. To delete it locally, first remove the repository subscription in Settings → GitOps; that keeps its installed plugins and makes them locally managed.</p>}
             </Card>
             <Alert
                 cancelButtonText="Cancel"

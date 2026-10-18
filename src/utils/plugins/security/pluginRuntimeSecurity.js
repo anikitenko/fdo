@@ -1,3 +1,4 @@
+import {WORKER_LIVE_SOURCE} from '../../hostServices/workerLiveSource';
 import {app} from "electron";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import path from "node:path";
@@ -38,6 +39,7 @@ const path = require("node:path");
 const Module = require("node:module");
 const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
+const hostBackendContext = new (require("node:async_hooks").AsyncLocalStorage)();
 
 const runtimeEntry = process.env.FDO_PLUGIN_RUNTIME_ENTRY;
 if (!runtimeEntry) {
@@ -60,6 +62,10 @@ const allowNetworkUdp = runtimePolicy?.networkAccess?.udp === true;
 const allowNetworkDns = runtimePolicy?.networkAccess?.dns === true;
 const allowedNetworkScopes = Array.isArray(runtimePolicy?.networkScopes) ? runtimePolicy.networkScopes : [];
 const backendBridgePending = new Map();
+const hostServicePending = new Map();
+let hostServicesClosed = false;
+const hostServiceCodes = new Set(['ACCESS_DENIED','UNAVAILABLE','LOCKED','TIMEOUT','CANCELLED','HOST_KEY_REJECTED','CONNECTION_FAILED','INVALID_REQUEST','BACKPRESSURE','SESSION_CLOSED','IDLE_TIMEOUT','SESSION_LIMIT','X11_UNSUPPORTED','X11_UNAVAILABLE','X11_AUTH_UNAVAILABLE','X11_FORWARDING_DENIED']);
+const hostServiceError = code => Object.assign(new Error('Host service request failed.'), {code: hostServiceCodes.has(code) ? code : 'UNAVAILABLE'});
 const backendBridgeResponseType = "HOST_BACKEND_RESPONSE";
 const backendBridgeRequestType = "HOST_BACKEND_REQUEST";
 const backendPrivilegedActionHandler = "requestPrivilegedAction";
@@ -104,7 +110,46 @@ if (!process.parentPort && parentPort) {
     process.parentPort = parentPort;
 }
 
-parentPort.on("message", (message) => {
+parentPort.on('message', event => {
+    const data = event && typeof event === 'object' && 'data' in event ? event.data : event;
+    if (data?.message !== 'HOST_SERVICE_RESPONSE_V1') return;
+    const pending = hostServicePending.get(data.content?.requestId);
+    if (!pending) return;
+    hostServicePending.delete(data.content.requestId); clearTimeout(pending.timer);
+    if (data.content.error) pending.reject(hostServiceError(data.content.error));
+    else pending.resolve(data.content.result);
+});
+function closeHostServiceTransport() {
+    hostServicesClosed = true;
+    for (const pending of hostServicePending.values()) {clearTimeout(pending.timer); pending.reject(hostServiceError('UNAVAILABLE'));}
+    hostServicePending.clear();
+}
+parentPort.on('close', closeHostServiceTransport);
+process.once('exit', closeHostServiceTransport);
+// Service replies are private to the adapter, outside SDK lifecycle/UI dispatch
+// and its diagnostics logger. Never send response bodies through that path.
+const originalParentOn = parentPort.on.bind(parentPort);
+parentPort.on = function(event, listener) {
+        return originalParentOn(event, event === 'message' ? message => {
+            const data = message && typeof message === 'object' && 'data' in message ? message.data : message;
+            if (data?.message !== 'HOST_SERVICE_RESPONSE_V1' && data?.message !== backendBridgeResponseType && data?.message !== 'HOST_STORAGE_SHUTDOWN_V1') listener(message);
+        } : listener);
+};
+function requestHostService(request) {return sendHostServiceMessage({request});}
+function sendHostServiceMessage(body) {
+    if (hostServicesClosed || hostServicePending.size >= (['terminal.close','terminal.cancel','terminal.eof'].includes(body.operation)?32:24)) return Promise.reject(hostServiceError('UNAVAILABLE'));
+    return new Promise((resolve, reject) => {
+        const requestId = require('node:crypto').randomUUID();
+        const timer = setTimeout(() => {hostServicePending.delete(requestId); reject(hostServiceError('TIMEOUT'));}, body.operation==='terminal.open'?50000:body.operation==='terminal.result'?3700000:body.operation==='terminal.next'?310000:body.operation?.startsWith('terminal.')?25000:140000);
+        hostServicePending.set(requestId, {resolve, reject, timer});
+        try {parentPort.postMessage({type:'HOST_SERVICE_REQUEST_V1', requestId, ...body});}
+        catch {clearTimeout(timer); hostServicePending.delete(requestId); reject(hostServiceError('UNAVAILABLE'));}
+    });
+}
+
+${WORKER_LIVE_SOURCE}
+
+originalParentOn("message", (message) => {
     const data = message && typeof message === "object" && "data" in message
         ? message.data
         : message;
@@ -131,7 +176,10 @@ const bridgeTarget = typeof globalThis.window === "object" && globalThis.window
     ? globalThis.window
     : globalThis;
 if (!globalThis.window) {
-    globalThis.window = bridgeTarget;
+    let legacyWindow=bridgeTarget;
+    Object.defineProperty(globalThis,'window',{configurable:true,
+        get:()=>hostBackendContext.getStore() ? undefined : legacyWindow,
+        set:value=>{legacyWindow=value;}});
 }
 if (typeof bridgeTarget.createBackendReq !== "function") {
     bridgeTarget.createBackendReq = function createBackendReq(type, data) {
@@ -860,6 +908,20 @@ Module._load = function patchedLoad(request, parent, isMain) {
     if (request === "@anikitenko/fdo-sdk" && loaded?.PluginRegistry
         && !loaded.PluginRegistry.__fdoTrayPolicyConfigured) {
         const registry = loaded.PluginRegistry;
+        const stores=new Set();
+        const useStore=registry.useStore.bind(registry);
+        registry.useStore=function(...args){const store=useStore(...args);stores.add(store);return store;};
+        let storageClosing;
+        originalParentOn('message',event=>{
+            const data=event && typeof event==='object' && 'data' in event?event.data:event;
+            if(data?.message!=='HOST_STORAGE_SHUTDOWN_V1')return;
+            storageClosing ||= Promise.allSettled([...stores].map(async store=>{await store.flush?.();await store.dispose?.();}));
+            void storageClosing.then(results=>{
+                const success=results.every(result=>result.status==='fulfilled');
+                if(!success)console.error('[FDO_STORAGE_FLUSH_FAILED] Persistent plugin settings could not be saved during shutdown.');
+                try{parentPort.postMessage({type:'HOST_STORAGE_SHUTDOWN_REPLY_V1',requestId:data.content?.requestId,success});}catch{}
+            });
+        });
         const configure = registry.configureCapabilities.bind(registry);
         const trayGranted = String(process.env.FDO_PLUGIN_CAPABILITIES || "").split(",").includes("system.tray");
         registry.configureCapabilities = function(configuration) {
@@ -867,6 +929,58 @@ Module._load = function patchedLoad(request, parent, isMain) {
             return configure({...configuration, granted: trayGranted ? [...new Set([...granted, "system.tray"])] : granted});
         };
         Object.defineProperty(registry, "__fdoTrayPolicyConfigured", {value: true});
+        if (typeof registry.configureHostServices === 'function') {
+            registry.configureHostServices({request: requestHostService,watchSSHStatus:watchHostSSHStatus,startSSHExecution:startHostSSHExecution,openSSHTerminal:openHostSSHTerminal});
+            const clearPlugin = registry.clearPlugin.bind(registry);
+            registry.clearPlugin = function(...args) {
+                closeHostServiceTransport();
+                try {parentPort.postMessage({type:'HOST_SERVICE_DISCONNECT_V1'});} catch { /* Worker is disconnecting. */ }
+                return clearPlugin(...args);
+            };
+            // SDK rechecks backend identity after await and on iterator/cancel
+            // calls. Async-local scope keeps those checks in the actual worker
+            // environment without hiding the legacy bridge from concurrent calls.
+            const backendCall = invoke => typeof globalThis.document === 'undefined'
+                ? hostBackendContext.run(true,invoke) : invoke();
+            const backendSignal = signal => {
+                if(!signal)return signal;
+                const listeners=new Map();
+                return {get aborted(){return signal.aborted;}, get reason(){return signal.reason;},
+                    addEventListener(type,listener,options){const wrapped=(...args)=>backendCall(()=>listener(...args));listeners.set(listener,wrapped);signal.addEventListener(type,wrapped,options);},
+                    removeEventListener(type,listener){const wrapped=listeners.get(listener);if(wrapped){signal.removeEventListener(type,wrapped);listeners.delete(listener);}},
+                };
+            };
+            const wrapIterator = iterator => ({
+                next:(...args)=>backendCall(()=>iterator.next(...args)),
+                return:(...args)=>backendCall(()=>iterator.return(...args)),
+                [Symbol.asyncIterator]() {return this;},
+            });
+            for (const [Type,names] of [[loaded.SecretStore,['set','get','delete','list']], [loaded.SSHClient,['exec','listProfiles','start','watchStatus','openTerminal']]]) {
+                if(!Type)continue;
+                for(const name of names) {
+                    const original=Type.prototype[name];if(typeof original!=='function')continue;
+                    Type.prototype[name]=function(...args) {
+                        if(name==='openTerminal'&&args[1])args[1]=backendSignal(args[1]);
+                        const result=backendCall(()=>original.apply(this,args));
+                        if(name==='watchStatus')return wrapIterator(result);
+                        if(name==='openTerminal')return result.then(session=>({
+                            result:session.result, output:{[Symbol.asyncIterator]:()=>wrapIterator(session.output[Symbol.asyncIterator]())},
+                            write:(...args)=>backendCall(()=>session.write(...args)),
+                            resize:(...args)=>backendCall(()=>session.resize(...args)),
+                            endInput:()=>backendCall(()=>session.endInput()),
+                            close:()=>backendCall(()=>session.close()),
+                            cancel:()=>backendCall(()=>session.cancel()),
+                        }));
+                        if(name==='start')return result.then(execution=>({
+                            result:execution.result,
+                            events:{[Symbol.asyncIterator]:()=>wrapIterator(execution.events[Symbol.asyncIterator]())},
+                            cancel:()=>backendCall(()=>execution.cancel()),
+                        }));
+                        return result;
+                    };
+                }
+            }
+        }
     }
     return loaded;
 };

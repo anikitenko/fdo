@@ -1,4 +1,5 @@
 jest.mock("electron", () => ({
+    BrowserWindow: {getAllWindows: jest.fn(() => [])},
     app: {
         isPackaged: false,
         getAppPath: jest.fn(() => "/tmp/app"),
@@ -31,12 +32,13 @@ const mockGetPlugin = jest.fn((id) => ({
     capabilities: ["system.process.exec"],
 }));
 const mockAddPlugin = jest.fn();
+const mockGetAllPlugins = jest.fn(() => []);
 
 jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
         getAllPlugins() {
-            return [];
+            return mockGetAllPlugins();
         }
         getPlugin(...args) {
             return mockGetPlugin(...args);
@@ -103,6 +105,24 @@ jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({norm
 jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
 
 describe("plugin IPC deploy from editor", () => {
+    test('draft release rejects installed IDs and open or unidentified editors', () => {
+        jest.resetModules();
+        const {ipcMain, BrowserWindow} = require('electron');
+        const {registerPluginHandlers} = require('../../src/ipc/plugin');
+        const {PluginChannels} = require('../../src/ipc/channels');
+        ipcMain.handle.mockClear(); registerPluginHandlers();
+        const handler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.CHECK_DRAFT_RELEASE)[1];
+        expect(handler({}, '../bad').success).toBe(false);
+        expect(handler({}, 'draft-tools').success).toBe(true);
+        mockGetAllPlugins.mockReturnValue([{id: 'draft-tools'}]);
+        expect(handler({}, 'draft-tools').error).toContain('installed plugin');
+        mockGetAllPlugins.mockReturnValue([]);
+        BrowserWindow.getAllWindows.mockReturnValue([{isDestroyed: () => false, __fdoEditorWindow:true, __fdoPluginId:'draft-tools'}]);
+        expect(handler({}, 'draft-tools').error).toContain('Close the editor');
+        BrowserWindow.getAllWindows.mockReturnValue([{isDestroyed: () => false, __fdoEditorWindow:true}]);
+        expect(handler({}, 'draft-tools').success).toBe(false);
+        BrowserWindow.getAllWindows.mockReturnValue([]);
+    });
     test("reloads an already active plugin after deploy", async () => {
         jest.resetModules();
         const {ipcMain} = require("electron");

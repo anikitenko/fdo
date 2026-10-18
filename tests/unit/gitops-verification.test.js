@@ -120,5 +120,10 @@ test('redacts server failures and always cleans up after failed verification', a
 });
 
 test('distinguishes a missing Git executable', async () => {
-    await expect(verifyRepository(input, async () => {throw Object.assign(new Error(), {code: 'ENOENT'});})).rejects.toThrow('Git is required');
+    await expect(verifyRepository(input, async () => {throw Object.assign(new Error(), {code: 'ENOENT'});})).rejects.toThrow('bundled Git runtime could not start');
+});
+
+test.each(['EACCES','EPERM'])('reports bundled Git startup permission failure %s without blaming repository credentials', async code => {
+    await expect(verifyRepository(input, async () => {throw Object.assign(new Error('secret-value'),{code});}))
+        .rejects.toThrow('bundled Git cannot run because executable permission was denied');
 });

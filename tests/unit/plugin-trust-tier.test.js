@@ -1,4 +1,4 @@
-import {getPluginTrustTier, summarizePrivilegedRuntime} from "../../src/utils/plugins/security/pluginTrustTier";
+import {getPluginTrustTier, summarizePrivilegedRuntime, pluginFailureReviewKey, hasUnreviewedPluginFailures} from "../../src/utils/plugins/security/pluginTrustTier";
 
 describe("plugin trust tier", () => {
     test("classifies basic ui/data plugins", () => {
@@ -45,4 +45,15 @@ describe("plugin trust tier", () => {
             latestFailureCode: "CANCELLED",
         }));
     });
+});
+
+test('review acknowledgment survives identical polling and success events but detects a new failure at the history limit', () => {
+    const failure = {id: 'failed-1', success: false, timestamp: '2026-10-18T10:00:00Z', error: {code: 'CONNECTION_FAILED'}};
+    const summary = summarizePrivilegedRuntime([failure]);
+    expect(hasUnreviewedPluginFailures(summary)).toBe(true);
+    const reviewed = pluginFailureReviewKey(summary);
+    expect(hasUnreviewedPluginFailures(summarizePrivilegedRuntime([failure]), reviewed)).toBe(false);
+    expect(hasUnreviewedPluginFailures(summarizePrivilegedRuntime([failure, {success: true, timestamp: '2026-10-18T10:01:00Z'}]), reviewed)).toBe(false);
+    expect(hasUnreviewedPluginFailures(summarizePrivilegedRuntime([{...failure, id: 'failed-2'}]), reviewed)).toBe(true);
+    expect(hasUnreviewedPluginFailures(summarizePrivilegedRuntime([]), reviewed)).toBe(false);
 });

@@ -657,6 +657,8 @@ describe("host privileged actions", () => {
             argumentPath: "/etc",
             pathSource: "cwd",
         }));
+        expect(result.details.allowedCwdRoots).toContain(os.homedir());
+        expect(result.details.allowedCwdRoots).not.toContain('/etc');
     });
 
     test("invalid env key", async () => {
@@ -1149,4 +1151,67 @@ describe("host privileged actions", () => {
         expect(fallbackConfirm.detail).toContain("Broad capability: system.process.exec");
         expect(fallbackConfirm.detail).toContain("Narrow scope: system.process.scope.system-observe");
     });
+});
+
+(process.platform === 'win32' ? test.skip : test)('legacy Git always uses batch SSH with strict host-key checks', async () => {
+    const {execFileSync} = require('node:child_process');
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-git-noninteractive-'));
+    const trace = path.join(folder, 'ssh-arguments');
+    const quotedTrace = "'" + trace.replace(/'/g, "'\\''") + "'";
+    fs.writeFileSync(path.join(folder, 'ssh'), "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + quotedTrace + "\nexit 1\n", {mode: 0o700});
+    const git = execFileSync('/usr/bin/which', ['git'], {encoding: 'utf8'}).trim();
+    try {
+        const result = await executeHostPrivilegedAction(processExecRequest({scope: 'git', command: git,
+            args: ['ls-remote', 'git@fixture.invalid:repo.git'], cwd: folder, env: {}, timeoutMs: 3000}), {
+            pluginId: 'legacy-git', grantedCapabilities: ['system.process.exec', 'system.process.scope.git'],
+        }, {hostEnv: {PATH: folder + path.delimiter + process.env.PATH, HOME: folder,
+            GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=no'}});
+        expect(result.code).toBe('PROCESS_EXIT_NON_ZERO');
+        const args = fs.readFileSync(trace, 'utf8');
+        expect(args).toContain('BatchMode=yes');
+        expect(args).toContain('StrictHostKeyChecking=yes');
+        expect(args).not.toContain('StrictHostKeyChecking=no');
+    } finally {fs.rmSync(folder, {recursive: true, force: true});}
+});
+
+test('Git failures expose only allowlisted host diagnostics and never provider messages', async () => {
+    for (const reason of ['AUTHENTICATION_FAILED', 'private provider detail']) {
+        const result = await executeHostPrivilegedAction(processExecRequest({scope: 'git', command: '/usr/bin/git', args: ['ls-remote', 'git@example:team/repo.git'], cwd: os.tmpdir(), env: {}, timeoutMs: 3000}), {
+            pluginId: 'git-fixture', grantedCapabilities: ['system.process.exec', 'system.process.scope.git'],
+            runGit: async () => {throw Object.assign(new Error('SECRET provider failure'), {code: 'CONNECTION_FAILED', gitFailure: reason});},
+        });
+        expect(result.code).toBe('CONNECTION_FAILED');
+        expect(result.details.gitFailure).toBe(reason === 'AUTHENTICATION_FAILED' ? reason : 'TRANSPORT_FAILED');
+        expect(JSON.stringify(result)).not.toContain('SECRET');
+        expect(JSON.stringify(result)).not.toContain('private provider detail');
+    }
+});
+
+test('Git audit retains the classified reason and exit code without storing commands or output', async () => {
+    const onAudit = jest.fn();
+    await executeHostPrivilegedAction(processExecRequest({scope: 'git', command: '/usr/bin/git', args: ['ls-remote', 'git@example:private/repo.git'], env: {}, cwd: os.tmpdir()}), {
+        pluginId: 'git-fixture', correlationId: 'request-42', onAudit,
+        grantedCapabilities: ['system.process.exec', 'system.process.scope.git'],
+        runGit: async () => ({exitCode: 128, stdout: Buffer.from('SECRET_STDOUT'), stderr: Buffer.from('ERROR: Repository not found. SECRET_TOKEN'), timedOut: false}),
+    });
+    const event = onAudit.mock.calls.at(-1)[0];
+    expect(event.error).toMatchObject({code: 'PROCESS_EXIT_NON_ZERO', correlationId: 'request-42', diagnosticDetails: {reason: 'REPOSITORY_NOT_FOUND', exitCode: 128}});
+    expect(JSON.stringify(event)).not.toMatch(/SECRET_|private\/repo/);
+});
+
+test('Git discovery checks availability only after grants and policy validation, without spawning or warning', async () => {
+    const stat = jest.fn(async target => ({isFile: () => target !== '/opt/homebrew/bin/git', isDirectory: () => true}));
+    const runProcess = jest.fn();
+    const onAudit = jest.fn();
+    const request = processExecRequest({scope: 'git', command: '/opt/homebrew/bin/git', args: ['version'], env: {}, dryRun: true});
+    const context = {pluginId: 'git-detect', grantedCapabilities: ['system.process.exec', 'system.process.scope.git'], onAudit};
+    const result = await executeHostPrivilegedAction(request, context, {stat, runProcess});
+    expect(result).toMatchObject({ok: true, result: {availability: {executable: false, cwd: true}}});
+    expect(runProcess).not.toHaveBeenCalled();
+    expect(onAudit.mock.calls.at(-1)[0].success).toBe(true);
+    stat.mockClear();
+    expect(await executeHostPrivilegedAction(request, {...context, grantedCapabilities: []}, {stat})).toMatchObject({ok: false, code: 'CAPABILITY_DENIED'});
+    expect(stat).not.toHaveBeenCalled();
+    expect(await executeHostPrivilegedAction({...request, payload: {...request.payload, command: '/unapproved/git'}}, context, {stat})).toMatchObject({ok: false, code: 'SCOPE_VIOLATION'});
+    expect(stat).not.toHaveBeenCalled();
 });

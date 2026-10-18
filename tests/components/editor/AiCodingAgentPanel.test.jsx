@@ -1722,7 +1722,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(screen.queryByText(/Please select code to fix/i)).toBeNull();
     });
 
-    test("runs tests first, applies a fix, and reruns tests until they pass", async () => {
+    test("investigating failing tests runs them and reports evidence without changing source", async () => {
         const failingTestFile = "/tests/unit/plugin.test.ts";
         const failingTestSource = [
             'describe("plugin", () => {',
@@ -1798,6 +1798,10 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             return { success: true, requestId, content: response };
         });
 
+        window.electron.aiCodingAgent.smartMode.mockImplementation(async ({requestId}) => ({success:true,requestId,content:JSON.stringify({
+            status:'completed',summary:'The test runner reported describe is not defined.',actions:[],limitations:[],findings:[{
+                severity:'error',file:failingTestFile,issue:'Test globals are not imported.',evidence:'ReferenceError: describe is not defined',repair:'Import describe and test from node:test.'
+            }]})}));
         render(<TestHarness codeEditor={codeEditor} />);
 
         await waitFor(() => {
@@ -1811,19 +1815,11 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
 
-        await waitFor(() => {
-            expect(runPluginTests).toHaveBeenCalledTimes(2);
-        });
-
-        await waitFor(() => {
-            expect(window.electron.aiCodingAgent.fixCode).toHaveBeenCalledTimes(1);
-        });
-
-        await waitFor(() => {
-            expect(screen.getByText(/Plugin tests passed after 1 repair attempt/i)).toBeTruthy();
-        });
-
-        expect(screen.queryByText(/Please select code to fix/i)).toBeNull();
+        await screen.findAllByText(/The test runner reported describe is not defined/);
+        expect(runPluginTests).toHaveBeenCalledTimes(1);
+        expect(window.electron.aiCodingAgent.fixCode).not.toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+        expect(virtualFS.setFileContent).not.toHaveBeenCalled();
     });
 
     test("keeps iterating test repairs across multiple attempts until tests pass", async () => {
@@ -4800,4 +4796,25 @@ test('a provider result received after unmount cannot create workspace snapshots
     virtualFS.fs.create.mockClear();
     await act(async () => {finish();});
     expect(virtualFS.fs.create).not.toHaveBeenCalled();
+});
+
+test('investigation continues after an announcement, analyzes host diagnostics and keeps source unchanged',async()=>{
+    virtualFS.getLatestContent.mockReturnValue({'/index.ts':'export const broken = true;'});
+    window.electron.plugin.typecheck=jest.fn().mockResolvedValue({success:false,diagnostics:[{message:'Missing render registration'}]});
+    let calls=0;
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async({requestId,context,investigation})=>{
+        expect(investigation).toBe(true);calls++;
+        const content=calls===1?'I will investigate.':calls===2?JSON.stringify({status:'continue',summary:'Read source; verify the failure.',actions:[{tool:'typecheck'}],findings:[],limitations:[]})
+            :JSON.stringify({status:'partial',summary:'Confirmed missing render registration.',actions:[],findings:[{severity:'error',file:'/index.ts',issue:'Render is not registered.',evidence:'Host typecheck: Missing render registration',repair:'Register the render handler.'}],limitations:['Live UI was not inspected.']});
+        if(calls===3)expect(context).toContain('Missing render registration');
+        return {success:true,requestId,content};
+    });
+    render(<TestHarness/>);
+    const input=await screen.findByLabelText(/Describe what you want to do/i);
+    fireEvent.change(input,{target:{value:'Investigate why my plugin UI is not starting'}});
+    fireEvent.click(screen.getByRole('button',{name:/^Submit$/}));
+    await screen.findAllByText(/Confirmed missing render registration/);
+    expect(calls).toBe(3);expect(window.electron.plugin.typecheck).toHaveBeenCalledTimes(1);
+    expect(virtualFS.setFileContent).not.toHaveBeenCalled();expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    expect(screen.getByText(/Investigation actions:/)).toHaveTextContent('typecheck');
 });

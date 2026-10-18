@@ -234,10 +234,7 @@ function isAllowedLeadingOptionValueCandidate(token = "", {
     if (normalized.startsWith("-")) {
         return false;
     }
-    if (allowed.has(normalized) || denied.has(normalized)) {
-        return false;
-    }
-    return true;
+    return !allowed.has(normalized) && !denied.has(normalized);
 }
 
 function isPathUnderRoot(targetPath = "", rootPath = "") {
@@ -1020,7 +1017,7 @@ export const HOST_PROCESS_SCOPE_REGISTRY = Object.freeze({
         description: "Scoped source control execution across Git and common forge CLIs for repository and change workflows.",
         validateArgs: createExecutableSubcommandValidator("source-control", {
             git: {
-                allowedFirstArgs: ["status", "diff", "log", "show", "branch", "checkout", "switch", "pull", "fetch", "clone", "add", "commit", "restore", "reset", "merge", "rebase", "push", "tag"],
+                allowedFirstArgs: ["status", "diff", "log", "show", "branch", "checkout", "switch", "ls-remote", "pull", "fetch", "clone", "add", "commit", "restore", "reset", "merge", "rebase", "push", "tag"],
                 deniedFirstArgs: ["credential", "daemon", "upload-pack", "receive-pack"],
                 pathRestrictedLeadingOptions: ["-C"],
             },
@@ -1608,11 +1605,11 @@ export const HOST_PROCESS_SCOPE_REGISTRY = Object.freeze({
         scope: "git",
         kind: "process",
         category: "Source Control",
-        allowedExecutables: Object.freeze([
+        allowedExecutables: buildExecutableCandidates({unixPaths: [
             "/usr/bin/git",
             "/usr/local/bin/git",
             "/opt/homebrew/bin/git",
-        ]),
+        ], windowsProgramExecutables: ["Git\\cmd\\git.exe", "Git\\bin\\git.exe"], windowsUserExecutables: ["Git\\cmd\\git.exe", "Git\\bin\\git.exe"]}),
         allowedCwdRoots: defaultCwdRoots(),
         allowedEnvKeys: Object.freeze([
             "GIT_ASKPASS",
@@ -1634,7 +1631,7 @@ export const HOST_PROCESS_SCOPE_REGISTRY = Object.freeze({
         requireConfirmation: true,
         description: "Scoped Git execution for repository inspection and controlled source management workflows.",
         validateArgs: createSubcommandValidator("git", {
-            allowedFirstArgs: ["status", "diff", "log", "show", "branch", "checkout", "switch", "pull", "fetch", "clone", "add", "commit", "restore", "reset", "merge", "rebase", "push", "tag"],
+            allowedFirstArgs: ["version", "status", "diff", "log", "show", "branch", "checkout", "switch", "ls-remote", "pull", "fetch", "clone", "add", "commit", "restore", "reset", "merge", "rebase", "push", "tag", "submodule", "lfs"],
             deniedFirstArgs: ["credential", "daemon", "upload-pack", "receive-pack"],
             pathRestrictedLeadingOptions: ["-C"],
         }),

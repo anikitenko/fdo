@@ -101,4 +101,6 @@ test-results/
 test-results-full/
 playwright-report/
 playwright-report-full/
+test-results-packaged-services/
+playwright-report-packaged-services/
 artifacts/jest-results.json

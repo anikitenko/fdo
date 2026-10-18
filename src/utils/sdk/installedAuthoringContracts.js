@@ -57,7 +57,9 @@ export function readInstalledAuthoringContracts(packagePath) {
 }
 
 export function installedSdkKnowledgeIdentity(packagePath, distPath) {
-    return [packagePath, distPath, ...['package.json', 'dist/fdo-sdk.bundle.js',
+    return [packagePath, distPath, ...['package.json', 'dist/fdo-sdk.bundle.js', 'dist/@types/types.d.ts',
+        'docs/SECRETS_AND_SSH.md', 'docs/FDO_HOST_SECRETS_SSH_HANDOFF.md',
+        'docs/FDO_HOST_REMOTE_COMMANDS_HANDOFF.md', 'docs/SSH_TERMINALS.md', 'docs/FDO_HOST_TERMINAL_X11_HANDOFF.md',
         ...Object.values(artifacts).flatMap(name => [`dist/${name}.json`, `dist/${name}.schema.json`])].map(file => {
         try {const stat = fs.statSync(path.join(packagePath, file)); return `${file}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;}
         catch {return file + ':absent';}

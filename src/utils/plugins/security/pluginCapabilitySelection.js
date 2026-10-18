@@ -1,6 +1,10 @@
 import {HOST_WRITE_CAPABILITY, HOST_WRITE_CAPABILITY_LEGACY, toCanonicalCapabilityId} from "./pluginCapabilities";
 
+export const hasSSHOperationSelection = capabilities => capabilities.includes('ssh.exec') || capabilities.includes('ssh.profiles.list') || capabilities.includes('ssh.status.watch') || capabilities.includes('ssh.terminal.open') || capabilities.includes('ssh.x11.forward');
+
 const SCOPE_PREFIX_BY_BASE = Object.freeze({
+    'secrets.use': 'secrets.',
+    'ssh.use': 'ssh.',
     [HOST_WRITE_CAPABILITY]: "system.fs.scope.",
     [HOST_WRITE_CAPABILITY_LEGACY]: "system.fs.scope.",
     "system.network": "system.network.scope.",

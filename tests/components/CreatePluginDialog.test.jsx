@@ -75,3 +75,43 @@ test('a late check cannot open an editor after the dialog closes', async () => {
     await act(async () => finish({success: true, plugins: []}));
     expect(window.electron.system.openEditorWindow).not.toHaveBeenCalled();
 });
+
+test('safely releases an undeployed draft with a recoverable archive and blocks release while an editor is open', async () => {
+    localStorage.setItem('sandbox_saved-tools', 'original-work');
+    window.electron.plugin.checkDraftRelease = jest.fn().mockResolvedValueOnce({success: false, error: 'Close the editor first.'}).mockResolvedValue({success: true});
+    render(<CreatePluginDialog show close={() => {}}/>);
+    fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Saved Tools'}});
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Safe release ID'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', {name: 'Safe release ID'}));
+    expect(await screen.findByText('Close the editor first.')).toBeVisible();
+    expect(localStorage.getItem('sandbox_saved-tools')).toBe('original-work');
+    fireEvent.click(screen.getByRole('button', {name: 'Safe release ID'}));
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Open editor · Blank'})).toBeEnabled());
+    expect(localStorage.getItem('sandbox_saved-tools')).toBeNull();
+    fireEvent.click(screen.getByText('Archived drafts (1)'));
+    fireEvent.click(screen.getByRole('button', {name: /Restore draft/}));
+    await waitFor(() => expect(localStorage.getItem('sandbox_saved-tools')).toBe('original-work'));
+});
+
+test('inspects a source folder and awaits successful build/import instead of submitting source as a runtime', async () => {
+    window.electron.system.openFileDialog = jest.fn(async () => {
+        // Returning from the native picker focuses the parent window; that must
+        // not invalidate the inspection request that opened it.
+        window.dispatchEvent(new Event('focus'));
+        return '/fixture';
+    });
+    window.electron.plugin.inspectFolder = jest.fn().mockResolvedValue({success: true, token: 'preview', proposedId: 'source-tools', metadata: {name: 'Source Tools'}, hasSource: true, hasCompiled: false, fileCount: 3, sourceEntry: 'index.ts'});
+    let finish;
+    window.electron.plugin.installFolder = jest.fn(() => new Promise(resolve => {finish = resolve;}));
+    const close = jest.fn(); render(<CreatePluginDialog show close={close}/>);
+    expect(screen.queryByLabelText(/download from URL/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Select folder'}));
+    const install = await screen.findByRole('button', {name: 'Build and install plugin'});
+    await waitFor(() => expect(install).toBeEnabled());
+    fireEvent.click(install);
+    await waitFor(() => expect(window.electron.plugin.installFolder).toHaveBeenCalledWith({token: 'preview', id: 'source-tools', mode: 'build'}));
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => finish({success: false, error: 'Build dependency missing'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Build dependency missing');
+    expect(close).not.toHaveBeenCalled();
+});

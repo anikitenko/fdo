@@ -337,7 +337,7 @@ jest.mock("../../src/components/SideBar.jsx", () => ({
     SideBar: ({ position, menuItems = [], click }) => (
         <div data-testid={`sidebar-${position}`}>
             {menuItems.map((item) => (
-                <button key={item.id} onClick={() => click(item.id)}>
+                <button key={item.id} data-intent={item.intent} onClick={() => click(item.id)}>
                     {item.name || item.id}
                 </button>
             ))}
@@ -1048,8 +1048,27 @@ describe("Home capability denied flow", () => {
             expect(screen.getByText("Process execution failure")).toBeInTheDocument();
             expect(screen.getByText(/not automatically capability-denial issues/i)).toBeInTheDocument();
             expect(screen.getByText("Error codes:")).toBeInTheDocument();
-            expect(screen.getByText("PROCESS_EXIT_NON_ZERO")).toBeInTheDocument();
+            expect(screen.getAllByText("PROCESS_EXIT_NON_ZERO").length).toBeGreaterThan(0);
         });
+    });
+
+    test('opening Doctor acknowledges the viewed failure and only a new failure restores the warning', async () => {
+        const first = {id: 'failure-1', timestamp: '2026-10-18T10:00:00Z', correlationId: 'request-1', success: false, action: 'system.process.exec', error: {code: 'CONNECTION_FAILED', message: 'SSH authentication failed.'}};
+        const status = {id: 'plugin-1', loaded: true, ready: true, inited: true, diagnosticsSummary: {failureCount: 1, latestFailureId: first.id}};
+        window.electron.plugin.getRuntimeStatus.mockResolvedValue({success: true, statuses: [status]});
+        window.electron.plugin.getPrivilegedAudit.mockResolvedValue({success: true, events: [first]});
+        renderHome();
+        const button = await screen.findByRole('button', {name: 'Plugin One'});
+        await waitFor(() => expect(button).toHaveAttribute('data-intent', 'warning'));
+        fireEvent.click(button);
+        fireEvent.click(await screen.findByRole('button', {name: 'trigger-missing-cli'}));
+        fireEvent.click(await screen.findByRole('button', {name: 'More Actions'}));
+        fireEvent.click(screen.getByText('Open Plugin Doctor'));
+        await screen.findByText('SSH authentication failed.');
+        await waitFor(() => expect(button).toHaveAttribute('data-intent', 'none'));
+        // The count stays at one: a ring buffer can replace the previously reviewed failure.
+        window.electron.plugin.getRuntimeStatus.mockResolvedValue({success: true, statuses: [{...status, diagnosticsSummary: {failureCount: 1, latestFailureId: 'failure-2'}}]});
+        await waitFor(() => expect(button).toHaveAttribute('data-intent', 'warning'), {timeout: 5000});
     });
 
 });

@@ -130,7 +130,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@anikitenko/fdo-sdk": "^1.7.1",
+    "@anikitenko/fdo-sdk": "^1.8.3",
     "@anthropic-ai/sdk": "0.134.0",
     "@babel/generator": "^8.0.6",
     "@babel/parser": "^8.0.7",
@@ -151,11 +151,14 @@
     "@peculiar/x509": "^2.2.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "archiver": "^8.0.0",
     "classnames": "^2.5.1",
     "cloudflare": "7.3.0",
     "commander": "^15.0.0",
     "date-fns": "^4.4.0",
+    "dugite": "3.2.3",
     "electron-localshortcut": "^3.2.1",
     "electron-log": "^5.4.4",
     "electron-store": "^12.0.0",
@@ -193,6 +196,7 @@
     "recharts": "^3.10.1",
     "reflect-metadata": "^0.2.2",
     "split-grid": "^1.0.11",
+    "ssh2": "^1.17.0",
     "stylis": "^4.4.0",
     "typescript": "7.0.2",
     "unique-names-generator": "^4.7.1",
@@ -230,6 +234,13 @@
       "smartUnpack": false
     },
     "asarUnpack": [
+      "dist/main/node_modules/typescript/**/*",
+      "dist/main/node_modules/@types/node/**/*",
+      "dist/main/node_modules/undici-types/**/*",
+      "dist/main/gitSshHelper.cjs",
+      "dist/main/node_modules/@anikitenko/fdo-sdk/**/*",
+      "dist/main/node_modules/esbuild/**/*",
+      "dist/main/node_modules/@esbuild/**/*",
       "dist/main/node_modules/@cursor/**/*",
       "dist/main/node_modules/@bufbuild/**/*",
       "dist/main/node_modules/@connectrpc/**/*",
@@ -248,8 +259,8 @@
       "dist/**/*",
       "package.json",
       "!node_modules/**/*",
-      "!dist/main/node_modules/@esbuild/**/*",
-      "!dist/main/node_modules/esbuild/**/*",
+      "!dist/main/git/**/*",
+      "!dist/main/git-*/**/*",
       "!dist/**/test/**/*",
       "!dist/**/*.test.*",
       "!dist/**/*.spec.*",
@@ -259,6 +270,26 @@
       "!dist/main/node_modules/@google/gemini-cli-core/**/*"
     ],
     "extraResources": [
+      {
+        "from": "dist/main/git-${arch}",
+        "to": "git"
+      },
+      {
+        "from": "dist/main/node_modules/typescript",
+        "to": "app.asar.unpacked/dist/main/node_modules/typescript"
+      },
+      {
+        "from": "dist/main/node_modules/@typescript",
+        "to": "app.asar.unpacked/dist/main/node_modules/@typescript"
+      },
+      {
+        "from": "dist/main/node_modules/@types/node",
+        "to": "app.asar.unpacked/dist/main/node_modules/@types/node"
+      },
+      {
+        "from": "dist/main/node_modules/undici-types",
+        "to": "app.asar.unpacked/dist/main/node_modules/undici-types"
+      },
       {
         "from": "dist/main/node_modules/esbuild",
         "to": "app.asar.unpacked/dist/main/node_modules/esbuild"
@@ -376,12 +407,15 @@
       "category": "Utility"
     },
     "afterPack": "./scripts/fix-bundled-binary-permissions.js",
-    "beforePack": "./scripts/check-bundled-codex-runtime.cjs"
+    "beforePack": "./scripts/check-bundled-host-runtime.cjs"
   },
   "engines": {
     "node": ">=24.11.0"
   },
   "allowScripts": {
+    "dugite@3.2.3": true,
+    "ssh2@1.17.0": false,
+    "cpu-features@0.0.10": false,
     "@google/genai@2.30.0": true,
     "@parcel/watcher@2.6.0": true,
     "electron-winstaller@5.4.0": true,

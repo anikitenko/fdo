@@ -1,4 +1,9 @@
+import {randomUUID} from 'node:crypto';
+import {auditFailureDetails} from '../security/privilegedAuditDiagnostics';
+import {runGitWithProfiles, invalidateHostServices} from '../../hostServices/runtime';
 import {failureNotification, pluginDisplayName} from '../../desktop/notificationContent';
+import {createHostServiceEndpoint} from '../../hostServices/runtime';
+import {attachHostServiceBridge, drainWorkerStorage} from '../../hostServices/workerBridge.cjs';
 import {enqueuePluginUiBridge} from './pluginUiMessageQueue';
 import UserORM from "../../persistence/UserORM";
 import {pluginTray, PLUGIN_TRAY_HANDLER} from './pluginTray';
@@ -59,6 +64,7 @@ const PluginManager = {
     userConfigFile: "",
     pluginConfigFile: "",
     loadedPlugins: {},
+    drainingPlugins: {},
     loadingPlugins: {},
     loadingPluginsStartedAt: {},
     pluginProcessEpoch: {},
@@ -118,6 +124,7 @@ const PluginManager = {
         const error = event?.error && typeof event.error === "object" ? event.error : null;
         const result = event?.result && typeof event.result === "object" ? event.result : null;
         return {
+            id: typeof event?.id === 'string' ? event.id : '',
             pluginId: String(pluginId || "").trim(),
             timestamp: typeof event?.timestamp === "string" ? event.timestamp : new Date().toISOString(),
             correlationId: typeof event?.correlationId === "string" ? event.correlationId : "",
@@ -135,14 +142,15 @@ const PluginManager = {
             stepTitle: typeof event?.stepTitle === "string" ? event.stepTitle : "",
             stepStatus: typeof event?.stepStatus === "string" ? event.stepStatus : "",
             stepCorrelationId: typeof event?.stepCorrelationId === "string" ? event.stepCorrelationId : "",
-            command: typeof event?.command === "string" ? event.command : "",
-            args: Array.isArray(event?.args) ? event.args.filter((value) => typeof value === "string") : [],
-            cwd: typeof event?.cwd === "string" ? event.cwd : "",
+            command: event?.scope === 'git' ? '' : typeof event?.command === "string" ? event.command : "",
+            args: event?.scope === 'git' ? [] : Array.isArray(event?.args) ? event.args.filter((value) => typeof value === "string") : [],
+            cwd: event?.scope === 'git' ? '' : typeof event?.cwd === "string" ? event.cwd : "",
             durationMs: Number.isFinite(event?.durationMs) ? Number(event.durationMs) : null,
             timedOut: event?.timedOut === true,
             error: error ? {
                 code: typeof error?.code === "string" ? error.code : "",
-                message: typeof error?.error === "string" ? error.error : (typeof error?.message === "string" ? error.message : ""),
+                message: event?.scope === 'git' ? `Git operation failed (${error?.code || 'UNKNOWN_ERROR'}).` : typeof error?.error === "string" ? error.error : (typeof error?.message === "string" ? error.message : ""),
+                diagnosticDetails: auditFailureDetails(error?.diagnosticDetails ? {code: error.code, details: {gitFailure: error.diagnosticDetails.reason}, result: error.diagnosticDetails} : error),
                 correlationId: typeof error?.correlationId === "string" ? error.correlationId : "",
             } : null,
             result: result ? {
@@ -156,7 +164,7 @@ const PluginManager = {
     recordPrivilegedAudit(pluginId, event = {}) {
         const id = String(pluginId || "").trim();
         if (!id) return;
-        const normalized = this.sanitizePrivilegedAuditEvent(id, event);
+        const normalized = {...this.sanitizePrivilegedAuditEvent(id, event), id: randomUUID()};
         const existing = Array.isArray(this.privilegedAuditByPlugin?.[id]) ? this.privilegedAuditByPlugin[id] : [];
         const next = [...existing, normalized].slice(-200);
         this.privilegedAuditByPlugin = {
@@ -396,6 +404,7 @@ const PluginManager = {
                 pluginId,
                 correlationId,
                 grantedCapabilities,
+                runGit: plan => runGitWithProfiles(pluginId, plan, correlationId),
                 onAudit: (event) => {
                     this.recordPrivilegedAudit(pluginId, event);
                     console.info("[PLUGIN_PRIVILEGED_AUDIT]", JSON.stringify(event));
@@ -570,6 +579,7 @@ const PluginManager = {
     },
 
     async loadPlugin(id) {
+        if(this.drainingPlugins[id])await this.drainingPlugins[id];
         this.tracePluginEvent(id, "load.requested");
         if (this.pendingUnloadTimers[id]) {
             clearTimeout(this.pendingUnloadTimers[id]);
@@ -677,6 +687,9 @@ const PluginManager = {
                     NODE_PATH: hostNodeModulesPath,
                 },
             });
+            child.__drainStorage = () => drainWorkerStorage(child);
+            const closeHostBridge = attachHostServiceBridge(child, createHostServiceEndpoint(id));
+            child.__closeHostServices = () => {invalidateHostServices(id); closeHostBridge();};
 
             const appendRuntimeOutput = (kind, chunk) => {
                 const text = String(chunk || "").trim();
@@ -706,6 +719,7 @@ const PluginManager = {
             attachOutputStream(child.stderr, "stderr");
 
             const cleanup = (payload = {}) => {
+                closeHostBridge();
                 if (this.pluginProcessEpoch[id] !== epoch) {
                     return;
                 }
@@ -1038,6 +1052,9 @@ const PluginManager = {
     },
     unLoadPlugin(id, options = {}) {
         const { force = false, reason = "manual_unload" } = options || {};
+        // Revoke immediately even when normal UI unloading is deferred.
+        invalidateHostServices(id);
+        this.loadedPlugins[id]?.instance.__closeHostServices?.();
         if (!this.loadedPlugins[id]) {
             this.setPluginLoading(id, false);
         }
@@ -1066,7 +1083,18 @@ const PluginManager = {
             const removedHandlers = Array.isArray(this.pluginDiagnosticsByPlugin?.[id]?.capabilities?.registeredHandlers)
                 ? [...this.pluginDiagnosticsByPlugin[id].capabilities.registeredHandlers]
                 : [];
-            this.loadedPlugins[id]?.instance.kill();
+            const child = this.loadedPlugins[id]?.instance;
+            if(child?.__drainStorage) {
+                const draining=child.__drainStorage().then(result=>{
+                    if(!result.success) {
+                        this.tracePluginEvent(id,'storage.flush_failed',{code:'STORAGE_FLUSH_FAILED'});
+                        console.error('[FDO_STORAGE_FLUSH_FAILED]',id,'Plugin storage shutdown was not acknowledged. Check plugin diagnostics.');
+                    }
+                }).catch(()=>{console.error('[FDO_STORAGE_FLUSH_FAILED]',id);}).finally(()=>{
+                    child.kill();if(this.drainingPlugins[id]===draining)delete this.drainingPlugins[id];
+                });
+                this.drainingPlugins[id]=draining;
+            } else child?.kill();
             this.setPluginLoading(id, false);
             pluginTray.remove(id);
             delete this.loadedPlugins[id];
@@ -1102,6 +1130,11 @@ const PluginManager = {
                 this.maybeWarnPluginCodeMutation(id, pluginHome);
             }, 220);
         }
+        return this.drainingPlugins[id];
+    },
+    async drainPluginWorkers() {
+        for(const id of Object.keys(this.loadedPlugins))this.unLoadPlugin(id,{force:true,reason:'host_shutdown'});
+        await Promise.allSettled(Object.values(this.drainingPlugins));
     },
     tracePluginEvent(id, event, details = {}) {
         const pluginId = String(id || "").trim();

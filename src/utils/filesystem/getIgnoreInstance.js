@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs/promises";
 import ignore from "ignore";
 
-export async function getIgnoreInstance(pluginDir, dataContent) {
+export async function getIgnoreInstance(pluginDir, dataContent, {includeDist = false} = {}) {
     const ignoreFileFromData = dataContent.find(file => file.path === "/.fdoignore");
 
     let lines = [];
@@ -23,7 +23,7 @@ export async function getIgnoreInstance(pluginDir, dataContent) {
     ig.add(lines);
 
     const distIncluded = dataContent.some(file => file.path === "dist" || file.path.startsWith("/dist/"));
-    if (!distIncluded) {
+    if (!distIncluded && !includeDist) {
         ig.add("dist/");
     }
 

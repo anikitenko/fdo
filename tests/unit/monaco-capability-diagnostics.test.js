@@ -198,6 +198,12 @@ describe("monaco capability diagnostics", () => {
         expect(markers.some((marker) => String(marker.code).startsWith("FDO_MISSING_"))).toBe(false);
     });
 
+    test('grant refresh drops stale FDO markers echoed by Monaco while keeping TypeScript diagnostics', () => {
+        const stale = [{code:'FDO_MISSING_SYSTEM_HOSTS_WRITE',message:'Missing system.host.write'},
+            {source:'fdo-capability',code:'FDO_MISSING_SYSTEM_CLIPBOARD_WRITE',message:'Missing system.clipboard.write'},
+            {code:{value:'FDO_MISSING_SYSTEM_CLIPBOARD_WRITE'}}, {code:'TS1005',message:'Syntax error'}];
+        expect(mergeMonacoValidationMarkers(stale,[])).toEqual([{code:'TS1005',message:'Syntax error'}]);
+    });
     test("mergeMonacoValidationMarkers keeps Monaco diagnostics and appends capability diagnostics", () => {
         const base = [{ message: "TS error", code: "TS1005" }];
         const capability = [{ message: "Missing capability", code: "FDO_MISSING_SYSTEM_HOSTS_WRITE" }];

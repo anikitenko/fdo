@@ -13,6 +13,7 @@ import virtualFS from "./utils/VirtualFS";
 import {packageDefaultContent} from "./utils/packageDefaultContent";
 import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
+import MarkdownEditorSurface from './MarkdownEditorSurface';
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
 import SnapshotToolbarMount from "./snapshots/SnapshotMount.jsx";
@@ -240,7 +241,10 @@ export const EditorPage = () => {
     // Extract data from the query parameter
     const searchParams = new URLSearchParams(location.search);
     const pluginData = JSON.parse(decodeURIComponent(searchParams.get("data") || "{}"));
-    const pluginName = generatePluginName(pluginData.name)
+    // Existing installation IDs are opaque (GitOps aliases contain underscores).
+    // Normalize only new draft names; changing an installed ID loses its grants
+    // and can make editor deployment target a different plugin.
+    const pluginName = pluginData.dir && pluginData.dir !== 'sandbox' ? pluginData.name : generatePluginName(pluginData.name)
     const pluginTemplate = pluginData.template
     const pluginDirectory = pluginData.dir
     const [editorModelPath, setEditorModelPath] = useState(virtualFS.getTreeObjectItemSelected()?.id)
@@ -254,6 +258,7 @@ export const EditorPage = () => {
     const [restorePhase, setRestorePhase] = useState("idle")
     const [debugRenderStats, setDebugRenderStats] = useState({ shell: 0, tabs: 0, tree: 0, lastComponent: "", lastTs: 0 })
     const [grantedCapabilities, setGrantedCapabilities] = useState([]);
+    const [markdownToolbarTarget, setMarkdownToolbarTarget] = useState(null);
     const [pluginPersisted, setPluginPersisted] = useState(false);
     const [renderOnLoadTemplates, setRenderOnLoadTemplates] = useState([]);
     const [renderOnLoadTemplateId, setRenderOnLoadTemplateId] = useState("");
@@ -560,7 +565,8 @@ export const EditorPage = () => {
             Array.isArray(baseMarkers) ? baseMarkers : getBaseMonacoMarkersForModel(model),
             capabilityMarkers
         );
-
+        const tab = virtualFS.tabs.get().find(item => item.id === modelPath);
+        if (!tab || JSON.stringify(tab.markers || []) === JSON.stringify(mergedMarkers)) return;
         if (mergedMarkers.length > 0) {
             virtualFS.tabs.addMarkers(modelPath, mergedMarkers);
         } else {
@@ -570,7 +576,8 @@ export const EditorPage = () => {
 
     useEffect(() => {
         let cancelled = false;
-        const pluginId = pluginData?.name?.trim?.();
+        let requestVersion = 0;
+        const pluginId = pluginName;
         if (!pluginId || !window?.electron?.plugin?.get) {
             setGrantedCapabilities([]);
             setPluginPersisted(false);
@@ -579,24 +586,36 @@ export const EditorPage = () => {
             };
         }
 
-        window.electron.plugin.get(pluginId).then((result) => {
-            if (cancelled) {
-                return;
+        const refresh = async () => {
+            const version = ++requestVersion;
+            try {
+                const result = await window.electron.plugin.get(pluginId);
+                if (cancelled || version !== requestVersion) return;
+                setPluginPersisted(!!result?.plugin?.id);
+                setGrantedCapabilities(Array.isArray(result?.plugin?.capabilities) ? result.plugin.capabilities : []);
+            } catch {
+                if (!cancelled && version === requestVersion) {
+                    setGrantedCapabilities([]);
+                    setPluginPersisted(false);
+                }
             }
-            setPluginPersisted(!!result?.plugin?.id);
-            const caps = Array.isArray(result?.plugin?.capabilities) ? result.plugin.capabilities : [];
-            setGrantedCapabilities(caps);
-        }).catch(() => {
-            if (!cancelled) {
-                setGrantedCapabilities([]);
-                setPluginPersisted(false);
-            }
-        });
+        };
+        const onChanged = payload => {if (payload?.pluginId === pluginId) void refresh();};
+        const onDeployed = id => {if (id === pluginId) void refresh();};
+        const unsubscribe = window.electron.plugin.on?.capabilitiesChanged?.(onChanged);
+        const unsubscribeDeploy = window.electron.plugin.on?.deployFromEditor?.(onDeployed);
+        window.addEventListener('focus', refresh);
+        void refresh();
 
         return () => {
             cancelled = true;
+            window.removeEventListener('focus', refresh);
+            if (typeof unsubscribe === 'function') unsubscribe();
+            else window.electron.plugin.off?.capabilitiesChanged?.(onChanged);
+            if (typeof unsubscribeDeploy === 'function') unsubscribeDeploy();
+            else window.electron.plugin.off?.deployFromEditor?.(onDeployed);
         };
-    }, [pluginData?.name]);
+    }, [pluginName]);
 
     useEffect(() => {
         if (typeof window === "undefined" || !window.__E2E__) {
@@ -724,6 +743,11 @@ export const EditorPage = () => {
             focusEditor() {
                 activeCodeEditor?.focus?.();
                 return !!activeCodeEditor;
+            },
+            getEditorScroll() {
+                if (!activeCodeEditor) return null;
+                return {top: activeCodeEditor.getScrollTop(),
+                    range: Math.max(0, activeCodeEditor.getScrollHeight() - activeCodeEditor.getLayoutInfo().height)};
             },
             setEditorPosition(lineNumber = 1, column = 1) {
                 if (!activeCodeEditor?.setPosition) {
@@ -897,11 +921,18 @@ export const EditorPage = () => {
     }, [workspaceReady, workspaceError]);
 
     useEffect(() => {
-        if (!editorModelPath) {
-            return;
-        }
-        applyFdoCapabilityDiagnostics(editorModelPath);
+        if (editorModelPath) applyFdoCapabilityDiagnostics(editorModelPath);
     }, [editorModelPath, grantedCapabilities, pluginPersisted]);
+
+    useEffect(() => {
+        // Refresh background tabs too: their badges and Problems entries must
+        // not retain grants from when the editor first opened.
+        for (const modelPath of Object.keys(virtualFS.files || {})) {
+            if (!modelPath.startsWith('/node_modules/') && /\.[cm]?[jt]sx?$/i.test(modelPath)) {
+                applyFdoCapabilityDiagnostics(modelPath);
+            }
+        }
+    }, [grantedCapabilities, pluginPersisted, workspaceReady]);
 
     useEffect(() => {
         if (!codeEditor || !editorModelPath) {
@@ -1189,6 +1220,7 @@ export const EditorPage = () => {
                         round={true} fill={true} size={"small"} className={styles["editor-header-search-wrapper"]}
                         inputClassName={styles["editor-header-search"]} onClick={() => openCodePaletteShow()}
                     />
+                    <div ref={setMarkdownToolbarTarget} className={styles.markdownHeaderControls}/>
                 </div>
                 <div className={styles["editor-header-right"]}>
                     {/* Snapshot Toolbar (always on) */}
@@ -1280,12 +1312,13 @@ export const EditorPage = () => {
                                      }) => (
                                 <div {...getInnerCodeGridProps()} id={"code-editor"}
                                      className={styles["inner-editor-terminal-grid"]}>
-                                    <div style={{minWidth: "0", overflow: "hidden", width: "100%"}}>
+                                    <div style={{minWidth: "0", minHeight: "0", overflow: "hidden", width: "100%", display: 'flex', flexDirection: 'column'}}>
                                             <FileTabs closeTab={closeTab}/>
                                         {hasOpenTabs && editorModelPath ? (
+                                            <MarkdownEditorSurface filePath={editorModelPath} model={virtualFS.getModel(editorModelPath)} editor={codeEditor} toolbarTarget={markdownToolbarTarget}>
                                             <Editor defaultLanguage="plaintext"
                                                     theme="editor-dark"
-                                                    height={"calc(100% - 69px)"}
+                                                    height="100%"
                                                     onValidate={(e) => {
                                                         if (!editorModelPath) return;
                                                         applyFdoCapabilityDiagnostics(editorModelPath, e);
@@ -1302,7 +1335,7 @@ export const EditorPage = () => {
                                                     options={{
                                                         minimap: {
                                                             enabled: true,
-                                                            autohide: true,
+                                                            autohide: 'mouseover',
                                                             size: "fill",
                                                             scale: 1.5
                                                         },
@@ -1324,6 +1357,7 @@ export const EditorPage = () => {
                                                         scrollBeyondLastLine: false,
                                                     }}
                                             />
+                                            </MarkdownEditorSurface>
                                         ) : (
                                             <div className={styles["editorEmptyState"]} role="status" aria-live="polite">
                                                 <div className={styles["editorEmptyCard"]}>

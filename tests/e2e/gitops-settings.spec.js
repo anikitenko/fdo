@@ -10,6 +10,18 @@ test('GitOps Settings exposes the repository form and validates input through na
     let app;
     try {
         app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {FDO_E2E_LIVE_AI: '0'}});
+        const location = await app.evaluate(({app}) => ({root:app.getAppPath(), packaged:app.isPackaged}));
+        const root = location.packaged ? path.join(path.dirname(location.root),'git') : path.join(location.root,'dist/main/git');
+        const {layout,environment} = require('../../src/utils/git/bundledGit.cjs');
+        const git = layout(root), env = environment(process.env,git);
+        expect(execFileSync(git.command,['--version'],{env,encoding:'utf8',timeout:5000})).toMatch(/^git version /);
+        const helper = path.join(git.execPath,process.platform==='win32'?'git-remote-https.exe':'git-remote-https');
+        // No arguments invokes helper usage, without making a network request.
+        // EACCES/ENOENT and Windows loader failures must not pass as usage exits.
+        let httpsHelperStarted;
+        try {execFileSync(helper,[],{env,stdio:'ignore',timeout:5000});httpsHelperStarted=true;}
+        catch(error){httpsHelperStarted=[1,128,129].includes(error.status);}
+        expect(httpsHelperStarted).toBe(true);
         const page = await app.firstWindow();
         await page.waitForFunction(() => typeof window.electron?.settings?.gitops?.list === 'function');
         await page.getByLabel('Open command search').click();
@@ -48,7 +60,7 @@ test(`syncs real Git revisions for ${pluginFormat} plugins, signs with the defau
     const collectionDir = path.join(directory, 'collection');
     const pluginDir = path.join(directory, 'plugin');
     const bin = path.join(directory, 'bin');
-    const realGit = execFileSync('/usr/bin/which', ['git'], {encoding: 'utf8'}).trim();
+    const realGit = require('../../src/utils/git/bundledGit.cjs').bundledGit().command;
     const commit = (cwd, message) => {
         execFileSync(realGit, ['add', '.'], {cwd});
         execFileSync(realGit, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgSign=false', 'commit', '-m', message], {cwd});
@@ -66,8 +78,8 @@ test(`syncs real Git revisions for ${pluginFormat} plugins, signs with the defau
     const pluginFile = path.join(pluginDir, sourcePlugin ? 'index.ts' : 'index.cjs');
     const actualSource = actualFixture ? fs.readFileSync(pluginFile, 'utf8') : null;
     const pluginCode = value => actualSource ? `${actualSource}\nexport const gitopsFixtureRevision = ${value};\n` : sourcePlugin
-        ? `export default class NativePlugin { _metadata = {name: 'Native Plugin', version: '1.0.0', author: 'Fixture', description: 'Source fixture', icon: 'application'}; get metadata(): typeof this._metadata {return this._metadata;} } export const value: number = ${value};`
-        : `module.exports = {value: ${value}};`;
+        ? `import {FDO_SDK,PluginRegistry} from '@anikitenko/fdo-sdk'; export default class NativePlugin extends FDO_SDK { _metadata = {name: 'Native Plugin', version: '1.0.0', author: 'Fixture', description: 'Source fixture', icon: 'application'}; get metadata(): typeof this._metadata {return this._metadata;} init():void {} render():string {return '<main><h1>Native GitOps plugin ready</h1></main>';} } PluginRegistry.registerPlugin(new NativePlugin()); export const value: number = ${value};`
+        : `const {FDO_SDK,PluginRegistry}=require('@anikitenko/fdo-sdk'); class NativePlugin extends FDO_SDK {get metadata(){return {name:'Native Plugin',version:'1.0.0',author:'Fixture',description:'Native GitOps fixture',icon:'application'};} init(){} render(){return '<main><h1>Native GitOps plugin ready</h1></main>';}} PluginRegistry.registerPlugin(new NativePlugin()); module.exports.value = ${value};`;
     fs.writeFileSync(pluginFile, pluginCode(1));
     commit(pluginDir, 'initial plugin');
     fs.writeFileSync(path.join(collectionDir, 'fdo-plugins.yaml'), `apiVersion: fdo.dev/v1alpha1
@@ -98,7 +110,7 @@ process.exit(result.status ?? 1);
     let app;
     try {
         app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
-            FDO_E2E_MULTI_INSTANCE: '0', FDO_E2E_LIVE_AI: '0', PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+            FDO_E2E_BUNDLED_GIT_COMMAND:path.join(bin,'git'), FDO_E2E_MULTI_INSTANCE: '0', FDO_E2E_LIVE_AI: '0', PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         }});
         const page = await app.firstWindow();
         await page.getByLabel('Open command search').click();
@@ -114,6 +126,13 @@ process.exit(result.status ?? 1);
         let installed = await page.evaluate(() => window.electron.plugin.getAll());
         expect(installed.plugins).toHaveLength(1);
         const first = installed.plugins[0];
+        await expect.poll(async () => (await page.evaluate(() => window.electron.notifications.get())).filter(item => item.source === 'gitops' && item.title.endsWith(' imported via GitOps')).length).toBe(1);
+        const importNotice = (await page.evaluate(() => window.electron.notifications.get())).find(item => item.source === 'gitops' && item.title.endsWith(' imported via GitOps'));
+        expect(importNotice.title).toBe(`${first.metadata.name} imported via GitOps`);
+        expect(importNotice.message).toContain('installed inactive with no granted capabilities');
+        expect(importNotice.actions).toContainEqual({kind:'manage-plugin',pluginId:first.id});
+        expect(importNotice.details).toContain(first.gitops.commit);
+        expect((await page.evaluate(id => window.electron.plugin.remove(id), first.id))).toMatchObject({success:false});
         expect(first.entry).toBe(sourceMain ? 'dist/index.cjs' : 'index.cjs');
         expect(first.metadata.author).toBeTruthy();
         if (sourcePlugin) {
@@ -124,11 +143,29 @@ process.exit(result.status ?? 1);
         expect(first.gitops.declaredId).toBe('native-plugin');
         expect(await page.evaluate(id => window.electron.plugin.verifySignature(id), first.id)).toMatchObject({success: true, signer: {label: 'root'}});
         expect(await page.evaluate(() => window.electron.plugin.getActivated())).toMatchObject({plugins: []});
+        // Installation alone cannot prove the iframe boots. Enable through the
+        // actual Manage Plugins switch, with the shipped opaque sandbox.
+        await page.getByRole('dialog', {name:'Settings',exact:true}).getByRole('button', {name:'Close',exact:true}).click();
+        await page.getByRole('button', {name:/Plugins Activated:/i}).click();
+        await page.getByRole('button', {name:'Manage plugins',exact:true}).click();
+        const activationManager = page.getByRole('dialog', {name:/Manage Plugins/i});
+        await page.evaluate(() => {window.__E2E__ = false;});
+        await activationManager.getByText('Enabled',{exact:true}).click();
+        await activationManager.getByRole('button', {name:'Close',exact:true}).click();
+        const activatedFrame = page.frameLocator(`iframe[data-plugin-id="${first.id}"]`);
+        await expect(activatedFrame.locator(actualFixture ? process.env.FDO_GITOPS_EXPECT_UI_SELECTOR || 'main' : 'h1')).toBeVisible({timeout:20000});
+        await expect(page.locator(`iframe[data-plugin-id="${first.id}"]`)).toHaveAttribute('sandbox','allow-scripts');
+        if(pluginFormat!=='source')expect(await page.evaluate(id => window.electron.plugin.deactivate(id),first.id)).toMatchObject({success:true});
+        await page.evaluate(() => {window.__E2E__ = true;});
+        await page.getByLabel('Open command search').click();
+        await page.getByRole('menuitem').filter({hasText:'Configure FDO'}).click();
+        await page.getByRole('tab', {name:'GitOps',exact:true}).click();
         if (!sourcePlugin) {
             await page.getByRole('dialog', {name: 'Settings', exact: true}).getByRole('button', {name: 'Close', exact: true}).click();
             await page.getByRole('button', {name: /Plugins Activated:/i}).click();
             await page.getByRole('button', {name: 'Manage plugins', exact: true}).click();
             const manager = page.getByRole('dialog', {name: /Manage Plugins/i});
+            await expect(manager.getByRole('button', {name:'Remove plugin',exact:true})).toBeDisabled();
             const badge = manager.getByRole('button', {name: /View GitOps details for/});
             await expect(badge).toHaveText('GitOps');
             await expect(manager.locator('..')).toHaveClass(/bp6-overlay-enter-done/);
@@ -153,7 +190,7 @@ process.exit(result.status ?? 1);
         await expect(page.getByText('Plugin checks completed. See each plugin for its result.')).toBeVisible();
         installed = await page.evaluate(() => window.electron.plugin.getAll());
         expect(installed.plugins[0].id).toBe(first.id);
-        expect(installed.plugins[0].gitops.commit).not.toBe(first.gitops.commit);
+        expect(installed.plugins[0].gitops.commit,JSON.stringify(await page.evaluate(()=>window.electron.settings.gitops.list()))).not.toBe(first.gitops.commit);
         await expect(page.getByText(/updated via GitOps/)).toBeVisible();
         await expect.poll(async () => (await page.evaluate(() => window.electron.notifications.get()))
             .filter(notice => notice.title.endsWith('updated via GitOps')).length).toBe(1);
@@ -163,6 +200,44 @@ process.exit(result.status ?? 1);
         expect(updateNotice.details).toContain(installed.plugins[0].gitops.commit);
         expect(updateNotice.details).toContain('https://fixture.example/plugin');
         expect(fs.existsSync(first.home)).toBe(false);
+        if(pluginFormat==='source') {
+            const approved=installed.plugins[0];
+            const beforeTrace=await page.evaluate(id=>window.electron.plugin.getLogTrace(id),first.id);
+            const starts=beforeTrace.lifecycleEvents.filter(event=>event.event==='process.spawned').length;
+            fs.writeFileSync(pluginFile,pluginCode(3).replace('init():void {}',"declareCapabilities(){return ['ssh.use','ssh.status.watch','secrets.use','secrets.consume'];} init():void {}"));
+            commit(pluginDir,'request SSH monitoring permissions');
+            await page.getByRole('button',{name:'Sync now',exact:true}).click();
+            const reviewButton=page.getByRole('button',{name:'Review permissions',exact:true});
+            await expect(reviewButton).toBeVisible();
+            const staged=(await page.evaluate(()=>window.electron.plugin.getAll())).plugins[0];
+            expect(staged.home).toBe(approved.home);expect(staged.capabilities).toEqual([]);
+            expect(staged.gitops.pendingUpdate.addedCapabilities).toHaveLength(4);
+            const afterTrace=await page.evaluate(id=>window.electron.plugin.getLogTrace(id),first.id);
+            expect(afterTrace.lifecycleEvents.filter(event=>event.event==='process.spawned')).toHaveLength(starts);
+            await expect(activatedFrame.getByRole('heading',{name:'Native GitOps plugin ready'})).toBeVisible();
+            const notices=(await page.evaluate(()=>window.electron.notifications.get())).filter(notice=>notice.title.includes('update needs permission approval'));
+            expect(notices).toHaveLength(1);expect(notices[0].details).toContain('ssh.status.watch');
+            await reviewButton.click();
+            let reviewDialog=page.getByRole('dialog',{name:'Review update for native-plugin',exact:true});
+            await expect(reviewDialog.getByRole('button',{name:'Grant listed permissions and update'})).toBeDisabled();
+            await reviewDialog.getByRole('button',{name:'Decline this version'}).click();
+            await expect(reviewDialog).toHaveCount(0);
+            expect((await page.evaluate(()=>window.electron.plugin.getAll())).plugins[0].home).toBe(approved.home);
+            await page.getByRole('button',{name:'Review again',exact:true}).click();await reviewButton.click();
+            reviewDialog=page.getByRole('dialog',{name:'Review update for native-plugin',exact:true});
+            const checkboxes=reviewDialog.getByRole('checkbox');await expect(checkboxes).toHaveCount(4);
+            for(let index=0;index<4;index++)await checkboxes.nth(index).locator('..').click();
+            await page.screenshot({path:testInfo.outputPath('gitops-permission-review.png')});
+            await reviewDialog.getByRole('button',{name:'Grant listed permissions and update'}).click();
+            await expect(reviewDialog).toHaveCount(0);
+            const applied=(await page.evaluate(()=>window.electron.plugin.getAll())).plugins[0];
+            expect(applied.gitops.commit).toBe(staged.gitops.pendingUpdate.candidate.gitops.commit);
+            expect(applied.capabilities.sort()).toEqual(['secrets.consume','secrets.use','ssh.status.watch','ssh.use']);
+            expect(applied.gitops.pendingUpdate).toBeUndefined();
+            expect((await page.evaluate(()=>window.electron.plugin.getActivated())).plugins).toContain(first.id);
+            await expect(activatedFrame.getByRole('heading',{name:'Native GitOps plugin ready'})).toBeVisible();
+            await page.evaluate(id=>window.electron.plugin.deactivate(id),first.id);
+        }
         const intervalGroup = page.getByRole('group', {name: 'Check interval for Native Tools'});
         await intervalGroup.getByRole('spinbutton', {name: 'minutes', exact: true}).fill('7');
         await intervalGroup.getByRole('button', {name: 'Save interval'}).click();

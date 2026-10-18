@@ -34,7 +34,7 @@ export const NotificationChannels = withPrefix('notifications', {
 
 export const SettingsChannels = withPrefix('settings', {
     observability: {GET: 'get', SAVE: 'save', TEST: 'test', RETRY: 'retry', TRACE: 'trace'},
-    gitops: {LIST: 'list', SAVE: 'save', VERIFY: 'verify', REMOVE: 'remove', SYNC: 'sync', SYNC_PLUGIN: 'sync-plugin', SET_INTERVAL: 'set-interval', SET_AUTO_SYNC: 'set-auto-sync', UPDATED: 'updated'},
+    gitops: {LIST: 'list', SAVE: 'save', VERIFY: 'verify', REMOVE: 'remove', SYNC: 'sync', SYNC_PLUGIN: 'sync-plugin', REVIEW_UPDATE: 'review-update', SET_INTERVAL: 'set-interval', SET_AUTO_SYNC: 'set-auto-sync', UPDATED: 'updated'},
     certificates: {
         GET_ROOT: 'get-root',
         CREATE: 'create',
@@ -161,6 +161,9 @@ export const SystemChannels = withPrefix('system', {
 
 export const PluginChannels = withPrefix('plugin', {
     GET_DATA: 'get-data',
+    INSPECT_FOLDER: 'inspect-folder',
+    INSTALL_FOLDER: 'install-folder',
+    CHECK_DRAFT_RELEASE: 'check-draft-release',
     SAVE: 'save',
     REMOVE: 'remove',
     GET_ALL: 'get-all',
@@ -207,6 +210,7 @@ export const PluginChannels = withPrefix('plugin', {
     GET_LOG_TAIL: 'get-log-tail',
     GET_LOG_TRACE: 'get-log-trace',
     on_off: {
+        CAPABILITIES_CHANGED: 'capabilities-changed',
         UNLOADED: 'unloaded',
         READY: 'ready',
         DEPLOY_FROM_EDITOR: 'deploy-from-editor',
@@ -222,3 +226,7 @@ export const StartupChannels = withPrefix('startup', {
 })
 
 export const AiUsageChannels = withPrefix("ai-usage", {GET: "get", UPDATED: "updated", RATES: "rates", SAVE_RATE: "save-rate"});
+export const HostServiceSettingsChannels = withPrefix('host-service-settings', {
+    TOOLS_STATE: 'tools-state', TERMINAL_VIEW: 'terminal-view', CHECK_X11: 'check-x11',
+    STATE: 'state', FETCH_HOST_KEY: 'fetch-host-key', SET_GIT_ENABLED: 'set-git-enabled', SAVE_SECRET: 'save-secret', DELETE_SECRET: 'delete-secret', SAVE_PROFILE: 'save-profile', DELETE_PROFILE: 'delete-profile',
+});

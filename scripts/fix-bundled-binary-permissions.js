@@ -31,6 +31,14 @@ function getResourcesDir(appOutDir) {
         return macResources;
     }
 
+    if (fs.existsSync(appOutDir)) {
+        const apps=fs.readdirSync(appOutDir).filter(name=>name.endsWith('.app'));
+        if(apps.length===1) {
+            const bundled=path.join(appOutDir,apps[0],'Contents','Resources');
+            if(fs.existsSync(bundled))return bundled;
+        }
+    }
+
     return directResources;
 }
 
@@ -109,12 +117,26 @@ function fixTypeScriptPermissions(resourcesDir) {
     return updated;
 }
 
+function fixGitPermissions(resourcesDir) {
+    const root=path.join(resourcesDir,'git'), updated=[];
+    for(const directory of ['bin','libexec/git-core']) {
+        const folder=path.join(root,directory);
+        if(!fs.existsSync(folder))continue;
+        for(const name of fs.readdirSync(folder)) {
+            const file=path.join(folder,name);
+            if(chmodIfPresent(file))updated.push(file);
+        }
+    }
+    return updated;
+}
+
 module.exports = async function afterPack(context) {
     const resourcesDir = getResourcesDir(context.appOutDir);
     const updated = [
         ...fixCodexPermissions(resourcesDir),
         ...fixEsbuildPermissions(resourcesDir),
         ...fixTypeScriptPermissions(resourcesDir),
+        ...fixGitPermissions(resourcesDir),
     ];
 
     if (updated.length > 0) {
@@ -124,3 +146,5 @@ module.exports = async function afterPack(context) {
         }
     }
 };
+
+module.exports.fixGitPermissions = fixGitPermissions;
