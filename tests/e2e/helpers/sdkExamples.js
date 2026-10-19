@@ -1,3 +1,4 @@
+const {waitForAsyncCondition} = require('./waitForAsyncCondition');
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -230,6 +231,7 @@ async function compileSdkExample(entry) {
     compiled = instrumenter.instrumentSync(compiled, entry.absPath);
     const { isOperationalExample, operationalCoverageSupport } = require("./sdkOperationalCoverage");
     if (isOperationalExample(entry)) compiled += operationalCoverageSupport(compiled, entry.relativePath.startsWith("12-"));
+    if (entry.relativePath === '18-interactive-ssh-plugin.ts') compiled += require('./sdkTerminalCoverage').terminalCoverageSupport();
     compiled += `
 ;(() => {
   try {
@@ -321,7 +323,7 @@ async function deploySdkExample(window, entry, options = {}) {
 }
 
 async function waitForPluginRegistered(window, pluginName) {
-  await window.waitForFunction(async (id) => {
+  await waitForAsyncCondition(window, async (id) => {
     const all = await window.electron.plugin.getAll();
     return (all?.plugins || []).some((plugin) => plugin?.id === id);
   }, pluginName, { timeout: 15000 });
@@ -334,7 +336,7 @@ async function activatePlugin(window, pluginName) {
 }
 
 async function waitForPluginReady(window, pluginName) {
-  await window.waitForFunction(async (id) => {
+  await waitForAsyncCondition(window, async (id) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
     return !!(status?.loaded && status?.ready && status?.inited);
@@ -342,7 +344,7 @@ async function waitForPluginReady(window, pluginName) {
 }
 
 async function waitForPluginSettled(window, pluginName) {
-  await window.waitForFunction(async (id) => {
+  await waitForAsyncCondition(window, async (id) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
     return !!(status?.loaded && status?.ready && status?.inited && !status?.loading);
@@ -362,7 +364,7 @@ async function selectPluginOpen(window, pluginName) {
 }
 
 async function expectPluginUiVisible(window, pluginName) {
-  await window.waitForFunction(async (id) => {
+  await waitForAsyncCondition(window, async (id) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
     const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
@@ -383,7 +385,7 @@ async function expectPluginUiVisible(window, pluginName) {
 }
 
 async function waitForPluginUiRendered(window, pluginName, timeout = 15000) {
-  await window.waitForFunction(async ({ pluginName }) => {
+  await waitForAsyncCondition(window, async ({ pluginName }) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
     if (!status?.loaded || !status?.ready || !status?.inited || status?.loading) {

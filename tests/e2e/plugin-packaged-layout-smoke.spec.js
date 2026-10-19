@@ -1,3 +1,4 @@
+const {waitForAsyncCondition} = require('./helpers/waitForAsyncCondition');
 const { test, expect, _electron: electron } = require("@playwright/test");
 const {
   launchElectronApp,
@@ -85,7 +86,7 @@ async function deployPlugin(window) {
 }
 
 async function waitForPluginRegistered(window) {
-  await window.waitForFunction(async ({ pluginId }) => {
+  await waitForAsyncCondition(window, async ({ pluginId }) => {
     const all = await window.electron.plugin.getAll();
     return (all?.plugins || []).some((plugin) => plugin?.id === pluginId);
   }, { pluginId: PLUGIN_ID }, { timeout: 20000 });

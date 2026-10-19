@@ -32,6 +32,8 @@ test('two plugin frames retain their own render subscriptions through refreshes 
         }
         const first = home.frameLocator(`iframe[data-plugin-id="${names[0]}"]`).locator('output');
         const second = home.frameLocator(`iframe[data-plugin-id="${names[1]}"]`).locator('output');
+        const hostFetches = await home.evaluate(() => window.__pluginHostFetches);
+        expect(hostFetches).toBe(names.length);
         const before = [Number(await first.textContent()), Number(await second.textContent())];
         // Unknown callbacks can have a different contextBridge proxy identity;
         // removing one must never clear all consumers of a shared IPC channel.
@@ -45,7 +47,7 @@ test('two plugin frames retain their own render subscriptions through refreshes 
         await removePlugin(home, names[1]);
         await home.evaluate(id => window.electron.plugin.render(id), names[0]);
         await expect.poll(async () => Number(await first.textContent())).toBeGreaterThan(previous);
-        expect(await home.evaluate(() => window.__pluginHostFetches)).toBe(1);
+        expect(await home.evaluate(() => window.__pluginHostFetches)).toBe(hostFetches);
         await expect(home.getByText('Plugin UI failed to load', {exact: true})).toHaveCount(0);
     } finally {
         if (home && !home.isClosed()) for (const name of names) await removePlugin(home, name).catch(() => {});

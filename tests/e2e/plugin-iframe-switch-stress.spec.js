@@ -1,3 +1,4 @@
+const {waitForAsyncCondition} = require('./helpers/waitForAsyncCondition');
 const { test, expect, _electron: electron } = require("@playwright/test");
 const {
   launchElectronApp,
@@ -93,7 +94,7 @@ async function removePlugins(window) {
 }
 
 async function waitForPluginRegistered(window, pluginId) {
-  await window.waitForFunction(async (id) => {
+  await waitForAsyncCondition(window, async (id) => {
     const all = await window.electron.plugin.getAll();
     return (all?.plugins || []).some((plugin) => plugin?.id === id);
   }, pluginId, { timeout: 20000 });
@@ -113,7 +114,7 @@ async function selectPlugin(window, pluginId) {
 }
 
 async function waitForSelectedPluginVisibleWithNonZeroLayout(window, pluginId) {
-  await window.waitForFunction(async ({ pluginId }) => {
+  await waitForAsyncCondition(window, async ({ pluginId }) => {
     const selected = window.__homeTestApi?.getSelectedPlugin?.() || "";
     if (selected !== pluginId) return false;
 

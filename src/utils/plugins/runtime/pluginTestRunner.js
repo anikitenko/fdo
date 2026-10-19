@@ -2,6 +2,7 @@ import {app} from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import {pathToFileURL} from "node:url";
 import {spawn} from "node:child_process";
 import {ensureExecutableEsbuildBinary, getHostPluginNodeModulesPath, loadHostEsbuild} from "./pluginRuntimeBundle";
 import {compileCssStyleModule} from '../../esbuild/plugins/cssStyleModule';
@@ -146,7 +147,7 @@ async function executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesP
     return await new Promise((resolve) => {
         const child = spawn(
             process.execPath,
-            ["--enable-source-maps", "--test", "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, `--test-reporter-destination=${resultsPath}`, ...compiledTestFiles],
+            ["--enable-source-maps", "--test", "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${pathToFileURL(reporter).href}`, `--test-reporter-destination=${resultsPath}`, ...compiledTestFiles],
             {
                 cwd: compiledDir,
                 env: {

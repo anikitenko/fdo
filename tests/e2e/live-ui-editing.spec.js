@@ -2342,6 +2342,7 @@ test('Live UI creates a local text handler and binding in one reversible draft w
             await visual.getByRole('button',{name:'main',exact:true}).click();
             await visual.getByLabel('Add component',{exact:true}).selectOption(component);
             await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+            await expect(visual.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
         }
         await visual.getByRole('button',{name:'button · New button',exact:true}).click();
         await expect(visual.getByText('Create local action',{exact:true})).toBeVisible();
@@ -2440,6 +2441,7 @@ for (const requestSource of ['fixed','input']) test(`Live UI creates a typed bac
             await visual.getByRole('button',{name:'main',exact:true}).click();
             await visual.getByLabel('Add component',{exact:true}).selectOption(component);
             await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+            await expect(visual.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
         }
         await visual.getByRole('button',{name:'button · New button',exact:true}).click();
         await visual.getByText('Create backend action',{exact:true}).click();
@@ -2482,6 +2484,7 @@ for (const requestSource of ['fixed','input']) test(`Live UI creates a typed bac
             await visual.getByRole('button',{name:'main',exact:true}).click();
             await visual.getByLabel('Add component',{exact:true}).selectOption('result');
             await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+            await expect(visual.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
             await visual.getByRole('button',{name:'button · New button',exact:true}).click();
             const select=visual.getByLabel('Mapped result element',{exact:true});
             await select.selectOption(await select.locator('option').last().getAttribute('value'));
@@ -2546,6 +2549,7 @@ test('Live UI assigns framework classes, adds single-line inputs and switches em
             await visual.getByRole('button',{name:'main',exact:true}).click();
             await visual.getByLabel('Add component',{exact:true}).selectOption(component);
             await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+            await expect(visual.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
         }
         await visual.getByRole('button',{name:'button · New button',exact:true}).click();
         await visual.locator('summary').filter({hasText:'Class names'}).click();
@@ -2594,6 +2598,7 @@ test('Live UI authors and deploys an input-bound JSON inspector with typed key m
             await visual.getByRole('button',{name:'main',exact:true}).click();
             await visual.getByLabel('Add component',{exact:true}).selectOption(component);
             await visual.getByRole('button',{name:'Preview addition',exact:true}).click();
+            await expect(visual.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
             // Wait for this draft to reach the iframe before choosing the next
             // parent; the response can otherwise replace that selection.
             await expect(controls).toHaveCount(count + 1);

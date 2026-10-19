@@ -52,7 +52,11 @@ async function authorizationFixture(){
  const record=authorityRecord();fs.writeFileSync(authority,record);
  const env={DISPLAY:':0',XAUTHORITY:authority};
  const connect=()=>{const socket=new EventEmitter();socket.destroy=jest.fn();socket.write=(_packet,done)=>{done();queueMicrotask(()=>socket.emit('data',Buffer.from([1])));};queueMicrotask(()=>socket.emit('connect'));return socket;};
- const local=await createLocalDisplays({platform:'darwin',env,execute:(_file,_args,_opts,callback)=>callback(null,record.toString('hex')),connect}).prepare('trusted');
+ const existsSync=fs.existsSync;
+ const exists=jest.spyOn(fs,'existsSync').mockImplementation(file=>file==='/opt/X11/bin/xauth'||existsSync(file));
+ let local;
+ try{local=await createLocalDisplays({platform:'darwin',env,execute:(_file,_args,_opts,callback)=>callback(null,record.toString('hex')),connect}).prepare('trusted');}
+ finally{exists.mockRestore();}
  return {local,env,record};
 }
 test('touching, adding unrelated sshd entries, and atomic database replacement preserve selected authorization',async()=>{

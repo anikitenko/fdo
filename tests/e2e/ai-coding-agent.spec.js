@@ -272,23 +272,11 @@ test.describe('AI Coding Agent Tab', () => {
   });
 
   test('should switch between tabs (Problems, Output, AI Coding Agent)', async () => {
-    // Click on Problems tab
-    await editorWindow.click('text=Problems');
-    await editorWindow.waitForTimeout(300);
-    let activeTab = await editorWindow.locator('[role="tab"][aria-selected="true"]').textContent();
-    expect(activeTab).toContain('Problems');
-    
-    // Click on Build tab (previously named Output)
-    await editorWindow.getByRole('tab', { name: 'Build' }).click();
-    await editorWindow.waitForTimeout(300);
-    activeTab = await editorWindow.locator('[role="tab"][aria-selected="true"]').textContent();
-    expect(activeTab).toContain('Build');
-    
-    // Click on AI Coding Agent tab
-    await aiAgentTab().click();
-    await editorWindow.waitForTimeout(300);
-    activeTab = await editorWindow.locator('[role="tab"][aria-selected="true"]').textContent();
-    expect(activeTab).toContain('AI Coding Agent');
+    for (const name of ['Problems', 'Build', 'AI Coding Agent']) {
+      const tab = editorWindow.getByRole('tab', {name: new RegExp(`^${name}(?:\\s|$)`)});
+      await tab.click();
+      await expect(tab).toHaveAttribute('aria-selected', 'true');
+    }
   });
 
   test('should execute plugin runtime probe utilities before log-verification answer', async () => {

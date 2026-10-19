@@ -215,6 +215,8 @@ test.describe("SDK fixture operator-custom-tool-plugin: live E2E line proof", ()
       await window.evaluate(async ({ pluginName, declaredCaps }) => {
         await window.electron.plugin.setCapabilities(pluginName, declaredCaps);
       }, { pluginName, declaredCaps });
+      await waitForPluginReady(window, pluginName);
+      await waitForPluginSettled(window, pluginName);
 
       const readySnapshot = await waitForFixtureUiReady(window, 30000);
       for (const marker of EXPECTED.uiMarkers) {
@@ -291,6 +293,8 @@ test.describe("SDK fixture operator-custom-tool-plugin: live E2E line proof", ()
       await window.evaluate(async ({ pluginName, declaredCaps }) => {
         await window.electron.plugin.setCapabilities(pluginName, declaredCaps);
       }, { pluginName, declaredCaps });
+      await waitForPluginReady(window, pluginName);
+      await waitForPluginSettled(window, pluginName);
 
       const customScopes = await window.evaluate(async ({ pluginName }) => {
         return await window.electron.plugin.getPluginCustomProcessScopes(pluginName);

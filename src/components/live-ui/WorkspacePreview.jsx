@@ -63,6 +63,7 @@ export function WorkspacePreview({sessionId}) {
     const [dialogId, setDialogId] = useState('');
     const [simulation,setSimulation] = useState(null);
     const [readyToken, setReadyToken] = useState('');
+    const [framePreviewCommand, setFramePreviewCommand] = useState(null);
     const [customWidth, setCustomWidth] = useState('600'), [customUpperWidth, setCustomUpperWidth] = useState('900');
     const [customRuleType, setCustomRuleType] = useState('max'), [breakpointTouched, setBreakpointTouched] = useState(false);
     const customWidthError = breakpointFormError(customRuleType, customWidth, customUpperWidth);
@@ -174,6 +175,12 @@ export function WorkspacePreview({sessionId}) {
         iframe.current?.contentWindow?.postMessage({type: 'fdo-ui-highlight', token: surface?.token, id: selectedId, state: mode === 'css' ? cssState : 'base'}, '*');
     };
     useEffect(highlight, [surface, selectedId, cssState, mode, activeDialogId, readyToken]);
+    useEffect(() => {
+        // A draft can replace srcDoc before the new frame installs its bridge.
+        // Deliver explicit previews only to their authenticated document.
+        if (!framePreviewCommand || framePreviewCommand.token !== surface?.token || readyToken !== surface.token) return;
+        iframe.current?.contentWindow?.postMessage(framePreviewCommand, '*');
+    }, [framePreviewCommand, surface?.token, readyToken]);
     useEffect(() => {
         const retainCss = inspectedId.current === selectedId && (mode === 'css' || cssEditIntent.current) && editableStyle(selected?.styles?.[styleIndex]);
         if (inspectedId.current !== selectedId) {
@@ -416,7 +423,7 @@ export function WorkspacePreview({sessionId}) {
                     {selected.htmlLiteral && <HtmlInlineStyleEditor key={"inline-" + selectedId} element={selected} properties={cssProperties} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>}
                     {containingComponent && <Button fill icon="layout-hierarchy" onClick={() => {if(containingItem) rememberItem(containingComponent,containingItem.key);focusComponentContent.current = true; chooseElement(containingComponent.id);}}>Edit {containingComponent.sdkComponent.name} content</Button>}
                     {containingItem && <small className="bp6-text-muted">Return to {containingItem.label} in {containingComponent.sdkComponent.name}.</small>}
-                    {selected.sdkComponent && <SdkComponentEditor rememberedItemKey={collectionContext.get(sdkComponentContextKey(selected,elements))} onItemSelect={key=>rememberItem(selected,key)} key={sdkComponentContextKey(selected,elements)} onPreviewItem={key=>iframe.current?.contentWindow?.postMessage({type:'fdo-ui-collection-item',token:surface?.token,id:selectedId,key},'*')} onPreviewState={state=>iframe.current?.contentWindow?.postMessage({type:'fdo-ui-component-state',token:surface?.token,id:selectedId,state},'*')} onInspect={chooseElement} element={selected} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>}
+                    {selected.sdkComponent && <SdkComponentEditor rememberedItemKey={collectionContext.get(sdkComponentContextKey(selected,elements))} onItemSelect={key=>rememberItem(selected,key)} key={sdkComponentContextKey(selected,elements)} onPreviewItem={key=>setFramePreviewCommand({type:'fdo-ui-collection-item',token:surface?.token,id:selectedId,key})} onPreviewState={state=>setFramePreviewCommand({type:'fdo-ui-component-state',token:surface?.token,id:selectedId,state})} onInspect={chooseElement} element={selected} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>}
                     <EditorSection defaultOpen title="Structure" icon="layout-hierarchy" description="Add and arrange components">
                         {!selected.htmlLiteral && <>
                             <Button fill icon="duplicate" disabled={!!working || conflicted || workspace.disconnected || !selected.structure?.duplicable || selected.structure?.position?.ambiguous} title={selected.structure?.duplicateReason || 'Copy a unique inline SDK composition without IDs or bindings'} onClick={() => propose({kind: 'duplicate'})}>Duplicate element</Button>

@@ -1,3 +1,4 @@
+const {waitForAsyncCondition} = require('./helpers/waitForAsyncCondition');
 const { test, expect, _electron: electron } = require("@playwright/test");
 const {
   launchElectronApp,
@@ -90,7 +91,7 @@ function findUiMarker(text, markers) {
 
 async function waitForUiMarker(window, pluginName, markers, timeout = 12000) {
   const expected = (Array.isArray(markers) ? markers : []).map((item) => String(item || "")).filter(Boolean);
-  await window.waitForFunction(async ({ pluginName, expected }) => {
+  await waitForAsyncCondition(window, async ({ pluginName, expected }) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]).catch(() => null);
     const status = runtimeStatus?.statuses?.[0];
     if (!status?.loaded || !status?.ready || !status?.inited || status?.loading) {
