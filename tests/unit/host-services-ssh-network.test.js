@@ -1,10 +1,9 @@
 /** @jest-environment node */
 const {expect, test} = require('@jest/globals');
-const {Client, Server, utils} = require('ssh2');
+const {Client, Server} = require('ssh2');
 const {executeSSH, fingerprint} = require('../../src/utils/hostServices/ssh.cjs');
-const host = utils.generateKeyPairSync('ed25519');
-const encrypted = utils.generateKeyPairSync('ed25519', {cipher: 'aes256-cbc', passphrase: 'fixture passphrase', rounds: 1});
-const allowed = utils.parseKey(encrypted.public);
+const {host, work, parsedKey} = require('./helpers/ssh2Keys.cjs');
+const allowed = parsedKey(work.public);
 
 test.each(['password', 'privateKey'])('real bundled SSH handshake and command with %s authentication, without an ssh process', async type => {
     const clients = new Set();
@@ -26,8 +25,8 @@ test.each(['password', 'privateKey'])('real bundled SSH handshake and command wi
     });
     await new Promise((resolve, reject) => {server.once('error', reject); server.listen(0, '127.0.0.1', resolve);});
     try {
-        const result = await executeSSH({Client, profile: {host: '127.0.0.1', port: server.address().port, username: 'fixture', trustedHostKey: fingerprint(utils.parseKey(host.private).getPublicSSH())},
-            credentials: type === 'password' ? {password: 'fixture password'} : {privateKey: encrypted.private, passphrase: 'fixture passphrase'},
+        const result = await executeSSH({Client, profile: {host: '127.0.0.1', port: server.address().port, username: 'fixture', trustedHostKey: fingerprint(parsedKey(host.private).getPublicSSH())},
+            credentials: type === 'password' ? {password: 'fixture password'} : {privateKey: work.private, passphrase: work.passphrase},
             command: 'fixture command', timeoutMs: 3000, maxOutputBytes: 1024});
         expect(result).toMatchObject({stdout: 'SSH 🔐 success', stderr: 'fixture stderr', exitCode: 7, signal: null, truncated: false});
     } finally {
