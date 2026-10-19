@@ -17,6 +17,9 @@ function spawnCli(args, profile) {
     const packaged = process.env.FDO_E2E_EXECUTABLE;
     const electronArgs = [
         '-r', require.resolve('./helpers/cliNoGuiBootstrap.cjs'),
+        // Chromium reads --no-sandbox from process argv before app.commandLine
+        // switches apply. It must precede the development app path.
+        ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         ...(packaged ? [] : ['.']),
         ...args,
     ];
