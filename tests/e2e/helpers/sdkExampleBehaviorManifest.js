@@ -12,6 +12,10 @@ function defaultSpecFromEntry(entry) {
 }
 
 const OVERRIDES = {
+  "18-interactive-ssh-plugin.ts": {
+    uiMarkerAnyOf: ["Host profile ID", "Open terminal"],
+    handlers: ['terminal.open', 'terminal.poll', 'terminal.input', 'terminal.resize', 'terminal.eof', 'terminal.close', 'terminal.cancel'],
+  },
   "11-hosts-manager-plugin/index.ts": {
     uiMarkerAnyOf: ["System Hosts"],
     initLogAnyOf: ["Hosts Manager Plugin Initialized"],

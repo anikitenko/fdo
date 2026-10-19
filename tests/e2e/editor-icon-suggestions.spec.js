@@ -9,12 +9,12 @@ let electronApp;
 let editorWindow;
 
 async function waitForWorkspaceReady(page) {
-  await page.waitForFunction(() => typeof window.__editorTestApi?.getState === "function", { timeout: 15000 });
+  await page.waitForFunction(() => typeof window.__editorTestApi?.getState === "function", undefined, { timeout: 15000 });
   await page.waitForFunction(() => {
     const state = window.__editorTestApi.getState();
     const ids = state?.workspaceTreeIds || state?.treeIds || [];
     return ids.includes("/index.ts");
-  }, { timeout: 15000 });
+  }, undefined, { timeout: 15000 });
 }
 
 test.beforeAll(async () => {
@@ -106,7 +106,7 @@ test("monaco live model quick fixes include relevant metadata icon suggestions",
   await editorWindow.waitForFunction(() => {
     const markers = window.__editorTestApi.getModelMarkers("/index.ts") || [];
     return markers.some((marker) => marker.code === "FDO_INVALID_METADATA_ICON");
-  }, { timeout: 15000 });
+  }, undefined, { timeout: 15000 });
 
   const triggerOk = await editorWindow.evaluate(async () => {
     const markers = window.__editorTestApi.getModelMarkers("/index.ts") || [];
@@ -145,7 +145,7 @@ test("editor remains clickable after triggering metadata icon quick fix", async 
   await editorWindow.waitForFunction(() => {
     const markers = window.__editorTestApi.getModelMarkers("/index.ts") || [];
     return markers.some((marker) => marker.code === "FDO_INVALID_METADATA_ICON");
-  }, { timeout: 15000 });
+  }, undefined, { timeout: 15000 });
 
   const triggerOk = await editorWindow.evaluate(async () => {
     const markers = window.__editorTestApi.getModelMarkers("/index.ts") || [];
@@ -188,7 +188,7 @@ test("tree and tab interactions stay responsive after applying metadata icon qui
   await editorWindow.waitForFunction(() => {
     const markers = window.__editorTestApi.getModelMarkers("/index.ts") || [];
     return markers.some((marker) => marker.code === "FDO_INVALID_METADATA_ICON");
-  }, { timeout: 15000 });
+  }, undefined, { timeout: 15000 });
 
   const applied = await editorWindow.evaluate(() => window.__editorTestApi.applyFirstMetadataIconQuickFixForPath("/index.ts"));
   expect(applied).toBeTruthy();
@@ -196,11 +196,11 @@ test("tree and tab interactions stay responsive after applying metadata icon qui
   await editorWindow.waitForFunction(() => {
     const state = window.__editorTestApi.getState();
     return state?.restoreLoading === false;
-  }, { timeout: 10000 });
+  }, undefined, { timeout: 10000 });
 
-  await editorWindow.getByRole("button", { name: "notes.ts" }).first().click();
-  await editorWindow.waitForFunction(() => window.__editorTestApi.getState()?.activeTabId === "/notes.ts", { timeout: 10000 });
+  await editorWindow.getByRole("tab", { name: "notes.ts", exact: true }).click();
+  await editorWindow.waitForFunction(() => window.__editorTestApi.getState()?.activeTabId === "/notes.ts", undefined, { timeout: 10000 });
 
   await editorWindow.locator(".bp6-tree-node-content", { hasText: "index.ts" }).first().click();
-  await editorWindow.waitForFunction(() => window.__editorTestApi.getState()?.selectedId === "/index.ts", { timeout: 10000 });
+  await editorWindow.waitForFunction(() => window.__editorTestApi.getState()?.selectedId === "/index.ts", undefined, { timeout: 10000 });
 });

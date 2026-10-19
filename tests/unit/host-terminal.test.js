@@ -60,10 +60,13 @@ test('revocation and authenticated view release wake pending readers and results
  service.viewLease('window','a','view-a',false);await expect(ended).rejects.toMatchObject({code:'SESSION_CLOSED'});
  await expect(a.operation('terminal.open',config)).rejects.toMatchObject({code:'SESSION_CLOSED'});
 }),15000);
-test('idle timeout is independent of remote output and terminal quota is bounded',()=>fixture(async({a})=>{
- const handles=[];for(let index=0;index<4;index++)handles.push(await a.operation('terminal.open',{...config,idleTimeoutMs:300}));
+test('terminal quota is bounded while sessions remain active',()=>fixture(async({a})=>{
+ for(let index=0;index<4;index++)await a.operation('terminal.open',{...config,idleTimeoutMs:30000,sessionTimeoutMs:60000});
  await expect(a.operation('terminal.open',config)).rejects.toMatchObject({code:'SESSION_LIMIT'});
- await expect(a.operation('terminal.result',handles[0])).rejects.toMatchObject({code:'IDLE_TIMEOUT'});
+}),15000);
+test('idle timeout is independent of unread remote output',()=>fixture(async({a})=>{
+ const handle=await a.operation('terminal.open',{...config,idleTimeoutMs:300});
+ await expect(a.operation('terminal.result',handle)).rejects.toMatchObject({code:'IDLE_TIMEOUT'});
 }),15000);
 test.each(['Zg=','Zh==','a'.repeat(43696),'%%%'])('rejects malformed or noncanonical base64',value=>expect(()=>decodeTerminalBytes(value)).toThrow());
 test('validates exact option fields and clamps host time ceilings',()=>{

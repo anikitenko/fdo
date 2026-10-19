@@ -90,7 +90,7 @@ test('SDK authoring components insert, edit typed properties and simulate states
             await expect(visual.getByLabel('Collection item',{exact:true})).toHaveValue(key);
             await visual.getByRole('button',{name:'Preview item',exact:true}).click();
             const body=name==='Tabs' ? frame.locator(id+' [data-fdo-panel="'+key+'"]') : frame.locator(id+' [data-fdo-item="'+key+'"] details');
-            expect(await body.locator('[data-fdo-ui-id]').allTextContents()).toEqual(['Results appear here',label+' help <safe>']);
+            await expect(body.locator('[data-fdo-ui-id]')).toHaveText(['Results appear here',label+' help <safe>']);
             const destination=name==='Tabs' ? 'advanced' : 'second',destinationLabel=name==='Tabs' ? 'Advanced · Body' : 'Second section · Body';
             await visual.getByLabel('Move content to',{exact:true}).selectOption('item:'+destination);
             await visual.getByRole('button',{name:'Move p · '+label+' help <safe> to '+destinationLabel,exact:true}).click();
@@ -99,11 +99,11 @@ test('SDK authoring components insert, edit typed properties and simulate states
             const destinationBody=name==='Tabs' ? frame.locator(id+' [data-fdo-panel="'+destination+'"]') : frame.locator(id+' [data-fdo-item="'+destination+'"] details');
             await expect(destinationBody.getByText(label+' help <safe>',{exact:true})).toBeVisible();
             await expect(destinationBody.getByText(label+' help <safe>',{exact:true})).toBeInViewport();
-            expect(await destinationBody.locator('[data-fdo-ui-id]').allTextContents()).toEqual([label+' help <safe>']);
-            expect(await body.locator('[data-fdo-ui-id]').allTextContents()).toEqual(['Results appear here']);
+            await expect(destinationBody.locator('[data-fdo-ui-id]')).toHaveText([label+' help <safe>']);
+            await expect(body.locator('[data-fdo-ui-id]')).toHaveText(['Results appear here']);
             await visual.getByRole('button',{name:'Undo',exact:true}).click();
-            expect(await destinationBody.locator('[data-fdo-ui-id]').allTextContents()).toEqual([]);
-            expect(await body.locator('[data-fdo-ui-id]').allTextContents()).toEqual(['Results appear here',label+' help <safe>']);
+            await expect(destinationBody.locator('[data-fdo-ui-id]')).toHaveText([]);
+            await expect(body.locator('[data-fdo-ui-id]')).toHaveText(['Results appear here',label+' help <safe>']);
             await visual.getByRole('button',{name:'Redo',exact:true}).click();
             await visual.getByRole('button',{name:'Preview item',exact:true}).click();
             await expect(destinationBody.getByText(label+' help <safe>',{exact:true})).toBeVisible();

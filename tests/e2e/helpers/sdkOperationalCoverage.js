@@ -1,5 +1,5 @@
 const {createCoverageMap} = require('istanbul-lib-coverage');
-const OPERATIONAL = new Set(['12-git-operations-plugin.ts', '13-service-content-hub-plugin.ts']);
+const OPERATIONAL = new Set(['12-git-operations-plugin.ts', '13-service-content-hub-plugin.ts', '18-interactive-ssh-plugin.ts']);
 function isOperationalExample(entry) { return OPERATIONAL.has(entry.relativePath); }
 
 // Test-only code appended to coverage-instrumented plugin modules. Never shipped to production plugins.
@@ -62,6 +62,11 @@ function serviceConfig(overrides = {}) {
 }
 async function prepareOperationalCoverage(window, pluginId, entry, invoke) {
   if (!isOperationalExample(entry)) return;
+  if (entry.relativePath === '18-interactive-ssh-plugin.ts') {
+    const result = await invoke(window, pluginId, '__e2e.configureTerminal', {});
+    if (!result.ok) throw new Error('Terminal coverage setup failed');
+    return;
+  }
   const configured = await invoke(window,pluginId,'__e2e.configureServices',serviceConfig());
   if (!configured.ok) throw new Error('Operational test service setup failed');
   if (entry.relativePath.startsWith('13-')) {
@@ -83,6 +88,7 @@ async function mergedExampleCoverage(window, backendCoverage, entry) {
 }
 async function runOperationalCoverage(window, pluginId, entry, invoke, expect) {
   if (!isOperationalExample(entry)) return [];
+  if (entry.relativePath === '18-interactive-ssh-plugin.ts') return require('./sdkTerminalCoverage').runTerminalCoverage(window, pluginId, invoke, expect);
   const records=[];
   const run=async(handler,payload,expected={ok:true})=>{
     const response=await invoke(window,pluginId,handler.startsWith('__e2e.') ? handler : '__e2e.invokeScenario',handler.startsWith('__e2e.') ? payload : {handler,payload});

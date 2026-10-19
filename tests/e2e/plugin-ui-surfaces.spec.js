@@ -1,7 +1,7 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
 const path = require('node:path');
 const {launchElectronApp, closeElectronApp, dismissBlueprintOverlays} = require('./helpers/electronApp');
-const {deploySdkExample} = require('./helpers/sdkExamples');
+const {deploySdkExample, waitForPluginReady} = require('./helpers/sdkExamples');
 
 test('plugin quick, sidebar, and native tray actions invoke handlers; revocation and unload remove the tray', async () => {
     test.setTimeout(120000);
@@ -47,9 +47,11 @@ test('plugin quick, sidebar, and native tray actions invoke handlers; revocation
         await app.evaluate(() => global.__surfaceMenu.items.find(item => item.label === 'Surface tray action').click());
         await expect.poll(events).toContain('tray');
         await page.evaluate(() => window.electron.plugin.setCapabilities('surface-fixture', []));
+        await waitForPluginReady(page, 'surface-fixture');
         expect(await app.evaluate(() => global.__surfaceTray.isDestroyed())).toBe(true);
         expect(await invoke('registerTray')).toMatchObject({ok: false, code: 'CAPABILITY_DENIED'});
         await page.evaluate(() => window.electron.plugin.setCapabilities('surface-fixture', ['system.tray']));
+        await waitForPluginReady(page, 'surface-fixture');
         expect(await invoke('registerTray')).toMatchObject({ok: true});
         await page.evaluate(() => window.electron.plugin.deactivate('surface-fixture'));
         await expect.poll(() => app.evaluate(() => global.__surfaceTray.isDestroyed())).toBe(true);

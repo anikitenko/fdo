@@ -1,3 +1,4 @@
+const {waitForAsyncCondition} = require('./helpers/waitForAsyncCondition');
 const { test, expect, _electron: electron } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -230,7 +231,7 @@ async function captureRenderEnvelope(window, pluginId, timeoutMs = 20000) {
 
 async function waitForRuntimeReady(window, pluginId, timeoutMs = 20000) {
   try {
-    await window.waitForFunction(async (id) => {
+    await waitForAsyncCondition(window, async (id) => {
       const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
       const status = runtimeStatus?.statuses?.[0];
       return !!(status?.loaded && status?.ready);

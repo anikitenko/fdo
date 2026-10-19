@@ -336,7 +336,7 @@ test('nested child navigation restores its item and component memory survives so
         const location={path:'/render.tsx',line:4,column:1};
         const item=key=>({key,label:key==='one' ? 'General' : 'Advanced',flag:false,labelTarget:{start:1,end:2},flagTarget:{start:3,end:4},removable:false});
         return {status:'ready',revision,html:`<div data-fdo-component="fdo.tabs" data-fdo-ui-id="tabs${suffix}"><div data-fdo-panel="one"><p>General</p></div><div data-fdo-panel="two" hidden><div data-fdo-ui-id="wrapper${suffix}"><p data-fdo-ui-id="child${suffix}">Second body</p></div></div></div>`,elements:[
-            {id:'tabs'+suffix,tag:'div',label:'Tabs · Settings',location,styles:[],structure:{unique:true,file:'/render.tsx',start},sdkComponent:{identity:'fdo.tabs',instanceId:'settings',instanceIdLiteral:true,name:'Tabs',properties:[],slots:[],collection:{editable:true,items:[item('one'),item('two')]}}},
+            {id:'tabs'+suffix,tag:'div',label:'Tabs · Settings',location,styles:[],structure:{unique:true,file:'/render.tsx',start},sdkComponent:{identity:'fdo.tabs',instanceId:'settings',instanceIdLiteral:true,name:'Tabs',previewStates:['hidden'],properties:[],slots:[],collection:{editable:true,items:[item('one'),item('two')]}}},
             {id:'wrapper'+suffix,tag:'div',label:'div · Wrapper',location,styles:[],structure:{unique:true}},
             {id:'child'+suffix,tag:'p',label:'p · Second body',location,styles:[],structure:{unique:true},text:{value:'Second body',file:'/render.tsx',start:300}},
         ]};
@@ -357,5 +357,15 @@ test('nested child navigation restores its item and component memory survives so
     await waitFor(()=>expect(screen.getByTitle('Plugin UI preview').srcdoc).toContain('tabs-new'));
     fireEvent.click(screen.getByRole('button',{name:'Tabs · Settings',exact:true}));
     expect(screen.getByLabelText('Collection item')).toHaveValue('one');
+    const frame = screen.getByTitle('Plugin UI preview');
+    const post = jest.spyOn(frame.contentWindow, 'postMessage');
+    const token = /nonce-([a-f0-9]{32})/.exec(frame.srcdoc)[1];
+    fireEvent.click(screen.getByRole('button', {name:'Preview item', exact:true}));
+    expect(post).not.toHaveBeenCalledWith(expect.objectContaining({type:'fdo-ui-collection-item'}), '*');
+    act(() => window.dispatchEvent(new MessageEvent('message', {source:frame.contentWindow, origin:'null', data:{type:'fdo-ui-ready', token}})));
+    expect(post).toHaveBeenCalledWith({type:'fdo-ui-collection-item', token, id:'tabs-new', key:'one'}, '*');
+    fireEvent.change(screen.getByLabelText('Preview state'), {target:{value:'hidden'}});
+    expect(post).toHaveBeenCalledWith({type:'fdo-ui-component-state', token, id:'tabs-new', state:'hidden'}, '*');
+    post.mockRestore();
     expect(window.electron.liveUi.propose).not.toHaveBeenCalled();
 });
