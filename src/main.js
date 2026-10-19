@@ -275,13 +275,14 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
     }
     if (!result.openGui) {
         cliFinished = true;
+        await flushCliOutput();
+        if (process.platform === 'win32') {
+            // Electron's Windows teardown can crash after a short CLI command.
+            // Skip native shutdown once output is flushed and exit directly.
+            process.exit(result.exitCode);
+        }
         try {closeCertificateStorage();}
         catch (error) {console.error(`Error closing certificate storage: ${error.message}`); result.exitCode = 1;}
-        await flushCliOutput();
-        // Electron's Windows shutdown has intermittently crashed after a CLI
-        // command completed. Output and certificate storage are already flushed,
-        // so ending this command-only process directly is safe and deterministic.
-        if (process.platform === 'win32') process.exit(result.exitCode);
         app.exit(result.exitCode);
     }
 }

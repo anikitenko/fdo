@@ -359,10 +359,13 @@ test(`oversized ${stylesheet ? 'CSS' : 'TypeScript'} file is split into helper m
                 model: '@cf/qwen/qwen3.8-27b', accountId: 'a'.repeat(32), apiKey: 'test-token', defaultThinkingMode: 'off'});
             const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Split workspace');
             const done = [], errors = [], stages = [];
-            window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
+            let resolveDone;
+            const donePromise = new Promise(resolve => { resolveDone = resolve; });
+            window.electron.aiCodingAgent.on.streamDone(event => { done.push(event); resolveDone?.(); });
             window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
             window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') stages.push(event.label); });
             const result = await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'split-test', assistantId: assistant.id, prompt: 'Build a greeting plugin using feature folders.'}));
+            if (!done.length) await Promise.race([donePromise, new Promise(resolve => setTimeout(resolve, 2000))]);
             return {result, done, errors, stages};
         });
         expect(observed.result.success, observed.result.error).toBe(true);
