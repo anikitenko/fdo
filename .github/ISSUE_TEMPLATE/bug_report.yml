@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a reproducible problem in FDO.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve FDO. Include enough detail to reproduce the issue.
+        **Security vulnerability?** Please use the [security policy](https://github.com/anikitenko/fdo/blob/main/SECURITY.md) and report it privately.
+        Remove tokens, private keys, personal data, and sensitive paths from logs and screenshots.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This is an ordinary bug report, not a private security report.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Desktop application
+        - Plugin runtime or permissions
+        - Editor or Live UI
+        - AI coding assistant
+        - CLI or command installation
+        - GitOps collections
+        - Installer or application startup
+        - Website
+        - Other or unsure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FDO version or commit
+      description: Find the version in FDO or with fdo --version. For website-only reports, enter Website.
+      placeholder: e.g. prerelease tag or source commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and architecture
+      description: Include the browser and version for website issues, or Node.js version for source builds.
+      placeholder: e.g. macOS 15 / arm64; Windows 11 / x64; Ubuntu 24.04 / x64
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal example when possible. For CLI issues, include the exact command and exit status.
+      placeholder: |
+        1. Open...
+        2. Run...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Describe what happened, including visible errors.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Logs, screenshots, and additional context
+      description: Include redacted logs or fdo doctor output, plugin/SDK versions, and any workaround. Do not attach private keys, tokens, or complete user profiles.

@@ -69,3 +69,8 @@ preview, edit `scripts/website/social-card.html` and capture it at 1200×630 int
 The sitemap uses a vendored copy of the official sitemaps.org XSD, allowing IDE
 validation offline. Its source and minimal equivalent adjustments are recorded
 in `assets/sitemap.xsd`.
+
+The Privacy Policy is served at `privacy.html` and linked from the homepage and
+CLI guide. Keep it aligned with actual data handling, hosting/proxy settings,
+tracking changes, and optional integrations. The last-updated date describes the
+policy revision, not a deployment date.

@@ -1137,3 +1137,9 @@ h2 {
     padding: 15px;
   }
 }
+
+.policy-date {
+  margin-top: 22px;
+  color: var(--muted);
+  font: 12px/1.6 var(--mono);
+}

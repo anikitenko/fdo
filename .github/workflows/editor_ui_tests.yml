@@ -3,7 +3,15 @@ name: App UI Tests
 on:
   push:
     branches: ['**']
+    paths-ignore:
+      - 'website/**'
+      - 'scripts/website/**'
+      - '.github/workflows/website.yml'
   pull_request:
+    paths-ignore:
+      - 'website/**'
+      - 'scripts/website/**'
+      - '.github/workflows/website.yml'
   merge_group:
   workflow_dispatch:
   workflow_call:

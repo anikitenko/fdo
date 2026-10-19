@@ -455,6 +455,9 @@ current UI. Notification diagnostics redact common credential forms and private 
 
 ## Documentation
 
+- [Contributing to FDO](CONTRIBUTING.md)
+- [Accessibility goals and reporting](ACCESSIBILITY.md)
+- [Security policy and private reporting](SECURITY.md)
 - [GitOps repository collections](docs/GITOPS.md)
 - [AI Coding Agent Documentation](docs/AI_CODING_AGENT.md)
 - [Plugin sidebar, quickbar, and tray actions](docs/PLUGIN_UI_ACTIONS.md)

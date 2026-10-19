@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an improvement to an FDO workflow.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the workflow you want to improve and a concrete example of the desired behavior.
+        For security vulnerabilities, follow the [security policy](https://github.com/anikitenko/fdo/blob/main/SECURITY.md) instead.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Who encounters this problem, and what do they do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the result you want. Include an example workflow or command where useful.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: What have you tried, and could a plugin solve this instead of changing the host?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include relevant platforms, mockups, or compatibility and permission considerations.
