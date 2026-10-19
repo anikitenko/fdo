@@ -24,7 +24,7 @@ export function gitPermissions(granted: readonly string[]): {required: string[];
 import {Render} from './render';
 import {repositories, gitExecutable, cwd} from './repositories';
 import {loadRepositories, inspectRepository, showRepositoryMatch} from './repository-ui';
-import {gitError, gitScopeError, describeGitProfileMatch, needsGitSetup, parseRemoteRefs, readGitResult} from './logic';
+import {gitError, gitScopeError, gitRequestPaths, describeGitProfileMatch, needsGitSetup, parseRemoteRefs, readGitResult} from './logic';
 import {gitPermissions, requiredGitCapabilities} from './permissions';
 import {resolveGitExecutable} from './git-executable';
 class GitConnections extends FDO_SDK {
@@ -50,7 +50,7 @@ class GitConnections extends FDO_SDK {
                 const command = detected.command;
                 gitDetection = detected.attempts.join('\\n') + '\\nUsing Git: ' + command + '\\nDetection stops after the first valid executable.';
                 const response = await requestOperatorTool<{stdout: string; stderr: string; exitCode: number | null; durationMs: number; truncated?: boolean}>('git', {
-                    command, args: ['ls-remote', repository.url], ...(cwd ? {cwd} : {}), timeoutMs: Math.max(1, deadline - Date.now()),
+                    ...gitRequestPaths(command, cwd), args: ['ls-remote', repository.url], timeoutMs: Math.max(1, deadline - Date.now()),
                 });
                 // Some host failures include captured output beyond the SDK error type.
                 // Narrow that optional payload rather than asserting a success response.
@@ -117,7 +117,7 @@ export function Render(name: string): string {
         // language=TEXT
         '/git-executable.ts': `import {requestOperatorTool} from '@anikitenko/fdo-sdk';
 import {platform} from 'node:os';
-import {gitExecutableCandidates, gitScopeError} from './logic';
+import {gitExecutableCandidates, gitScopeError, gitRequestPaths} from './logic';
 export async function resolveGitExecutable(override: string, cwd: string, deadline: number): Promise<{command: string; attempts: string[]} | {error: string; attempts: string[]}> {
     const configured = override.trim();
     const candidates = configured ? [configured] : gitExecutableCandidates(platform(), process.env);
@@ -131,13 +131,13 @@ export async function resolveGitExecutable(override: string, cwd: string, deadli
         // (including a rejected bridge promise) must not prevent fallback.
         let response;
         try {
-            const preflight = await requestOperatorTool<{availability?: {executable: boolean; cwd: boolean}}>('git', {command, args: ['version'], dryRun: true, ...(cwd ? {cwd} : {}), timeoutMs: Math.min(1000, remaining)}, {correlationId: 'git-detect-check-' + Date.now() + '-' + index});
+            const preflight = await requestOperatorTool<{availability?: {executable: boolean; cwd: boolean}}>('git', {...gitRequestPaths(command, cwd), args: ['version'], dryRun: true, timeoutMs: Math.min(1000, remaining)}, {correlationId: 'git-detect-check-' + Date.now() + '-' + index});
             if (preflight.ok && preflight.result?.availability) {
                 if (!preflight.result.availability.cwd) return {error: 'The working folder is missing or inaccessible. Check optional cwd in repositories.ts.', attempts};
                 if (!preflight.result.availability.executable) {attempts.push(command + ' (NOT_AVAILABLE)'); continue;}
             }
             if (!preflight.ok) response = preflight;
-            else response = await requestOperatorTool<{stdout: string}>('git', {command, args: ['version'], ...(cwd ? {cwd} : {}), timeoutMs: Math.min(1000, remaining)}, {correlationId: 'git-detect-' + Date.now() + '-' + index});
+            else response = await requestOperatorTool<{stdout: string}>('git', {...gitRequestPaths(command, cwd), args: ['version'], timeoutMs: Math.min(1000, remaining)}, {correlationId: 'git-detect-' + Date.now() + '-' + index});
         } catch (error) {
             const rawCode = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
             const code = typeof rawCode === 'string' && /^[A-Z_]{1,64}$/.test(rawCode) ? rawCode : 'REQUEST_FAILED';
@@ -229,7 +229,12 @@ export async function inspectRepository(): Promise<void> {
 }
 `,
         // language=TEXT
-        '/logic.ts': `export function gitExecutableCandidates(platform: string, env: Record<string, string | undefined>): string[] {
+        '/logic.ts': `// The SDK requires backslashes for Windows drive paths, including optional cwd.
+export function gitRequestPaths(command: string, cwd: string): {command: string; cwd?: string} {
+    const nativePath = (value: string): string => /^[a-zA-Z]:[\\\\/]/.test(value) ? value.split('/').join('\\\\') : value;
+    return {command: nativePath(command), ...(cwd ? {cwd: nativePath(cwd)} : {})};
+}
+export function gitExecutableCandidates(platform: string, env: Record<string, string | undefined>): string[] {
     if (platform === 'win32') {
         const roots = [env.ProgramFiles, env['ProgramFiles(x86)'], 'C:/Program Files', 'C:/Program Files (x86)', env.LOCALAPPDATA ? env.LOCALAPPDATA + '/Programs' : undefined].filter((root): root is string => !!root);
         return [...new Set(roots.flatMap(root => [root.replace(/\\\\/g, '/') + '/Git/cmd/git.exe', root.replace(/\\\\/g, '/') + '/Git/bin/git.exe']))];

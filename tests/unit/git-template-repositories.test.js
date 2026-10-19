@@ -1,9 +1,10 @@
 import {beforeEach, expect, jest, test} from '@jest/globals';
 import {stripTypeScriptTypes} from 'node:module';
+import {createOperatorToolActionRequest} from '@anikitenko/fdo-sdk';
 import {createPluginTemplateFiles} from '../../src/components/editor/utils/virtualTemplates';
 const files = createPluginTemplateFiles({name: 'git-test', template: 'gitSsh'});
 const {loadRepositories, inspectRepository, showRepositoryMatch} = new Function(stripTypeScriptTypes(files['/repository-ui.ts']).replace(/^export /gm, '') + '\nreturn {loadRepositories, inspectRepository, showRepositoryMatch};')();
-const {parseRemoteRefs, gitError, gitScopeError, describeGitProfileMatch, gitExecutableCandidates} = new Function(stripTypeScriptTypes(files['/logic.ts']).replace(/^export /gm, '') + '\nreturn {parseRemoteRefs, gitError, gitScopeError, describeGitProfileMatch, gitExecutableCandidates};')();
+const {parseRemoteRefs, gitError, gitScopeError, describeGitProfileMatch, gitExecutableCandidates, gitRequestPaths} = new Function(stripTypeScriptTypes(files['/logic.ts']).replace(/^export /gm, '') + '\nreturn {parseRemoteRefs, gitError, gitScopeError, describeGitProfileMatch, gitExecutableCandidates, gitRequestPaths};')();
 // Legacy hosts return a successful dry-run plan without availability metadata.
 const withPreflight = request => (tool, payload, options) => payload.dryRun
     ? Promise.resolve({ok: true, result: {dryRun: true}}) : request(tool, payload, options);
@@ -113,9 +114,9 @@ test('selects platform-specific Git installation candidates, including Windows u
 test('Git detection uses local version probes and stops immediately on denied permission', async () => {
     const requestOperatorTool = jest.fn().mockResolvedValueOnce({ok: false, code: 'PROCESS_SPAWN_ENOENT'})
         .mockResolvedValueOnce({ok: true, result: {stdout: 'git version 2.50.0\n'}});
-    const resolveGitExecutable = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError',
+    const resolveGitExecutable = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
         stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
-        withPreflight(requestOperatorTool), () => 'darwin', gitExecutableCandidates, gitScopeError);
+        withPreflight(requestOperatorTool), () => 'darwin', gitExecutableCandidates, gitScopeError, gitRequestPaths);
     expect(await resolveGitExecutable('', '', Date.now() + 10000)).toEqual(expect.objectContaining({command: '/usr/local/bin/git'}));
     expect(requestOperatorTool).toHaveBeenCalledTimes(2);
     for (const [tool, payload] of requestOperatorTool.mock.calls) {
@@ -133,9 +134,9 @@ test('Git detection continues after rejected candidate probes and exposes every 
     const request = jest.fn().mockRejectedValueOnce(Object.assign(new Error('PRIVATE_PROVIDER_DETAIL'), {code: 'ENOENT'}))
         .mockResolvedValueOnce({ok: false, code: 'SCOPE_VIOLATION'})
         .mockResolvedValueOnce({ok: true, result: {stdout: 'git version 2.50.0'}});
-    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError',
+    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
         stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
-        withPreflight(request), () => 'darwin', gitExecutableCandidates, gitScopeError);
+        withPreflight(request), () => 'darwin', gitExecutableCandidates, gitScopeError, gitRequestPaths);
     const result = await resolve('', '', Date.now() + 10000);
     expect(result).toEqual({command: '/usr/bin/git', attempts: ['/opt/homebrew/bin/git (ENOENT)', '/usr/local/bin/git (SCOPE_VIOLATION)', '/usr/bin/git (FOUND)']});
     expect(JSON.stringify(result)).not.toContain('PRIVATE_PROVIDER_DETAIL');
@@ -150,9 +151,9 @@ test('a discovery deadline reports untested candidates instead of claiming Git i
     const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
     try {
         const request = jest.fn(async () => {now.mockReturnValue(20000); return {ok: false, code: 'PROCESS_SPAWN_ENOENT'};});
-        const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError',
+        const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
             stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
-            withPreflight(request), () => 'darwin', gitExecutableCandidates, gitScopeError);
+            withPreflight(request), () => 'darwin', gitExecutableCandidates, gitScopeError, gitRequestPaths);
         const result = await resolve('', '', 10000);
         expect(result.error).toContain('after checking 1 of 3 paths');
         expect(result.error).toContain('Unchecked: /usr/local/bin/git, /usr/bin/git');
@@ -163,9 +164,9 @@ test('a discovery deadline reports untested candidates instead of claiming Git i
 test('missing probe responses do not abort automatic fallback', async () => {
     const request = jest.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('PRIVATE_PROVIDER_DETAIL'))
         .mockResolvedValueOnce({ok: true, result: {stdout: 'git version 2.50.0'}});
-    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError',
+    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
         stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
-            withPreflight(request), () => 'darwin', gitExecutableCandidates, gitScopeError);
+            withPreflight(request), () => 'darwin', gitExecutableCandidates, gitScopeError, gitRequestPaths);
     expect(await resolve('', '', Date.now() + 10000)).toEqual({command: '/usr/bin/git', attempts: ['/opt/homebrew/bin/git (INVALID_RESPONSE)', '/usr/local/bin/git (REQUEST_FAILED)', '/usr/bin/git (FOUND)']});
 });
 
@@ -173,11 +174,52 @@ test('availability preflights skip missing installations without executing faili
     const request = jest.fn(async (_tool, payload) => payload.dryRun
         ? {ok: true, result: {availability: {executable: payload.command === '/usr/bin/git', cwd: true}}}
         : {ok: true, result: {stdout: 'git version 2.50.0'}});
-    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError',
+    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
         stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
-            request, () => 'darwin', gitExecutableCandidates, gitScopeError);
+            request, () => 'darwin', gitExecutableCandidates, gitScopeError, gitRequestPaths);
     expect(await resolve('', '', Date.now() + 10000)).toEqual({command: '/usr/bin/git', attempts: ['/opt/homebrew/bin/git (NOT_AVAILABLE)', '/usr/local/bin/git (NOT_AVAILABLE)', '/usr/bin/git (FOUND)']});
     const executions = request.mock.calls.filter(([, payload]) => !payload.dryRun);
     expect(executions).toHaveLength(1);
     expect(executions[0][1].command).toBe('/usr/bin/git');
+});
+
+
+test('Windows Git discovery passes SDK validation and preserves working-folder scope errors', async () => {
+    const details = {scopeViolation: {reason: 'CWD_OUTSIDE_ALLOWED_ROOTS'}, allowedCwdRoots: ['C:\\Users\\runneradmin']};
+    const request = jest.fn((_tool, payload) => {
+        // Exercise the real SDK validation that rejected forward-slash drive paths.
+        createOperatorToolActionRequest('git', payload);
+        return Promise.resolve({ok: false, code: 'SCOPE_VIOLATION', details});
+    });
+    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
+        stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
+        request, () => 'win32', gitExecutableCandidates, gitScopeError, gitRequestPaths);
+    const result = await resolve('', 'C:/fdo-disallowed-working-folder', Date.now() + 10000);
+    expect(result.error).toContain('Working folder "C:/fdo-disallowed-working-folder"');
+    expect(result.error).toContain('Allowed roots: C:\\Users\\runneradmin');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][1]).toEqual(expect.objectContaining({
+        command: 'C:\\Program Files\\Git\\cmd\\git.exe', cwd: 'C:\\fdo-disallowed-working-folder', dryRun: true,
+    }));
+});
+
+test('Windows Git discovery normalizes overrides and execution paths for the SDK', async () => {
+    const request = jest.fn((_tool, payload) => {
+        createOperatorToolActionRequest('git', payload);
+        return Promise.resolve({ok: true, result: payload.dryRun
+            ? {availability: {executable: true, cwd: true}} : {stdout: 'git version 2.50.0'}});
+    });
+    const resolve = new Function('requestOperatorTool', 'platform', 'gitExecutableCandidates', 'gitScopeError', 'gitRequestPaths',
+        stripTypeScriptTypes(files['/git-executable.ts']).replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nreturn resolveGitExecutable;')(
+        request, () => 'win32', gitExecutableCandidates, gitScopeError, gitRequestPaths);
+    const result = await resolve('D:/Custom Git/git.exe', 'D:/work/repository', Date.now() + 10000);
+    expect(result.command).toBe('D:/Custom Git/git.exe');
+    expect(request).toHaveBeenCalledTimes(2);
+    for (const [, payload] of request.mock.calls) {
+        expect(payload).toEqual(expect.objectContaining({command: 'D:\\Custom Git\\git.exe', cwd: 'D:\\work\\repository'}));
+    }
+    // The ls-remote request uses the same conversion as discovery.
+    expect(createOperatorToolActionRequest('git', {...gitRequestPaths(result.command, 'D:/work/repository'), args: ['ls-remote', 'git@example:work.git']})).toBeTruthy();
+    expect(gitRequestPaths('/usr/bin/git', '/home/team/repository')).toEqual({command: '/usr/bin/git', cwd: '/home/team/repository'});
+    expect(gitRequestPaths('C:/Git/git.exe', '')).toEqual({command: 'C:\\Git\\git.exe'});
 });
