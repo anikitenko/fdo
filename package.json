@@ -1,7 +1,7 @@
 {
   "name": "fdo",
   "productName": "FDO (FlexDevOPs)",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.1",
   "description": "FDO (Flex DevOps) is a modular, plugin-driven DevOps platform built with ElectronJS and React. It empowers developers and SREs to extend core functionality using secure, versioned plugins, offering tools for automation, deployment, monitoring, and workflow customization — all from a unified desktop environment.",
   "main": "dist/main/index.js",
   "sideEffects": [
