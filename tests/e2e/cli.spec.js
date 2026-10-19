@@ -8,9 +8,20 @@ const {selectPluginOpen} = require('./helpers/sdkExamples');
 
 function spawnCli(args, profile) {
     const packaged = process.env.FDO_E2E_EXECUTABLE;
-    return spawn(packaged || require('electron'), ['-r', require.resolve('./helpers/cliNoGuiBootstrap.cjs'), ...(packaged ? [] : ['.']), ...args], {
+    const electronArgs = [
+        '-r', require.resolve('./helpers/cliNoGuiBootstrap.cjs'),
+        ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+        ...(packaged ? [] : ['.']),
+        ...args,
+    ];
+    const childEnv = {...process.env, FDO_E2E: '1', FDO_E2E_MULTI_INSTANCE: '0', FDO_E2E_USER_DATA_DIR: profile};
+    // Override an inherited Node-mode setting on Unix; Windows treats even an
+    // empty variable as enabled, so remove it there to keep Electron APIs.
+    if (process.platform === 'win32') delete childEnv.ELECTRON_RUN_AS_NODE;
+    else childEnv.ELECTRON_RUN_AS_NODE = '';
+    return spawn(packaged || require('electron'), electronArgs, {
         cwd: path.resolve(__dirname, '../..'), stdio: ['ignore', 'pipe', 'pipe'],
-        env: {...process.env, ELECTRON_RUN_AS_NODE: '', FDO_E2E: '1', FDO_E2E_MULTI_INSTANCE: '0', FDO_E2E_USER_DATA_DIR: profile},
+        env: childEnv,
     });
 }
 function cli(args, profile) {
@@ -20,7 +31,7 @@ function cli(args, profile) {
         child.stdout.on('data', data => {stdout += data;});child.stderr.on('data', data => {stderr += data;});
         const timer = setTimeout(() => {child.kill();reject(new Error(`CLI did not exit: ${args.join(' ')}\n${stdout}\n${stderr}`));}, 20000);
         child.on('error', error => {clearTimeout(timer);reject(error);});
-        child.on('close', code => {clearTimeout(timer);resolve({code, stdout, stderr});});
+        child.on('close', (code, signal) => {clearTimeout(timer);resolve({code, signal, stdout, stderr});});
     });
 }
 function workspace(root, version = '1.0.0') {

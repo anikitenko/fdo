@@ -616,6 +616,10 @@ export const Home = () => {
     const [showSettingsDialog, setShowSettingsDialog] = useState(false)
     const [notificationPluginRequest, setNotificationPluginRequest] = useState(null);
     const [settingsNavigation, setSettingsNavigation] = useState(null);
+    useEffect(() => window.electron.settings.onOpen?.((request) => {
+        setSettingsNavigation({tab: request?.tab || 'general', checkNow: !!request?.checkNow, requestId: Date.now()});
+        setShowSettingsDialog(true);
+    }), []);
     const [notificationFocusRequest, setNotificationFocusRequest] = useState(null);
     const [showAiChatDialog, setShowAiChatDialog] = useState(false)
     const [capabilityFocusRequest, setCapabilityFocusRequest] = useState(null);

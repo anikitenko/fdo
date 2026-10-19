@@ -33,6 +33,7 @@ export const NotificationChannels = withPrefix('notifications', {
 });
 
 export const SettingsChannels = withPrefix('settings', {
+    updates: {CHECK: 'check-updates', GET_PREFERENCES: 'get-update-preferences', SAVE_PREFERENCES: 'save-update-preferences'},
     observability: {GET: 'get', SAVE: 'save', TEST: 'test', RETRY: 'retry', TRACE: 'trace'},
     gitops: {LIST: 'list', SAVE: 'save', VERIFY: 'verify', REMOVE: 'remove', SYNC: 'sync', SYNC_PLUGIN: 'sync-plugin', REVIEW_UPDATE: 'review-update', SET_INTERVAL: 'set-interval', SET_AUTO_SYNC: 'set-auto-sync', UPDATED: 'updated'},
     certificates: {

@@ -160,6 +160,16 @@ contextBridge.exposeInMainWorld('electron', {
         }
     },
     settings: {
+        updates: {
+            check: channel => ipcRenderer.invoke(SettingsChannels.updates.CHECK, channel),
+            getPreferences: () => ipcRenderer.invoke(SettingsChannels.updates.GET_PREFERENCES),
+            savePreferences: preferences => ipcRenderer.invoke(SettingsChannels.updates.SAVE_PREFERENCES, preferences),
+        },
+        onOpen: callback => {
+            const listener = (_, tab) => callback(tab);
+            ipcRenderer.on('app:open-settings', listener);
+            return () => ipcRenderer.removeListener('app:open-settings', listener);
+        },
         observability: {
             get: () => ipcRenderer.invoke(SettingsChannels.observability.GET),
             save: config => ipcRenderer.invoke(SettingsChannels.observability.SAVE, config),

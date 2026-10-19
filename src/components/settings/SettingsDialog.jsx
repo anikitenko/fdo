@@ -20,6 +20,7 @@ import GitOpsPanel from './panels/GitOpsPanel';
 import ObservabilityPanel from './panels/ObservabilityPanel';
 import CredentialsPanel from './panels/CredentialsPanel';
 import ToolsPanel from './panels/ToolsPanel';
+import {UpdatesPanel} from './panels/UpdatesPanel';
 
 export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog, navigationRequest}) => {
     const [activeTab, setActiveTab] = useState(localStorage.getItem("activeSettingsTab") || "general");
@@ -77,6 +78,8 @@ export const SettingsDialog = ({showSettingsDialog, setShowSettingsDialog, navig
                      panel={
                          <GeneralPanel/>
                      }/>
+                <Tab id="updates" title={<div style={{width: '180px'}}><Icon icon="refresh" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>Updates</span></div>}
+                     panelClassName={styles['panel']} panel={<UpdatesPanel checkOnOpen={!!navigationRequest?.checkNow} checkRequestId={navigationRequest?.requestId}/>}/>
                 <Tab id="gitops" title={<div style={{width: '180px'}}><Icon icon="git-repo" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>GitOps</span></div>}
                      panelClassName={styles['panel']} panel={<GitOpsPanel focusRepositoryId={navigationRequest?.repositoryId}/>}/>
                 <Tab id="observability" title={<div style={{width: '180px'}}><Icon icon="timeline-line-chart" intent="primary"/><span className="bp6-text-muted" style={{marginLeft: 5, fontSize: '0.8rem'}}>Observability</span></div>}
