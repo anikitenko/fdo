@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {app, safeStorage} from 'electron';
 import {settings} from '../../src/utils/persistence/store';
-import {initializeCertificateStorage, certificateStorage, closeCertificateStorage} from '../../src/utils/persistence/certificateStorage';
+import {initializeCertificateStorage, certificateStorage, closeCertificateStorage, previewSigningCertificates} from '../../src/utils/persistence/certificateStorage';
 import {certificateFixture} from '../helpers/certificateFixture.cjs';
 
 jest.mock('electron', () => ({app: {isReady: jest.fn(() => true)}, safeStorage: {
@@ -32,5 +32,12 @@ test.each([[false, 'unknown'], [true, 'basic_text']])('refuses insecure key stor
 test('requires app readiness before touching certificate storage', () => {
     app.isReady.mockReturnValueOnce(false);
     expect(() => certificateStorage.list()).toThrow('Electron to be ready');
+    expect(fs.existsSync(path.join(directory, 'certificates.sqlite'))).toBe(false);
+});
+
+test('preview reads legacy public metadata without migrating or encrypting keys', () => {
+    expect(previewSigningCertificates()).toEqual([{...root, key: undefined, hasPrivateKey: true}]);
+    expect(settings.delete).not.toHaveBeenCalled();
+    expect(safeStorage.encryptString).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(directory, 'certificates.sqlite'))).toBe(false);
 });

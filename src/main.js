@@ -1,3 +1,4 @@
+import {cliProfile} from './utils/system/cliProfile';
 import {failureNotification, pluginDisplayName} from './utils/desktop/notificationContent';
 import {closeHostServices, removeHostServices} from './utils/hostServices/runtime';
 import {registerHostServiceSettings} from './ipc/hostServices';
@@ -5,7 +6,7 @@ import crypto from 'node:crypto';
 import {initializeObservabilityStorage, closeObservabilityStorage, recordRuntimeSamples} from './utils/persistence/observabilityStorage';
 import {registerObservabilityHandlers} from './ipc/observability';
 import {usageLedger} from './utils/ai/billing/ledger';
-import {certificateStorage, initializeCertificateStorage, closeCertificateStorage} from './utils/persistence/certificateStorage';
+import {certificateStorage, previewSigningCertificates, initializeCertificateStorage, closeCertificateStorage} from './utils/persistence/certificateStorage';
 import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
@@ -21,11 +22,9 @@ import nodeUrl from 'node:url';
 import PluginManager from "./utils/plugins/runtime/PluginManager";
 import {pluginTray} from './utils/plugins/runtime/pluginTray';
 import fs, {existsSync, mkdirSync} from "node:fs";
-import {createInterface} from "node:readline/promises";
 
 import nodePath from "node:path";
 
-import {styleText} from 'node:util';
 
 import {settings} from "./utils/persistence/store";
 import {Certs} from "./utils/system/certs";
@@ -40,17 +39,19 @@ import {closeChatStorage} from './utils/persistence/chatStorage';
 import {readFile} from "node:fs/promises";
 
 import mime from 'mime';
-import {Command} from 'commander';
-import {getIgnoreInstance} from "./utils/filesystem/getIgnoreInstance";
 import { hasCliCommand, hasCliOnlyCommand, getCleanCliArgs } from "./utils/system/cliCommands.js";
-import {getAllFilesWithIgnorance} from "./utils/filesystem/getAllFilesWithIgnorance";
-import ensureAndWrite from "./utils/filesystem/ensureAndWrite";
 
 import PluginORM from "./utils/persistence/PluginORM";
-import generatePluginName from "./components/editor/utils/generatePluginName";
 import {PluginChannels} from "./ipc/channels";
-import {checkPathAccess} from "./utils/filesystem/pathHelper";
-import {getSdkMigrationExitCode, runSdkMigration} from "./utils/sdk/sdkMigrationCli";
+import {readCliPluginLogs, followCliPluginLogs} from './utils/system/cliLogs';
+import {runPluginWorkspaceTests} from './utils/plugins/runtime/pluginTestRunner';
+import {listCliProfiles} from './utils/system/cliProfiles';
+import {withCliLock} from './utils/system/cliLock';
+import {watchPluginDirectory} from './utils/system/cliDev';
+import {diagnoseCli, inspectCliPlugins} from './utils/system/cliInspection';
+import {inspectCliInstallation} from './utils/system/installFDOCLI';
+import {runFdoCli, flushCliOutput} from "./utils/system/fdoCli";
+import {readCliWorkspaceFiles, deployCliPluginDirectory, compilePluginDirectory, validatePluginDirectory, planCliDeployment, assertCliDeployAllowed} from "./utils/system/cliPluginOperations";
 
 import log from 'electron-log/main';
 import {extractMetadata} from "./utils/plugins/runtime/extractMetadata";
@@ -124,7 +125,8 @@ if (allowE2EMultiInstance) {
 }
 
 // Initialize startup metrics (must be early)
-initMetrics();
+const cliArgs = cliProfile.args ?? getCleanCliArgs(process.argv, {defaultApp: !app.isPackaged});
+if (!hasCliOnlyCommand(cliArgs) && !process.argv.includes('--cli')) initMetrics();
 
 // IPC handler for renderer process metrics
 ipcMain.on(StartupChannels.LOG_METRIC, (event, metricEvent, metadata) => {
@@ -182,9 +184,6 @@ export const AppMetrics = [];
 export const MAX_METRICS = 300; // Five minutes of full-resolution live samples.
 let runtimeMetricsTimer, observabilityHandlers;
 
-let actionInProgress = false;
-let SIGNAL_FILE;
-let FAIL_FILE;
 let isAppShuttingDown = false;
 
 // Live E2E failures used to report only that Playwright had lost the page.
@@ -216,354 +215,74 @@ function initializePaths() {
     PLUGINS_DIR = getPluginsDir();
     USER_CONFIG_FILE = getUserConfigFile();
     PLUGINS_REGISTRY_FILE = getPluginsRegistryFile();
-    SIGNAL_FILE = nodePath.join(rootPath, 'deployment-finished.signal');
-    FAIL_FILE = nodePath.join(rootPath, 'deployment-failed.signal');
 }
 
-function getValidCommandFromArgs(args, knownCommands) {
-    // Skip the first arg (binary) and any Electron flags
-    const filtered = args.filter(arg => !arg.startsWith('--'));
-    return knownCommands.find(cmd => filtered.includes(cmd)) || null;
-}
-
-async function compilePluginCLI(path) {
-    console.log(styleText('bold', '🔧 Compiling plugin...'));
-    console.log(styleText('cyan', `📂 Plugin path: ${path}`));
-    console.log(styleText('italic', '🛠️  Preparing build environment...'));
-    const ig = await getIgnoreInstance(path, []);
-
-    const existingFiles = await getAllFilesWithIgnorance(path, (relativePath) => {
-        return !ig.ignores(relativePath);
-    });
-
-    const virtualData = Object.fromEntries(
-        existingFiles.map(filePath => {
-            const content = fs.readFileSync(filePath, 'utf-8');
-            const relativePath = '/' + nodePath.relative(path, filePath).replace(/\\/g, '/');
-            return [relativePath, content];
-        })
-    );
-
-    console.log(styleText('bold', '🏗️  Building...'));
-    const result = await buildUsingEsbuild(virtualData)
-    const srcJson = JSON.parse(virtualData["/package.json"])
-    const entryPoint = srcJson.module || srcJson.main || "dist/index.cjs"
-    const pathToPlugin = nodePath.join(path, entryPoint)
-    await ensureAndWrite(pathToPlugin, result.outputFiles[0].text)
-    console.log(styleText('green', `✅ Saved to: ${pathToPlugin}`));
-
-    const sourceFile = srcJson.source || "index.ts"
-    const sourceFileContent = virtualData[`/${sourceFile}`]
-    const match = await extractMetadata(sourceFileContent)
-
-    if (!match) return null;
-    return {
-        metadata: {
-            name: match.name,
-            version: match.version,
-            author: match.author,
-            description: match.description,
-            icon: match.icon,
-        },
-        entryPoint: entryPoint,
-        name: generatePluginName(srcJson.name)
-    }
-}
-
-function signPluginCLI(path, label) {
-    console.log(styleText('italic', `🔏 Signing plugin at ${path} with certificate "${label}"`));
-    Certs.signPlugin(path, label)
-}
-
-async function confirmSdkMigrationWrite({targetPath, filesToUpdate}) {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-        console.error(styleText("red", "❌ --write requires an interactive terminal for confirmation."));
-        return false;
-    }
-
-    const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
-
+let cliFinished = false;
+if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
+    let result;
     try {
-        const answer = await rl.question(
-            `Apply SDK migration changes to ${filesToUpdate} file(s) in ${targetPath}? [y/N] `
-        );
-        const normalized = String(answer || "").trim().toLowerCase();
-        return normalized === "y" || normalized === "yes";
-    } finally {
-        rl.close();
+        await app.whenReady();
+        initializePaths();
+        const signUnlocked = async (directory, label) => {
+            if (label === 'root' && !certificateStorage.list('root').some(cert => cert.label === 'root')) {
+                const created = await Certs.generateRootCA('root', false, {notify: false, onlyIfMissing: true});
+                if (created) (cliArgs.includes('--json') ? console.error : console.log)('Created the default root signing certificate in OS-protected storage.');
+            }
+            const signed = Certs.signPlugin(directory, label);
+            if (!signed?.success) throw new Error(signed?.error || 'Plugin signing failed.');
+        };
+        const sign = (directory, label) => withCliLock(directory, () => signUnlocked(directory, label));
+        const compile = directory => withCliLock(directory, () => compilePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata}));
+        const validate = directory => validatePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata});
+        const credentialStoreAvailable = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
+        const deploy = async (directory, label) => {
+            const compiled = await deployCliPluginDirectory(directory, {registryFile: PLUGINS_REGISTRY_FILE, build: buildUsingEsbuild, extractMetadata,
+                sign: target => signUnlocked(target, label)});
+            // A notification failure must not undo an already committed deploy.
+            try {if (app.requestSingleInstanceLock({fdoCliDeploy: compiled.name})) app.releaseSingleInstanceLock();}
+            catch (error) {console.error(`Plugin installed, but the GUI could not be refreshed: ${error.message}`);}
+            return compiled;
+        };
+        const untilQuit = async operation => {
+            const controller = new AbortController();
+            const quit = event => {event.preventDefault();controller.abort();};
+            app.on('before-quit', quit);
+            try {return await operation(controller.signal);} finally {app.removeListener('before-quit', quit);}
+        };
+        result = await runFdoCli(cliArgs, {
+            version: app.getVersion(), profile: cliProfile.name, compile, sign, validate,
+            listProfiles: () => listCliProfiles(cliProfile.baseDirectory || getUserDataRoot(), cliProfile.name),
+            test: async (directory, timeoutMs) => runPluginWorkspaceTests(await readCliWorkspaceFiles(directory), {timeoutMs}),
+            logs: (id, lines) => readCliPluginLogs({profile: getUserDataRoot(), registryFile: PLUGINS_REGISTRY_FILE}, id, lines),
+            followLogs: (id, lines) => untilQuit(signal => followCliPluginLogs({profile: getUserDataRoot(), registryFile: PLUGINS_REGISTRY_FILE}, id, {lines, signal})),
+            dev: (directory, label) => {
+                assertCliDeployAllowed(PLUGINS_REGISTRY_FILE, directory);
+                return untilQuit(signal => watchPluginDirectory(directory, {deploy: target => deploy(target, label), signal}));
+            },
+            planDeployment: (directory, label) => planCliDeployment(directory, label, {registryFile: PLUGINS_REGISTRY_FILE, profile: getUserDataRoot(), validate,
+                listCertificates: previewSigningCertificates, credentialStoreAvailable}),
+            listCertificates: () => certificateStorage.list('root'),
+            inspectPlugins: id => inspectCliPlugins({registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE, verifyPlugin: directory => Certs.verifyPlugin(directory)}, id),
+            doctor: () => diagnoseCli({version: app.getVersion(), profile: getUserDataRoot(), registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE,
+                installation: inspectCliInstallation, listCertificates: () => certificateStorage.list('root'),
+                credentialStoreAvailable}),
+            deploy,
+        });
+    } catch (error) {
+        console.error(`Error: ${error.message || String(error)}`);
+        result = {exitCode: 1, openGui: false};
+    }
+    if (!result.openGui) {
+        cliFinished = true;
+        try {closeCertificateStorage();}
+        catch (error) {console.error(`Error closing certificate storage: ${error.message}`); result.exitCode = 1;}
+        await flushCliOutput();
+        app.exit(result.exitCode);
     }
 }
 
-function printSdkMigrationReport(report) {
-    console.log(styleText("bold", `🧭 SDK migration (${report.mode})`));
-    console.log(`Target: ${report.targetPath}`);
-    console.log(`Scanned files: ${report.scannedFiles}`);
-    console.log(`Files to update: ${report.filesToUpdate}`);
-    console.log(`Updated files: ${report.updatedFiles}`);
-
-    if (report.files.length > 0) {
-        console.log(styleText("bold", "\n📄 File changes"));
-        for (const file of report.files) {
-            console.log(`- ${file.relativePath}`);
-            for (const hit of file.ruleHits) {
-                const replacementSuffix = hit.replacements === 1 ? "" : "s";
-                console.log(`  - ${hit.rule} (${hit.replacements} replacement${replacementSuffix})`);
-            }
-        }
-    }
-
-    if (report.ruleHits.length > 0) {
-        console.log(styleText("bold", "\n📊 Rule summary"));
-        for (const hit of report.ruleHits) {
-            const fileSuffix = hit.files.length === 1 ? "" : "s";
-            const replacementSuffix = hit.replacements === 1 ? "" : "s";
-            console.log(`- ${hit.rule}: ${hit.replacements} replacement${replacementSuffix} across ${hit.files.length} file${fileSuffix}`);
-        }
-    }
-
-    if (report.cancelled) {
-        console.log(styleText("yellow", "\n⚠️ Migration write cancelled. No files were modified."));
-    } else if (report.mode === "dry-run") {
-        console.log(styleText("cyan", "\nℹ️ Dry-run only. Re-run with --write to apply these edits."));
-    } else if (report.updatedFiles > 0) {
-        console.log(styleText("green", "\n✅ Migration changes were applied."));
-        console.log(styleText("italic", "Hint: run `git diff` to review applied updates."));
-    }
-}
-
-const program = new Command();
-
-const colorHelp = {
-    styleTitle: (str) => styleText('bold', str),
-    styleCommandText: (str) => styleText('cyan', str),
-    styleCommandDescription: (str) => styleText('magenta', str),
-    styleDescriptionText: (str) => styleText('italic', str),
-    styleOptionText: (str) => styleText('green', str),
-    styleArgumentText: (str) => styleText('yellow', str),
-    styleSubcommandText: (str) => styleText('blue', str),
-}
-
-program
-    .name('fdo')
-    .description('FlexDevOps (FDO) Application CLI')
-    .version(app.getVersion())
-    .allowUnknownOption(true); // Allow macOS arguments like -psn_X_XXXXX
-
-program.configureHelp(colorHelp);
-
-program
-    .command('open')
-    .description('Open FDO application')
-    .action(() => {
-        // This action will be executed when 'open' is explicitly called
-        // If we reach here, we want to open the GUI (do nothing, let normal flow continue)
-        debugLog('[MAIN] Open command called, will launch GUI');
-    });
-
-program
-    .command('compile <path>')
-    .description('Compile a plugin at the given path')
-    .action(async (path) => {
-        actionInProgress = true;
-
-        try {
-            const { resolvedPath, isProtected, platform } = await checkPathAccess(path);
-
-            if (isProtected) {
-                console.log(styleText('yellow', `⚠️ Accessing a protected directory on ${platform}:`));
-                console.log(styleText('yellow', `   ${resolvedPath}`));
-            }
-
-            await compilePluginCLI(resolvedPath);
-        } catch (e) {
-            console.error(styleText('red', `❌ ${e.stack || e.toString()}`));
-        }
-
-        app.exit(0);
-    });
-
-program
-    .command('deploy <path>')
-    .description('Sign plugin with certificate label and deploy at the given path')
-    .option('-l, --label <label>', 'Certificate label to use', 'root')
-    .action(async (path, options) => {
-        actionInProgress = true;
-        const { label } = options;
-        try {
-            const { resolvedPath, isProtected, platform } = await checkPathAccess(path);
-
-            if (isProtected) {
-                console.log(styleText('yellow', `⚠️ Accessing a protected directory on ${platform}:`));
-                console.log(styleText('yellow', `   ${resolvedPath}`));
-            }
-
-            const metadata = await compilePluginCLI(resolvedPath)
-            signPluginCLI(resolvedPath, label)
-            console.log(styleText('bold', '\n🚀 Starting deployment...'));
-            console.log(styleText('italic', '🧷 Extracting plugin metadata...'));
-            if (!metadata) {
-                console.error(styleText('red', `❌ No metadata found`));
-                fs.writeFileSync(FAIL_FILE, 'failed');
-                app.exit(1);
-            } else if (!metadata.name) {
-                console.error(styleText('red', `❌ Cannot get name from package.json`));
-                fs.writeFileSync(FAIL_FILE, 'failed');
-                app.exit(1);
-            } else if (!metadata.entryPoint) {
-                console.error(styleText('red', `❌ Cannot get entrypoint from package.json`));
-                fs.writeFileSync(FAIL_FILE, 'failed');
-                app.exit(1);
-            }
-
-            console.log(styleText('italic', '🧩 Adding plugin to configuration...'));
-            const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
-            pluginORM.addPlugin(metadata.name, metadata.metadata, resolvedPath, metadata.entryPoint, true)
-
-            fs.writeFileSync(SIGNAL_FILE, metadata.name);
-
-            console.log(styleText('green', '✅ Deployment completed successfully!'));
-        } catch (e) {
-            fs.writeFileSync(FAIL_FILE, 'failed');
-            console.error(styleText('red', `❌ ${e.stack || e.toString()}`));
-        }
-        app.exit(0);
-    });
-
-const sign = new Command('sign')
-    .description('Manage plugin signing')
-    .action(() => {
-        // If sign is called without subcommand, show help
-        sign.help();
-    });
-
-sign.configureHelp(colorHelp);
-
-sign
-    .command('list')
-    .description('List available signing certificates')
-    .action(() => {
-        actionInProgress = true;
-        console.log(styleText('bold', '📜 Available certificates:'));
-        try {
-            const certificates = certificateStorage.list('root')
-            for (const cert of certificates) {
-                console.log(`  - ${cert.label} (${cert.id})`);
-            }
-        } catch (e) {
-            console.error(styleText('red', `❌ ${e.stack || e.toString()}`));
-        }
-        app.exit(0);
-    });
-
-sign
-    .command('plugin <path>')
-    .description('Sign a plugin at the given path using specified cert')
-    .option('-l, --label <label>', 'Certificate label to use', 'root')
-    .action(async (path, options) => {
-        actionInProgress = true;
-        const { label } = options;
-        try {
-            const {resolvedPath, isProtected, platform} = await checkPathAccess(path);
-
-            if (isProtected) {
-                console.log(styleText('yellow', `⚠️ Accessing a protected directory on ${platform}:`));
-                console.log(styleText('yellow', `   ${resolvedPath}`));
-            }
-
-            signPluginCLI(resolvedPath, label)
-        } catch (e) {
-            console.error(styleText('red', `❌ ${e.stack || e.toString()}`));
-        }
-        app.exit(0);
-    });
-
-program.addCommand(sign);
-
-const sdk = new Command("sdk")
-    .description("SDK-focused development commands")
-    .action(() => {
-        sdk.help();
-    });
-
-sdk.configureHelp(colorHelp);
-
-sdk
-    .command("migrate")
-    .description("Run SDK migration codemods against plugin sources (dry-run by default)")
-    .requiredOption("--target <path>", "Path to plugin file or directory to migrate")
-    .option("--write", "Apply migration updates to disk")
-    .action(async (options) => {
-        actionInProgress = true;
-        const target = options?.target;
-        const write = !!options?.write;
-
-        try {
-            const {resolvedPath, isProtected, platform} = await checkPathAccess(target);
-            if (isProtected) {
-                console.log(styleText("yellow", `⚠️ Accessing a protected directory on ${platform}:`));
-                console.log(styleText("yellow", `   ${resolvedPath}`));
-            }
-
-            const report = await runSdkMigration({
-                target: resolvedPath,
-                write,
-                confirmWrite: confirmSdkMigrationWrite,
-            });
-
-            printSdkMigrationReport(report);
-            app.exit(0);
-        } catch (error) {
-            const exitCode = getSdkMigrationExitCode(error);
-            console.error(styleText("red", `❌ ${error?.message || String(error)}`));
-            if (error?.cause) {
-                console.error(styleText("red", `Cause: ${error.cause?.message || String(error.cause)}`));
-            }
-            app.exit(exitCode);
-        }
-    });
-
-program.addCommand(sdk);
-
-// Get CLI arguments (excluding electron/node and script path)
-const cliArgs = getCleanCliArgs(process.argv);
-
-// Check if we have CLI commands
-const hasCommand = hasCliCommand(cliArgs);
-const isCliOnlyCommand = hasCliOnlyCommand(cliArgs);
-
-// In dev mode, also check if we're running via terminal (not GUI)
-const isTerminalLaunch = process.stdin.isTTY || process.argv.includes('--cli');
-
-debugLog(`[MAIN] CLI args: ${JSON.stringify(cliArgs)}`);
-debugLog(`[MAIN] hasCommand: ${hasCommand}, isTerminalLaunch: ${isTerminalLaunch}, isCliOnlyCommand: ${isCliOnlyCommand}`);
-
-if (hasCommand && (isTerminalLaunch || app.isPackaged)) {
-    // Parse CLI only when we have explicit commands
-    debugLog('[MAIN] Parsing CLI arguments...');
-    
-    // In packaged apps, process.argv includes the .asar path which commander
-    // interprets as a command. We need to construct proper argv for commander.
-    // Format: [executable, 'fdo', ...actualArgs]
-    const commanderArgv = [process.argv[0], 'fdo', ...cliArgs];
-    
-    debugLog(`[MAIN] Commander argv: ${JSON.stringify(commanderArgv)}`);
-    await app.whenReady();
-    await program.parseAsync(commanderArgv);
-    debugLog('[MAIN] CLI parsing complete');
-    
-    // If this was a CLI-only command, exit now without creating GUI
-    if (isCliOnlyCommand) {
-        debugLog('[MAIN] CLI-only command executed, exiting...');
-        app.exit(0);
-    }
-} else if (cliArgs.length === 0) {
-    // No arguments provided - default to opening GUI
-    debugLog('[MAIN] No CLI arguments, will open GUI');
-}
-
+// CLI processes never register GUI startup/quit handlers after requesting exit.
+if (!cliFinished) {
 // Note: Squirrel startup is already handled at the top of the file (line 177)
 
 if (process.defaultApp) {
@@ -573,6 +292,38 @@ if (process.defaultApp) {
 } else {
     app.setAsDefaultProtocolClient('fdo-fiddle')
 }
+
+const pendingCliDeployments = new Set();
+let cliDeploymentReady = false;
+const refreshCliDeployment = async id => {
+    const plugin = new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(id);
+    if (!plugin) throw new Error(`Deployed plugin "${id}" was not found in the registry.`);
+    const active = PluginManager.getLoadedPlugin(id) || new UserORM(USER_CONFIG_FILE).getActivatedPlugins().includes(id);
+    if (active) {
+        await PluginManager.unLoadPlugin(id, {force: true});
+        const loaded = await PluginManager.loadPlugin(id);
+        if (!loaded?.success) throw new Error(loaded?.error || `Could not restart "${id}".`);
+    }
+    PluginManager.sendToMainWindow(PluginChannels.on_off.DEPLOY_FROM_EDITOR, id);
+};
+const reloadCliDeployment = async id => {
+    if (!cliDeploymentReady) {pendingCliDeployments.add(id); return;}
+    try {
+        await refreshCliDeployment(id);
+    } catch (error) {
+        NotificationCenter.addNotification(failureNotification({source: 'builds', title: 'CLI deployment could not be loaded', message: 'The files were installed, but FDO could not refresh the plugin. Open Manage Plugins to review its status.', error}));
+    }
+};
+app.on('second-instance', (_event, _commandLine, _workingDirectory, additionalData) => {
+    const mainWindow = PluginManager.mainWindow;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show(); mainWindow.focus();
+    }
+    if (typeof additionalData?.fdoCliDeploy === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(additionalData.fdoCliDeploy)) {
+        void reloadCliDeployment(additionalData.fdoCliDeploy);
+    }
+});
 
 const gotTheLock = allowE2EMultiInstance ? true : app.requestSingleInstanceLock()
 
@@ -737,6 +488,7 @@ const createWindow = async () => {
 };
 
 app.whenReady().then(async () => {
+    if (!gotTheLock) return;
     debugLog('[MAIN] app.whenReady() fired!');
     try {initializeCertificateStorage();}
     catch (error) {
@@ -842,10 +594,6 @@ app.whenReady().then(async () => {
     initializePaths();
     debugLog('[MAIN] Paths initialized');
     
-    if (actionInProgress) {
-        debugLog('[MAIN] actionInProgress=true, returning early');
-        return
-    }
 
     logMetric('app-ready');
 
@@ -900,45 +648,6 @@ app.whenReady().then(async () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             mainWindow = createWindow();
             PluginManager.setMainWindow(mainWindow)
-        }
-    })
-
-    app.on('second-instance', (event, commandLine) => {
-        // Someone tried to run a second instance, we should focus our window.
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore()
-            mainWindow.focus()
-        }
-
-        const knownCommands = program.commands.map(cmd => cmd.name());
-        const matchedCommand = getValidCommandFromArgs(commandLine, knownCommands);
-
-        if (matchedCommand === 'deploy') {
-            let attempts = 0;
-            const maxAttempts = 60; // 60 * 500 ms = 30 seconds
-
-            const interval = setInterval(() => {
-                attempts++;
-
-                if (fs.existsSync(SIGNAL_FILE)) {
-                    const pluginName = fs.readFileSync(SIGNAL_FILE, 'utf-8');
-                    clearInterval(interval);
-                    fs.unlinkSync(SIGNAL_FILE); // clean up
-
-                    mainWindow.webContents.send(PluginChannels.on_off.DEPLOY_FROM_EDITOR, pluginName);
-
-                } else if (fs.existsSync(FAIL_FILE)) {
-                    clearInterval(interval);
-                    fs.unlinkSync(FAIL_FILE);
-
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(interval);
-                }
-
-            }, 500);
-        } else {
-            // the commandLine is array of strings in which last element is deep link url
-            dialog.showErrorBox('Welcome Back', `You arrived from: ${commandLine.pop()}`)
         }
     })
 
@@ -1043,7 +752,7 @@ app.whenReady().then(async () => {
             }
         } else {
             try {
-                await Certs.generateRootCA('root');
+                await Certs.generateRootCA('root', false, {onlyIfMissing: true});
             } catch (e) {
                 log.warn('❌ Failed to generate "FDO Root Certificate":', e);
                 NotificationCenter.addNotification(failureNotification({source: 'security', title: 'The default signing certificate could not be created', message: 'FDO could not prepare its signing identity. Unlock your OS credential store or check disk access, then restart FDO.', error: e, actions: [{kind: 'view-settings', tab: 'certificates'}]}));
@@ -1060,6 +769,9 @@ app.whenReady().then(async () => {
     PluginManager.setUserConfigFile(USER_CONFIG_FILE)
     PluginManager.setPluginsRegistryFile(PLUGINS_REGISTRY_FILE)
     await PluginManager.loadPlugins()
+    cliDeploymentReady = true;
+    for (const id of pendingCliDeployments) await reloadCliDeployment(id);
+    pendingCliDeployments.clear();
     gitops.start();
 });
 
@@ -1102,3 +814,5 @@ app.on("will-quit", (event) => {
             .finally(() => { storageDrained = true; app.quit(); });
     }
 });
+
+}

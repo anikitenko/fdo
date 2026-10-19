@@ -1,6 +1,6 @@
 .idea/
 dist/
-release/
+/release/
 vendor/
 artifacts/
 
@@ -104,3 +104,8 @@ playwright-report-full/
 test-results-packaged-services/
 playwright-report-packaged-services/
 artifacts/jest-results.json
+
+# Release workflow staging
+release-staging/
+release-downloads/
+release-assets/

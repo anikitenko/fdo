@@ -59,6 +59,16 @@ function openCertificateDatabase(filename, protection) {
                     if (previousId && previousId !== entry.id) db.prepare(/* language=SQLite */ 'DELETE FROM certificates WHERE scope = ? AND id = ?').run(scope, previousId);
                 });
             },
+            putIfLabelMissing(entry, scope = 'root') {
+                assertScope(scope);
+                let inserted = false;
+                transaction(() => {
+                    if (db.prepare(/* language=SQLite */ "SELECT 1 FROM certificates WHERE scope = ? AND json_extract(metadata, '$.label') = ?").get(scope, entry.label)) return;
+                    write(entry, scope);
+                    inserted = true;
+                });
+                return inserted;
+            },
             update(id, patch, scope = 'root') {
                 assertScope(scope);
                 // Metadata changes must never decrypt or replace private keys.
@@ -96,4 +106,17 @@ function openCertificateDatabase(filename, protection) {
     } catch (error) {db.close(); throw error;}
 }
 
-module.exports = {openCertificateDatabase};
+// Preview commands must not initialize/migrate the database or access key bytes.
+function readCertificateMetadata(filename, scope = 'root') {
+    if (!SCOPES.includes(scope)) throw new Error('Invalid certificate scope');
+    if (!fs.existsSync(filename)) return [];
+    const db = new DatabaseSync(filename, {readOnly: true});
+    // language=SQLite
+    const query = 'SELECT metadata, privateKey IS NOT NULL AS hasPrivateKey FROM certificates WHERE scope = ? ORDER BY rowid';
+    try {
+        return db.prepare(query)
+            .all(scope).map(row => ({...JSON.parse(row.metadata), scope, hasPrivateKey: !!row.hasPrivateKey}));
+    } finally {db.close();}
+}
+
+module.exports = {openCertificateDatabase, readCertificateMetadata};

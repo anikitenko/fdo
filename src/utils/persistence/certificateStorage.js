@@ -1,7 +1,7 @@
 import {app, safeStorage} from 'electron';
 import path from 'node:path';
 import {settings} from './store';
-import {openCertificateDatabase} from './certificateDatabase.cjs';
+import {openCertificateDatabase, readCertificateMetadata} from './certificateDatabase.cjs';
 
 let database;
 function requireProtection() {
@@ -23,8 +23,18 @@ export function initializeCertificateStorage() {
 export const certificateStorage = {
     list: scope => initializeCertificateStorage().list(scope),
     put: (entry, scope, previousId) => initializeCertificateStorage().put(entry, scope, previousId),
+    putIfLabelMissing: (entry, scope) => initializeCertificateStorage().putIfLabelMissing(entry, scope),
     update: (id, patch, scope) => initializeCertificateStorage().update(id, patch, scope),
     remove: (id, scope) => initializeCertificateStorage().remove(id, scope),
     privateKey: (id, scope) => initializeCertificateStorage().privateKey(id, scope),
 };
 export function closeCertificateStorage() {database?.close(); database = undefined;}
+
+export function previewSigningCertificates() {
+    const saved = readCertificateMetadata(path.join(path.dirname(settings.path), 'certificates.sqlite'), 'root');
+    const legacy = settings.get('certificates')?.root ?? [];
+    if (!Array.isArray(legacy)) throw new Error('Invalid existing certificate collection');
+    const byId = new Map(saved.map(entry => [entry.id, entry]));
+    for (const {key, ...entry} of legacy) byId.set(entry.id, {...entry, hasPrivateKey: typeof key === 'string' && !!key});
+    return [...byId.values()];
+}

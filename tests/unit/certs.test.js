@@ -10,7 +10,7 @@ import {verifyCertificateChain} from "../../src/utils/system/certificateChain";
 import {certificateStorage} from "../../src/utils/persistence/certificateStorage";
 import {openCertificateDatabase} from "../../src/utils/persistence/certificateDatabase.cjs";
 
-jest.mock("../../src/utils/persistence/certificateStorage", () => ({certificateStorage: {list: jest.fn(), put: jest.fn(), update: jest.fn(), remove: jest.fn(), privateKey: jest.fn()}}));
+jest.mock("../../src/utils/persistence/certificateStorage", () => ({certificateStorage: {list: jest.fn(), put: jest.fn(), putIfLabelMissing: jest.fn(), update: jest.fn(), remove: jest.fn(), privateKey: jest.fn()}}));
 jest.mock("../../src/utils/desktop/NotificationCenter", () => ({NotificationCenter: {addNotification: jest.fn()}}));
 jest.mock("../../src/utils/filesystem/safeReadFileSync", () => ({safeReadFileSync: jest.fn((...args) => require("node:fs").readFileSync(...args))}));
 
@@ -122,4 +122,20 @@ test("rejects untrusted chains, invalid issuers, expired certificates, and path 
     expect(() => verifyCertificateChain([native(nestedLeaf), native(intermediate)], [root.toString("pem")])).toThrow("path length");
     const nonCaLeaf = await certificate("CN=Nested", leafKeys, leaf.subject, leafKeys.privateKey);
     expect(() => verifyCertificateChain([native(nonCaLeaf), native(leaf)], [root.toString("pem")])).toThrow("issuer");
+});
+
+
+test('first-use certificate creation preserves an existing identity', async () => {
+    const existing = await entry(root, rootKeys.privateKey, 'root');database.put(existing);
+    expect(await Certs.generateRootCA('root', false, {onlyIfMissing:true,notify:false})).toBe(false);
+    expect(database.list('root')).toHaveLength(1);
+    expect(database.list('root')[0].id).toBe(existing.id);
+});
+
+test('atomic first-use insertion cannot replace another process identity with the same label', async () => {
+    const existing = await entry(root, rootKeys.privateKey, 'root');
+    expect(database.putIfLabelMissing(existing)).toBe(true);
+    expect(database.putIfLabelMissing({...existing,id:'concurrent-root'})).toBe(false);
+    expect(database.list('root')).toHaveLength(1);
+    expect(database.list('root')[0].id).toBe(existing.id);
 });

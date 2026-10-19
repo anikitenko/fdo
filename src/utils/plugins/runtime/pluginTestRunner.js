@@ -135,7 +135,7 @@ function formatSpawnError(error) {
     return error.message || String(error);
 }
 
-async function executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath) {
+async function executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath, timeoutMs) {
     const reporter = path.join(path.dirname(compiledDir), 'fdo-results.cjs');
     const resultsPath = path.join(path.dirname(compiledDir), 'fdo-results.jsonl');
     await fs.writeFile(reporter, `module.exports = async function* (events) {
@@ -147,7 +147,7 @@ async function executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesP
     return await new Promise((resolve) => {
         const child = spawn(
             process.execPath,
-            ["--enable-source-maps", "--test", "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${pathToFileURL(reporter).href}`, `--test-reporter-destination=${resultsPath}`, ...compiledTestFiles],
+            ["--enable-source-maps", "--test", ...(timeoutMs ? [`--test-timeout=${timeoutMs}`] : []), "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${pathToFileURL(reporter).href}`, `--test-reporter-destination=${resultsPath}`, ...compiledTestFiles],
             {
                 cwd: compiledDir,
                 env: {
@@ -192,7 +192,7 @@ async function executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesP
     });
 }
 
-export async function runPluginWorkspaceTests(latestContent = {}) {
+export async function runPluginWorkspaceTests(latestContent = {}, {timeoutMs} = {}) {
     const files = collectPluginWorkspaceFiles(latestContent);
     const testFiles = files.map((file) => file.path).filter(isPluginTestFile);
 
@@ -213,7 +213,7 @@ export async function runPluginWorkspaceTests(latestContent = {}) {
         await materializeWorkspace(workspaceDir, files);
         const {compiledTestFiles, nodeModulesPath} = await transpilePluginTests(workspaceDir, compiledDir, testFiles, Object.fromEntries(files.map(file => [file.path, file.content])));
         await copyWorkspaceRuntimeFiles(workspaceDir, compiledDir, files, testFiles, compiledTestFiles);
-        const result = await executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath);
+        const result = await executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath, timeoutMs);
         return {
             ...result,
             results: (result.results || []).map(item => ({...item, file: (() => {

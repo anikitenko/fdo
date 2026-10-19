@@ -1,140 +1,38 @@
-import fs from "node:fs";
+import fs from 'node:fs';
 
-/**
- * CLI Commands Configuration
- * 
- * Single source of truth for all CLI commands and their properties.
- * Import this module wherever you need to check CLI command behavior.
- * 
- * ═══════════════════════════════════════════════════════════════
- * HOW TO ADD A NEW CLI COMMAND
- * ═══════════════════════════════════════════════════════════════
- * 
- * 1. Add command to CLI_COMMANDS array below
- * 2. If command should exit without GUI, add to CLI_ONLY_COMMANDS
- * 3. If command should open GUI, add to GUI_COMMANDS
- * 4. Define command in main.js using Commander.js
- * 5. That's it! The command will automatically work everywhere
- * 
- * Example: Adding a new "test" command that exits without GUI
- * 
- *   CLI_COMMANDS: [..., 'test']
- *   CLI_ONLY_COMMANDS: [..., 'test']
- *   
- *   Then in main.js:
- *   program
- *     .command('test <path>')
- *     .description('Test a plugin')
- *     .action(async (path) => {
- *       // Your logic here
- *       app.exit(0);
- *     });
- * 
- * ═══════════════════════════════════════════════════════════════
- */
+export const CLI_COMMANDS = ['help', '--help', '-h', '--version', '-V', 'open', 'test', 'profiles', 'init', 'compile', 'dev', 'validate', 'deploy', 'sign', 'sdk', 'doctor', 'plugins', 'completion'];
+export const CLI_ONLY_COMMANDS = CLI_COMMANDS.filter(command => command !== 'open');
+export const GUI_COMMANDS = ['open'];
 
-/**
- * All recognized CLI commands and flags
- * These trigger CLI parsing mode
- */
-export const CLI_COMMANDS = [
-    'help',
-    '--help',
-    '-h',
-    '--version',
-    '-V',
-    'open',
-    'compile',
-    'deploy',
-    'sign',
-    'sdk'
-];
-
-/**
- * CLI-only commands that should exit after execution (no GUI)
- * These commands process and exit without opening the GUI window
- */
-export const CLI_ONLY_COMMANDS = [
-    'help',
-    '--help',
-    '-h',
-    '--version',
-    '-V',
-    'compile',
-    'deploy',
-    'sign',
-    'sdk'
-];
-
-/**
- * GUI commands that open the application window
- * These commands may show startup metrics
- */
-export const GUI_COMMANDS = [
-    'open'
-];
-
-/**
- * Check if arguments contain any CLI command
- * @param {string[]} args - Command line arguments
- * @returns {boolean} True if any CLI command is present
- */
+// Unknown commands must reach Commander too, so typos fail instead of opening UI.
 export function hasCliCommand(args) {
-    return args.some(arg => CLI_COMMANDS.includes(arg));
+    return args.length > 0 && !/^fdo-fiddle:\/\//i.test(args[0]);
 }
-
-/**
- * Check if arguments contain a CLI-only command (non-GUI)
- * @param {string[]} args - Command line arguments
- * @returns {boolean} True if any CLI-only command is present
- */
-export function hasCliOnlyCommand(args) {
-    return args.some(arg => CLI_ONLY_COMMANDS.includes(arg));
-}
-
-/**
- * Check if arguments contain a GUI command
- * @param {string[]} args - Command line arguments
- * @returns {boolean} True if any GUI command is present
- */
 export function hasGuiCommand(args) {
-    return args.some(arg => GUI_COMMANDS.includes(arg));
+    return args[0] === 'open' && !args.slice(1).some(arg => ['--help', '-h'].includes(arg));
+}
+export function hasCliOnlyCommand(args) {
+    return hasCliCommand(args) && !hasGuiCommand(args);
 }
 
-/**
- * Filter and clean CLI arguments
- * Removes macOS-specific flags like -psn_X_XXXXX
- * @param {string[]} argv - Raw process.argv
- * @returns {string[]} Cleaned arguments
- */
-export function getCleanCliArgs(argv) {
-    const args = Array.isArray(argv) ? argv : [];
-    if (args.length <= 1) {
-        return [];
-    }
-
-    const secondArg = args[1];
+export function getCleanCliArgs(argv, {defaultApp = process.defaultApp} = {}) {
+    if (!Array.isArray(argv) || argv.length <= 1) return [];
+    // Electron supplies an app entry only in development. Never consume an
+    // existing user-supplied path as an app entry in a packaged invocation.
     let offset = 1;
-
-    if (typeof secondArg === "string" && secondArg.length > 0 && !secondArg.startsWith("-")) {
-        const looksLikePackagedUserArg = CLI_COMMANDS.includes(secondArg);
-        let looksLikeElectronAppEntry = false;
-
-        if (!looksLikePackagedUserArg) {
-            try {
-                if (fs.existsSync(secondArg)) {
-                    const stat = fs.statSync(secondArg);
-                    looksLikeElectronAppEntry = stat.isDirectory() || stat.isFile();
-                }
-            } catch {
-                looksLikeElectronAppEntry = false;
-            }
-        }
-
-        if (looksLikeElectronAppEntry) {
-            offset = 2;
-        }
+    // Electron retains Node bootstrap flags in argv (including Playwright's
+    // loader). They precede the application entry, not the user's command.
+    while (offset < argv.length) {
+        if (['-r', '--require'].includes(argv[offset]) && offset + 1 < argv.length) offset += 2;
+        else if (/^--(?:require|inspect(?:-brk)?|remote-debugging-port)=/.test(argv[offset])) offset++;
+        else break;
     }
-
-    return args.slice(offset).filter(arg => !arg.startsWith('-psn'));
+    if (defaultApp === true && offset < argv.length) offset++;
+    if (defaultApp === undefined && offset < argv.length && !CLI_COMMANDS.includes(argv[offset]) && !argv[offset].startsWith('-')) {
+        try {if (fs.existsSync(argv[offset])) offset++;} catch { /* Preserve the argument for validation. */ }
+    }
+    const args = argv.slice(offset).filter(arg => !/^-psn_\d+_\d+$/.test(arg));
+    // Compatibility switch is consumed by the host, never passed to Commander.
+    if (args[0] === '--cli') args.shift();
+    return args;
 }
