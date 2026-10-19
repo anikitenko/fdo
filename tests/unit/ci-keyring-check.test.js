@@ -65,6 +65,15 @@ test('restores Secret Service after Playwright selected the basic password store
     expect(switches.get('password-store')).toBe('gnome-libsecret');
 });
 
+test('sets Chromium user data before protected storage initializes', () => {
+    const switches = new Map();
+    vm.runInNewContext(bootstrap, {
+        process: {platform: 'win32', env: {FDO_E2E_USER_DATA_DIR: 'C:\\fdo-e2e-profile'}},
+        require: () => ({app: {commandLine: {appendSwitch: (name, value) => switches.set(name, value)}}}),
+    });
+    expect(switches.get('user-data-dir')).toBe('C:\\fdo-e2e-profile');
+});
+
 test.each([
     ['linux', {}], ['darwin', {FDO_CI_KEYRING_SESSION: '1'}], ['win32', {FDO_CI_KEYRING_SESSION: '1'}],
 ])('leaves the credential backend unchanged outside the Linux CI session (%s)', (platform, env) => {

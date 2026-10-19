@@ -10,8 +10,9 @@ function spawnCli(args, profile) {
     const packaged = process.env.FDO_E2E_EXECUTABLE;
     const electronArgs = [
         '-r', require.resolve('./helpers/cliNoGuiBootstrap.cjs'),
-        ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         ...(packaged ? [] : ['.']),
+        // Electron must see the application path before Chromium switches.
+        ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         ...args,
     ];
     const childEnv = {...process.env, FDO_E2E: '1', FDO_E2E_MULTI_INSTANCE: '0', FDO_E2E_USER_DATA_DIR: profile};
