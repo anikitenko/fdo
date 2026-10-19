@@ -10,16 +10,25 @@ function openCertificateDatabase(filename, protection) {
     const db = new DatabaseSync(filename);
     try {
         fs.chmodSync(filename, 0o600);
-        db.exec(/* language=SQLite */ `PRAGMA busy_timeout = 5000;
+        db.exec(/* language=SQLite */ `PRAGMA busy_timeout = 30000;
             PRAGMA journal_mode = WAL;
             CREATE TABLE IF NOT EXISTS certificates (
                 scope TEXT NOT NULL, id TEXT NOT NULL, metadata TEXT NOT NULL, privateKey BLOB,
                 PRIMARY KEY (scope, id)
             );`);
+        const isBusy = error => /locked|busy/i.test(error.message);
+        const wait = ms => {try {Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);} catch {}};
         const transaction = operation => {
-            db.exec(/* language=SQLite */ 'BEGIN IMMEDIATE');
+            const started = Date.now();
+            for (;;) {
+                try {db.exec(/* language=SQLite */ 'BEGIN IMMEDIATE'); break;}
+                catch (error) {
+                    if (!isBusy(error) || Date.now() - started >= 30000) throw error;
+                    wait(50);
+                }
+            }
             try {const result = operation(); db.exec(/* language=SQLite */ 'COMMIT'); return result;}
-            catch (error) {db.exec(/* language=SQLite */ 'ROLLBACK'); throw error;}
+            catch (error) {try {db.exec(/* language=SQLite */ 'ROLLBACK');} catch { /* already rolled back */} throw error;}
         };
         const assertScope = scope => {if (!SCOPES.includes(scope)) throw new Error('Invalid certificate scope');};
         const publicEntry = row => ({...JSON.parse(row.metadata), scope: row.scope, hasPrivateKey: !!row.hasPrivateKey});
@@ -101,7 +110,10 @@ function openCertificateDatabase(filename, protection) {
                 // Retrying after a crash is safe because records are keyed by scope and ID.
                 settings.delete('certificates');
             },
-            close: () => db.close(),
+            close: () => {
+                try {db.exec(/* language=SQLite */ 'PRAGMA wal_checkpoint(TRUNCATE)');} catch { /* still close */ }
+                db.close();
+            },
         };
     } catch (error) {db.close(); throw error;}
 }

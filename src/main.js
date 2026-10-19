@@ -232,13 +232,14 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
             const signed = Certs.signPlugin(directory, label);
             if (!signed?.success) throw new Error(signed?.error || 'Plugin signing failed.');
         };
-        const sign = (directory, label) => withCliLock(directory, () => signUnlocked(directory, label));
+        const withCertificateLock = operation => withCliLock(nodePath.join(getUserDataRoot(), 'certificates.sqlite'), operation);
+        const sign = (directory, label) => withCliLock(directory, () => withCertificateLock(() => signUnlocked(directory, label)));
         const compile = directory => withCliLock(directory, () => compilePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata}));
         const validate = directory => validatePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata});
         const credentialStoreAvailable = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
         const deploy = async (directory, label) => {
             const compiled = await deployCliPluginDirectory(directory, {registryFile: PLUGINS_REGISTRY_FILE, build: buildUsingEsbuild, extractMetadata,
-                sign: target => signUnlocked(target, label)});
+                sign: target => withCertificateLock(() => signUnlocked(target, label))});
             // A notification failure must not undo an already committed deploy.
             try {if (app.requestSingleInstanceLock({fdoCliDeploy: compiled.name})) app.releaseSingleInstanceLock();}
             catch (error) {console.error(`Plugin installed, but the GUI could not be refreshed: ${error.message}`);}
@@ -275,14 +276,15 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
     }
     if (!result.openGui) {
         cliFinished = true;
+        try {closeCertificateStorage();}
+        catch (error) {console.error(`Error closing certificate storage: ${error.message}`); result.exitCode = 1;}
         await flushCliOutput();
         if (process.platform === 'win32') {
             // Electron's Windows teardown can crash after a short CLI command.
-            // Skip native shutdown once output is flushed and exit directly.
+            // The certificate database is already closed so later CLI processes
+            // can open the same profile without SQLITE_BUSY.
             process.exit(result.exitCode);
         }
-        try {closeCertificateStorage();}
-        catch (error) {console.error(`Error closing certificate storage: ${error.message}`); result.exitCode = 1;}
         app.exit(result.exitCode);
     }
 }
