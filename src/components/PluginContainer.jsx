@@ -363,6 +363,8 @@ export const PluginContainer = ({
         setIframeMounted(false);
         setHostError("");
         setContent("");
+        // Request effects for the new frame must not see the old render guard.
+        contentRef.current = "";
         setPluginCanRender(false);
         setShowRecovery(false);
         requestedInitRef.current = false;
@@ -477,7 +479,7 @@ export const PluginContainer = ({
         return () => {
             cancelled = true;
         };
-    }, [plugin, renderAttempt]);
+    }, [plugin, capabilitiesKey, renderAttempt]);
 
     useEffect(() => {
         if (!plugin) return;
@@ -575,7 +577,7 @@ export const PluginContainer = ({
             }
             unsubscribeRender();
         };
-    }, [plugin, pluginCanRender, renderAttempt]);
+    }, [plugin, capabilitiesKey, pluginCanRender, renderAttempt]);
 
     useEffect(() => {
         const handlePluginUiMessage = (payload) => {

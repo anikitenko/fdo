@@ -172,3 +172,29 @@ test('selectPluginOpen still fails with the requested ID after a bounded wait', 
   await expect(selectPluginOpen({waitForFunction: async () => {throw cause;}}, 'missing-plugin'))
     .rejects.toMatchObject({message: expect.stringContaining('missing-plugin'), cause});
 });
+
+test('getPluginUiState inspects opaque frames through the automation frame context', async () => {
+  const {getPluginUiState} = require('../e2e/helpers/sdkExamples');
+  const iframe = document.createElement('iframe');
+  iframe.dataset.pluginId = 'opaque-plugin';
+  iframe.setAttribute('aria-hidden', 'false');
+  Object.defineProperty(iframe, 'contentDocument', {get() {throw new Error('Parent cannot inspect the opaque document');}});
+  document.body.appendChild(iframe);
+  const body = document.createElement('body');
+  body.innerHTML = '<div id="plugin-root"><h1>Opaque UI</h1></div>';
+  const previous = window.electron.plugin;
+  window.electron.plugin = {getRuntimeStatus: async () => ({statuses:[{loaded:true,ready:true,inited:true}]})};
+  const inspect = jest.fn(async callback => callback(body));
+  const page = {
+    electron:window.electron, // Browser global used by the evaluated callback.
+    evaluate: async (callback, argument) => callback(argument),
+    frameLocator: jest.fn(() => ({locator: jest.fn(() => ({evaluate:inspect}))})),
+  };
+  try {
+    const state = await getPluginUiState(page,'opaque-plugin');
+    expect(state).toMatchObject({iframePresent:true,iframeChildCount:1,runtimeStatus:{ready:true}});
+    expect(state.iframeHtml).toContain('Opaque UI');
+    expect(page.frameLocator).toHaveBeenCalledWith('iframe[data-plugin-id="opaque-plugin"]:not([aria-hidden="true"])');
+    expect(inspect).toHaveBeenCalledTimes(1);
+  } finally {iframe.remove(); window.electron.plugin = previous;}
+});

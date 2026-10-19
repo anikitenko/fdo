@@ -85,6 +85,43 @@ describe("PluginContainer message hardening", () => {
         expect(window.fetch).toHaveBeenCalledTimes(2);
     });
 
+    test("permission changes restart runtime polling and request fresh content", async () => {
+        const {rerender} = render(<PluginContainer plugin="example-plugin" capabilities={[]}/>);
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledTimes(1));
+        act(() => renderHandler({id:'example-plugin', content:{render:'<h1>Original</h1>', onLoad:'() => {}'}}));
+        await act(async () => {});
+        window.electron.plugin.getRuntimeStatus.mockClear();
+        window.electron.plugin.render.mockClear();
+        rerender(<PluginContainer plugin="example-plugin" capabilities={['ssh.use']}/>);
+        await waitFor(() => expect(window.electron.plugin.getRuntimeStatus).toHaveBeenCalled());
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledWith('example-plugin'));
+    });
+
+    test("manual frame recovery requests the unchanged runtime payload again", async () => {
+        window.electron.plugin.render.mockImplementation(async () => {
+            renderHandler({id:'example-plugin', content:{render:'<h1>Recovered</h1>', onLoad:'() => {}'}});
+            return {success:true};
+        });
+        const {container} = render(<PluginContainer plugin="example-plugin"/>);
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledTimes(1));
+        const oldFrame = container.querySelector('iframe');
+        act(() => window.dispatchEvent(new MessageEvent('message', {
+            source:oldFrame.contentWindow, data:{type:'PLUGIN_STAGE',stage:'iframe-render-crashed',message:'Stale frame'},
+        })));
+        fireEvent.click(await screen.findByRole('button', {name:'Reload plugin frame'}));
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledTimes(2));
+        const frame = container.querySelector('iframe');
+        await waitFor(() => expect(frame.srcdoc).toContain('plugin_host.test.js'));
+        const post = jest.spyOn(frame.contentWindow, 'postMessage');
+        fireEvent.load(frame);
+        act(() => {
+            window.dispatchEvent(new MessageEvent('message', {source:frame.contentWindow,data:{type:'PLUGIN_HELLO'}}));
+            window.dispatchEvent(new MessageEvent('message', {source:frame.contentWindow,data:{type:'PLUGIN_LAYOUT_READY',layout:{docElRect:{width:100,height:100},bodyRect:{width:100,height:100},rootRect:{width:100,height:100}}}}));
+        });
+        await waitFor(() => expect(post).toHaveBeenCalledWith(expect.objectContaining({type:'PLUGIN_RENDER'}), '*'));
+        post.mockRestore();
+    });
+
     test("does not start handshake recovery for an empty frame while host HTML is loading", async () => {
         jest.useFakeTimers();
         let finish;
