@@ -1,0 +1,42 @@
+Build an Azure FinOps and Resource Manager plugin matching the attached dashboard reference, using the installed @anikitenko/fdo-sdk and existing injected UI libraries. Do not modify the host, add npm dependencies, load remote scripts, or import React/Recharts into plugin code.
+
+Follow the installed SDK declarations and existing plugin registration/lifecycle conventions. Use SDK DOM helpers for HTML and relative CSS imports as style maps: register styles with dom.createClassFromStyle and finish composition with dom.renderHTML. Build the sidebar, tenant/subscription/resource-group filters, summary cards, selectable/sortable resource table, detail tabs, ownership timeline, and action-plan bar. Use injected Pure CSS as the control foundation, custom scoped CSS for the reference's dark navy/cyan design, Font Awesome for generic icons, and SDK UI popovers/tabs/dialogs where appropriate.
+
+Add these charts in appropriate dashboard/detail tabs:
+1. A daily cost area chart.
+2. A stacked bar chart of spending by resource category.
+3. A resource-cost breakdown pie chart.
+4. CPU and memory line charts on the selected resource's Metrics tab.
+
+The host injects window.FDOCharts (API version 1) into the plugin iframe. This is a host-owned, lazily loaded Recharts renderer, not the Recharts component API. Use it only in serialized frontend setup callbacks; never call it from backend render() or import it as an SDK export.
+
+API:
+const controller = await window.FDOCharts.create(element, config);
+controller.update(fullReplacementConfig);
+controller.dispose();
+
+Config:
+{
+  type: 'line' | 'area' | 'bar' | 'pie',
+  xKey: 'day',
+  data: [{day: 'Mon', compute: 12, storage: 4}, {day: 'Tue', compute: 18, storage: null}],
+  series: [
+    {key: 'compute', label: 'Compute', color: '#22b8f0'},
+    {key: 'storage', label: 'Storage', color: '#51cf66'}
+  ],
+  height: 280,
+  label: 'Daily spending by resource category',
+  theme: 'dark',
+  stacked: false,
+  legend: true
+}
+
+Allowed chart types are line, area, bar and pie. Pie requires exactly one series, uses xKey as the category label and a host palette for slice colors, and cannot have negative values. Stacking applies to area/bar. Use distinct xKey/series keys. Each data row must have a string or finite-number xKey value; series values must be finite numbers or null. Missing values become null; never turn missing telemetry into zero. Limit each chart to 10,000 rows and 12 series, aggregate larger datasets. Height must be 120–1600 pixels. Colors use six-digit hex. Configuration is data only: no formatter functions, JSX, callbacks, component props or arbitrary Recharts options. Dates and currency should have clear units in surrounding labels and accessible data summaries.
+
+Use a dedicated empty connected HTMLElement for each chart. Its parent must have available width and min-width:0 in grid/flex layouts. The renderer sizes itself responsively; do not mount while its tab has display:none. Mount when that tab becomes visible, or ensure its container has positive width. For each chart show loading, empty and error states, a clear accessible label, units, and a readable data summary/table. Animations are disabled by the host. Charts are visualizations; controls and actions remain separate SDK UI elements. Resource dependency node/edge diagrams are outside this chart API.
+
+For chart-only setup use defineRenderOnLoad(async () => { /* self-contained setup */ return () => controller.dispose(); }, {language: "typescript"}) in renderOnLoad(). Use defineRenderOnLoadActions only when providing its required handlers and bindings. Return cleanup that disposes every chart and removes owned listeners. Serialized callbacks must be self-contained: they cannot capture imported functions or backend module variables. Load the selected chart data through window.createBackendReq('UI_MESSAGE', {handler: 'getChartData', content: {...filters}}) from registered backend handlers, and validate the response before use. Follow the installed bridge response contract; content is passed directly to the registered handler. Keep a local controller reference within frontend setup. Handle async loading failures, discarded views and out-of-order filter requests; ignore stale responses. If setup is torn down while create() is pending, dispose any controller that resolves late. update() replaces the full config. Do not recreate a chart on every data update.
+
+Start with deterministic demo data and a visible Demo indicator. Implement explicit backend contracts so a real Azure provider can replace fixtures later. Do not fabricate a live Azure connection, costs, savings, telemetry, ownership confidence or successful resource operations. Keep Edit tags/Deallocate/Delete in reviewable demo flows until an authorized backend exists.
+
+Split coherent modules for backend handlers, data types/fixtures, rendering, frontend chart setup and styles. Add node:test/node:assert/strict tests for data aggregation/filtering and render contracts. Run plugin typechecking, build and tests. Verify switching detail tabs, updating filters, empty/error states and plugin reopen without duplicate chart roots. Preserve the reference proportions and responsive behavior. Return complete workspace files in the editor's requested format.

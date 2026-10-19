@@ -126,3 +126,16 @@ test('ignores candidate compiler configuration and blocks reads outside the cand
         expect(fs.readFileSync(external, 'utf8')).toBe('export const secret = 42;');
     } finally {fs.rmSync(temporary, {recursive: true, force: true});}
 });
+
+test('frontend chart bridge declarations support typed chart lifecycle', () => {
+    const result = typecheckPluginWorkspace({'/chart.ts': `import {defineRenderOnLoad} from '@anikitenko/fdo-sdk';
+export const setup = defineRenderOnLoad(async () => {
+    const element = document.querySelector<HTMLElement>('#cost-chart');
+    if (!element) throw new Error('Missing chart');
+    const config: FDOChartConfig = {type: 'area', xKey: 'day', data: [{day: 'Mon', cost: 12}], series: [{key: 'cost'}]};
+    const chart = await window.FDOCharts.create(element, config);
+    chart.update({...config, type: 'bar'});
+    return () => chart.dispose();
+}, {language: 'typescript'});`});
+    expect(result.diagnostics).toEqual([]);
+});

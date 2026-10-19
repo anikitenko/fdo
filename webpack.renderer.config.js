@@ -27,8 +27,10 @@ const rendererResolve = {
     },
 };
 
-/** @type {import("webpack").Configuration} */
-module.exports = {
+/** @returns {import("webpack").Configuration} */
+module.exports = (_env, argv = {}) => ({
+    // Lazy modules execute after the plugin applies its CSP, which forbids eval.
+    devtool: argv.mode === 'development' ? 'source-map' : false,
     entry: {
         main_window: ['./src/polyfills.js', './src/renderer.js'],
         plugin_host: ['./src/polyfills.js', './src/renderer_plugin_host.js']
@@ -203,4 +205,4 @@ module.exports = {
             ],
         }),
     ],
-};
+});

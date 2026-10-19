@@ -1,7 +1,7 @@
 import {HOST_SERVICES_AUTHORING_SUMMARY} from './hostServicesAuthoringGuide';
 // Public plugin-facing authoring context. Keep this independent of FDO host
 // implementation details so every coding provider receives the same contract.
-export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.18";
+export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.19";
 
 export const PLUGIN_STYLE_RENDERING_GUIDANCE = "CSS entries are objects, not strings: never test typeof css.panel === 'string', stringify an entry, or fall back to literal selector names. Share one DOM across child renderers, register styles there and finish with dom.renderHTML(html). In SDK 1.6, collectStylesFrom() starts an isolated retained collector; attach helpers before styling. Legacy collection is shared and drained. DOMStyleMap supports nested rules and numbers without automatic units. Plugin render() must call this composition entry; an unused renderShell does not style the deployed UI. Register palette/custom-property styles on an ancestor of every styled region. For repairs, inspect the actual entry-to-render call chain, replace string-only style lookups, preserve state and handlers, and test the deployed render path and emitted CSS, not only class attributes or stylesheet text.";
 
@@ -51,6 +51,7 @@ export const PLUGIN_RUNTIME_CATALOG = Object.freeze([
         availability: "window.goober in iframe UI runtime",
         use: "Use for scoped UI styling when the current render convention can access it. Do not use it in backend/bootstrap code.",
     },
+    {name: 'FDOCharts', availability: 'window.FDOCharts in iframe UI runtime', use: 'Frontend only: await window.FDOCharts.create(element, {type:"area",xKey:"day",data:[{day:"Mon",cost:12}],series:[{key:"cost"}]}). Types: line/area/bar/pie. No React imports. controller.update(fullConfig); return cleanup calling controller.dispose(). Use a connected empty element with width; show errors and a data summary.'},
     {name: 'FDOTerminal', availability: 'window.FDOTerminal in iframe UI runtime', use: 'Host-owned xterm.js interactive SSH renderer. Use bytes and consumption callbacks, explicit focus and disposal. No SSH or X11 credentials are exposed.'},
     {
         name: "Ace",
@@ -107,6 +108,10 @@ DEFAULT VISUAL QUALITY
 
 VERIFIED IFRAME RUNTIME
 ${libraries}
+
+PLUGIN CHARTS
+${PLUGIN_RUNTIME_CATALOG.find(item => item.name === "FDOCharts").use}
+
 data-fdo-ui-open="id" (type=button): FDO mounts/cleans SDK Dialog/Popover openers. Confirmation requires data-fdo-ui-confirm-selector='[data-fdo-result="visual-result-1"]' + data-fdo-ui-confirm-text: explicit onConfirm writes text to one passive p/pre/span/output; Cancel/Escape preserves it.
 Preserve data-fdo-ui-toast-* queue bindings.
 Host supplies these libraries; do not add dependencies.
