@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111713" />
+    <title>FDO — Your workflow. Your tools.</title>
+    <meta
+      name="description"
+      content="A plugin-driven desktop workspace for developers and SREs. Build tools with an SDK-aware AI assistant, review UI changes, and automate from the CLI."
+    />
+    <link rel="canonical" href="https://fdo.alexvwan.me/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://fdo.alexvwan.me/" />
+    <meta property="og:title" content="FDO — Your workflow. Your tools." />
+    <meta
+      property="og:description"
+      content="Build the DevOps workspace that fits the way you work. Open source. Plugin driven. Desktop native."
+    />
+    <meta
+      property="og:image"
+      content="https://fdo.alexvwan.me/assets/social-card.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" href="assets/fdo-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container navigation">
+        <a class="brand" href="#" aria-label="FDO home"
+          ><img
+            src="assets/fdo-icon.png"
+            width="128"
+            height="128"
+            alt=""
+          /><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="#workspace">Workspace</a><a href="#build">Build plugins</a
+          ><a href="#cli">CLI</a><a href="#resources">Docs</a>
+        </nav>
+        <a class="nav-github" href="https://github.com/anikitenko/fdo"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero container">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="status-dot" aria-hidden="true"></span> FLEXDEVOPS /
+            OPEN SOURCE
+          </p>
+          <h1>
+            Your workflow.<br />Your tools.<br /><span>Your workspace.</span>
+          </h1>
+          <p class="hero-description">
+            The desktop home for your DevOps tools. Build plugins, shape their
+            UI, and automate the routine—all in a workspace you can make your
+            own.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#download"
+              >Get FDO <span aria-hidden="true">↓</span></a
+            ><a class="text-link" href="#workspace"
+              >Explore the workspace <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="platform-note">
+            macOS <span>·</span> Windows <span>·</span> Linux
+          </p>
+        </div>
+        <div class="hero-visual">
+          <div class="visual-label">
+            <span>ONE WORKSPACE. MANY POSSIBILITIES.</span
+            ><span aria-hidden="true">↙</span>
+          </div>
+          <figure class="product-shot">
+            <a
+              href="assets/fdo-editor.png"
+              aria-label="Open the full-size FDO plugin editor screenshot"
+            >
+              <img
+                src="assets/fdo-editor.png"
+                width="3200"
+                height="1954"
+                alt="The real FDO plugin editor showing a starter plugin workspace, source files, Monaco code editor, and development tools."
+                fetchpriority="high"
+              />
+            </a>
+            <figcaption>
+              FDO plugin editor <span aria-hidden="true">·</span>
+              <a href="assets/fdo-editor.png">View full size ↗</a>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+      <div class="principles container" aria-label="Project foundations">
+        <span>DESIGNED TO BE YOURS</span>
+        <p>Plugin driven</p>
+        <span aria-hidden="true">+</span>
+        <p>Open source</p>
+        <span aria-hidden="true">+</span>
+        <p>Desktop native</p>
+        <span aria-hidden="true">+</span>
+        <p>CLI ready</p>
+      </div>
+      <section class="section container" id="workspace">
+        <div class="section-heading">
+          <p class="eyebrow">01 / THE WORKSPACE</p>
+          <h2>Bring your tools.<br />Make them work together.</h2>
+          <p>
+            For developers and SREs who want a workspace that fits their job.
+            FDO supplies the host, editor, and SDK. Plugins bring your workflows
+            to life.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">▦</span>
+            <h3>A home for your plugins</h3>
+            <p>
+              Build focused tools for the jobs you repeat. Keep their interfaces
+              and workflows together in one desktop environment.
+            </p>
+            <a
+              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_TEMPLATES.md"
+              >Explore plugin templates <span aria-hidden="true">↗</span></a
+            >
+          </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">⌘</span>
+            <h3>An editor built in</h3>
+            <p>
+              Work in the Monaco-based editor, use SDK-aware AI assistance, and
+              preview supported UI changes with Live UI.
+            </p>
+            <a
+              href="https://github.com/anikitenko/fdo/blob/main/docs/AI_CODING_AGENT.md"
+              >Meet the coding assistant <span aria-hidden="true">↗</span></a
+            >
+          </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">⌁</span>
+            <h3>Permissions with boundaries</h3>
+            <p>
+              Plugin signing and explicit capability grants help you control
+              access. Host-mediated actions use scoped policies for privileged
+              operations.
+            </p>
+            <a
+              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_CAPABILITY_MODEL.md"
+              >Read the capability model <span aria-hidden="true">↗</span></a
+            >
+          </article>
+        </div>
+      </section>
+      <section class="build-section" id="build">
+        <div class="container build-layout">
+          <div>
+            <p class="eyebrow">02 / THE PLUGIN SYSTEM</p>
+            <h2>Give me fuel.<br />Give me fire.</h2>
+            <p class="section-description">
+              Your ideas are the fuel. Plugins bring the fire. Start with a
+              template, build with the SDK, and turn a repeated task into a tool
+              that works your way.
+            </p>
+            <a
+              class="text-link"
+              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_TEMPLATES.md"
+              >Find your starting point <span aria-hidden="true">↗</span></a
+            >
+            <div class="build-note">
+              <span aria-hidden="true">↳</span>
+              <p>
+                Have an idea, but need a hand?<br />The coding assistant
+                understands FDO’s SDK.
+              </p>
+            </div>
+          </div>
+          <ol class="workflow-steps">
+            <li>
+              <span class="step-number">01</span>
+              <div>
+                <h3>Start with the SDK</h3>
+                <p>
+                  Scaffold a plugin with UI, styles, tests, and a development
+                  guide.
+                </p>
+                <code>fdo init ./my-tool --template blank</code>
+              </div>
+            </li>
+            <li>
+              <span class="step-number">02</span>
+              <div>
+                <h3>Build, preview, refine</h3>
+                <p>
+                  Edit code and explore supported visual changes. Review your
+                  draft before applying it.
+                </p>
+                <a
+                  href="https://github.com/anikitenko/fdo/blob/main/docs/LIVE_UI_EDITOR.md"
+                  >Explore Live UI <span aria-hidden="true">↗</span></a
+                >
+              </div>
+            </li>
+            <li>
+              <span class="step-number">03</span>
+              <div>
+                <h3>Test it. Make it part of your day.</h3>
+                <p>
+                  Validate, test, sign, and deploy. Share plugin collections
+                  through GitOps repositories.
+                </p>
+                <a
+                  href="https://github.com/anikitenko/fdo/blob/main/docs/GITOPS.md"
+                  >Read about GitOps <span aria-hidden="true">↗</span></a
+                >
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+      <section class="section container cli-layout" id="cli">
+        <div>
+          <p class="eyebrow">03 / FOR THE TERMINAL PEOPLE</p>
+          <h2>Less clicking.<br />More doing.</h2>
+          <p class="section-description">
+            Scaffold a workspace, run tests, and watch your changes. Use JSON
+            output for scripts and separate profiles for different environments.
+          </p>
+          <p class="cli-setup">
+            First, enable <code>fdo</code> in
+            <strong>Settings → General</strong> inside the desktop app. Then
+            open a new terminal.
+          </p>
+          <a class="text-link" href="cli.html"
+            >Read the CLI guide <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="terminal-window">
+          <div class="terminal-title">
+            <span>YOUR TERMINAL</span
+            ><button class="copy-button" type="button" data-copy="cli-commands">
+              Copy commands <span aria-hidden="true">⧉</span>
+            </button>
+          </div>
+          <pre
+            id="cli-commands"
+          ><code><span class="code-muted"># Create your first plugin</span>
+fdo init ./my-tool --template blank
+
+<span class="code-muted"># Validate and run its tests</span>
+fdo validate ./my-tool
+fdo test ./my-tool --json
+
+<span class="code-muted"># Watch changes and redeploy</span>
+fdo dev ./my-tool</code></pre>
+          <div class="terminal-footer">
+            <span class="status-dot" aria-hidden="true"></span> A familiar
+            workflow. A desktop destination.
+          </div>
+        </div>
+      </section>
+      <section class="download-section" id="download">
+        <div class="container">
+          <div class="download-heading">
+            <div>
+              <p class="eyebrow">04 / MAKE YOURSELF AT HOME</p>
+              <h2>Your next tool<br />starts here.</h2>
+            </div>
+            <p>
+              Choose your platform on GitHub Releases. Release notes include
+              version details, checksums, and signing status.
+            </p>
+          </div>
+          <div class="download-grid">
+            <a
+              class="download-card"
+              href="https://github.com/anikitenko/fdo/releases"
+              ><span class="os-icon" aria-hidden="true">⌘</span>
+              <h3>macOS</h3>
+              <p>Apple Silicon & Intel</p>
+              <span class="download-format"
+                >DMG / ZIP <span aria-hidden="true">↗</span></span
+              ></a
+            >
+            <a
+              class="download-card"
+              href="https://github.com/anikitenko/fdo/releases"
+              ><span class="os-icon windows-icon" aria-hidden="true">⊞</span>
+              <h3>Windows</h3>
+              <p>x64</p>
+              <span class="download-format"
+                >Installer / Portable <span aria-hidden="true">↗</span></span
+              ></a
+            >
+            <a
+              class="download-card"
+              href="https://github.com/anikitenko/fdo/releases"
+              ><span class="os-icon" aria-hidden="true">&gt;_</span>
+              <h3>Linux</h3>
+              <p>x64</p>
+              <span class="download-format"
+                >AppImage / DEB / RPM <span aria-hidden="true">↗</span></span
+              ></a
+            >
+          </div>
+          <p class="release-note">
+            FDO is preparing for its first release. Available builds will appear
+            on
+            <a href="https://github.com/anikitenko/fdo/releases"
+              >GitHub Releases</a
+            >. You can also
+            <a href="https://github.com/anikitenko/fdo#quick-start"
+              >build from source</a
+            >. Prerelease builds may be unsigned; check their release notes.
+          </p>
+        </div>
+      </section>
+      <section class="section container" id="resources">
+        <div class="resources-heading">
+          <div>
+            <p class="eyebrow">KEEP EXPLORING</p>
+            <h2>Open code.<br />Room to build.</h2>
+          </div>
+          <p>Read the docs, explore the SDK, or help shape what comes next.</p>
+        </div>
+        <div class="resource-links">
+          <a href="https://github.com/anikitenko/fdo#readme"
+            ><span><small>START HERE</small><strong>Documentation</strong></span
+            ><span aria-hidden="true">↗</span></a
+          ><a href="https://www.npmjs.com/package/@anikitenko/fdo-sdk"
+            ><span
+              ><small>BUILD WITH FDO</small><strong>Plugin SDK</strong></span
+            ><span aria-hidden="true">↗</span></a
+          ><a href="https://github.com/anikitenko/fdo/issues"
+            ><span
+              ><small>BUILD IT TOGETHER</small
+              ><strong>Issues & ideas</strong></span
+            ><span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer container">
+      <div>
+        <a class="brand" href="#"
+          ><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <p>FlexDevOps. Built to be yours.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/anikitenko/fdo">Source on GitHub</a
+        ><a href="https://github.com/anikitenko/fdo/blob/main/package.json"
+          >MIT license</a
+        ><a href="https://github.com/anikitenko"
+          >Oleksandr Nykytenko <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </footer>
+    <p class="sr-only" id="copy-status" role="status"></p>
+  </body>
+</html>

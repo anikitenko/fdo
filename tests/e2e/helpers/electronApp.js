@@ -65,7 +65,7 @@ async function launchElectronApp(electron, options = {}) {
       app = await electron.launch({
         ...(executablePath ? {executablePath} : {}),
         // Electron loads this after Playwright's own preload, before app ready.
-        args: [...(packagedLoader ? ['-r', packagedLoader] : []), '-r', require.resolve('./credentialStoreBootstrap.cjs'), ...(executablePath ? [] : ['.'])],
+        args: [...(packagedLoader ? ['-r', packagedLoader] : []), '-r', require.resolve('./credentialStoreBootstrap.cjs'), ...(executablePath ? [] : ['.']), ...(options.args || [])],
         env: {
           ...process.env,
           FDO_E2E: '1',

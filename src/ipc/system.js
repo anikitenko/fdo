@@ -13,7 +13,7 @@ import {focusAssistantOwner} from '../utils/desktop/assistantWindowPolicy';
 
 import {exec} from "child_process";
 import {promisify} from "util";
-import {installFDOCLI, removeFDOCLI} from "../utils/system/installFDOCLI";
+import {installFDOCLI, removeFDOCLI, getCliInstallationStatus} from "../utils/system/installFDOCLI";
 import {lookpath} from "lookpath";
 import {createEditorWindowConfirmState} from "./system_confirm_state";
 import {searchFdoSdkKnowledge} from "../utils/sdk/fdoSdkKnowledge";
@@ -580,28 +580,11 @@ export function registerSystemHandlers() {
     })
 
     ipcMain.handle(SystemChannels.IS_FDO_IN_PATH, async () => {
-        if (await lookpath('fdo')) {
-            return {success: true};
-        } else {
-            return {success: false};
-        }
-    })
-
-    ipcMain.handle(SystemChannels.ADD_FDO_IN_PATH, async () => {
-        if (!await lookpath("fdo")) {
-            return installFDOCLI()
-        } else {
-            return {success: false, error: "FDO CLI is already in PATH."};
-        }
-    })
-
-    ipcMain.handle(SystemChannels.REMOVE_FDO_FROM_PATH, async () => {
-        if (await lookpath("fdo")) {
-            return removeFDOCLI()
-        } else {
-            return {success: false, error: "FDO CLI is not in PATH."};
-        }
-    })
+        const status = getCliInstallationStatus();
+        return {...status, inPath: status.paths.includes(await lookpath('fdo'))};
+    });
+    ipcMain.handle(SystemChannels.ADD_FDO_IN_PATH, () => installFDOCLI());
+    ipcMain.handle(SystemChannels.REMOVE_FDO_FROM_PATH, () => removeFDOCLI());
 
     ipcMain.on(SystemChannels.OPEN_EDITOR_WINDOW, (_event, data) => {
         systemOpenEditorWindow(data)

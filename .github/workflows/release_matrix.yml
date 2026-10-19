@@ -3,91 +3,195 @@ name: Release Matrix
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    tags: ['v*']
+
+permissions:
+  contents: read
 
 concurrency:
-  group: release-matrix-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  CI: 'true'
+  FDO_E2E_LIVE_AI: '0'
+
 jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      commit: ${{ steps.release.outputs.commit }}
+      publish: ${{ steps.release.outputs.publish }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - name: Check tag, versions and default-branch ancestry
+        id: release
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/release/validate.cjs
+
+  quality:
+    name: Release quality gates
+    needs: validate
+    uses: ./.github/workflows/editor_ui_tests.yml
+
   build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+    name: Package ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: [validate, quality]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: macOS
-            os: macos-latest
-            npm_script: dist:mac
-            artifact_glob: |
-              release/*.dmg
-              release/*.zip
-          - name: Linux
-            os: ubuntu-latest
-            npm_script: dist:linux
-            artifact_glob: |
-              release/*.AppImage
-              release/*.deb
-              release/*.rpm
-          - name: Windows
-            os: windows-latest
-            npm_script: dist:win
-            artifact_glob: |
-              release/*.exe
-
+          - {platform: mac, arch: arm64, runner: macos-15}
+          - {platform: mac, arch: x64, runner: macos-15-intel}
+          - {platform: linux, arch: x64, runner: ubuntu-24.04}
+          - {platform: win, arch: x64, runner: windows-2025}
+    env:
+      RELEASE_PLATFORM: ${{ matrix.platform }}
+      RELEASE_ARCH: ${{ matrix.arch }}
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      RELEASE_PUBLISH: ${{ needs.validate.outputs.publish }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
-
-      - name: Install Linux packaging dependencies
+      - name: Check signing readiness before installing dependencies
+        run: node scripts/release/build.cjs --check
+        env: &signing
+          MAC_CSC_LINK: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+          MAC_CSC_KEY_PASSWORD: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY_BASE64: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_API_KEY_BASE64 || '' }}
+          APPLE_API_KEY_ID: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_ID: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+          WIN_CSC_LINK: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+      - run: npm ci
+      - name: Install Linux packaging and test dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rpm fakeroot dpkg
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check dependency security and deprecations
-        run: npm run check:dependencies
-
-      - name: Build distributables
-        run: npm run ${{ matrix.npm_script }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+          sudo apt-get install -y --no-install-recommends rpm fakeroot dpkg gnome-keyring libsecret-tools libglib2.0-bin dbus-x11
+          npx playwright install --with-deps chromium
+      - name: Install browser test runtime
+        if: runner.os != 'Linux'
+        run: npx playwright install chromium
+      - run: npm run check:dependencies
+      - run: npm run build
+      - name: Build and verify signing (builder publishing disabled)
+        run: node scripts/release/build.cjs
+        env: *signing
+      - name: Test the packaged Linux application
+        if: runner.os == 'Linux'
+        run: bash scripts/run-linux-e2e.sh node scripts/run-packaged-host-services.cjs
+      - name: Test the packaged desktop application
+        if: runner.os != 'Linux'
+        run: node scripts/run-packaged-host-services.cjs
+      - name: Stage exact installer inventory and checksums
+        run: node scripts/release/artifacts.cjs stage
+      - name: Upload verified build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: fdo-${{ matrix.name }}-${{ github.ref_name }}
+          name: release-build-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-staging/*
           if-no-files-found: error
-          path: ${{ matrix.artifact_glob }}
+          overwrite: true
+          retention-days: 14
+          compression-level: 0
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-diagnostics-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            playwright-report-packaged-services
+            test-results-packaged-services
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 14
 
-  release:
-    name: Publish GitHub Release Assets
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-
+  assemble:
+    name: Verify complete release inventory
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          path: release-artifacts
-
-      - name: Publish release assets
-        uses: softprops/action-gh-release@v3
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          files: release-artifacts/**/*
-          generate_release_notes: true
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: release-build-*
+          path: release-downloads
+      - name: Verify all platforms and produce SHA256SUMS
+        run: node scripts/release/artifacts.cjs assemble
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+          RELEASE_PUBLISH: ${{ needs.validate.outputs.publish }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-assets
+          path: release-assets/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+          compression-level: 0
+
+  publish:
+    name: Publish complete GitHub Release
+    if: needs.validate.outputs.publish == 'true'
+    needs: [validate, assemble]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: release-publish-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: release-assets/*
+      - name: Generate changelog, upload draft assets, then publish
+        run: node scripts/release/publish.cjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}

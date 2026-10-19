@@ -26,10 +26,11 @@
     "build:analyze": "npm run build && source-map-explorer 'dist/renderer/*.js' 'dist/main/*.js' --html bundle-report.html --only-mapped",
     "package": "npm run build && electron-builder",
     "dist": "npm run build && electron-builder --publish=never",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux",
-    "dist:win": "npm run build && electron-builder --win",
-    "publish": "npm run build && electron-builder --publish=always",
+    "dist:mac": "npm run build && electron-builder --mac --publish=never",
+    "dist:linux": "npm run build && electron-builder --linux --publish=never",
+    "dist:win": "npm run build && electron-builder --win --publish=never",
+    "publish": "node scripts/release/publish.cjs",
+    "release:check": "node scripts/release/validate.cjs",
     "lint": "echo \"No linting configured\"",
     "test:playwright": "playwright test",
     "pretest": "npm run build",
@@ -62,7 +63,9 @@
     "test:e2e:ci": "playwright test --config=playwright.ci.config.js",
     "test:ci": "node scripts/run-jest.cjs --ci --silent",
     "check:dependencies": "node scripts/check-dependencies.cjs",
-    "test:handles": "node scripts/run-jest.cjs --detectOpenHandles --runInBand"
+    "test:handles": "node scripts/run-jest.cjs --detectOpenHandles --runInBand",
+    "website:dev": "node scripts/website/site.cjs serve",
+    "website:check": "node scripts/website/site.cjs check"
   },
   "devDependencies": {
     "@babel/core": "^8.0.7",

@@ -36,7 +36,8 @@ export const Certs = {
         return (notAfter - new Date()) / (1000 * 60 * 60 * 24);
     },
 
-    async generateRootCA(label = 'root', update = false) {
+    async generateRootCA(label = 'root', update = false, {notify = true, onlyIfMissing = false} = {}) {
+        if (onlyIfMissing && certificateStorage.list('root').some(cert => cert.label === label)) return false;
 
         const algorithm = {
             name: "RSASSA-PKCS1-v1_5", hash: "SHA-256",
@@ -73,17 +74,21 @@ export const Certs = {
 
         const previous = update ? certificateStorage.list('root').find(root => root.label === label) : null;
         if (update && !previous) throw new Error('Certificate to renew was not found');
-        certificateStorage.put({
+        const entry = {
             ...previous, key: keyPem, cert: certPem, id, identity, label,
             createdAt: now.toISOString(), expiresAt: notAfter.toISOString(),
             lastUsedAt: now.toISOString(), imported: false,
-        }, 'root', previous?.id);
+        };
+        if (onlyIfMissing) {
+            if (!certificateStorage.putIfLabelMissing(entry, 'root')) return false;
+        } else certificateStorage.put(entry, 'root', previous?.id);
 
-        NotificationCenter.addNotification({source: 'security',
+        if (notify) NotificationCenter.addNotification({source: 'security',
             title: update ? `Signing certificate “${label}” renewed` : `Signing certificate “${label}” created`,
             message: update ? 'The signing identity was replaced. Re-sign plugins that used the previous certificate before starting them again.' : 'The certificate and its encrypted private key are saved. You can now use it to sign plugins.',
             details: `Identity: ${identity}\nFingerprint: ${id}\nExpires: ${notAfter.toISOString()}`,
             type: update ? 'warning' : 'success', actions: [{kind: 'view-settings', tab: 'certificates'}]});
+        return true;
     },
 
     setLabel(id, newName) {

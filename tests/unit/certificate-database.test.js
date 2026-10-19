@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {DatabaseSync} = require('node:sqlite');
-const {openCertificateDatabase} = require('../../src/utils/persistence/certificateDatabase.cjs');
+const {openCertificateDatabase, readCertificateMetadata} = require('../../src/utils/persistence/certificateDatabase.cjs');
 const {certificateFixture} = require('../helpers/certificateFixture.cjs');
 
 let root, directory, filename, database, protection;
@@ -110,4 +110,13 @@ test('rejects mismatched keys, detects altered ciphertext, and preserves an exis
     expect(database.list('root').map(entry => entry.id)).toEqual([other.id]);
     database.remove(other.id);
     expect(database.list()).toEqual([]);
+});
+
+test('read-only preview returns public certificate metadata without decrypting keys or creating a missing database', () => {
+    expect(readCertificateMetadata(path.join(directory, 'missing.sqlite'))).toEqual([]);
+    expect(fs.existsSync(path.join(directory, 'missing.sqlite'))).toBe(false);
+    database.put(root);
+    protection.decrypt = jestMock.fn(() => {throw new Error('must not decrypt');});
+    expect(readCertificateMetadata(filename)).toEqual([{...root, key: undefined, scope: 'root', hasPrivateKey: true}]);
+    expect(protection.decrypt).not.toHaveBeenCalled();
 });

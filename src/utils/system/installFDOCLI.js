@@ -1,583 +1,156 @@
-import {homedir, platform} from "os";
-import {existsSync, mkdirSync, unlinkSync, writeFileSync} from "fs";
-import {execSync} from "child_process";
-import path from "path";
+import {homedir, platform} from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import {lookpath} from 'lookpath';
+import {execFileSync} from 'node:child_process';
+import {app} from 'electron';
+import {runWithSudo} from './runWithSudo';
 
-import {app} from "electron";
-import {runWithSudo} from "./runWithSudo";
-import log from "electron-log/main";
+const MARKER = 'FDO CLI wrapper v1';
+const quoteShell = value => "'" + value.replace(/'/g, "'\\''") + "'";
 
-// Log prefix for CLI installation operations
-const LOG_PREFIX = "[CLI Install]";
-
-/**
- * Gets the correct path to the app icon for sudo dialogs
- * @returns {string} Path to the icon file
- */
-function getIconPath() {
-    // Pattern from main.js and ipc/system.js for accessing bundled assets
-    if (app.isPackaged) {
-        return path.join(process.resourcesPath, 'app.asar', 'dist', 'renderer', 'assets', 'icons', 'fdo_icon.icns');
-    } else {
-        return path.join(__dirname, '..', '..', 'dist', 'renderer', 'assets', 'icons', 'fdo_icon.icns');
-    }
+export function getPlatformPaths(osType, home = homedir()) {
+    if (osType === 'darwin' || osType === 'linux') return {primary: '/usr/local/bin/fdo', fallbacks: [path.join(home, '.local', 'bin', 'fdo'), path.join(home, 'bin', 'fdo')]};
+    if (osType === 'win32') return {primary: path.win32.join(home, 'AppData', 'Local', 'FDO', 'bin', 'fdo.cmd'), fallbacks: []};
+    return {primary: null, fallbacks: []};
 }
 
-/**
- * Detects if the application is running in development mode
- * @returns {boolean} True if running in development, false if packaged
- */
-function isDevelopmentEnvironment() {
-    const execPath = process.execPath.toLowerCase();
-    const appPath = app.getAppPath();
-    
-    // Debug logging
-    log.debug(`${LOG_PREFIX} Dev detection - NODE_ENV: ${process.env.NODE_ENV}`);
-    log.debug(`${LOG_PREFIX} Dev detection - execPath: ${process.execPath}`);
-    log.debug(`${LOG_PREFIX} Dev detection - appPath: ${appPath}`);
-    log.debug(`${LOG_PREFIX} Dev detection - app.isPackaged: ${app.isPackaged}`);
-    
-    // Signal 1: NODE_ENV environment variable
-    if (process.env.NODE_ENV === 'development') {
-        log.debug(`${LOG_PREFIX} Dev detection: NODE_ENV = development`);
-        return true;
+export function createWrapperScript(executable, application, osType, development) {
+    if ([executable, application].some(value => value != null && /[\0\r\n]/.test(value))) throw new Error('CLI paths cannot contain line breaks or null bytes.');
+    const args = [executable, ...(development && application ? [application] : [])];
+    if (osType === 'darwin' || osType === 'linux') return `#!/bin/sh\n# ${MARKER}\nif [ "$#" -eq 0 ]; then set -- --help; fi\nexec ${args.map(quoteShell).join(' ')} "$@"\n`;
+    if (osType === 'win32') {
+        if (args.some(value => value.includes('"'))) throw new Error('Invalid quote in Windows CLI path.');
+        const command = args.map(value => '"' + value.replace(/%/g, '%%') + '"').join(' ');
+        // No parenthesized expansion block; preserve the child's exit status.
+        return `@echo off\r\nrem ${MARKER}\r\nsetlocal DisableDelayedExpansion\r\nif "%~1"=="" goto fdo_help\r\n${command} %*\r\nexit /b %errorlevel%\r\n:fdo_help\r\n${command} --help\r\nexit /b %errorlevel%\r\n`;
     }
-    
-    // Signal 2: Electron executable path (dev uses electron binary)
-    if (execPath.includes('electron')) {
-        log.debug(`${LOG_PREFIX} Dev detection: execPath contains 'electron'`);
-        return true;
-    }
-    
-    // Signal 3: App not packaged (Electron API)
-    if (!app.isPackaged) {
-        log.debug(`${LOG_PREFIX} Dev detection: app.isPackaged = false`);
-        return true;
-    }
-    
-    // Signal 4: Check if app path contains webpack build artifacts
-    if (appPath.includes('.webpack') || appPath.includes('/dist/')) {
-        log.debug(`${LOG_PREFIX} Dev detection: appPath contains webpack/dist`);
-        return true;
-    }
-    
-    // Signal 5: Check if we're in a dev directory structure
-    // Dev structure: /path/to/fdo/release/... (release folder in project)
-    // Prod structure: /Applications/FDO.app/...
-    if (execPath.includes('/dev/') && !execPath.includes('/Applications/')) {
-        log.debug(`${LOG_PREFIX} Dev detection: execPath in /dev/ directory`);
-        return true;
-    }
-    
-    log.debug(`${LOG_PREFIX} Dev detection: No dev signals found, assuming production`);
-    return false;
+    throw new Error(`Unsupported platform: ${osType}`);
 }
 
-/**
- * Checks if a path is writable by the current user
- * @param {string} targetPath - Path to check
- * @returns {boolean} True if writable, false otherwise
- */
-function isPathWritable(targetPath) {
+function isOwnedWrapper(file) {
     try {
-        const fs = require('fs');
-        const parentDir = path.dirname(targetPath);
-        
-        // Check if parent directory exists
-        if (!existsSync(parentDir)) {
-            return false;
-        }
-        
-        // Check write permission on parent directory
-        fs.accessSync(parentDir, fs.constants.W_OK);
+        const stat = fs.lstatSync(file);
+        if (!stat.isFile() || stat.size > 65536) return false;
+        const text = fs.readFileSync(file, 'utf8');
+        if (/^(?:#!\/bin\/sh\n# |@echo off\r?\nrem )FDO CLI wrapper v1\r?\n/.test(text)) return true;
+        // Recognize only the complete templates shipped by earlier FDO versions.
+        return /^#!\/bin\/(?:sh|bash)\n# If no arguments provided, show help\nif \[ \$# -eq 0 ]; then\n {2}exec "[^"\n]+"(?: "[^"\n]+")? --help\nelse\n {2}exec "[^"\n]+"(?: "[^"\n]+")? "\$@"\nfi\n$/.test(text)
+            || /^@echo off\r?\nif "%~1"=="" \(\r?\n {2}"[^"\r\n]+"(?: "[^"\r\n]+")? --help\r?\n\) else \(\r?\n {2}"[^"\r\n]+"(?: "[^"\r\n]+")? %\*\r?\n\)\r?\n$/.test(text);
+    } catch {return false;}
+}
+
+function pathExists(file) {try {fs.lstatSync(file); return true;} catch (error) {if (error.code === 'ENOENT') return false; throw error;}}
+function isPathWritable(file) {
+    try {
+        let parent = path.dirname(file);
+        while (!fs.existsSync(parent)) parent = path.dirname(parent);
+        if (!fs.statSync(parent).isDirectory()) return false;
+        fs.accessSync(parent, fs.constants.W_OK);
         return true;
-    } catch (err) {
-        return false;
-    }
+    } catch {return false;}
+}
+function candidates(paths) {return [...new Set([paths.primary, ...paths.fallbacks].filter(Boolean))];}
+
+function updateWindowsPath(directory, remove = false) {
+    // Values travel in the environment, never in PowerShell source or a shell command.
+    const script = `$directory = $env:FDO_CLI_INSTALL_DIR
+$entries = @(([Environment]::GetEnvironmentVariable('Path','User') -split ';') | Where-Object { $_ -and $_.TrimEnd('\\') -ine $directory.TrimEnd('\\') })
+${remove ? '' : '$entries += $directory'}
+[Environment]::SetEnvironmentVariable('Path', ($entries -join ';'), 'User')`;
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+        env: {...process.env, FDO_CLI_INSTALL_DIR: directory}, windowsHide: true, stdio: 'pipe', timeout: 15000,
+    });
 }
 
-/**
- * Detects the actual FDO application installation path
- * @returns {{electronPath: string, appPath: string, method: string, isDevEnvironment: boolean}}
- */
-function detectApplicationPath() {
-    const isDevEnvironment = isDevelopmentEnvironment();
-    const platform = process.platform;
-    const appPath = app.getAppPath();
-    
-    // ALWAYS use the currently running process
-    // This ensures the CLI points to wherever FDO is actually running from
-    const electronPath = process.execPath;
-    
-    log.debug(`${LOG_PREFIX} Path detection - electronPath: ${electronPath}`);
-    log.debug(`${LOG_PREFIX} Path detection - appPath: ${appPath}`);
-    log.debug(`${LOG_PREFIX} Path detection - isDevEnvironment: ${isDevEnvironment}`);
-    
-    // In development, we need to invoke: electron <app-path> [args]
-    // In production, we invoke: <executable> [args]
-    
-    if (isDevEnvironment) {
-        // Development: Return both electron and app paths
-        return {
-            electronPath,
-            appPath,
-            method: 'dev: electron + appPath',
-            isDevEnvironment
-        };
-    }
-    
-    // Production: Use only the packaged executable
-    return {
-        electronPath,
-        appPath: null,
-        method: 'production: packaged executable',
-        isDevEnvironment
-    };
-}
-
-/**
- * Gets platform-specific CLI installation paths
- * @param {string} platform - Platform type (darwin, win32, linux)
- * @returns {{primary: string, fallbacks: string[]}}
- */
-function getPlatformPaths(platform) {
-    const home = homedir();
-    
-    if (platform === 'darwin' || platform === 'linux') {
-        return {
-            primary: '/usr/local/bin/fdo',
-            fallbacks: [
-                path.join(home, '.local', 'bin', 'fdo'),
-                path.join(home, 'bin', 'fdo')
-            ]
-        };
-    } else if (platform === 'win32') {
-        return {
-            primary: path.join(home, 'AppData', 'Local', 'FDO', 'bin', 'fdo.cmd'),
-            fallbacks: []
-        };
-    }
-    
-    return { primary: null, fallbacks: [] };
-}
-
-/**
- * Creates the appropriate wrapper script content for the platform
- * @param {string} electronPath - Path to the electron executable (or packaged app executable)
- * @param {string|null} appPath - Path to the app code (only in dev mode)
- * @param {string} platform - Platform type (darwin, win32, linux)
- * @param {boolean} isDevEnvironment - Whether running in development mode
- * @returns {string} Wrapper script content
- */
-function createWrapperScript(electronPath, appPath, platform, isDevEnvironment) {
-    if (platform === 'darwin' || platform === 'linux') {
-        // Use #!/bin/sh for Linux (POSIX-compliant), #!/bin/bash for macOS
-        const shebang = platform === 'linux' ? '#!/bin/sh' : '#!/bin/bash';
-        
-        if (isDevEnvironment && appPath) {
-            // Development: exec electron app-path "$@" (or --help if no args)
-            return `${shebang}
-# If no arguments provided, show help
-if [ $# -eq 0 ]; then
-  exec "${electronPath}" "${appPath}" --help
-else
-  exec "${electronPath}" "${appPath}" "$@"
-fi
-`;
-        } else {
-            // Production: exec packaged-executable "$@" (or --help if no args)
-            return `${shebang}
-# If no arguments provided, show help
-if [ $# -eq 0 ]; then
-  exec "${electronPath}" --help
-else
-  exec "${electronPath}" "$@"
-fi
-`;
+export async function installCli({osType, paths, executable, application, packaged, elevate = runWithSudo, updatePath = updateWindowsPath, icon}) {
+    try {
+        if (!paths.primary) return {success: false, error: `Unsupported platform: ${osType}`};
+        // app.isPackaged is authoritative; folder names and NODE_ENV are not.
+        const content = createWrapperScript(executable, application, osType, !packaged);
+        const all = candidates(paths), owned = all.filter(isOwnedWrapper);
+        const available = all.filter(file => !pathExists(file));
+        const targets = owned.length ? owned : [available.find(isPathWritable) || available[0]];
+        if (!targets[0]) return {success: false, error: 'The fdo command paths are occupied by unrelated files. Move those files before installing FDO CLI.'};
+        let changed = false;
+        for (const target of targets) {
+            if (isOwnedWrapper(target) && fs.readFileSync(target, 'utf8') === content && (osType === 'win32' || (fs.statSync(target).mode & 0o111) === 0o111)) continue;
+            if (pathExists(target) && !isOwnedWrapper(target)) return {success: false, error: `Refusing to replace an unrelated file: ${target}`};
+            if (isPathWritable(target)) {
+                fs.mkdirSync(path.dirname(target), {recursive: true});
+                const temporary = path.join(fs.mkdtempSync(path.join(path.dirname(target), '.fdo-cli-')), 'fdo');
+                try {fs.writeFileSync(temporary, content, {mode: 0o755}); fs.renameSync(temporary, target);}
+                finally {fs.rmSync(path.dirname(temporary), {recursive: true, force: true});}
+            } else if (osType !== 'win32') {
+                const temporaryDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'fdo-cli-'));
+                try {
+                    const temporary = path.join(temporaryDir, 'fdo'); fs.writeFileSync(temporary, content, {mode: 0o755});
+                    const result = await elevate(`install -d ${quoteShell(path.dirname(target))} && install -m 755 ${quoteShell(temporary)} ${quoteShell(target)}`, {name: 'FDO', icns: icon, confirmMessage: `Install or repair FDO CLI at ${target}?`});
+                    if (result === 'skip') return {success: false, error: 'skip'};
+                } finally {fs.rmSync(temporaryDir, {recursive: true, force: true});}
+            } else return {success: false, error: `Cannot write ${target}. Check directory permissions.`};
+            changed = true;
         }
-    } else if (platform === 'win32') {
-        if (isDevEnvironment && appPath) {
-            // Development: call electron app-path %* (or --help if no args)
-            return `@echo off\r\nif "%~1"=="" (\r\n  "${electronPath}" "${appPath}" --help\r\n) else (\r\n  "${electronPath}" "${appPath}" %*\r\n)\r\n`;
-        } else {
-            // Production: call packaged-executable %* (or --help if no args)
-            return `@echo off\r\nif "%~1"=="" (\r\n  "${electronPath}" --help\r\n) else (\r\n  "${electronPath}" %*\r\n)\r\n`;
+        let warning;
+        if (osType === 'win32') {
+            try {updatePath(path.dirname(targets[0]));}
+            catch (error) {warning = `The command was installed, but PATH could not be updated: ${error.message}. Add ${path.dirname(targets[0])} to your user PATH.`;}
         }
-    }
-    
-    return '';
+        return {success: true, path: targets[0], paths: targets, skipped: !changed, updated: changed && owned.length > 0, developmentMode: !packaged, ...(warning ? {warning} : {})};
+    } catch (error) {return {success: false, error: error.message};}
 }
 
-/**
- * Selects the best CLI installation path based on write permissions
- * @param {string} platform - Platform type (darwin, win32, linux)
- * @param {{primary: string, fallbacks: string[]}} paths - Available paths
- * @returns {{path: string, needsSudo: boolean, reason: string}}
- */
-function selectInstallPath(platform, paths) {
-    // Try primary path first
-    if (isPathWritable(paths.primary)) {
-        log.debug(`${LOG_PREFIX} Primary path is writable: ${paths.primary}`);
-        return {
-            path: paths.primary,
-            needsSudo: false,
-            reason: 'Primary path is writable'
-        };
-    }
-    
-    log.info(`${LOG_PREFIX} Primary path ${paths.primary} not writable, trying fallbacks`);
-    
-    // Try fallbacks
-    for (const fallback of paths.fallbacks) {
-        log.debug(`${LOG_PREFIX} Checking fallback: ${fallback}`);
-        if (isPathWritable(fallback)) {
-            log.info(`${LOG_PREFIX} Using fallback path: ${fallback}`);
-            return {
-                path: fallback,
-                needsSudo: false,
-                reason: 'Primary path not writable, selected first writable fallback'
-            };
+export async function removeCli({osType, paths, elevate = runWithSudo, updatePath = updateWindowsPath, icon}) {
+    const removed = [];
+    try {
+        const all = candidates(paths), owned = all.filter(isOwnedWrapper);
+        if (!owned.length && all.some(pathExists)) return {success: false, error: 'No managed FDO CLI wrapper found. Unrelated files and symlinks were preserved.', paths: removed};
+        for (const file of owned) {
+            if (isPathWritable(file)) fs.unlinkSync(file);
+            else if (osType !== 'win32') {
+                const result = await elevate(`rm -f ${quoteShell(file)}`, {name: 'FDO', icns: icon, confirmMessage: `Remove FDO CLI at ${file}?`});
+                if (result === 'skip') return {success: false, error: 'skip', paths: removed};
+            } else return {success: false, error: `Cannot remove ${file}. Check directory permissions.`, paths: removed};
+            removed.push(file);
         }
-    }
-    
-    // All failed, use primary with sudo (for Unix-like systems)
-    if (platform === 'darwin' || platform === 'linux') {
-        log.info(`${LOG_PREFIX} No writable paths found, will use sudo for primary path`);
-        return {
-            path: paths.primary,
-            needsSudo: true,
-            reason: 'No writable paths found, requires elevated permissions'
-        };
-    }
-    
-    // Windows: If primary not writable and no fallbacks, it's an error
-    return {
-        path: paths.primary,
-        needsSudo: false,
-        reason: 'No writable paths available'
-    };
+        let warning;
+        if (osType === 'win32' && removed.length) {
+            try {updatePath(path.dirname(removed[0]), true);}
+            catch (error) {warning = `The wrapper was removed, but PATH cleanup failed: ${error.message}`;}
+        }
+        return {success: true, path: removed[0], paths: removed, notFound: !removed.length, ...(warning ? {warning} : {})};
+    } catch (error) {return {success: false, error: error.message, paths: removed};}
 }
 
+export function cliExecutable({osType, packaged, executable = process.execPath, appImage = process.env.APPIMAGE}) {
+    // AppImage's internal executable lives in a temporary mount removed on exit.
+    return osType === 'linux' && packaged && appImage ? fs.realpathSync(appImage) : executable;
+}
+
+function installationOptions(removing = false) {
+    const osType = platform();
+    return {osType, paths: getPlatformPaths(osType), executable: removing ? process.execPath : cliExecutable({osType, packaged: app.isPackaged}), application: app.getAppPath(), packaged: app.isPackaged,
+        icon: path.join(app.getAppPath(), 'dist', 'renderer', 'assets', 'icons', 'fdo_icon.icns')};
+}
+export function getCliInstallationStatus() {
+    const paths = candidates(getPlatformPaths(platform())).filter(isOwnedWrapper);
+    return {success: paths.length > 0, path: paths[0], paths};
+}
 export async function installFDOCLI() {
-    const osType = platform();
-    
-    // T008-T009: Dynamic path detection
-    log.info(`${LOG_PREFIX} Starting installation for ${osType}`);
-    
-    const appInfo = detectApplicationPath();
-    const electronPath = appInfo.electronPath;
-    const appPath = appInfo.appPath; // null in production, set in development
-    
-    log.info(`${LOG_PREFIX} Electron executable: ${electronPath}`);
-    if (appPath) {
-        log.info(`${LOG_PREFIX} App path: ${appPath}`);
-    }
-    log.debug(`${LOG_PREFIX} Detection method: ${appInfo.method}`);
-    log.debug(`${LOG_PREFIX} Development environment: ${appInfo.isDevEnvironment}`);
-    
-    // T018: Development environment warning
-    if (appInfo.isDevEnvironment) {
-        log.warn(`${LOG_PREFIX} Development environment detected, CLI will point to dev build`);
-    }
-    
-    // T030: Get platform-specific paths and select best one
-    const paths = getPlatformPaths(osType);
-    
-    if (!paths.primary) {
-        const errorMsg = `Unsupported platform: ${osType}. Please install manually.`;
-        log.error(`${LOG_PREFIX} ${errorMsg}`);
-        return {success: false, error: errorMsg};
-    }
-    
-    // T031-T034: Check permissions and select install path with fallbacks
-    const selectedPath = selectInstallPath(osType, paths);
-    const target = selectedPath.path;
-    const needsSudo = selectedPath.needsSudo;
-    
-    log.info(`${LOG_PREFIX} Selected installation path: ${target}`);
-    log.debug(`${LOG_PREFIX} Selection reason: ${selectedPath.reason}`);
-    log.debug(`${LOG_PREFIX} Requires sudo: ${needsSudo}`);
-    
-    // T010: Idempotent check - skip if file already exists
-    if (existsSync(target)) {
-        log.info(`${LOG_PREFIX} CLI already exists at ${target}, skipping installation`);
-        return {success: true, skipped: true, path: target};
-    }
-    
-    // T036: Create parent directory if needed
-    const parentDir = path.dirname(target);
-    if (!existsSync(parentDir)) {
-        try {
-            mkdirSync(parentDir, {recursive: true});
-            log.info(`${LOG_PREFIX} Created directory: ${parentDir}`);
-        } catch (err) {
-            const errorMsg = `Failed to create directory ${parentDir}: ${err.message}
-
-Recovery: Create the directory manually with: mkdir -p ${parentDir}`;
-            log.error(`${LOG_PREFIX} ${errorMsg}`);
-            return {success: false, error: errorMsg};
-        }
-    }
-    
-    // T013, T015, T017: Create platform-specific wrapper script
-    const wrapperScript = createWrapperScript(electronPath, appPath, osType, appInfo.isDevEnvironment);
-    
-    if (osType === "darwin" || osType === "linux") {
-        try {
-            // Write wrapper script directly if no sudo needed, otherwise use install command with sudo
-            if (!needsSudo) {
-                // User-writable path - write directly without sudo
-                log.debug(`${LOG_PREFIX} Writing directly to user-writable path: ${target}`);
-                writeFileSync(target, wrapperScript, {mode: 0o755});
-                log.info(`${LOG_PREFIX} Successfully installed to ${target}`);
-                return {success: true, path: target, developmentMode: appInfo.isDevEnvironment};
-            } else {
-                // System path - requires sudo
-                const tmpWrapperPath = path.join(app.getPath("temp"), "fdo-wrapper.sh");
-                writeFileSync(tmpWrapperPath, wrapperScript, {mode: 0o755});
-                log.debug(`${LOG_PREFIX} Created temporary wrapper at ${tmpWrapperPath}`);
-                
-                const command = `install -m 755 "${tmpWrapperPath}" "${target}"`;
-                const result = await runWithSudo(command, {
-                    name: "FDO",
-                    icns: getIconPath(),
-                    confirmMessage: `FDO CLI will be installed to ${target}`,
-                });
-                
-                if (result && result === "skip") {
-                    log.info(`${LOG_PREFIX} Installation cancelled by user`);
-                    return {success: false, error: "skip"};
-                }
-                
-                log.info(`${LOG_PREFIX} Successfully installed to ${target}`);
-                return {success: true, path: target, developmentMode: appInfo.isDevEnvironment};
-            }
-            
-        } catch (err) {
-            // T019, T035: Detailed error messages with all attempted paths
-            const attemptedPaths = [paths.primary, ...paths.fallbacks].join(', ');
-            const errorMsg = `Failed to install FDO CLI to ${target}: ${err.message}
-
-Attempted paths: ${attemptedPaths}
-
-Recovery: Run installation again and approve the permission dialog, or install to user directory by creating ~/.local/bin first.`;
-            log.error(`${LOG_PREFIX} ${errorMsg}`);
-            return {success: false, error: errorMsg};
-        }
-        
-    } else if (osType === "win32") {
-        const installDir = path.dirname(target);
-        
-        try {
-            // Create parent directory if needed
-            if (!existsSync(installDir)) {
-                mkdirSync(installDir, {recursive: true});
-                log.debug(`${LOG_PREFIX} Created directory: ${installDir}`);
-            }
-            
-            // Write wrapper script
-            writeFileSync(target, wrapperScript, {encoding: "utf8"});
-            log.debug(`${LOG_PREFIX} Created wrapper script at ${target}`);
-            
-            // Add to PATH if not already there
-            try {
-                const currentPath = execSync(
-                    `[Environment]::GetEnvironmentVariable("Path", "User")`,
-                    {encoding: "utf8", shell: "powershell.exe"}
-                ).trim();
-                
-                if (!currentPath.includes(installDir)) {
-                    const newPath = currentPath + ';' + installDir;
-                    execSync(
-                        `[Environment]::SetEnvironmentVariable("Path", "${newPath}", "User")`,
-                        {shell: "powershell.exe"}
-                    );
-                    log.info(`${LOG_PREFIX} Added ${installDir} to user PATH`);
-                } else {
-                    log.debug(`${LOG_PREFIX} ${installDir} already in PATH`);
-                }
-            } catch (pathErr) {
-                log.warn(`${LOG_PREFIX} Failed to update PATH: ${pathErr.message}`);
-                // Don't fail installation if PATH update fails
-            }
-            
-            log.info(`${LOG_PREFIX} Successfully installed to ${target}`);
-            return {success: true, path: target, developmentMode: appInfo.isDevEnvironment};
-            
-        } catch (err) {
-            // T019, T035: Detailed error messages with recovery instructions
-            const attemptedPaths = [paths.primary, ...paths.fallbacks].filter(p => p).join(', ');
-            const errorMsg = `Failed to install FDO CLI to ${target}: ${err.message}
-
-Attempted paths: ${attemptedPaths}
-
-Recovery: Ensure you have write permissions to ${installDir}. You may need to run FDO as administrator or create the directory manually.`;
-            log.error(`${LOG_PREFIX} ${errorMsg}`);
-            return {success: false, error: errorMsg};
-        }
-    }
-    
-    // Shouldn't reach here, but just in case
-    return {success: false, error: `Unsupported platform: ${osType}`};
+    try {return await installCli(installationOptions());} catch (error) {return {success:false,error:error.message};}
+}
+export async function removeFDOCLI() {
+    try {return await removeCli(installationOptions(true));} catch (error) {return {success:false,error:error.message};}
 }
 
-export async function removeFDOCLI() {
-    const osType = platform();
-    const binName = "fdo";
-    
-    log.info(`${LOG_PREFIX} Starting uninstallation for ${osType}`);
-    
-    if (osType === "darwin" || osType === "linux") {
-        // T045-T047: Check all possible CLI paths (current + legacy + fallbacks)
-        const paths = getPlatformPaths(osType);
-        const allPossiblePaths = [
-            paths.primary,
-            ...paths.fallbacks,
-            // Legacy hardcoded paths
-            `/usr/local/bin/${binName}`,
-            path.join(homedir(), '.local', 'bin', binName),
-            path.join(homedir(), 'bin', binName),
-            '/opt/fdo/FDO'  // Legacy Linux path
-        ];
-        
-        // Remove duplicates
-        const uniquePaths = [...new Set(allPossiblePaths)];
-        
-        // Find which path actually has the CLI
-        let foundPath = null;
-        for (const checkPath of uniquePaths) {
-            log.debug(`${LOG_PREFIX} Checking for CLI at: ${checkPath}`);
-            if (existsSync(checkPath)) {
-                foundPath = checkPath;
-                log.info(`${LOG_PREFIX} Found CLI at: ${checkPath}`);
-                break;
-            }
-        }
-        
-        // T048: Idempotent - if not found, report success
-        if (!foundPath) {
-            log.info(`${LOG_PREFIX} No CLI installation found (already uninstalled)`);
-            return {success: true, notFound: true};
-        }
-        
-        // T049: Info-level logging
-        log.info(`${LOG_PREFIX} Removing CLI from: ${foundPath}`);
-        
-        try {
-            // Check if we need sudo based on write permissions
-            const needsSudoForRemoval = !isPathWritable(foundPath);
-            
-            if (!needsSudoForRemoval) {
-                // User-writable path - remove directly without sudo
-                log.debug(`${LOG_PREFIX} Removing directly from user-writable path`);
-                unlinkSync(foundPath);
-                log.info(`${LOG_PREFIX} Successfully removed CLI from ${foundPath}`);
-                return {success: true, path: foundPath};
-            } else {
-                // System path - requires sudo
-                log.debug(`${LOG_PREFIX} Removing from system path, requires sudo`);
-                const command = `rm -f "${foundPath}"`;
-                const result = await runWithSudo(command, {
-                    name: "FDO",
-                    icns: getIconPath(),
-                    confirmMessage: `FDO CLI will be removed from ${foundPath}`,
-                });
-                
-                if (result && result === "skip") {
-                    log.info(`${LOG_PREFIX} Uninstallation cancelled by user`);
-                    return {success: false, error: "skip"};
-                }
-                
-                log.info(`${LOG_PREFIX} Successfully removed CLI from ${foundPath}`);
-                return {success: true, path: foundPath};
-            }
-            
-        } catch (err) {
-            // T050: Clear error messages
-            const errorMsg = `Failed to remove CLI from ${foundPath}: ${err.message}
-
-Recovery: Remove the file manually with: ${isPathWritable(foundPath) ? `rm ${foundPath}` : `sudo rm ${foundPath}`}`;
-            log.error(`${LOG_PREFIX} ${errorMsg}`);
-            return {success: false, error: errorMsg, path: foundPath};
-        }
-        
-    } else if (osType === "win32") {
-        // T045-T047: Check current and legacy paths
-        const paths = getPlatformPaths(osType);
-        const allPossiblePaths = [
-            paths.primary,
-            // Legacy hardcoded path
-            path.join(homedir(), "AppData", "Local", "FDO", "bin", `${binName}.cmd`),
-            `C:\\Program Files\\FDO\\${binName}.cmd`
-        ];
-        
-        const uniquePaths = [...new Set(allPossiblePaths)];
-        
-        let foundPath = null;
-        for (const checkPath of uniquePaths) {
-            log.debug(`${LOG_PREFIX} Checking for CLI at: ${checkPath}`);
-            if (existsSync(checkPath)) {
-                foundPath = checkPath;
-                log.info(`${LOG_PREFIX} Found CLI at: ${checkPath}`);
-                break;
-            }
-        }
-        
-        // T048: Idempotent - if not found, report success
-        if (!foundPath) {
-            log.info(`${LOG_PREFIX} No CLI installation found (already uninstalled)`);
-            return {success: true, notFound: true};
-        }
-        
-        const installDir = path.dirname(foundPath);
-        
-        try {
-            // T049: Info-level logging
-            log.info(`${LOG_PREFIX} Removing CLI from: ${foundPath}`);
-            unlinkSync(foundPath);
-            log.debug(`${LOG_PREFIX} Deleted file: ${foundPath}`);
-            
-            // T051: Remove from PATH if present
-            try {
-                const currentPath = execSync(
-                    `[Environment]::GetEnvironmentVariable("Path", "User")`,
-                    {encoding: "utf8", shell: "powershell.exe"}
-                ).trim();
-                
-                if (currentPath.includes(installDir)) {
-                    const newPath = currentPath
-                        .split(";")
-                        .filter((p) => p !== installDir)
-                        .join(";");
-                    
-                    execSync(
-                        `[Environment]::SetEnvironmentVariable("Path", "${newPath}", "User")`,
-                        {shell: "powershell.exe"}
-                    );
-                    log.info(`${LOG_PREFIX} Removed ${installDir} from user PATH`);
-                } else {
-                    log.debug(`${LOG_PREFIX} ${installDir} not in PATH`);
-                }
-            } catch (pathErr) {
-                log.warn(`${LOG_PREFIX} Failed to update PATH: ${pathErr.message}`);
-                // Don't fail uninstall if PATH update fails
-            }
-            
-            log.info(`${LOG_PREFIX} Successfully removed CLI from ${foundPath}`);
-            return {success: true, path: foundPath};
-            
-        } catch (err) {
-            // T050: Clear error messages
-            const errorMsg = `Failed to remove CLI from ${foundPath}: ${err.message}
-
-Recovery: Delete the file manually or run FDO as administrator.`;
-            log.error(`${LOG_PREFIX} ${errorMsg}`);
-            return {success: false, error: errorMsg, path: foundPath};
-        }
-        
-    } else {
-        const errorMsg = `Unsupported platform: ${osType}. Please remove manually.`;
-        log.error(`${LOG_PREFIX} ${errorMsg}`);
-        return {success: false, error: errorMsg};
-    }
+export async function inspectCliInstallation(options = installationOptions(), findCommand = lookpath) {
+    const expected = createWrapperScript(options.executable, options.application, options.osType, !options.packaged);
+    const paths = candidates(options.paths).filter(file => isOwnedWrapper(file)
+        && fs.readFileSync(file, 'utf8') === expected
+        && (options.osType === 'win32' || (fs.statSync(file).mode & 0o111) === 0o111));
+    const resolved = await findCommand('fdo');
+    const samePath = file => options.osType === 'win32'
+        ? path.resolve(file).toLowerCase() === path.resolve(resolved || '.').toLowerCase()
+        : file === resolved;
+    return {current: paths.length > 0, path: paths[0], inPath: !!resolved && paths.some(samePath)};
 }

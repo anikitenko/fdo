@@ -6,6 +6,7 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+  workflow_call:
   schedule:
     - cron: '23 3 * * 1'
 
@@ -27,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -46,7 +47,7 @@ jobs:
           xvfb-run -a -s '-screen 0 800x600x24 +extension SECURITY -nolisten tcp' node scripts/test-xsecurity-display.cjs
       - name: Upload Jest results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: jest-results
           path: artifacts/jest-results.json
@@ -62,8 +63,8 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -82,7 +83,7 @@ jobs:
         run: bash scripts/run-linux-e2e.sh node scripts/run-packaged-host-services.cjs
       - name: Upload regression artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-linux-${{ matrix.shard }}
           path: |
@@ -93,7 +94,7 @@ jobs:
 
       - name: Upload native diagnostics on failure
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-linux-${{ matrix.shard }}-diagnostics
           path: |
@@ -107,8 +108,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -123,7 +124,7 @@ jobs:
         run: bash scripts/run-linux-e2e.sh npm run test:e2e:fixtures:matrix
       - name: Upload fixture runtime artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk-fixture-runtime-matrix
           path: |
@@ -135,7 +136,7 @@ jobs:
 
       - name: Upload fixture runtime diagnostics on failure
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk-fixture-runtime-diagnostics
           path: test-results
@@ -151,8 +152,8 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -161,7 +162,7 @@ jobs:
       - run: npm run build
       # One invocation preserves every failure artifact; native UI tests run serially.
       - name: Run desktop and Live UI smoke tests
-        run: npm run test:e2e:ci -- tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js tests/e2e/host-services.spec.js tests/e2e/remote-commands.spec.js tests/e2e/ssh-terminal.spec.js
+        run: npm run test:e2e:ci -- tests/e2e/cli.spec.js tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js tests/e2e/host-services.spec.js tests/e2e/remote-commands.spec.js tests/e2e/ssh-terminal.spec.js
       - name: Package host for credential and SSH verification
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -175,7 +176,7 @@ jobs:
         run: npm run test:e2e:ci -- --output=test-results-full
       - name: Upload desktop artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-${{ matrix.os }}
           path: |
@@ -187,7 +188,7 @@ jobs:
 
       - name: Upload native desktop diagnostics on failure
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-${{ matrix.os }}-diagnostics
           path: |

@@ -7,6 +7,7 @@
  * Based on specs/001-app-loading-improvement/data-model.md
  */
 
+import {cliProfile} from './cliProfile';
 import fs from 'fs';
 import {createInterface} from 'node:readline';
 import {createHash} from 'node:crypto';
@@ -145,7 +146,7 @@ function logMetric(event, metadata = {}) {
   
   // Console output (synchronous, immediate feedback)
   // Only log to console in GUI mode, not during CLI-only operations
-  const cliArgs = getCleanCliArgs(process.argv);
+  const cliArgs = cliProfile.args ?? getCleanCliArgs(process.argv, {defaultApp: !app.isPackaged});
   const isCliOnlyMode = hasCliOnlyCommand(cliArgs);
   
   if (!isCliOnlyMode) {

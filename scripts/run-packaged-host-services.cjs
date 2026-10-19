@@ -19,7 +19,7 @@ if (require.main === module) {
     const executablePath = packagedExecutable();
     const manifest = require.resolve('playwright/package.json');
     const cli = path.join(path.dirname(manifest), require(manifest).bin.playwright);
-    const result = spawnSync(process.execPath, [cli, 'test', 'tests/e2e/host-services.spec.js', 'tests/e2e/remote-commands.spec.js', 'tests/e2e/ssh-terminal.spec.js', '--workers=1', '--retries=0', '--output=test-results-packaged-services'], {
+    const result = spawnSync(process.execPath, [cli, 'test', 'tests/e2e/cli.spec.js', 'tests/e2e/host-services.spec.js', 'tests/e2e/remote-commands.spec.js', 'tests/e2e/ssh-terminal.spec.js', '--workers=1', '--retries=0', '--output=test-results-packaged-services'], {
         cwd: path.resolve(__dirname, '..'), stdio: 'inherit',
         env: {...process.env, FDO_E2E_EXECUTABLE: executablePath, PLAYWRIGHT_HTML_OUTPUT_DIR: 'playwright-report-packaged-services'},
     });
