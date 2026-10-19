@@ -65,13 +65,26 @@ test('restores Secret Service after Playwright selected the basic password store
     expect(switches.get('password-store')).toBe('gnome-libsecret');
 });
 
-test('sets Chromium user data before protected storage initializes', () => {
+test('sets Chromium user data before protected storage initializes on Linux CI', () => {
+    const switches = new Map();
+    vm.runInNewContext(bootstrap, {
+        process: {platform: 'linux', env: {FDO_CI_KEYRING_SESSION: '1', FDO_E2E_USER_DATA_DIR: '/tmp/fdo-e2e-profile'}},
+        require: () => ({app: {commandLine: {
+            removeSwitch: name => switches.delete(name),
+            appendSwitch: (name, value) => switches.set(name, value),
+        }}}),
+    });
+    expect(switches.get('user-data-dir')).toBe('/tmp/fdo-e2e-profile');
+    expect(switches.get('password-store')).toBe('gnome-libsecret');
+});
+
+test('does not override Chromium user data outside Linux CI', () => {
     const switches = new Map();
     vm.runInNewContext(bootstrap, {
         process: {platform: 'win32', env: {FDO_E2E_USER_DATA_DIR: 'C:\\fdo-e2e-profile'}},
         require: () => ({app: {commandLine: {appendSwitch: (name, value) => switches.set(name, value)}}}),
     });
-    expect(switches.get('user-data-dir')).toBe('C:\\fdo-e2e-profile');
+    expect(switches.has('user-data-dir')).toBe(false);
 });
 
 test.each([
