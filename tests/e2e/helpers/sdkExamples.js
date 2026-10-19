@@ -364,93 +364,57 @@ async function selectPluginOpen(window, pluginName) {
 }
 
 async function expectPluginUiVisible(window, pluginName) {
-  await waitForAsyncCondition(window, async (id) => {
-    const runtimeStatus = await window.electron.plugin.getRuntimeStatus([id]).catch(() => null);
-    const status = runtimeStatus?.statuses?.[0];
-    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
-    const iframe = allIframes.find((node) => node?.dataset?.pluginId === id && node?.getAttribute("aria-hidden") !== "true")
-      || null;
-    const doc = iframe?.contentDocument;
-    if (!status?.loaded || !status?.ready || !status?.inited) {
-      return false;
-    }
-    if (!doc?.body) {
-      return false;
-    }
-    const root = doc.querySelector("#plugin-root, [data-plugin-root='true'], #root");
-    const childCount = root?.childElementCount ?? doc.body.childElementCount ?? 0;
-    const textLength = (doc.body.innerText || "").trim().length;
-    return childCount > 0 || textLength > 0;
-  }, pluginName, { timeout: 15000 });
+  const {expect} = require('@playwright/test');
+  await expect.poll(async () => {
+    const state = await getPluginUiState(window, pluginName);
+    const status = state.runtimeStatus;
+    return !!(status?.loaded && status?.ready && status?.inited && state.iframePresent
+      && (state.iframeChildCount > 0 || state.iframeText.length > 0));
+  }, {timeout:15000, message:`Waiting for ${pluginName} UI`}).toBe(true);
 }
 
 async function waitForPluginUiRendered(window, pluginName, timeout = 15000) {
-  await waitForAsyncCondition(window, async ({ pluginName }) => {
-    const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]).catch(() => null);
-    const status = runtimeStatus?.statuses?.[0];
-    if (!status?.loaded || !status?.ready || !status?.inited || status?.loading) {
-      return false;
-    }
-
-    // This is an assertion about one plugin. Falling back to another active
-    // iframe can make a broken target look healthy during multi-plugin runs.
-    const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
-      .find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true")
-      || null;
-    const doc = iframe?.contentDocument;
-    const body = doc?.body;
-    if (!body) {
-      return false;
-    }
-
-    const html = String(body.innerHTML || "");
-    const text = String(body.innerText || "").trim();
-    if (html.includes("plugin-page-loader")) {
-      return false;
-    }
-    if (/Failed to render UI|Error rendering plugin|Plugin UI failed to load/i.test(text)) {
-      return false;
-    }
-    const root = body.querySelector("#plugin-root, [data-plugin-root='true'], #root");
-    const childCount = root?.childElementCount ?? body.childElementCount ?? 0;
-    return childCount > 0 || text.length > 0;
-  }, { pluginName }, { timeout });
+  const {expect} = require('@playwright/test');
+  await expect.poll(async () => {
+    const state = await getPluginUiState(window, pluginName);
+    const status = state.runtimeStatus;
+    return !!(status?.loaded && status?.ready && status?.inited && !status?.loading
+      && state.iframePresent && !state.iframeHtml.includes('plugin-page-loader')
+      && !/Failed to render UI|Error rendering plugin|Plugin UI failed to load/i.test(state.iframeText)
+      && (state.iframeChildCount > 0 || state.iframeText.length > 0));
+  }, {timeout, message:`Waiting for ${pluginName} rendered UI`}).toBe(true);
 }
 
 async function getPluginUiState(window, pluginName) {
-  return await window.evaluate(async ({ pluginName }) => {
+  const state = await window.evaluate(async ({pluginName}) => {
     const runtimeStatus = await window.electron.plugin.getRuntimeStatus([pluginName]).catch(() => null);
-    const status = runtimeStatus?.statuses?.[0] || null;
-    const container = document.querySelector("#plugin-container");
-    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
-    const iframe = allIframes.find((node) => node?.dataset?.pluginId === pluginName && node?.getAttribute("aria-hidden") !== "true") || null;
-    const doc = iframe?.contentDocument;
-    const bodyText = String(doc?.body?.innerText || "").trim();
-    const bodyHtml = String(doc?.body?.innerHTML || "").trim();
-    const containerText = String(container?.innerText || "").trim();
-
+    const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-id]'))
+      .find(node => node.dataset.pluginId === pluginName && node.getAttribute('aria-hidden') !== 'true');
+    const containerText = String(document.querySelector('#plugin-container')?.innerText || '').trim();
     return {
-      runtimeStatus: status,
-      iframePresent: !!iframe,
-      iframeText: bodyText,
-      iframeHtml: bodyHtml,
-      hostOverlayVisible: /Plugin UI failed to load|Loading plugin UI|Preparing plugin host|Initializing plugin/i.test(containerText),
-      hostOverlayText: containerText.slice(0, 800),
+      runtimeStatus:runtimeStatus?.statuses?.[0] || null,
+      iframePresent:!!iframe,
+      hostOverlayVisible:/Plugin UI failed to load|Loading plugin UI|Preparing plugin host|Initializing plugin/i.test(containerText),
+      hostOverlayText:containerText.slice(0,800),
     };
-  }, { pluginName });
+  }, {pluginName});
+  let content = {iframeText:'', iframeHtml:'', iframeChildCount:0};
+  if (state.iframePresent) {
+    // Reloaded hosts use the production opaque sandbox. Inspect through
+    // Playwright's frame context; the parent cannot read contentDocument.
+    const selector = `iframe[data-plugin-id=${JSON.stringify(pluginName)}]:not([aria-hidden="true"])`;
+    content = await window.frameLocator(selector).locator('body').evaluate(body => {
+      const root = body.querySelector("#plugin-root, [data-plugin-root='true'], #root");
+      return {iframeText:String(body.innerText || '').trim(), iframeHtml:String(body.innerHTML || '').trim(),
+        iframeChildCount:root?.childElementCount ?? body.childElementCount};
+    }, undefined, {timeout:1000}).catch(() => content);
+  }
+  return {...state, ...content};
 }
 
 async function getPluginIframeText(window) {
-  return await window.evaluate(() => {
-    const allIframes = Array.from(document.querySelectorAll('iframe[data-plugin-id]'));
-    const iframe = allIframes.find((node) => node?.dataset?.pluginActive === "true" && node?.getAttribute("aria-hidden") !== "true")
-      || null;
-    const doc = iframe?.contentDocument;
-    if (!doc?.body) {
-      return "";
-    }
-    return String(doc.body.innerText || "").trim();
-  });
+  const id = await window.evaluate(() => document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]')?.dataset.pluginId);
+  return id ? (await getPluginUiState(window,id)).iframeText : '';
 }
 
 function normalizeUiMessageResponse(response) {
