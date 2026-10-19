@@ -1,3 +1,4 @@
+import {installChartRenderer} from './components/plugin/utils/chartBridge';
 import {installTerminalRenderer} from './components/plugin/utils/terminalRenderer';
 import ReactDOM from 'react-dom/client';
 import React from 'react';
@@ -7,7 +8,11 @@ import {PluginPage} from "./components/plugin/PluginPage.jsx";
 const rootElement = document.getElementById('plugin-root');
 
 if (rootElement) {
+    // srcdoc inherits the file:// base URL. Load lazy chunks through the same
+    // protocol as the rewritten host scripts, without changing the main window.
+    __webpack_public_path__ = 'static://host/';
     installTerminalRenderer();
+    installChartRenderer();
     // We're in a plugin window - mount React
     const root = ReactDOM.createRoot(rootElement);
     

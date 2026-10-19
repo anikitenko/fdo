@@ -37,7 +37,7 @@ process.stdout.write(result.renderView());`;
             expect(hostHtml).toContain(asset);
         }
         expect(PLUGIN_RUNTIME_CATALOG.map((item) => item.name)).toEqual([
-            "Pure CSS", "Font Awesome", "Split Grid", "highlight.js", "Notyf", "Goober", "FDOTerminal", "Ace",
+            "Pure CSS", "Font Awesome", "Split Grid", "highlight.js", "Notyf", "Goober", "FDOCharts", "FDOTerminal", "Ace",
         ]);
     });
 
@@ -83,6 +83,8 @@ process.stdout.write(result.renderView());`;
         expect(guide).toContain("Do not claim all models produce identical results");
         expect(guide).toContain("node:test and node:assert/strict");
         expect(guide).toContain("Do not require cloud credentials");
+        expect(guide).toContain("await window.FDOCharts.create(element");
+        expect(guide).toContain("controller.update(fullConfig)");
         expect(guide).toContain("distinctive visual identity");
         expect(guide).toContain("installed SDK evidence");
         expect(guide).toContain("declarations");
