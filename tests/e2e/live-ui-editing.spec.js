@@ -453,7 +453,10 @@ test('dialog design preview reveals hidden children, supports native focus and E
         await visual.getByRole('button', {name: 'Undo', exact: true}).click();
         expect(await frame.locator('form').evaluate(node => node.lastElementChild.textContent)).toBe('New text');
         await visual.getByRole('button', {name: 'Redo', exact: true}).click();
+        await visual.getByRole('button', {name: 'p · New text', exact: true}).click();
+        await expect(visual.getByLabel('Text', {exact: true})).toHaveValue('New text');
         await visual.getByLabel('Text', {exact: true}).fill('Additional guidance');
+        await expect(visual.getByRole('button', {name: 'Preview change', exact: true})).toBeEnabled();
         await visual.getByRole('button', {name: 'Preview change', exact: true}).click();
         await visual.getByLabel('Dialog preview', {exact: true}).selectOption({index: 1});
         await visual.getByLabel('Edit', {exact: true}).selectOption('css');
