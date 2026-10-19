@@ -352,6 +352,17 @@ h2 {
 .build-layout .section-description {
   margin-block: 24px;
 }
+.plugin-examples {
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.plugin-examples a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .build-note {
   display: flex;
   gap: 12px;
