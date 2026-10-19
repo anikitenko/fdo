@@ -271,7 +271,7 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
         });
     } catch (error) {
         console.error(`Error: ${error.message || String(error)}`);
-        result = {exitCode: 1, openGui: false};
+        result = {exitCode: Number.isInteger(error.exitCode) ? error.exitCode : 1, openGui: false};
     }
     if (!result.openGui) {
         cliFinished = true;

@@ -43,6 +43,10 @@ test('SDK migration retains validation exit codes and refuses unattended writes'
     expect((await runFdoCli(['sdk', 'migrate', '--target', '.', '--write'], f.dependencies)).exitCode).toBe(2);
     expect(f.dependencies.migrate).not.toHaveBeenCalled();
 });
+test('missing migration target from the real SDK helper exits 2', async () => {
+    const f = fixture();
+    expect((await runFdoCli(['sdk', 'migrate', '--target', '/__missing_fdo_sdk_migrate_target__'], f.dependencies)).exitCode).toBe(2);
+});
 
 test.each([['--json', 'compile', '.'], ['compile', '.', '--json']])('JSON results are parseable with global options in either position: %j', async (...args) => {
     const f = fixture();

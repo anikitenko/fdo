@@ -176,7 +176,7 @@ export async function runFdoCli(args, dependencies) {
                         finally {readline.close();}
                     }});
                 commandName = 'sdk migrate'; data = report; if (!isJson()) printMigration(report, output);
-            } catch (error) {error.exitCode ??= getSdkMigrationExitCode(error); throw error;}
+            } catch (error) {error.exitCode = getSdkMigrationExitCode(error); throw error;}
         });
     try {
         await program.parseAsync(args.length ? args : ['--help'], {from: 'user'});

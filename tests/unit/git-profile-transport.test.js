@@ -1,6 +1,6 @@
 /** @jest-environment node */
 const {test, expect} = require('@jest/globals');
-const {Server, Client, utils} = require('ssh2');
+const {Server, Client} = require('ssh2');
 const {spawn, execFileSync} = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -10,8 +10,8 @@ const {runGitTransport} = require('../../src/utils/hostServices/gitTransport.cjs
 const {target, parse, select} = require('../../src/utils/hostServices/gitPolicy.cjs');
 const {profile: validateProfile} = require('../../src/utils/hostServices/contracts.cjs');
 const helperPath = path.resolve(__dirname, '../../src/utils/hostServices/gitSshHelper.cjs');
-const hostKey = utils.generateKeyPairSync('ed25519');
-const profile = (id = 'work') => ({id, label: id, host: 'localhost', port: 22, username: 'git', trustedHostKey: fingerprint(utils.parseKey(hostKey.private).getPublicSSH()),
+const {host: hostKey, work: workKey, personal: personalKey, parsedKey} = require('./helpers/ssh2Keys.cjs');
+const profile = (id = 'work') => ({id, label: id, host: 'localhost', port: 22, username: 'git', trustedHostKey: fingerprint(parsedKey(hostKey.private).getPublicSSH()),
     authentication: {type: 'privateKey', privateKeyRef: {kind: 'secret', key: id}},
     policy: {consumers: ['git'], commands: [], repositories: [{path: id + '/repo.git', operations: ['ls-remote', 'clone', 'fetch', 'push']}]}});
 
@@ -36,7 +36,7 @@ test('authenticated Git supports named remotes and safe options while rejecting 
 test('Git CLI uses different encrypted keys per repository, streams real clone/fetch/push data and rejects changed trust', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fdo-profile-git-test-'));
     const connections = new Set(), processes = new Set(), seen = [];
-    const keys = {work: utils.generateKeyPairSync('ed25519', {cipher: 'aes256-cbc', passphrase: 'work phrase', rounds: 1}), personal: utils.generateKeyPairSync('ed25519', {cipher: 'aes256-cbc', passphrase: 'personal phrase', rounds: 1})};
+    const keys = {work: workKey, personal: personalKey};
     const git = (args, cwd = root) => execFileSync('git', args, {cwd, env: {...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: path.join(root, 'none')}, stdio: 'pipe'});
     for (const id of ['work', 'personal']) {
         await fs.mkdir(path.join(root, id)); git(['init', '--bare', id + '/repo.git']);
@@ -49,7 +49,7 @@ test('Git CLI uses different encrypted keys per repository, streams real clone/f
         connection.on('authentication', ctx => {
             if (ctx.username !== 'git' || ctx.method !== 'publickey') return ctx.reject();
             for (const [id, key] of Object.entries(keys)) {
-                const allowed = utils.parseKey(key.public);
+                const allowed = parsedKey(key.public);
                 if (ctx.key.data.equals(allowed.getPublicSSH()) && (!ctx.signature || allowed.verify(ctx.blob, ctx.signature, ctx.hashAlgo))) {identity = id; return ctx.accept();}
             }
             ctx.reject();
