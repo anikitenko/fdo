@@ -39,3 +39,10 @@ test('Electron bootstrap modules are not interpreted as CLI operands', () => {
     expect(getCleanCliArgs(['electron', '-r', '/loader.cjs', '.'], {defaultApp: true})).toEqual([]);
     expect(getCleanCliArgs(['fdo', '--require=/loader.cjs', '--help'], {defaultApp: false})).toEqual(['--help']);
 });
+
+test('Chromium switches before the dev app entry are not passed to Commander', () => {
+    expect(getCleanCliArgs(['electron', '-r', '/loader.cjs', '--no-sandbox', '.', 'validate', 'project', '--json'], {defaultApp: true}))
+        .toEqual(['validate', 'project', '--json']);
+    expect(getCleanCliArgs(['electron', '-r', '/bootstrap.cjs', '--disable-gpu', '--user-data-dir=/tmp/fdo', '.', 'deploy', 'plugin'], {defaultApp: true}))
+        .toEqual(['deploy', 'plugin']);
+});
