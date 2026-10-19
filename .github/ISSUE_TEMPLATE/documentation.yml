@@ -1,0 +1,28 @@
+name: Documentation improvement
+description: Report unclear, missing, or incorrect documentation.
+title: "[Docs]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve the README, website, CLI guide, or development documentation.
+        For private security concerns, follow the [security policy](https://github.com/anikitenko/fdo/blob/main/SECURITY.md).
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link the page or identify the file, section, or command help text.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+      description: Include the relevant FDO version if behavior differs from the documentation.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Explain what you expected to find or suggest corrected wording.

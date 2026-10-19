@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111713" />
+    <title>Privacy Policy — FDO</title>
+    <meta
+      name="description"
+      content="How FDO handles website visits, local application data, configured AI services, plugin integrations, and privacy requests."
+    />
+    <link rel="canonical" href="https://fdo.alexvwan.me/privacy.html" />
+    <link rel="icon" type="image/png" href="assets/fdo-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container navigation">
+        <a class="brand" href="index.html" aria-label="FDO home"
+          ><img
+            src="assets/fdo-icon.png"
+            width="128"
+            height="128"
+            alt=""
+          /><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html#workspace">Workspace</a
+          ><a href="index.html#build">Build plugins</a><a href="cli.html">CLI</a
+          ><a href="index.html#resources">Docs</a>
+        </nav>
+        <a class="nav-github" href="https://github.com/anikitenko/fdo"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main" class="container guide">
+      <p class="eyebrow">FDO / PRIVACY</p>
+      <h1>Privacy Policy</h1>
+      <p class="hero-description">
+        How information is handled when you visit this website, use FDO, or
+        contact the project.
+      </p>
+      <p class="policy-date">
+        Last updated: <time datetime="2026-10-19">19 October 2026</time>
+      </p>
+      <nav class="guide-toc" aria-label="On this page">
+        <a href="#website">Website</a><a href="#application">Application data</a
+        ><a href="#services">Connected services</a
+        ><a href="#choices">Your choices</a><a href="#contact">Contact</a>
+      </nav>
+      <section id="scope">
+        <h2>Who this policy covers</h2>
+        <p>
+          FDO (FlexDevOps) is an open-source project maintained by Oleksandr
+          Nykytenko (AleXvWaN). This policy describes the FDO website at
+          <strong>fdo.alexvwan.me</strong>, the desktop application and CLI, and
+          information you choose to send to the maintainer.
+        </p>
+        <p>
+          External providers, websites, and independently maintained plugins
+          have their own data practices. This policy does not replace their
+          privacy policies.
+        </p>
+      </section>
+      <section id="website">
+        <h2>Website visits and hosting</h2>
+        <p>
+          The website is static. Its source does not include advertising,
+          analytics scripts, tracking pixels, third-party fonts, embedded
+          videos, or account registration. The website code does not set cookies
+          or store visitor identifiers in browser storage.
+        </p>
+        <p>
+          The copy button writes the displayed CLI example to your clipboard
+          only when you click it. It does not read your clipboard or send its
+          contents to the project.
+        </p>
+        <p>
+          The website is hosted on GitHub Pages. GitHub states that it logs
+          visitors’ IP addresses for security purposes, including visits made
+          without signing in. See
+          <a
+            href="https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages"
+            >GitHub Pages hosting information</a
+          >
+          and the
+          <a
+            href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+            >GitHub Privacy Statement</a
+          >
+          for its processing and retention practices.
+        </p>
+        <p>
+          Cloudflare manages the domain’s DNS. If Cloudflare proxy or security
+          services are enabled for the site, website requests may also pass
+          through Cloudflare and its services may use security cookies. See
+          <a href="https://www.cloudflare.com/privacypolicy/"
+            >Cloudflare’s Privacy Policy</a
+          >
+          and
+          <a
+            href="https://developers.cloudflare.com/fundamentals/reference/policies-compliances/cloudflare-cookies/"
+            >cookie information</a
+          >. The absence of tracking scripts in this repository does not mean
+          that hosting and infrastructure providers process no connection data.
+        </p>
+        <p>
+          Links to GitHub, npm, releases, and other external pages take you to
+          services governed by their own policies.
+        </p>
+      </section>
+      <section id="application">
+        <h2>Data on your device</h2>
+        <p>
+          FDO uses local files and databases to provide its features. Depending
+          on what you use, a profile can contain settings, plugin registrations
+          and grants, signing certificates, credentials, conversations,
+          notifications, AI usage records, diagnostic logs, workspace snapshots,
+          and observability data. Plugin workspaces and exported files may be
+          stored outside the profile.
+        </p>
+        <p>
+          Supported sensitive values, including signing private keys and saved
+          service credentials, use Electron’s OS-backed secure storage. This
+          does not mean that every profile file, conversation, log, or workspace
+          is encrypted. Device access controls, backups, and any synchronization
+          tools you use also affect how this information is protected.
+        </p>
+        <p>
+          Local persistence supports the application’s operation, history,
+          troubleshooting, and recovery. It does not by itself send your local
+          profile to the maintainer. Information can leave your device through
+          the connected features described below or when you choose to share it.
+        </p>
+      </section>
+      <section id="services">
+        <h2>AI, plugins, and connected services</h2>
+        <p>
+          <strong>AI features.</strong> When you configure and use AI features,
+          prompts and relevant context may be sent to your selected provider or
+          endpoint. Depending on the feature and request, this can include
+          workspace or source-code context, attachments, conversation content,
+          and tool inputs or outputs. A configured endpoint may be local or
+          remote. Review the provider’s terms, retention, and training settings
+          before sending sensitive information.
+        </p>
+        <p>
+          <strong>Plugins and GitOps.</strong> Plugins and integrations can
+          communicate with services according to their configuration and granted
+          capabilities. GitOps repositories, remote tools, SSH connections, and
+          other integrations may receive the requests, credentials, or content
+          needed for the operation. Review each plugin’s source, configuration,
+          permissions, and external services before using it.
+        </p>
+        <p>
+          <strong>Observability.</strong> FDO records local usage and diagnostic
+          information. Capturing prompts, responses, and tool content in
+          observability traces is off by default and can be configured in
+          <strong>Settings → Observability</strong>. Optional Langfuse export
+          sends trace data to the configured endpoint when enabled. Environment
+          variables can override those settings. Disabling trace-content capture
+          does not stop an AI provider from receiving the content needed to
+          answer an AI request.
+        </p>
+        <p>
+          These services may process information in countries other than your
+          own and apply their own retention and deletion policies. The
+          maintainer does not control provider-held copies or the operation of
+          independently maintained plugins.
+        </p>
+      </section>
+      <section id="contact-data">
+        <h2>Information you share with the project</h2>
+        <p>
+          If you email the maintainer or submit an issue, pull request, or
+          attachment, you choose what information to provide. It may include
+          your name or account identifier, email address, message, reproduction
+          steps, and diagnostic material. This information is used to respond,
+          investigate problems, review contributions, and maintain the project.
+        </p>
+        <p>
+          GitHub issues, pull requests, and their attachments are generally
+          public. Do not post credentials, private keys, complete user profiles,
+          or private workspace content. Follow the
+          <a href="https://github.com/anikitenko/fdo/blob/main/SECURITY.md"
+            >security policy</a
+          >
+          for private vulnerability reports.
+        </p>
+      </section>
+      <section id="choices">
+        <h2>Retention and your choices</h2>
+        <p>
+          Local data remains on your device according to the feature’s retention
+          settings, configured limits, and actions you take. Observability
+          retention can be adjusted in Settings. Uninstalling the application
+          may leave profile data, workspaces, exports, and backups behind.
+        </p>
+        <p>
+          You can review plugin grants, remove integrations, change AI
+          providers, and disable optional trace export. To manage or remove
+          local profile files, close FDO first and keep any information you
+          need. Copies in backups, exported files, remote repositories, and
+          external services must be managed separately.
+        </p>
+        <p>
+          Messages sent to the maintainer are retained as needed to handle the
+          request and maintain relevant project records. Public contribution
+          records and provider logs are subject to the hosting service’s
+          retention practices. Contact the maintainer about access, correction,
+          or deletion of information you sent directly; requests concerning an
+          external account or provider-held data should also be directed to that
+          provider. Applicable privacy rights depend on your circumstances and
+          location.
+        </p>
+      </section>
+      <section id="changes">
+        <h2>Changes to this policy</h2>
+        <p>
+          This page will be updated when the described practices change. The
+          date above identifies the latest revision. Changes to the website,
+          hosting configuration, integrations, or data collection should be
+          reflected here before they are introduced.
+        </p>
+      </section>
+      <section id="contact">
+        <h2>Privacy questions</h2>
+        <p>
+          Contact Oleksandr Nykytenko at
+          <a href="mailto:me@alexvwan.me">me@alexvwan.me</a> with the subject
+          <strong>FDO privacy request</strong>. Describe the information or
+          feature involved without sending passwords, tokens, or private keys.
+        </p>
+      </section>
+      <p class="guide-back">
+        <a class="text-link" href="index.html">← Back to FDO</a>
+      </p>
+    </main>
+    <footer class="site-footer container">
+      <div>
+        <a class="brand" href="index.html"
+          ><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <p>FlexDevOps. Built to be yours.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/anikitenko/fdo">Source on GitHub</a
+        ><a href="cli.html">CLI guide</a
+        ><a href="privacy.html" aria-current="page">Privacy Policy</a>
+      </div>
+    </footer>
+  </body>
+</html>

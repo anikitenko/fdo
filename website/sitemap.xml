@@ -4,4 +4,5 @@
         xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9 assets/sitemap.xsd">
   <url><loc>https://fdo.alexvwan.me/</loc></url>
   <url><loc>https://fdo.alexvwan.me/cli.html</loc></url>
+  <url><loc>https://fdo.alexvwan.me/privacy.html</loc></url>
 </urlset>

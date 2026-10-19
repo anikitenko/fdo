@@ -10,6 +10,7 @@ const publicFiles = [
   "index.html",
   "404.html",
   "cli.html",
+  "privacy.html",
   "styles.css",
   "site.js",
   "CNAME",
@@ -42,14 +43,14 @@ function check() {
     "fdo.alexvwan.me"
   )
     throw new Error("Unexpected Pages domain.");
-  for (const name of ["index.html", "404.html", "cli.html"]) {
+  for (const name of publicFiles.filter((file) => file.endsWith(".html"))) {
     const html = fs.readFileSync(path.join(root, name), "utf8");
     const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
     if (new Set(ids).size !== ids.length)
       throw new Error(`Duplicate element IDs in ${name}`);
     for (const match of html.matchAll(/\b(?:href|src)="([^"]+)"/g)) {
       const value = match[1];
-      if (/^https:\/\//.test(value)) continue;
+      if (/^(?:https:\/\/|mailto:)/.test(value)) continue;
       if (value.startsWith("#")) {
         if (value.length > 1 && !ids.includes(value.slice(1)))
           throw new Error(`Broken anchor in ${name}: ${value}`);
