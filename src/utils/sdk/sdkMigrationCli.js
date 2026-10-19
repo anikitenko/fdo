@@ -15,6 +15,7 @@ export const SdkMigrationErrorCode = Object.freeze({
 function createSdkMigrationError(message, code, cause = undefined) {
     const error = new Error(message);
     error.code = code;
+    error.exitCode = getSdkMigrationExitCode(error);
     if (cause !== undefined) {
         error.cause = cause;
     }
