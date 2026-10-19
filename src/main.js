@@ -1,4 +1,5 @@
 import {cliProfile} from './utils/system/cliProfile';
+import {checkForFdoUpdate} from './utils/system/updateChecker';
 import {failureNotification, pluginDisplayName} from './utils/desktop/notificationContent';
 import {closeHostServices, removeHostServices} from './utils/hostServices/runtime';
 import {registerHostServiceSettings} from './ipc/hostServices';
@@ -10,7 +11,7 @@ import {certificateStorage, previewSigningCertificates, initializeCertificateSto
 import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
-import {app, BrowserWindow, dialog, nativeTheme, protocol, safeStorage} from 'electron';
+import {app, BrowserWindow, dialog, Menu, nativeTheme, protocol, safeStorage} from 'electron';
 import {registerGitOpsHandlers} from './ipc/gitops';
 import {syncCollection, detachCollection, decideGitOpsUpdate} from './utils/gitops/syncCollection';
 import {readPluginRepository} from './utils/gitops/verifyRepository';
@@ -602,6 +603,34 @@ app.whenReady().then(async () => {
     debugLog('[MAIN] About to create window...');
 
     let mainWindow;
+    app.setAboutPanelOptions({
+        applicationName: app.getName(),
+        applicationVersion: app.getVersion(),
+        version: app.getVersion(),
+        copyright: 'Copyright © AleXvWaN',
+    });
+    ipcMain.handle(SettingsChannels.updates.CHECK, async () => {
+        const channel = settings.get('updates.channel', 'stable');
+        try {
+            const platform = {darwin: 'mac', win32: 'win', linux: 'linux'}[process.platform];
+            const supportedArch = process.arch === 'arm64' || process.arch === 'x64';
+            const platformKey = platform && supportedArch ? `${platform}-${process.arch}` : '';
+            return await checkForFdoUpdate({channel, currentVersion: app.getVersion(), platform: platformKey});
+        } catch (error) {
+            return {success: false, error: error.message || 'Could not check for updates.'};
+        }
+    });
+    ipcMain.handle(SettingsChannels.updates.GET_PREFERENCES, () => ({
+        autoCheck: settings.get('updates.autoCheck', false),
+        channel: settings.get('updates.channel', 'stable'),
+    }));
+    ipcMain.handle(SettingsChannels.updates.SAVE_PREFERENCES, (_event, preferences) => {
+        if (!preferences || typeof preferences.autoCheck !== 'boolean' || !['stable', 'prerelease'].includes(preferences.channel)) {
+            throw new Error('Invalid update preferences.');
+        }
+        settings.set('updates', {autoCheck: preferences.autoCheck, channel: preferences.channel});
+        return {success: true};
+    });
     try {
         mainWindow = await createWindow();
     } catch (error) {
@@ -636,6 +665,33 @@ app.whenReady().then(async () => {
             return;
         }
     }
+
+    const openSettings = (tab = 'general') => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('app:open-settings', {tab, checkNow: tab === 'updates'});
+    };
+    const appMenu = [
+        ...(process.platform === 'darwin' ? [{
+            label: app.getName(),
+            submenu: [
+                {role: 'about'},
+                {type: 'separator'},
+                {label: 'Check for Updates…', click: () => openSettings('updates')},
+                {type: 'separator'},
+                {label: 'Settings…', accelerator: 'Command+,', click: () => openSettings('general')},
+                {type: 'separator'},
+                {role: 'services'}, {type: 'separator'}, {role: 'hide'}, {role: 'hideOthers'}, {role: 'unhide'},
+                {type: 'separator'}, {role: 'quit'},
+            ],
+        }] : []),
+        {label: 'File', submenu: [{label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings('general')}, {type: 'separator'}, {role: 'close'}]},
+        {label: 'Edit', submenu: [{role: 'undo'}, {role: 'redo'}, {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'}]},
+        {label: 'View', submenu: [{role: 'reload'}, {role: 'forceReload'}, {role: 'toggleDevTools'}, {type: 'separator'}, {role: 'resetZoom'}, {role: 'zoomIn'}, {role: 'zoomOut'}, {type: 'separator'}, {role: 'togglefullscreen'}]},
+        {label: 'Window', submenu: [{role: 'minimize'}, {role: 'zoom'}, {role: 'front'}]},
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(appMenu));
 
     mainWindow.on('closed', () => {
         PluginManager.setMainWindow(null)
