@@ -42,6 +42,8 @@ test('SDK migration retains validation exit codes and refuses unattended writes'
     f.dependencies.migrate.mockClear();
     expect((await runFdoCli(['sdk', 'migrate', '--target', '.', '--write'], f.dependencies)).exitCode).toBe(2);
     expect(f.dependencies.migrate).not.toHaveBeenCalled();
+    const wrapped = fixture({stdin: {isTTY: true}, stdout: {write: jest.fn(), isTTY: false}});
+    expect((await runFdoCli(['sdk', 'migrate', '--target', '.', '--write'], wrapped.dependencies)).exitCode).toBe(2);
 });
 test('missing migration target from the real SDK helper exits 2', async () => {
     const f = fixture();

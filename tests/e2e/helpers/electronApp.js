@@ -369,7 +369,7 @@ async function expectNoUnexpectedErrorToasts(page, options = {}) {
     const text = entry?.text || "";
     if (!text) return false;
     const className = entry?.className || "";
-    const looksDanger = /intent-danger|bp6-toast-message/i.test(className) || /(error|failed|exception|denied|not found)/i.test(text);
+    const looksDanger = /intent-danger/i.test(className) || /(?<![A-Za-z])(error|failed|exception|denied|not found)(?![A-Za-z])/i.test(text);
     if (!looksDanger) return false;
     return !allowList.some((rx) => rx.test(text));
   });

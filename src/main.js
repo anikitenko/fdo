@@ -277,7 +277,10 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
     if (!result.openGui) {
         cliFinished = true;
         try {closeCertificateStorage();}
-        catch (error) {console.error(`Error closing certificate storage: ${error.message}`); result.exitCode = 1;}
+        catch (error) {
+            console.error(`Error closing certificate storage: ${error.message}`);
+            if (!Number.isInteger(result.exitCode) || result.exitCode === 0) result.exitCode = 1;
+        }
         await flushCliOutput();
         if (process.platform === 'win32') {
             // Electron's Windows teardown can crash after a short CLI command.
