@@ -28,6 +28,10 @@ test('stable builds require credentials; branch rehearsals cannot sign or publis
     const rehearsal = releaseConfig(metadata,{platform:'win',arch:'x64',publish:false,env:{WIN_CSC_LINK:'present'}});
     expect(rehearsal.signed).toBe(false);expect(rehearsal.config.publish).toBeNull();
     expect(rehearsal.config.nsis.artifactName).not.toBe(rehearsal.config.portable.artifactName);
+    expect(metadata.desktopName).toBe(metadata.build.appId);
+    expect(metadata.build.executableName).toMatch(/^[\p{L}\p{N}._\- ]+$/u);
+    expect(metadata.build.linux).toMatchObject({executableName:'fdo',syncDesktopName:true});
+    expect(releaseConfig(metadata,{platform:'linux',arch:'x64',publish:true,env:{}}).config.linux).toMatchObject({executableName:'fdo',syncDesktopName:true});
 });
 async function fixture(version = '1.0.0-rc.1', signed = false) {
     const download = path.join(root,'download');fs.mkdirSync(download);
