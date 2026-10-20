@@ -125,24 +125,33 @@ test.describe('Snapshots E2E', () => {
 
   test('Error handling: quota exceeded surfaces danger toast', async () => {
     const win = await openEditorWithMockedIPC(app);
-    // Monkey-patch localStorage to throw
+    // Restore the original property descriptor even if the assertion fails.
+    // Deleting the temporary own property matters: leaving a bound method on
+    // Storage can leak the patch into the next editor route in this shared app.
     await win.evaluate(() => {
-      if (!window.__e2eOriginalLocalStorageSetItem) {
-        window.__e2eOriginalLocalStorageSetItem = window.localStorage.setItem.bind(window.localStorage);
-      }
-      window.localStorage.setItem = function() { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; };
+      const storage = window.localStorage;
+      window.__e2eOriginalSetItemDescriptor = Object.getOwnPropertyDescriptor(storage, 'setItem');
+      Object.defineProperty(storage, 'setItem', {
+        configurable: true,
+        value() { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; },
+      });
     });
 
-    const snapshotBtn = await win.waitForSelector('button:has-text("Snapshot")');
-    await snapshotBtn.click();
+    try {
+      const snapshotBtn = await win.waitForSelector('button:has-text("Snapshot")');
+      await snapshotBtn.click();
 
-    // Expect error toast
-    await win.getByText(/Failed to persist snapshot/i).first().waitFor({ timeout: 5000 });
-    await win.evaluate(() => {
-      if (window.__e2eOriginalLocalStorageSetItem) {
-        window.localStorage.setItem = window.__e2eOriginalLocalStorageSetItem;
-      }
-    });
+      // Expect error toast
+      await win.getByText(/Failed to persist snapshot/i).first().waitFor({ timeout: 5000 });
+    } finally {
+      await win.evaluate(() => {
+        const storage = window.localStorage;
+        const descriptor = window.__e2eOriginalSetItemDescriptor;
+        if (descriptor) Object.defineProperty(storage, 'setItem', descriptor);
+        else delete storage.setItem;
+        delete window.__e2eOriginalSetItemDescriptor;
+      });
+    }
   });
   
   test('Editor file tree loads icon assets successfully', async () => {
