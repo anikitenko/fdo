@@ -7,7 +7,14 @@ async function stage({source, destination, version, commit, platform, signed = f
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('A full source commit is required.');
     const files = [];
     for (const name of assetNames(version, platform)) {
-        const file = path.join(source, name), stat = fs.lstatSync(file);
+        const file = path.join(source, name);
+        let stat;
+        try {stat = fs.lstatSync(file);}
+        catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+            const found = fs.existsSync(source) ? fs.readdirSync(source).filter(entry => fs.statSync(path.join(source, entry)).isFile()).join(', ') : '';
+            throw new Error(`Missing or invalid release asset: ${name}${found ? ` (found ${found})` : ''}`);
+        }
         if (!stat.isFile() || stat.isSymbolicLink() || !stat.size) throw new Error(`Missing or invalid release asset: ${name}`);
         files.push({name, size: stat.size, sha256: await sha256(file)});
     }
