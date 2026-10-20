@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const yaml = require('js-yaml');
 const {parseVersion, compareVersions, validateRelease, assetNames, platforms, sha256} = require('../../scripts/release/common.cjs');
-const {releaseConfig} = require('../../scripts/release/build.cjs');
+const {releaseConfig, signingChildEnv} = require('../../scripts/release/build.cjs');
 const {stage, assemble} = require('../../scripts/release/artifacts.cjs');
 const {githubApi, publish, previousRelease, notes} = require('../../scripts/release/publish.cjs');
 let root;
@@ -35,6 +35,20 @@ test('stable builds require credentials; branch rehearsals cannot sign or publis
     expect(linux).toMatchObject({executableName:'fdo',syncDesktopName:true,artifactName:'fdo-${version}-linux-x64.${ext}'});
     expect(linux.artifactName).not.toContain('${arch}');
     expect(releaseConfig(metadata,{platform:'linux',arch:'arm64',publish:true,env:{}}).config.linux.artifactName).toBe('fdo-${version}-linux-arm64.${ext}');
+});
+test('signed mac builds allow electron-builder identity discovery', () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-signing-env-'));
+    try {
+        const env = {MAC_CSC_LINK: 'certificate', MAC_CSC_KEY_PASSWORD: 'secret', APPLE_API_KEY_BASE64: Buffer.from('key').toString('base64'), APPLE_API_KEY_ID: 'id', APPLE_API_KEY_ISSUER: 'issuer', CSC_IDENTITY_AUTO_DISCOVERY: 'false'};
+        const signed = signingChildEnv({platform: 'mac', signed: true, env, temp});
+        expect(signed.CSC_LINK).toBe('certificate');
+        expect(signed.CSC_KEY_PASSWORD).toBe('secret');
+        expect(signed.APPLE_API_KEY).toBe(path.join(temp, 'AuthKey.p8'));
+        expect(signed.CSC_IDENTITY_AUTO_DISCOVERY).toBeUndefined();
+        expect(signingChildEnv({platform: 'mac', signed: true, env: {...env, MAC_CSC_NAME: 'Developer ID Application: FDO (TEAMID)'}, temp}).CSC_NAME).toBe('Developer ID Application: FDO (TEAMID)');
+        expect(signingChildEnv({platform: 'mac', signed: false, env, temp}).CSC_IDENTITY_AUTO_DISCOVERY).toBe('false');
+        expect(signingChildEnv({platform: 'win', signed: true, env, temp}).CSC_IDENTITY_AUTO_DISCOVERY).toBe('false');
+    } finally {fs.rmSync(temp, {recursive: true, force: true});}
 });
 async function fixture(version = '1.0.0-rc.1', signed = false) {
     const download = path.join(root,'download');fs.mkdirSync(download);
