@@ -3,6 +3,7 @@ const {test,expect}=require('@jest/globals');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {execFileSync}=require('node:child_process');
 const webpack=require('../../webpack.main.config');
+const {repairBundledGitSymlinks}=require('../../scripts/fix-bundled-binary-permissions.js');
 
 test('main build repairs copied Git, HTTPS transport and LFS executables before they can be launched',()=>{
     if(process.platform==='win32')return;
@@ -20,4 +21,19 @@ test('main build repairs copied Git, HTTPS transport and LFS executables before 
         // Subsequent incremental builds keep executable files runnable too.
         callbacks[0]();expect(execFileSync(path.join(output,files[2]),{encoding:'utf8'})).toBe('runtime-ready');
     }finally{fs.rmSync(output,{recursive:true,force:true});}
+});
+(process.platform==='win32'?test.skip:test)('repairs bundled Git symlinks that point outside the app bundle',()=>{
+    const gitRoot=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-git-symlinks-'));
+    try {
+        const core=path.join(gitRoot,'libexec','git-core');
+        fs.mkdirSync(core,{recursive:true});
+        fs.writeFileSync(path.join(core,'git'),'#!/bin/sh\n',{mode:0o755});
+        fs.symlinkSync('/tmp/missing-git-wrapper',path.join(core,'git-add'));
+        const outside=path.join(os.tmpdir(),'outside-git-target');
+        fs.writeFileSync(outside,'#!/bin/sh\n',{mode:0o755});
+        fs.symlinkSync(outside,path.join(core,'git-commit'));
+        expect(repairBundledGitSymlinks(gitRoot)).toEqual([path.join(core,'git-add'),path.join(core,'git-commit')]);
+        expect(fs.readlinkSync(path.join(core,'git-add'))).toBe('git');
+        expect(fs.readlinkSync(path.join(core,'git-commit'))).toBe('git');
+    } finally {fs.rmSync(gitRoot,{recursive:true,force:true});}
 });

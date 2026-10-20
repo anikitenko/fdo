@@ -28,6 +28,7 @@ async function stageOne(context) {
     }
     if (!matches(distribution)) throw new Error(`Bundled Git for ${platform}/${arch} is missing or has the wrong architecture.`);
     fs.rmSync(destination,{recursive:true,force:true}); fs.cpSync(distribution,destination,{recursive:true});
+    require('./fix-bundled-binary-permissions.js').repairBundledGitSymlinks(destination);
 }
 let pending=Promise.resolve();
 function stage(context){const result=pending.then(()=>stageOne(context));pending=result.catch(()=>{});return result;}
