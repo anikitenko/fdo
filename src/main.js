@@ -326,14 +326,19 @@ const reloadCliDeployment = async id => {
     }
 };
 app.on('second-instance', (_event, _commandLine, _workingDirectory, additionalData) => {
-    const mainWindow = PluginManager.mainWindow;
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show(); mainWindow.focus();
-    }
-    if (typeof additionalData?.fdoCliDeploy === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(additionalData.fdoCliDeploy)) {
-        void reloadCliDeployment(additionalData.fdoCliDeploy);
-    }
+    void (async () => {
+        let mainWindow = PluginManager.mainWindow;
+        if (!mainWindow || mainWindow.isDestroyed()) {
+            try {await createWindow();}
+            catch (error) {debugLog(`[MAIN] second-instance window recreate failed: ${error.message}`); return;}
+        } else {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show(); mainWindow.focus();
+        }
+        if (typeof additionalData?.fdoCliDeploy === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(additionalData.fdoCliDeploy)) {
+            void reloadCliDeployment(additionalData.fdoCliDeploy);
+        }
+    })();
 });
 
 const gotTheLock = allowE2EMultiInstance ? true : app.requestSingleInstanceLock()

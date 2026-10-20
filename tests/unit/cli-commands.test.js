@@ -46,3 +46,17 @@ test('Chromium switches before the dev app entry are not passed to Commander', (
     expect(getCleanCliArgs(['electron', '-r', '/bootstrap.cjs', '--disable-gpu', '--user-data-dir=/tmp/fdo', '.', 'deploy', 'plugin'], {defaultApp: true}))
         .toEqual(['deploy', 'plugin']);
 });
+
+test('macOS Launch Services arguments do not enter CLI mode', () => {
+    const execPath = '/Applications/FDO.app/Contents/MacOS/FDO';
+    const previous = process.execPath;
+    Object.defineProperty(process, 'execPath', {configurable: true, value: execPath});
+    try {
+        expect(getCleanCliArgs([execPath, '-psn_0_123456'], {defaultApp: false})).toEqual([]);
+        expect(getCleanCliArgs([execPath, '/Applications/FDO.app', '-psn_0_123456'], {defaultApp: false})).toEqual([]);
+        expect(hasCliCommand(getCleanCliArgs([execPath, '/Applications/FDO.app', '-psn_0_123456'], {defaultApp: false}))).toBe(false);
+        expect(getCleanCliArgs([execPath, '.', 'compile'], {defaultApp: false})).toEqual(['.', 'compile']);
+    } finally {
+        Object.defineProperty(process, 'execPath', {configurable: true, value: previous});
+    }
+});

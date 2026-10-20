@@ -1,4 +1,16 @@
 import fs from 'node:fs';
+import path from 'node:path';
+
+function isPackagedLaunchArgument(argument) {
+    if (typeof argument !== 'string' || argument.startsWith('-')) return false;
+    let resolved;
+    try {resolved = path.resolve(argument);} catch {return false;}
+    let execPath;
+    try {execPath = path.resolve(process.execPath);} catch {return false;}
+    if (resolved === execPath) return true;
+    return process.platform === 'darwin' && resolved.endsWith('.app') && execPath.startsWith(`${resolved}${path.sep}`);
+
+}
 
 export const CLI_COMMANDS = ['help', '--help', '-h', '--version', '-V', 'open', 'test', 'profiles', 'init', 'compile', 'dev', 'validate', 'deploy', 'sign', 'sdk', 'doctor', 'plugins', 'completion'];
 export const CLI_ONLY_COMMANDS = CLI_COMMANDS.filter(command => command !== 'open');
@@ -34,6 +46,7 @@ export function getCleanCliArgs(argv, {defaultApp = process.defaultApp} = {}) {
         else if (/^--(?:user-data-dir|disk-cache-dir|gpu-disk-cache-dir|media-cache-dir|password-store)=/.test(argument)) offset++;
         else if (chromiumFlagsWithValue.has(argument) && offset + 1 < argv.length) offset += 2;
         else if (chromiumBooleanFlags.has(argument)) offset++;
+        else if (defaultApp === false && isPackagedLaunchArgument(argument)) offset++;
         else break;
     }
     if (defaultApp === true && offset < argv.length) offset++;
