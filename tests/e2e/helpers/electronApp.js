@@ -20,18 +20,30 @@ function ensureE2EUserDataDir() {
   return e2eUserDataDir;
 }
 
+async function dismissToastNotifications(page) {
+  await page.evaluate(() => {
+    for (const toast of document.querySelectorAll('.bp6-toast')) {
+      toast.querySelector('button[aria-label="Close"]')?.click();
+    }
+  }).catch(() => {});
+}
+
+async function hasVisibleBlueprintOverlay(page) {
+  return page.locator('.bp6-dialog:visible, .bp6-alert:visible, .bp6-overlay-open:visible, .bp6-overlay-backdrop:visible').count();
+}
+
 async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const anyOverlay = await page.$('.bp6-dialog, .bp6-alert, .bp6-overlay-open');
-    if (!anyOverlay) break;
+    await dismissToastNotifications(page);
+    if (!(await hasVisibleBlueprintOverlay(page))) break;
 
     // Dismiss the topmost overlay before looking for an acknowledgement.
     // A primary button may save capabilities behind another dialog; clicking
     // it can hang on pointer interception and leak dialogs into the next test.
     await page.keyboard.press('Escape');
     await page.waitForTimeout(50);
-    if (!await page.$('.bp6-dialog:visible, .bp6-alert:visible, .bp6-overlay-open:visible')) break;
+    if (!(await hasVisibleBlueprintOverlay(page))) break;
 
     const labels = ['Close', 'Dismiss', 'Cancel', 'OK', 'Confirm', 'Switch'];
     let clicked = false;
@@ -50,6 +62,15 @@ async function dismissBlueprintOverlays(page, { timeout = 1000 } = {}) {
       await page.waitForTimeout(50);
     }
   }
+  await page.locator('.bp6-overlay-backdrop:visible').first().waitFor({state: 'hidden', timeout: Math.max(1, timeout - (Date.now() - start))}).catch(async () => {
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.locator('.bp6-overlay-backdrop:visible').first().waitFor({state: 'hidden', timeout: 500}).catch(() => {});
+  });
+}
+
+async function clickOpenNotifications(page, { timeout = 5000 } = {}) {
+  await dismissBlueprintOverlays(page, {timeout});
+  await page.getByRole('button', {name: /^Open notifications/}).click();
 }
 
 async function launchElectronApp(electron, options = {}) {
@@ -380,6 +401,7 @@ async function expectNoUnexpectedErrorToasts(page, options = {}) {
 
 module.exports = {
   dismissBlueprintOverlays,
+  clickOpenNotifications,
   launchElectronApp,
   closeElectronApp,
   openEditorWithMockedIPC,

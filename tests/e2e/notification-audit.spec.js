@@ -1,5 +1,5 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
-const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
+const {launchElectronApp, closeElectronApp, clickOpenNotifications, dismissBlueprintOverlays} = require('./helpers/electronApp');
 
 test('real plugin failures use display names, actionable saved notices, and recovery without startup noise', async ({}, testInfo) => {
     test.setTimeout(90000);
@@ -40,11 +40,12 @@ test('real plugin failures use display names, actionable saved notices, and reco
         const failure = notices.find(item => item.title === 'Rose Calculator was blocked by signature verification');
         expect(failure).toMatchObject({source: 'security', actions: [{kind: 'manage-plugin', pluginId: id}, {kind: 'open-plugin-logs', pluginId: id}]});
         expect(failure.message).toContain('not started'); expect(failure.details).toContain('Signature is invalid');
-        await page.getByRole('button', {name: /^Open notifications/}).click();
+        await clickOpenNotifications(page);
         const row = page.locator(`[data-notification-id="${failure.id}"]`);
         await row.getByRole('button', {name: 'Manage plugin', exact: true}).click();
         await expect(page.getByRole('heading', {name: 'Manage Plugins', exact: true})).toBeVisible();
         await page.keyboard.press('Escape');
+        await dismissBlueprintOverlays(page, {timeout: 5000});
         await app.evaluate((_electron, {home, original}) => {
             process.getBuiltinModule('node:fs').writeFileSync(process.getBuiltinModule('node:path').join(home, 'dist/index.cjs'), original);
         }, {home: record.home, original});
@@ -60,7 +61,7 @@ test('real plugin failures use display names, actionable saved notices, and reco
         const uiFailure = (await get()).find(item => item.title === 'Rose Calculator: interface could not open');
         expect(uiFailure.details).toContain('Notification audit UI crash');
         expect((await get()).some(item => item.title.includes('gitops_'))).toBe(false);
-        await page.getByRole('button', {name: /^Open notifications/}).click();
+        await clickOpenNotifications(page);
         await page.locator(`[data-notification-id="${uiFailure.id}"]`).getByRole('button', {name: 'Show details'}).click();
         await page.screenshot({path: testInfo.outputPath('actionable-plugin-notifications.png')});
         const certificateNotice = (await get()).find(item => item.title === 'Signing certificate “root” created');
