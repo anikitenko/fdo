@@ -49,6 +49,12 @@ test('missing migration target from the real SDK helper exits 2', async () => {
     const f = fixture();
     expect((await runFdoCli(['sdk', 'migrate', '--target', '/__missing_fdo_sdk_migrate_target__'], f.dependencies)).exitCode).toBe(2);
 });
+test('SDK migration validation status survives wrapped and property-stripped errors', async () => {
+    const original = Object.assign(new Error('Target path does not exist: C:\\\\missing'), {code: 'SDK_MIGRATE_INVALID_TARGET', exitCode: 2});
+    const wrapped = Object.assign(new Error(original.message), {code: 'commander.error', exitCode: 1, nestedError: original});
+    expect((await runFdoCli(['sdk', 'migrate', '--target', '.'], fixture({migrate: async () => {throw wrapped;}}).dependencies)).exitCode).toBe(2);
+    expect((await runFdoCli(['sdk', 'migrate', '--target', '.'], fixture({migrate: async () => {throw new Error('Target path does not exist: C:\\\\missing');}}).dependencies)).exitCode).toBe(2);
+});
 
 test.each([['--json', 'compile', '.'], ['compile', '.', '--json']])('JSON results are parseable with global options in either position: %j', async (...args) => {
     const f = fixture();

@@ -1,6 +1,7 @@
 const {test,expect,_electron:electron}=require('@playwright/test');
-const {Server,utils}=require('ssh2');
-const {createHash}=require('node:crypto');
+const {Server}=require('ssh2');
+const {generateEd25519}=require('../../src/utils/hostServices/sshKeys.cjs');
+const {fingerprint}=require('../../src/utils/hostServices/ssh.cjs');
 const path=require('node:path');
 const {launchElectronApp,closeElectronApp}=require('./helpers/electronApp');
 const {deploySdkExample,selectPluginOpen,waitForPluginReady,removePlugin}=require('./helpers/sdkExamples');
@@ -8,8 +9,8 @@ const {createSSHCapabilityBundle}=require('@anikitenko/fdo-sdk');
 const grants=createSSHCapabilityBundle({terminal:true,x11:true});
 test('SDK interactive terminal renders lossless PTY bytes, sends keyboard input and closes on host view release',async({},testInfo)=>{
  test.setTimeout(120000);let app;const clients=new Set();let shellCount=0,input='',lastSize;
- const key=utils.generateKeyPairSync('ed25519');
- const trustedHostKey='SHA256:'+createHash('sha256').update(utils.parseKey(key.private).getPublicSSH()).digest('base64').replace(/=+$/,'');
+ const key=generateEd25519();
+ const trustedHostKey=fingerprint(key.publicSSH);
  const server=new Server({hostKeys:[key.private]},client=>{
   clients.add(client);client.on('error',()=>{});client.on('close',()=>clients.delete(client));
   client.on('authentication',context=>context.method==='password'&&context.password==='private terminal fixture'?context.accept():context.reject());

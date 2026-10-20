@@ -6,7 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
 const {failure,ensure} = require('./contracts.cjs');
-const {trusted} = require('./ssh.cjs');
+const {trusted, prepareSshCredentials} = require('./ssh.cjs');
 
 async function resolveGitWorkingDirectory(cwd) {
     try {return await fs.realpath(cwd);} catch {throw Object.assign(failure('UNAVAILABLE'),{gitFailure:'GIT_EXECUTABLE_OR_CWD_MISSING'});}
@@ -122,7 +122,7 @@ async function runGitTransport({Client, plan, invocation = parse(plan), selectio
             });
             const {profile}=selected;
             client.once('close',()=>clearCredentials(selected.credentials));
-            try {client.connect({host:profile.host,port:profile.port,username:profile.username,...selected.credentials,readyTimeout:10000,
+            try {client.connect({host:profile.host,port:profile.port,username:profile.username,...prepareSshCredentials(selected.credentials),readyTimeout:10000,
                 hostVerifier:raw=>{verified=trusted(raw,profile.trustedHostKey); rejectedKey=!verified; return verified;}});}
             catch {clearCredentials(selected.credentials); fail('CONNECTION_FAILED');}
         };

@@ -185,8 +185,9 @@ export async function runFdoCli(args, dependencies) {
     } catch (error) {
         if (isJson() && error.exitCode !== 0) stdout.write(JSON.stringify({ok: false, error: {message: error.message, code: error.code || 'CLI_ERROR'}}) + '\n');
         if (!error.code?.startsWith('commander.')) output.error(`Error: ${error.message || String(error)}`);
+        const mapped = getSdkMigrationExitCode(error);
         const wrappedExit = error.cause?.exitCode ?? error.nestedError?.exitCode;
-        return {exitCode: Number.isInteger(error.exitCode) ? error.exitCode : Number.isInteger(wrappedExit) ? wrappedExit : 1, openGui: false};
+        return {exitCode: mapped !== 1 ? mapped : Number.isInteger(error.exitCode) ? error.exitCode : Number.isInteger(wrappedExit) ? wrappedExit : 1, openGui: false};
     }
 }
 

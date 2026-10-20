@@ -1,13 +1,14 @@
 /** @jest-environment node */
-const {Server,Client,utils}=require('ssh2');
+const {Server,Client}=require('ssh2');
 const {fingerprint}=require('../../src/utils/hostServices/ssh.cjs');
 const {createHostService}=require('../../src/utils/hostServices/service.cjs');
 const {CAPABILITIES}=require('../../src/utils/hostServices/contracts.cjs');
 const {validateTerminalOptions,decodeTerminalBytes}=require('../../src/utils/hostServices/terminalService.cjs');
+const {generateEd25519}=require('../../src/utils/hostServices/sshKeys.cjs');
 const config={profileId:'vm',term:'xterm-256color',rows:24,columns:80,idleTimeoutMs:2000,sessionTimeoutMs:5000};
 async function fixture(run,{onX11=()=>{}}={}){
- const pair=utils.generateKeyPairSync('ed25519'),connections=new Set();let shellCount=0,dimensions;
- const server=new Server({hostKeys:[pair.private]},connection=>{
+ const host=generateEd25519(),connections=new Set();let shellCount=0,dimensions;
+ const server=new Server({hostKeys:[host.private]},connection=>{
   connections.add(connection);connection.on('error',()=>{});connection.on('close',()=>connections.delete(connection));
   connection.on('authentication',context=>context.method==='password'&&context.password==='terminal private fixture'?context.accept():context.reject());
   connection.on('ready',()=>connection.on('session',accept=>{
@@ -17,7 +18,7 @@ async function fixture(run,{onX11=()=>{}}={}){
   }));
  });
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const profile={id:'vm',label:'VM',host:'127.0.0.1',port:server.address().port,username:'test',trustedHostKey:fingerprint(utils.parseKey(pair.private).getPublicSSH()),authentication:{type:'password',passwordRef:{kind:'secret',key:'password'}},policy:{consumers:['ssh.terminal.open'],commands:[],x11Modes:[]}};
+ const profile={id:'vm',label:'VM',host:'127.0.0.1',port:server.address().port,username:'test',trustedHostKey:fingerprint(host.publicSSH),authentication:{type:'password',passwordRef:{kind:'secret',key:'password'}},policy:{consumers:['ssh.terminal.open'],commands:[],x11Modes:[]}};
  const grants={a:[...CAPABILITIES],b:[...CAPABILITIES]},audits=[];
  const displays={supportedModes:[],prepare:()=>Promise.reject({code:'X11_UNAVAILABLE'})};
  const service=createHostService({Client,displays,getGrants:id=>grants[id],isInstalled:id=>!!grants[id],audit:(...args)=>audits.push(args),vault:{profile:()=>structuredClone(profile),get:()=> 'terminal private fixture',close(){}}});

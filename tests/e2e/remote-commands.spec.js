@@ -1,6 +1,7 @@
 const {test,expect,_electron:electron}=require('@playwright/test');
-const {Server,utils}=require('ssh2');
-const {createHash}=require('node:crypto');
+const {Server}=require('ssh2');
+const {generateEd25519}=require('../../src/utils/hostServices/sshKeys.cjs');
+const {fingerprint}=require('../../src/utils/hostServices/ssh.cjs');
 const {launchElectronApp,closeElectronApp}=require('./helpers/electronApp');
 const {deploySdkExample,selectPluginOpen,waitForPluginReady,removePlugin}=require('./helpers/sdkExamples');
 const grants=['ssh.use','ssh.exec','ssh.status.watch','ssh.profiles.list','secrets.use','secrets.consume','storage','storage.json'];
@@ -31,8 +32,8 @@ new RemoteFixture();`;
 
 test('real SDK worker monitors, streams, cancels and acknowledges persistent writes through the native host',async()=>{
  test.setTimeout(120000);let app;const clients=new Set(),timers=new Set();let commandCount=0;
- const host=utils.generateKeyPairSync('ed25519');
- const trustedHostKey='SHA256:'+createHash('sha256').update(utils.parseKey(host.private).getPublicSSH()).digest('base64').replace(/=+$/,'');
+ const host=generateEd25519();
+ const trustedHostKey=fingerprint(host.publicSSH);
  const server=new Server({hostKeys:[host.private]},client=>{
   clients.add(client);client.on('error',()=>{});client.on('close',()=>clients.delete(client));
   client.on('authentication',context=>context.method==='password'&&context.password==='native-private-fixture'?context.accept():context.reject());

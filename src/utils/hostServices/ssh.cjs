@@ -1,6 +1,7 @@
 const {createHash, timingSafeEqual} = require('node:crypto');
 const {StringDecoder} = require('node:string_decoder');
 const {failure} = require('./contracts.cjs');
+const {prepareSshCredentials} = require('./sshKeys.cjs');
 
 const fingerprint = key => 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
 function trusted(key, expected) {
@@ -90,7 +91,7 @@ function executeSSH({Client, profile, credentials, command, timeoutMs, maxOutput
             } catch {finish(failure('CONNECTION_FAILED'));}
         });
         try {
-            client.connect({host: profile.host, port: profile.port, username: profile.username, ...credentials,
+            client.connect({host: profile.host, port: profile.port, username: profile.username, ...prepareSshCredentials(credentials),
                 readyTimeout: handshakeMs, tryKeyboard: false, keepaliveInterval: 5000, keepaliveCountMax: 1,
                 hostVerifier: raw => {
                     verified = trusted(raw, profile.trustedHostKey); hostRejected = !verified;
@@ -116,10 +117,10 @@ function observeSSH({Client, profile, credentials, signal, handshakeMs = 10000})
         client.once('ready',()=>done(verified?null:failure('HOST_KEY_REJECTED')));
         client.on('error',()=>done(failure(rejected?'HOST_KEY_REJECTED':'CONNECTION_FAILED')));
         client.once('close',()=>done(failure('CONNECTION_FAILED')));
-        try {client.connect({host:profile.host,port:profile.port,username:profile.username,...credentials,
+        try {client.connect({host:profile.host,port:profile.port,username:profile.username,...prepareSshCredentials(credentials),
             readyTimeout:handshakeMs,keepaliveInterval:5000,keepaliveCountMax:1,tryKeyboard:false,
             hostVerifier:raw=>{verified=trusted(raw,profile.trustedHostKey);rejected=!verified;return verified;}});}
         catch {done(failure('CONNECTION_FAILED'));}
     });
 }
-module.exports = {executeSSH, observeSSH, fingerprint, trusted};
+module.exports = {executeSSH, observeSSH, fingerprint, trusted, prepareSshCredentials};

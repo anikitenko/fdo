@@ -1,6 +1,7 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
-const {Server, utils} = require('ssh2');
-const {createHash} = require('node:crypto');
+const {Server} = require('ssh2');
+const {generateEd25519} = require('../../src/utils/hostServices/sshKeys.cjs');
+const {fingerprint} = require('../../src/utils/hostServices/ssh.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -48,8 +49,8 @@ new SecretSSHFixture();
 
 test('real plugin consumes host-enrolled credentials for pinned SSH and Git CLI and loses access on revocation', async () => {
     test.setTimeout(120000);
-    const host = utils.generateKeyPairSync('ed25519');
-    const fingerprint = 'SHA256:' + createHash('sha256').update(utils.parseKey(host.private).getPublicSSH()).digest('base64').replace(/=+$/, '');
+    const host = generateEd25519();
+    const hostFingerprint = fingerprint(host.publicSSH);
     const gitRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-e2e-git-profile-'));
     const gitCommand = process.platform === 'win32' ? execFileSync('where', ['git'], {encoding:'utf8'}).trim().split(/\r?\n/)[0] : execFileSync('/usr/bin/which', ['git'], {encoding:'utf8'}).trim();
     const git = args => execFileSync(gitCommand, args, {cwd:gitRoot,stdio:'pipe'});
@@ -131,8 +132,8 @@ test('real plugin consumes host-enrolled credentials for pinned SSH and Git CLI 
         expect((await page.evaluate(id => window.electron.credentialSettings.state(id), pluginName)).profiles).toHaveLength(0);
         await profileDialog.getByRole('button', {name:'Use this fingerprint',exact:true}).click();
         await expect(profileDialog.getByLabel('I verified this endpoint and host-key fingerprint through a trusted channel')).not.toBeChecked();
-        await expect(page.getByLabel('Trusted host-key fingerprint', {exact:true})).toHaveValue(fingerprint);
-        await page.getByLabel('Trusted host-key fingerprint', {exact:true}).fill('256 ' + fingerprint + ' fixture@server (ED25519)');
+        await expect(page.getByLabel('Trusted host-key fingerprint', {exact:true})).toHaveValue(hostFingerprint);
+        await page.getByLabel('Trusted host-key fingerprint', {exact:true}).fill('256 ' + hostFingerprint + ' fixture@server (ED25519)');
         await page.getByText('I verified this endpoint and host-key fingerprint through a trusted channel', {exact:true}).click();
         // Simulate a credential removed while this dialog was open. The backend
         // must return useful field feedback even with stale form options.
@@ -214,8 +215,8 @@ test('real plugin consumes host-enrolled credentials for pinned SSH and Git CLI 
 
 test('SSH starter explains an empty store, lists authorized profiles and runs only the selected connection', async () => {
     test.setTimeout(120000);
-    const key = utils.generateKeyPairSync('ed25519');
-    const trustedHostKey = 'SHA256:' + createHash('sha256').update(utils.parseKey(key.private).getPublicSSH()).digest('base64').replace(/=+$/, '');
+    const key = generateEd25519();
+    const trustedHostKey = fingerprint(key.publicSSH);
     const connections = new Set(); let executions = 0;
     const server = new Server({hostKeys: [key.private]}, connection => {
         connections.add(connection); connection.on('error', () => {}); connection.on('close', () => connections.delete(connection));
@@ -305,8 +306,8 @@ test('SSH starter explains an empty store, lists authorized profiles and runs on
 
 test('Git starter displays selected repository output using different Git-only SSH profiles', async () => {
     test.setTimeout(120000);
-    const hostKey = utils.generateKeyPairSync('ed25519');
-    const trustedHostKey = 'SHA256:' + createHash('sha256').update(utils.parseKey(hostKey.private).getPublicSSH()).digest('base64').replace(/=+$/, '');
+    const hostKey = generateEd25519();
+    const trustedHostKey = fingerprint(hostKey.publicSSH);
     const gitRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-git-starter-'));
     const gitExecutable = process.platform === 'win32' ? execFileSync('where', ['git'], {encoding:'utf8'}).trim().split(/\r?\n/)[0] : execFileSync('/usr/bin/which', ['git'], {encoding:'utf8'}).trim();
     const git = args => execFileSync(gitExecutable, args, {cwd: gitRoot, stdio: 'pipe'});
