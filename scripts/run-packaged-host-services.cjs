@@ -4,7 +4,7 @@ const {spawnSync} = require('node:child_process');
 const metadata = require('../package.json');
 
 function packagedExecutable(platform = process.platform, arch = process.arch, root = path.resolve(__dirname, '../release')) {
-    const product = metadata.build.productName;
+    const product = metadata.build.executableName || metadata.build.productName;
     let candidates;
     if (platform === 'darwin') candidates = [path.join(root, `mac-${arch}`, `${product}.app`, 'Contents/MacOS', product), path.join(root, 'mac', `${product}.app`, 'Contents/MacOS', product)];
     else if (platform === 'win32') candidates = [path.join(root, 'win-unpacked', `${product}.exe`), path.join(root, `win-${arch}-unpacked`, `${product}.exe`)];
