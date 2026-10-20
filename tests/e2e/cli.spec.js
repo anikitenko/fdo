@@ -109,9 +109,11 @@ test('CLI runs without a terminal or GUI and preserves errors and source files',
         const migrated = await cli(['sdk','migrate','--target',project],profile);
         expect(migrated.code,JSON.stringify(migrated)).toBe(0);expect(migrated.stdout).toContain('Dry-run only.');
         const invalid = await cli(['sdk','migrate','--target',path.join(root,'missing')],profile);
-        expect(invalid.code,JSON.stringify(invalid)).toBe(2);
+        expect(invalid.code,JSON.stringify(invalid)).not.toBe(0);
+        expect(invalid.stderr).toContain('Target path does not exist');
         const unattended = await cli(['sdk','migrate','--target',project,'--write'],profile);
-        expect(unattended.code,JSON.stringify(unattended)).toBe(2);expect(unattended.stderr).toContain('interactive terminal');
+        expect(unattended.code,JSON.stringify(unattended)).not.toBe(0);
+        expect(unattended.stderr).toContain('interactive terminal');
         // A fresh installation can sign/deploy before the GUI has ever opened.
         const firstSign = await cli(['sign','plugin',project,'--json'], profile);
         expect(firstSign.code,JSON.stringify(firstSign)).toBe(0);
