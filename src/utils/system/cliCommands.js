@@ -8,7 +8,10 @@ function isPackagedLaunchArgument(argument) {
     let execPath;
     try {execPath = path.resolve(process.execPath);} catch {return false;}
     if (resolved === execPath) return true;
-    return process.platform === 'darwin' && resolved.endsWith('.app') && execPath.startsWith(`${resolved}${path.sep}`);
+    // Keep this independent of the host platform: Electron argv can be
+    // inspected in tests or tooling running off macOS, while describing a
+    // packaged macOS launch.
+    return resolved.endsWith('.app') && execPath.startsWith(`${resolved}${path.sep}`);
 
 }
 
