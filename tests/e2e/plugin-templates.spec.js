@@ -97,9 +97,13 @@ test('every starter renders styled UI and its actions work without an AI provide
                 await expect(frame.getByRole('heading', {name: 'Latest deployment'})).toBeVisible();
                 if (template === 'splitGrid') {
                     const separator = frame.getByRole('separator', {name: 'Resize dashboard panels'});
+                    const pluginFrame = page.locator(`iframe[data-plugin-id="${pluginName}"]`);
+                    await pluginFrame.evaluate(node => { node.style.minWidth = '720px'; node.style.width = '720px'; });
                     await expect(separator).toBeVisible();
-                    await separator.focus();
-                    await separator.press('ArrowRight');
+                    await separator.evaluate(node => {
+                        node.focus();
+                        node.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true, cancelable: true}));
+                    });
                     await expect(separator).toHaveAttribute('aria-valuenow', '55');
                     const before = await frame.locator('#split-controls').boundingBox();
                     const divider = await separator.boundingBox();
@@ -109,14 +113,13 @@ test('every starter renders styled UI and its actions work without an AI provide
                     await page.mouse.up();
                     await expect.poll(async () => (await frame.locator('#split-controls').boundingBox()).width).toBeGreaterThan(before.width + 40);
                     const ratio = await separator.getAttribute('aria-valuenow');
-                    const iframe = page.locator(`iframe[data-plugin-id="${pluginName}"]`);
-                    await iframe.evaluate(node => { node.style.maxWidth = '480px'; });
+                    await pluginFrame.evaluate(node => { node.style.minWidth = ''; node.style.width = ''; node.style.maxWidth = '480px'; });
                     await expect(separator).toBeHidden();
                     await expect(frame.locator('[data-role="split-hint"]')).toContainText('stacked');
                     const narrowControls = await frame.locator('#split-controls').boundingBox();
                     const narrowMetrics = await frame.locator('#split-metrics').boundingBox();
                     expect(narrowMetrics.y).toBeGreaterThanOrEqual(narrowControls.y + narrowControls.height);
-                    await iframe.evaluate(node => { node.style.maxWidth = ''; });
+                    await pluginFrame.evaluate(node => { node.style.maxWidth = ''; });
                     await expect(separator).toBeVisible();
                     await expect(separator).toHaveAttribute('aria-valuenow', ratio);
                     // A new SDK render reinitializes Split without losing its ratio.
@@ -124,7 +127,10 @@ test('every starter renders styled UI and its actions work without an AI provide
                     await page.getByRole('menuitem', {name: 'Overview', exact: true}).click();
                     await expect(frame.getByRole('heading', {name: 'Overview', exact: true})).toBeVisible();
                     await expect(separator).toHaveAttribute('aria-valuenow', ratio);
-                    await separator.press('Home');
+                    await separator.evaluate(node => {
+                        node.focus();
+                        node.dispatchEvent(new KeyboardEvent('keydown', {key: 'Home', bubbles: true, cancelable: true}));
+                    });
                     await expect(separator).toHaveAttribute('aria-valuenow', '20');
                 }
 

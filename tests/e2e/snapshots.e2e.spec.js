@@ -307,10 +307,16 @@ dialogTest.describe('Snapshots E2E - Dialog/Popup Stability', () => {
     const blockingDialog = await win.$('.bp6-dialog, .bp6-alert, .bp6-overlay-backdrop');
     dialogExpect(blockingDialog).toBeNull();
 
-    // Verify the UI remains interactive by focusing a safe control
-    const recentBtn2 = await win.waitForSelector('button:has-text("Recent")');
-    await recentBtn2.evaluate(el => el.focus());
-    const hasFocus2 = await recentBtn2.evaluate(el => document.activeElement === el);
-    dialogExpect(hasFocus2).toBeTruthy();
+    // Snapshot toasts pause while hovered and can steal focus from the toolbar.
+    const leftoverToast = win.locator('.bp6-toast').filter({hasText: /Workspace snapshot/}).first();
+    if (await leftoverToast.isVisible().catch(() => false)) {
+      await leftoverToast.getByRole('button', {name: 'Close', exact: true}).click();
+      await expect(leftoverToast).toBeHidden();
+    }
+
+    const recentBtn2 = win.getByRole('button', {name: 'Recent', exact: true});
+    await expect(recentBtn2).toBeEnabled();
+    await recentBtn2.click();
+    await expect(win.getByTestId('recent-menu')).toBeVisible();
   });
 });

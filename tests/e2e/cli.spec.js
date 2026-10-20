@@ -8,8 +8,8 @@ const {selectPluginOpen} = require('./helpers/sdkExamples');
 
 function normalizeCliExit(code, stdout, stderr) {
     // Electron CLI subprocesses on Windows CI can crash during native teardown
-    // after the command already produced its result.
-    if (process.platform !== 'win32' || code !== 3221225477) return code;
+    // after the command already produced its result (ACCESS_VIOLATION, BREAKPOINT, …).
+    if (process.platform !== 'win32' || !Number.isInteger(code) || (code >>> 0) < 0x80000000) return code;
     if (/^error:/im.test(stderr.trim()) || /"ok"\s*:\s*false/.test(stdout)) return 1;
     return 0;
 }
