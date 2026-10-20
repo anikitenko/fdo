@@ -26,6 +26,17 @@ function run(command, args, options = {}) {
     const result = spawnSync(command, args, {stdio: 'inherit', ...options});
     if (result.error) throw result.error;if (result.status !== 0) throw new Error(`${path.basename(command)} failed (${result.status}).`);
 }
+function signingChildEnv({platform, signed, env, temp}) {
+    const childEnv = {...env};
+    if (platform === 'mac' && signed) {
+        childEnv.CSC_LINK = env.MAC_CSC_LINK;childEnv.CSC_KEY_PASSWORD = env.MAC_CSC_KEY_PASSWORD || '';
+        if (env.MAC_CSC_NAME || env.CSC_NAME) childEnv.CSC_NAME = env.MAC_CSC_NAME || env.CSC_NAME;
+        // electron-builder skips identity lookup when auto-discovery is false and CSC_NAME is unset.
+        else delete childEnv.CSC_IDENTITY_AUTO_DISCOVERY;
+        if (env.APPLE_API_KEY_BASE64) {const key = path.join(temp, 'AuthKey.p8');fs.writeFileSync(key, Buffer.from(env.APPLE_API_KEY_BASE64, 'base64'), {mode: 0o600});childEnv.APPLE_API_KEY = key;}
+    } else childEnv.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+    return childEnv;
+}
 function main(env = process.env) {
     const metadata = readJson('package.json'), platform = env.RELEASE_PLATFORM, arch = env.RELEASE_ARCH;
     const expected = {darwin: 'mac', win32: 'win', linux: 'linux'}[process.platform];
@@ -37,12 +48,8 @@ function main(env = process.env) {
     config.directories = {...config.directories, output};
     if (process.argv.includes('--check')) {console.log(`${platform}-${arch}: ${signed ? 'signing configured' : 'unsigned build'}`);return;}
     const temp = fs.mkdtempSync(path.join(env.RUNNER_TEMP || os.tmpdir(), 'fdo-release-'));
-    const childEnv = {...env, CSC_IDENTITY_AUTO_DISCOVERY: 'false'};
+    const childEnv = signingChildEnv({platform, signed, env, temp});
     try {
-        if (platform === 'mac' && signed) {
-            childEnv.CSC_LINK = env.MAC_CSC_LINK;childEnv.CSC_KEY_PASSWORD = env.MAC_CSC_KEY_PASSWORD || '';
-            if (env.APPLE_API_KEY_BASE64) {const key = path.join(temp, 'AuthKey.p8');fs.writeFileSync(key, Buffer.from(env.APPLE_API_KEY_BASE64, 'base64'), {mode: 0o600});childEnv.APPLE_API_KEY = key;}
-        }
         const file = path.join(temp, 'builder.json');fs.writeFileSync(file, JSON.stringify(config));
         run(process.execPath, ['node_modules/electron-builder/cli.js', '--config', file, `--${platform}`, `--${arch}`, '--publish', 'never'], {env: childEnv});
         if (platform === 'mac' && signed) {
@@ -56,5 +63,5 @@ function main(env = process.env) {
         fs.writeFileSync(path.join(output, 'signing.json'), JSON.stringify({signed, notarized}));
     } finally {fs.rmSync(temp, {recursive: true, force: true});}
 }
-module.exports = {releaseConfig, main};
+module.exports = {releaseConfig, signingChildEnv, main};
 if (require.main === module) {try {main();} catch (error) {console.error(error.message);process.exitCode = 1;}}
