@@ -2,7 +2,7 @@
 const {reserve}=require('./resourceBudget.cjs');
 const {randomUUID}=require('node:crypto');
 const {ensure,failure,record,key,integer}=require('./contracts.cjs');
-const {trusted}=require('./ssh.cjs');
+const {trusted,prepareSshCredentials}=require('./ssh.cjs');
 const {openSSHTerminal}=require('./sshTerminal.cjs');
 function options(value) {
  record(value,['profileId','term','rows','columns','idleTimeoutMs','sessionTimeoutMs','x11'],['profileId','term','rows','columns','idleTimeoutMs','sessionTimeoutMs']);
@@ -67,7 +67,7 @@ function createTerminalService({Client,authorize,displays,getViewLease,audit=()=
         const ready=()=>finish(verified?null:failure('HOST_KEY_REJECTED'));
         const timer=setTimeout(()=>finish(failure('TIMEOUT')),handshakeMs);entry.rejectOpen=finish;
         client.on('error',()=>finish(failure(rejected?'HOST_KEY_REJECTED':'CONNECTION_FAILED')));client.once('close',()=>finish(failure('CONNECTION_FAILED')));client.once('ready',ready);
-        client.connect({host:profile.host,port:profile.port,username:profile.username,...credentials,tryKeyboard:false,readyTimeout:handshakeMs,keepaliveInterval:5000,keepaliveCountMax:1,hostVerifier:raw=>{verified=trusted(raw,profile.trustedHostKey);rejected=!verified;return verified;}});
+        client.connect({host:profile.host,port:profile.port,username:profile.username,...prepareSshCredentials(credentials),tryKeyboard:false,readyTimeout:handshakeMs,keepaliveInterval:5000,keepaliveCountMax:1,hostVerifier:raw=>{verified=trusted(raw,profile.trustedHostKey);rejected=!verified;return verified;}});
        });
        credentials.password=credentials.privateKey=credentials.passphrase=undefined;check(entry);
        const session=await openSSHTerminal({client,options:config,localX11:entry.local,authorize:()=>check(entry),onDispose:()=>release(entry)});

@@ -202,12 +202,16 @@ export async function runSdkMigration(options = {}) {
 }
 
 export function getSdkMigrationExitCode(error) {
-    const code = error?.code;
-    if (code === SdkMigrationErrorCode.INVALID_ARGUMENT || code === SdkMigrationErrorCode.INVALID_TARGET) {
-        return 2;
-    }
-    if (code === SdkMigrationErrorCode.HELPER_UNAVAILABLE) {
-        return 3;
+    const seen = new Set();
+    for (let current = error; current && !seen.has(current); current = current.cause || current.nestedError) {
+        seen.add(current);
+        const code = current.code;
+        if (code === SdkMigrationErrorCode.INVALID_ARGUMENT || code === SdkMigrationErrorCode.INVALID_TARGET) return 2;
+        if (code === SdkMigrationErrorCode.HELPER_UNAVAILABLE) return 3;
+        if (Number.isInteger(current.exitCode) && current.exitCode > 1) return current.exitCode;
+        const message = String(current.message || '');
+        if (/Target path does not exist|Missing required "--target"|--write requires an interactive terminal/i.test(message)) return 2;
+        if (/does not expose applySdkMigrationCodemod/i.test(message)) return 3;
     }
     return 1;
 }

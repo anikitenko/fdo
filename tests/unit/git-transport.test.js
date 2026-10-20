@@ -4,10 +4,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {execFileSync, spawn} = require('node:child_process');
-const {Server, Client, utils} = require('ssh2');
+const {Server, Client} = require('ssh2');
 const {runGitTransport} = require('../../src/utils/hostServices/gitTransport.cjs');
 const {helperTarget}=require('../../src/utils/hostServices/gitInvocation.cjs');
 const {fingerprint} = require('../../src/utils/hostServices/ssh.cjs');
+const {generateEd25519} = require('../../src/utils/hostServices/sshKeys.cjs');
 
 test('missing working folders and malformed helper requests fail with safe diagnostics', async()=>{
     await expect(runGitTransport({Client,plan:{command:'git',cwd:path.join(os.tmpdir(),'fdo-missing-'+Date.now()),args:['fetch','origin']},
@@ -19,8 +20,8 @@ test('missing working folders and malformed helper requests fail with safe diagn
 test('installed Git supports scp-style and ssh:// paths and reports rejected authentication safely', async () => {
     const command = process.platform === 'win32' ? execFileSync('where', ['git'], {encoding: 'utf8'}).trim().split(/\r?\n/)[0] : execFileSync('/usr/bin/which', ['git'], {encoding: 'utf8'}).trim();
     const git = {command, env: {}}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-git-transport-test-'));
-    const hostKey = utils.generateKeyPairSync('ed25519');
-    const trustedHostKey = fingerprint(utils.parseKey(hostKey.private).getPublicSSH());
+    const hostKey = generateEd25519();
+    const trustedHostKey = fingerprint(hostKey.publicSSH);
     const sockets = new Set(), requests = [];
     const server = new Server({hostKeys: [hostKey.private]}, connection => {
         sockets.add(connection); connection.on('close', () => sockets.delete(connection)); connection.on('error', () => {});

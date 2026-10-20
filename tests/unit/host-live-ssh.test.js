@@ -1,10 +1,11 @@
 /** @jest-environment node */
 const {test,expect}=require('@jest/globals');
-const {Client,Server,utils}=require('ssh2');
+const {Client,Server}=require('ssh2');
 const {createHostService}=require('../../src/utils/hostServices/service.cjs');
 const {fingerprint}=require('../../src/utils/hostServices/ssh.cjs');
 const {CAPABILITIES}=require('../../src/utils/hostServices/contracts.cjs');
-const key=utils.generateKeyPairSync('ed25519');
+const {generateEd25519}=require('../../src/utils/hostServices/sshKeys.cjs');
+const key=generateEd25519();
 
 async function fixture(run) {
     const connections=new Set(),timers=new Set();let commands=0,authentications=0;
@@ -27,7 +28,7 @@ async function fixture(run) {
         });});
     });
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-    const profile={id:'vm',label:'VM',host:'127.0.0.1',port:server.address().port,username:'fixture',trustedHostKey:fingerprint(utils.parseKey(key.private).getPublicSSH()),authentication:{type:'password',passwordRef:{kind:'secret',key:'password'}},policy:{consumers:['ssh.exec'],commands:['live','hang','utf8']}};
+    const profile={id:'vm',label:'VM',host:'127.0.0.1',port:server.address().port,username:'fixture',trustedHostKey:fingerprint(key.publicSSH),authentication:{type:'password',passwordRef:{kind:'secret',key:'password'}},policy:{consumers:['ssh.exec'],commands:['live','hang','utf8']}};
     const grants={a:[...CAPABILITIES],b:[...CAPABILITIES]};
     const audit=[];
     const service=createHostService({Client,isInstalled:id=>Object.hasOwn(grants,id),getGrants:id=>grants[id],audit:(...args)=>audit.push(args),vault:{profile:()=>structuredClone(profile),get:()=> 'private fixture credential',close(){}}});

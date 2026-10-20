@@ -1,17 +1,18 @@
 /** @jest-environment node */
 const {test,expect}=require('@jest/globals');
-const {Server,Client,utils}=require('ssh2');
+const {Server,Client}=require('ssh2');
 const {spawn,execFileSync}=require('node:child_process');
 const {createHash}=require('node:crypto');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {runGitTransport}=require('../../src/utils/hostServices/gitTransport.cjs');
 const {fingerprint}=require('../../src/utils/hostServices/ssh.cjs');
 const {bundledGit,environment}=require('../../src/utils/git/bundledGit.cjs');
+const {generateEd25519}=require('../../src/utils/hostServices/sshKeys.cjs');
 const packet=value=>{const body=Buffer.from(value);return Buffer.concat([Buffer.from((body.length+4).toString(16).padStart(4,'0')),body]);};
 
 test('bundled LFS transfers binary objects through pinned SSH without an external SSH executable',async()=>{
     const root=await fs.mkdtemp(path.join(os.tmpdir(),'fdo-lfs-')),git=bundledGit();
-    const hostKey=utils.generateKeyPairSync('ed25519'),connections=new Set(),processes=new Set();
+    const hostKey=generateEd25519(),connections=new Set(),processes=new Set();
     const content=Buffer.from(Array.from({length:131073},(_,i)=>i%256)),oid=createHash('sha256').update(content).digest('hex');
     let downloaded=0,denyHTTPS=false,authAttempts=0;
     const env=environment({...process.env,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(root,'none')},git);
@@ -54,7 +55,7 @@ test('bundled LFS transfers binary objects through pinned SSH without an externa
         })));
     });
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-    const profile={host:'127.0.0.1',port:server.address().port,username:'git',trustedHostKey:fingerprint(utils.parseKey(hostKey.private).getPublicSSH()),policy:{consumers:['git'],repositories:[{path:'/remote.git',operations:['clone','fetch']}]}};
+    const profile={host:'127.0.0.1',port:server.address().port,username:'git',trustedHostKey:fingerprint(hostKey.publicSSH),policy:{consumers:['git'],repositories:[{path:'/remote.git',operations:['clone','fetch']}]}};
     try {
         const result=await runGitTransport({Client,plan:{command:git.command,cwd:root,args:['clone',`ssh://git@127.0.0.1:${profile.port}/remote.git`,'copy'],timeoutMs:20000},
             authorizeTarget:()=>({profile,credentials:{password:'fixture'}}),signal:new AbortController().signal,helperPath:path.resolve(__dirname,'../../src/utils/hostServices/gitSshHelper.cjs')});

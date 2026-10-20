@@ -1,7 +1,8 @@
 const {utils} = require('ssh2');
 
-// Classic OpenSSH ed25519 material. ssh2's generator can emit keys that its
-// own parser rejects on newer OpenSSL (observed on Ubuntu 26 / Node 24 CI).
+// Classic OpenSSH ed25519 material for encrypted-key fixtures. Live generation
+// uses src/utils/hostServices/sshKeys.cjs so OpenSSL PKCS8 encodings stay
+// compatible with ssh2.
 const host = {
     private: `-----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
