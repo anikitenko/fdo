@@ -307,12 +307,15 @@ dialogTest.describe('Snapshots E2E - Dialog/Popup Stability', () => {
     const blockingDialog = await win.$('.bp6-dialog, .bp6-alert, .bp6-overlay-backdrop');
     dialogExpect(blockingDialog).toBeNull();
 
-    // Snapshot toasts pause while hovered and can steal focus from the toolbar.
-    const leftoverToast = win.locator('.bp6-toast').filter({hasText: /Workspace snapshot/}).first();
-    if (await leftoverToast.isVisible().catch(() => false)) {
-      await leftoverToast.getByRole('button', {name: 'Close', exact: true}).click();
-      await expect(leftoverToast).toBeHidden();
-    }
+    // Snapshot toasts auto-expire and pause while hovered; Playwright clicks on
+    // Close race with detach. Dismiss them in-page so they cannot cover Recent.
+    await win.evaluate(() => {
+      document.querySelectorAll('.bp6-toast').forEach((toast) => {
+        const close = toast.querySelector('button[aria-label="Close"]');
+        if (close) close.click();
+        else toast.remove();
+      });
+    });
 
     const recentBtn2 = win.getByRole('button', {name: 'Recent', exact: true});
     await expect(recentBtn2).toBeEnabled();

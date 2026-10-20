@@ -119,7 +119,10 @@ process.exit(result.status ?? 1);
         await page.getByRole('button', {name: 'Add Git Repository', exact: true}).click();
         await page.getByLabel('Repository URL', {exact: true}).fill('https://fixture.example/collection');
         await page.getByRole('button', {name: 'Verify and save', exact: true}).click();
-        await expect(page.getByText('Native Tools', {exact: true})).toBeVisible({timeout: 30000});
+        // Native Tools can paint from onUpdated while save() is still synchronizing.
+        // The form closing is the signal that the notice is actually set.
+        await expect(page.getByLabel('Repository URL', {exact: true})).not.toBeVisible({timeout: 30000});
+        await expect(page.getByText('Native Tools', {exact: true})).toBeVisible();
         await expect(page.getByText('Repository saved and plugins synchronized.')).toBeVisible();
         await expect(page.getByRole('link', {name: '@anikitenko'})).toHaveAttribute('href', 'https://github.com/anikitenko');
         await expect(page.getByText('1 plugin', {exact: true})).toBeVisible();
