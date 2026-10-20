@@ -31,7 +31,10 @@ test('stable builds require credentials; branch rehearsals cannot sign or publis
     expect(metadata.desktopName).toBe(metadata.build.appId);
     expect(metadata.build.executableName).toMatch(/^[\p{L}\p{N}._\- ]+$/u);
     expect(metadata.build.linux).toMatchObject({executableName:'fdo',syncDesktopName:true});
-    expect(releaseConfig(metadata,{platform:'linux',arch:'x64',publish:true,env:{}}).config.linux).toMatchObject({executableName:'fdo',syncDesktopName:true});
+    const linux = releaseConfig(metadata,{platform:'linux',arch:'x64',publish:true,env:{}}).config.linux;
+    expect(linux).toMatchObject({executableName:'fdo',syncDesktopName:true,artifactName:'fdo-${version}-linux-x64.${ext}'});
+    expect(linux.artifactName).not.toContain('${arch}');
+    expect(releaseConfig(metadata,{platform:'linux',arch:'arm64',publish:true,env:{}}).config.linux.artifactName).toBe('fdo-${version}-linux-arm64.${ext}');
 });
 async function fixture(version = '1.0.0-rc.1', signed = false) {
     const download = path.join(root,'download');fs.mkdirSync(download);
@@ -49,6 +52,11 @@ test('assembles exactly nine unique installers, checksums and a source manifest'
     for (const line of fs.readFileSync(path.join(destination,'SHA256SUMS'),'utf8').trim().split('\n')) {
         const [digest,name] = line.split('  ');expect(await sha256(path.join(destination,name))).toBe(digest);
     }
+});
+test('staging reports the files electron-builder actually wrote when an inventory name is missing', async () => {
+    const source = path.join(root,'linux');fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source,'fdo-1.0.0-rc.1-linux-x86_64.AppImage'),'image');
+    await expect(stage({source,destination:path.join(root,'out'),version:'1.0.0-rc.1',commit,platform:'linux-x64'})).rejects.toThrow(/linux-x64\.AppImage.*x86_64\.AppImage/);
 });
 test('rejects missing platforms, tampered bytes, duplicate assets and unsigned stable releases', async () => {
     const source = await fixture();

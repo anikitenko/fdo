@@ -13,7 +13,8 @@ function releaseConfig(metadata, {platform, arch, publish, env = process.env}) {
     if (publish && platform === 'mac' && !!env.MAC_CSC_LINK !== !!macCredentials) throw new Error('Incomplete Apple signing/notarization credentials.');
     const config = {...metadata.build, publish: null, forceCodeSigning: !!signed};
     if (platform === 'mac') config.mac = {...config.mac, target: [{target: 'dmg', arch: [arch]}, {target: 'zip', arch: [arch]}], artifactName: 'fdo-${version}-mac-${arch}.${ext}', hardenedRuntime: !!signed, notarize: !!signed, ...(!signed ? {identity: null} : {})};
-    if (platform === 'linux') config.linux = {...config.linux, target: ['AppImage', 'deb', 'rpm'].map(target => ({target, arch: [arch]})), artifactName: 'fdo-${version}-linux-${arch}.${ext}'};
+    // electron-builder rewrites ${arch} to x86_64 (AppImage/rpm) or amd64 (deb), not x64.
+    if (platform === 'linux') config.linux = {...config.linux, target: ['AppImage', 'deb', 'rpm'].map(target => ({target, arch: [arch]})), artifactName: `fdo-\${version}-linux-${arch}.\${ext}`};
     if (platform === 'win') {
         config.win = {...config.win, target: [{target: 'nsis', arch: [arch]}, {target: 'portable', arch: [arch]}]};
         config.nsis = {...config.nsis, artifactName: 'fdo-${version}-win-${arch}-setup.${ext}'};
