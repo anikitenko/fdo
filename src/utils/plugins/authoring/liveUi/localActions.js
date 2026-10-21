@@ -10,21 +10,9 @@ const markerPattern = /^visual-result-\d+$/;
 const inputMarkerPattern = /^visual-input-\d+$/;
 const resultTags = new Set(['p','pre','span','output']);
 const resultAttributes = new Set(['class','className','style','role','aria-label','aria-description','aria-live','title',markerName]);
-const unsafeJsCharMap = {
-    '<': '\\u003C',
-    '>': '\\u003E',
-    '/': '\\u002F',
-    '\\': '\\\\',
-    '\b': '\\b',
-    '\f': '\\f',
-    '\n': '\\n',
-    '\r': '\\r',
-    '\t': '\\t',
-    '\0': '\\0',
-    '\u2028': '\\u2028',
-    '\u2029': '\\u2029'
-};
-const escapeUnsafeChars = value => value.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g,char=>unsafeJsCharMap[char]);
+const escapeUnsafeChars = value => value.replace(/[<>\/\u2028\u2029]/g, char => ({
+    '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\u2028': '\\u2028', '\u2029': '\\u2029'
+})[char]);
 const literalFields = node => {
     if (node?.type !== 'ObjectExpression' || node.properties.some(p => p.type !== 'ObjectProperty' || p.computed)) return null;
     const entries = node.properties.map(p => [p.key.name ?? p.key.value,p]);
