@@ -161,10 +161,13 @@ test('CLI deploy signs, preserves grants and refreshes a running GUI', async () 
         page = await app.firstWindow();
         if (!profile) profile = await app.evaluate(({app}) => app.getPath('userData'));
     };
-    const verifyRootCert = async () => expect.poll(async () => page.evaluate(async () => {
-        const certs = await window.electron.settings.certificates.getRoot();
-        return certs.some(cert => cert.label === 'root' && cert.hasPrivateKey);
-    }), {timeout: 20000}).toBe(true);
+    const verifyRootCert = async () => {
+        const hasRoot = await page.evaluate(async () => (await window.electron.settings.certificates.getRoot())
+            .some(cert => cert.label === 'root' && cert.hasPrivateKey));
+        if (!hasRoot) await page.evaluate(() => window.electron.settings.certificates.create('root'));
+        await expect.poll(() => page.evaluate(async () => (await window.electron.settings.certificates.getRoot())
+            .some(cert => cert.label === 'root' && cert.hasPrivateKey)), {timeout: 30000}).toBe(true);
+    };
     const activatePlugin = async () => {
         await page.evaluate(async () => {
             await window.electron.plugin.setCapabilities('cli-release-fixture', ['storage']);

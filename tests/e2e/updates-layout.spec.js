@@ -18,8 +18,7 @@ test('long GitHub release notes stay within the Settings dialog and scroll inter
     + 'release-artifact-'.repeat(18)
   )).join('\n\n');
 
-  await electronApp.evaluate((_, notes) => {
-    const {ipcMain} = require('electron');
+  await electronApp.evaluate(({ipcMain}, notes) => {
     ipcMain.removeHandler('settings:updates:check-updates');
     ipcMain.handle('settings:updates:check-updates', async () => ({
       success: true,
