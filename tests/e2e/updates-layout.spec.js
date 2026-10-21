@@ -52,6 +52,12 @@ test('long GitHub release notes stay within the Settings dialog and scroll inter
     while (notesCard && notesCard !== node && !(notesCard.style.maxHeight && notesCard.style.overflow === 'auto')) {
       notesCard = notesCard.parentElement;
     }
+    let scrollViewport = notesCard?.parentElement;
+    while (scrollViewport && scrollViewport !== node) {
+      const style = getComputedStyle(scrollViewport);
+      if (/auto|scroll/.test(style.overflowY) && scrollViewport.scrollHeight > scrollViewport.clientHeight) break;
+      scrollViewport = scrollViewport.parentElement;
+    }
     const rect = element => {
       if (!element) return null;
       const bounds = element.getBoundingClientRect();
@@ -60,15 +66,23 @@ test('long GitHub release notes stay within the Settings dialog and scroll inter
     return {
       dialog: rect(node),
       notesCard: rect(notesCard),
+      scrollViewport: rect(scrollViewport),
       notesCardClientHeight: notesCard?.clientHeight,
       notesCardScrollHeight: notesCard?.scrollHeight,
       notesCardOverflowY: notesCard ? getComputedStyle(notesCard).overflowY : '',
+      viewportClientHeight: scrollViewport?.clientHeight,
+      viewportScrollHeight: scrollViewport?.scrollHeight,
+      viewportOverflowY: scrollViewport ? getComputedStyle(scrollViewport).overflowY : '',
     };
   });
 
   expect(layout.notesCard).not.toBeNull();
+  expect(layout.scrollViewport).not.toBeNull();
   expect(layout.notesCard.right).toBeLessThanOrEqual(layout.dialog.right + 1);
-  expect(layout.notesCard.bottom).toBeLessThanOrEqual(layout.dialog.bottom + 1);
   expect(layout.notesCardOverflowY).toMatch(/auto|scroll/);
   expect(layout.notesCardScrollHeight).toBeGreaterThan(layout.notesCardClientHeight);
+  expect(layout.scrollViewport.right).toBeLessThanOrEqual(layout.dialog.right + 1);
+  expect(layout.scrollViewport.bottom).toBeLessThanOrEqual(layout.dialog.bottom + 1);
+  expect(layout.viewportOverflowY).toMatch(/auto|scroll/);
+  expect(layout.viewportScrollHeight).toBeGreaterThan(layout.viewportClientHeight);
 });

@@ -182,7 +182,8 @@ async function deselectPlugin(window, pluginName = PLUGIN_NAME) {
 }
 
 async function expectPluginUiVisible(window, pluginName = PLUGIN_NAME) {
-  await expect(window.locator(`iframe[data-plugin-id="${pluginName}"][data-plugin-active="true"]`)).toHaveCount(1, { timeout: 10000 });
+  // Plugin activation and host startup can take up to 12 seconds on macOS CI.
+  await expect(window.locator(`iframe[data-plugin-id="${pluginName}"][data-plugin-active="true"]`)).toHaveCount(1, { timeout: 20000 });
   try {
     await window.waitForFunction(pluginName => {
       const iframe = Array.from(document.querySelectorAll('iframe[data-plugin-active="true"]'))
