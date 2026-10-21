@@ -2,18 +2,26 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {Button, Callout, Card, HTMLSelect, H4, Intent, Spinner, Switch} from '@blueprintjs/core';
 import Markdown from 'markdown-to-jsx';
 
-const formatReleaseNotes = value => String(value || '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\*\*Unsigned prerelease builds:\*\*\s*win-x64\.\s*macOS Gatekeeper and Windows SmartScreen may block these builds\./gi, 'Windows installers are published unsigned.')
-    .replace(/<details\b[^>]*>\s*<summary\b[^>]*>([\s\S]*?)<\/summary>/gi, '\n### $1\n')
-    .replace(/<\/details\s*>/gi, '\n')
-    .replace(/<\/?summary\b[^>]*>/gi, '')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, '&')
-    .trim();
+const formatReleaseNotes = value => {
+    let notes = String(value || '');
+    let previous;
+    do {
+        previous = notes;
+        notes = notes.replace(/<!--[\s\S]*?-->/g, '');
+    } while (notes !== previous);
+
+    return notes
+        .replace(/\*\*Unsigned prerelease builds:\*\*\s*win-x64\.\s*macOS Gatekeeper and Windows SmartScreen may block these builds\./gi, 'Windows installers are published unsigned.')
+        .replace(/<details\b[^>]*>\s*<summary\b[^>]*>([\s\S]*?)<\/summary>/gi, '\n### $1\n')
+        .replace(/<\/details\s*>/gi, '\n')
+        .replace(/<\/?summary\b[^>]*>/gi, '')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&amp;/gi, '&')
+        .trim();
+};
 
 export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
     const [checking, setChecking] = useState(false);

@@ -1,3 +1,4 @@
+import {randomBytes} from "crypto";
 import {isNetworkTargetAllowed} from "../security/networkScopeRegistry";
 import {
     buildRuntimeSecurityPolicy,
@@ -715,7 +716,7 @@ export async function handleHostAuthBrokerStartRequest(payload = {}, options = {
     const accountHint = toTrimmedString(payload?.accountHint);
     const accountId = accountHint || "";
     const payloadSessionId = toTrimmedString(payload?.sessionId);
-    const sessionId = payloadSessionId || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const sessionId = payloadSessionId || `sess_${Date.now()}_${randomBytes(8).toString("hex")}`;
     const raw = transportResult.raw;
     const credentials = extractSessionCredentials(raw, payload);
     const authTxnStore = getPluginAuthTxnStore(pluginId);

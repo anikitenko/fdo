@@ -10,6 +10,21 @@ const markerPattern = /^visual-result-\d+$/;
 const inputMarkerPattern = /^visual-input-\d+$/;
 const resultTags = new Set(['p','pre','span','output']);
 const resultAttributes = new Set(['class','className','style','role','aria-label','aria-description','aria-live','title',markerName]);
+const unsafeJsCharMap = {
+    '<': '\\u003C',
+    '>': '\\u003E',
+    '/': '\\u002F',
+    '\\': '\\\\',
+    '\b': '\\b',
+    '\f': '\\f',
+    '\n': '\\n',
+    '\r': '\\r',
+    '\t': '\\t',
+    '\0': '\\0',
+    '\u2028': '\\u2028',
+    '\u2029': '\\u2029'
+};
+const escapeUnsafeChars = value => value.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g,char=>unsafeJsCharMap[char]);
 const literalFields = node => {
     if (node?.type !== 'ObjectExpression' || node.properties.some(p => p.type !== 'ObjectProperty' || p.computed)) return null;
     const entries = node.properties.map(p => [p.key.name ?? p.key.value,p]);
@@ -121,9 +136,11 @@ export function planLocalAction(files,element,request) {
     while (occupied.includes('visual-result-'+number)) number++;
     const marker = target.marker || 'visual-result-'+number;
     const selector = `[${markerName}="${marker}"]`;
+    const safeSelectorLiteral = escapeUnsafeChars(JSON.stringify(selector));
+    const safeTextLiteral = escapeUnsafeChars(JSON.stringify(request.text));
     // No backend closure, tool execution or interpolation. The deployed handler
     // writes textContent, including for strings that resemble HTML or code.
-    const handler = `${JSON.stringify(name)}: () => { const target = document.querySelector(${JSON.stringify(selector)}); if (target) target.textContent = ${JSON.stringify(request.text)}; }, `;
+    const handler = `${JSON.stringify(name)}: () => { const target = document.querySelector(${safeSelectorLiteral}); if (target) target.textContent = ${safeTextLiteral}; }, `;
     const connection = planButtonAction(files,{...element,actionConnection:{...creation.connection,handlers:[{name,preventDefault:true}]}},{kind:'connect-action',handler:name});
     const operations = connection.patches.map(({file,start,end,replacement})=>({file,start,end,replacement}));
     operations.push({file:'/index.ts',start:creation.handlerInsert,end:creation.handlerInsert,replacement:handler});
