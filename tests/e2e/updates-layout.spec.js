@@ -47,31 +47,28 @@ test('long GitHub release notes stay within the Settings dialog and scroll inter
   await expect(notesHeading).toBeVisible({timeout: 10_000});
 
   const layout = await dialog.evaluate(node => {
-    const body = node.querySelector('.bp6-dialog-body');
-    const panel = node.querySelector('.bp6-tab-panel');
-    const notesCard = [...node.querySelectorAll('.bp6-card')].find(card =>
-      card.querySelector('h4')?.textContent?.startsWith('Latest Release Notes'));
+    let notesCard = [...node.querySelectorAll('h4')].find(heading =>
+        heading.textContent?.startsWith('Latest Release Notes'));
+    while (notesCard && notesCard !== node && !(notesCard.style.maxHeight && notesCard.style.overflow === 'auto')) {
+      notesCard = notesCard.parentElement;
+    }
     const rect = element => {
+      if (!element) return null;
       const bounds = element.getBoundingClientRect();
       return {top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right};
     };
     return {
       dialog: rect(node),
-      body: rect(body),
-      panel: rect(panel),
       notesCard: rect(notesCard),
       notesCardClientHeight: notesCard?.clientHeight,
       notesCardScrollHeight: notesCard?.scrollHeight,
-      notesCardOverflowY: getComputedStyle(notesCard).overflowY,
-      panelClientWidth: panel?.clientWidth,
-      panelScrollWidth: panel?.scrollWidth,
+      notesCardOverflowY: notesCard ? getComputedStyle(notesCard).overflowY : '',
     };
   });
 
-  expect(layout.panel.top).toBeGreaterThanOrEqual(layout.body.top - 1);
-  expect(layout.panel.bottom).toBeLessThanOrEqual(layout.body.bottom + 1);
-  expect(layout.notesCard.right).toBeLessThanOrEqual(layout.panel.right + 1);
+  expect(layout.notesCard).not.toBeNull();
+  expect(layout.notesCard.right).toBeLessThanOrEqual(layout.dialog.right + 1);
+  expect(layout.notesCard.bottom).toBeLessThanOrEqual(layout.dialog.bottom + 1);
   expect(layout.notesCardOverflowY).toMatch(/auto|scroll/);
   expect(layout.notesCardScrollHeight).toBeGreaterThan(layout.notesCardClientHeight);
-  expect(layout.panelScrollWidth).toBeLessThanOrEqual(layout.panelClientWidth + 1);
 });

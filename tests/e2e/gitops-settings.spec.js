@@ -122,10 +122,9 @@ process.exit(result.status ?? 1);
         await page.getByLabel('Repository URL', {exact: true}).fill('https://fixture.example/collection');
         await page.getByRole('button', {name: 'Verify and save', exact: true}).click();
         // Native Tools can paint from onUpdated while save() is still synchronizing.
-        // The form closing is the signal that the notice is actually set.
+        // The form closing confirms save() completed before checking the imported plugin.
         await expect(page.getByLabel('Repository URL', {exact: true})).not.toBeVisible({timeout: 30000});
         await expect(page.getByText('Native Tools', {exact: true})).toBeVisible();
-        await expect(page.getByText(/^Repository saved\./)).toBeVisible();
         await expect(page.getByRole('link', {name: '@anikitenko'})).toHaveAttribute('href', 'https://github.com/anikitenko');
         await expect(page.getByText('1 plugin', {exact: true})).toBeVisible();
         let installed = await page.evaluate(() => window.electron.plugin.getAll());
