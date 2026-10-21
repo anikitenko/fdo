@@ -141,7 +141,7 @@ export function planBackendResult(files,element,request) {
     if(outputs.length || oldRows.length) {
         if(marker !== config.marker || request.display !== mapping.display || changedOutputs) {
             let callback=backendFrontendSource(`[data-fdo-result="${marker}"]`,config.handler,config.text,config.inputMarker ? `[data-fdo-input="${config.inputMarker}"]` : '',config.inputTag,request.display,preset,outputs);
-            if(mapping.comments?.length) callback=callback.replace('{','{\n'+mapping.comments.join('\n')+'\n');
+            if(mapping.comments?.length) callback=callback.replace('async () => {','async () => {\n'+mapping.comments.join('\n')+'\n');
             operations.push({file:mapping.file,...mapping.callback,replacement:callback});
         }
     } else {
