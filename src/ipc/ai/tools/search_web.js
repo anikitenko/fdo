@@ -9,11 +9,11 @@ import {SEARCH_WEB_ECOSYSTEMS} from "./search_web_ecosystems.js";
 function stripHtml(value = "") {
     return String(value)
         .replace(/<[^>]+>/g, " ")
-        .replace(/&amp;/g, "&")
         .replace(/&quot;/g, "\"")
         .replace(/&#39;/g, "'")
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&")
         .replace(/\s+/g, " ")
         .trim();
 }
