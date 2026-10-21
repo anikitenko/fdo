@@ -49,7 +49,8 @@ function helperTarget(args) {
     const isLfs=command[1].startsWith('git-lfs-');if(isLfs!==!!command[5])throw invalid('HELPER_ARGUMENTS_REJECTED');
     const url=repo.startsWith('/')?`ssh://${username}@${host.includes(':')?'['+host+']':host}:${port}${repo}`:`${username}@${host}:${repo}`;
     const parsed=target(url);if(parsed.port!==port)throw invalid('HELPER_ARGUMENTS_REJECTED');
-    return {url,service:command[1],direction:command[5],repository:repo,command:command[1]+" '"+repo+"'"+(command[5]?' '+command[5]:''),...parsed};
+    const quotedRepo=repo.replace(/'/g, `'\"'\"'`);
+    return {url,service:command[1],direction:command[5],repository:repo,command:command[1]+" '"+quotedRepo+"'"+(command[5]?' '+command[5]:''),...parsed};
 }
 async function childDirectory(root,relative) {
     if(!folder(relative))throw invalid('UNSAFE_REPOSITORY_CONFIG');
