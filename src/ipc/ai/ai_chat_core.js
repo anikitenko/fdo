@@ -2995,7 +2995,7 @@ async function toolFollowUp(llm, toolCalls) {
     const followUpResult = {
         content: sanitizeAssistantText(
             reply
-                .replace(/(?:\n|\r|^|\s)*sources used:?\s*[\s\S]*$/i, "")
+                .replace(/\s*sources used:?\s*[\s\S]*$/i, "")
                 .trim()
         ),
         sources: uniqueSources,
