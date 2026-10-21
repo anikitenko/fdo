@@ -39,7 +39,13 @@ export function describeSdkInsertions(files, elements, calls, html, contract, en
             }
         }
     }
-    const root = html.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,'').trim();
+    let root = html;
+    let previous;
+    do {
+        previous = root;
+        root = root.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,'');
+    } while (root !== previous);
+    root = root.trim();
     const rootId = /^<main\b[^>]*\bdata-fdo-ui-id="([^"]+)"/i.exec(root)?.[1];
     if (!rootId) return;
     const targets = insertionTargets(html, rootId, elements, calls);
