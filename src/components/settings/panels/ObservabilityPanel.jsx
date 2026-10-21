@@ -25,6 +25,7 @@ export default function ObservabilityPanel() {
     const disabled = field => !!busy || overrides.includes(field);
     return <Card className={styles['card-panel']}>
         <H3 style={{marginTop: 16}}>Observability</H3>
+        <p className="bp6-text-muted">FDO asks macOS Keychain to protect saved credentials and trace details. If Langfuse export is enabled, it also reads the saved Langfuse secret to send queued traces. Local startup timing summaries do not require Keychain access.</p>
         {notice && <Callout intent={notice.intent} style={{marginBottom: 12}} role="status">{notice.message}</Callout>}
         {!form ? busy ? <Spinner size={24}/> : <Button onClick={load} text="Load observability settings"/> : <>
             {(data.storage?.error || data.lastExportError) && <Callout intent="warning" style={{marginBottom: 12}}>{data.storage?.error || data.lastExportError}</Callout>}

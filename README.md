@@ -62,12 +62,13 @@ It requires `gnome-keyring`, `libsecret-tools`, `libglib2.0-bin`, `dbus-x11`, an
 ## Releases
 
 The **Release Matrix** workflow validates the source, runs the full reusable App UI
-Tests workflow, builds on native macOS arm64/x64, Linux x64 and Windows x64 runners,
-and tests each packaged application before assembling a release. It publishes
-only after all four builds pass and their nine installer/archive files have been
-verified. The publisher alone has release-write permission; electron-builder
-publishing is disabled. Release actions and quality-gate actions are pinned to
-commit SHAs.
+Tests workflow, builds on native macOS arm64/x64, Linux x64, and Windows x64
+runners, and tests each packaged application before assembling a release. Windows
+installers are included unsigned while Windows signing remains unconfigured. It
+publishes only after all four builds pass and their nine installer/archive files
+have been verified. The publisher alone has release-write permission;
+electron-builder publishing is disabled. Release actions and quality-gate actions
+are pinned to commit SHAs.
 
 Push a `v<package version>` tag from a commit already merged into the repository's
 default branch. `package.json`, the lockfile version and its root package version
@@ -119,13 +120,12 @@ Configure these GitHub Actions repository secrets before the first stable releas
 | macOS signing                            | `MAC_CSC_LINK` (base64 Developer ID Application `.p12`), `MAC_CSC_KEY_PASSWORD` |
 | Apple notarization, API key              | `APPLE_API_KEY_BASE64` (base64 `.p8`), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`   |
 | Apple notarization, Apple ID alternative | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`                      |
-| Windows signing                          | `WIN_CSC_LINK` (base64 code-signing `.pfx`), `WIN_CSC_KEY_PASSWORD`             |
 
 Choose one Apple notarization authentication method. Signing secrets are available
 only to signing-readiness/package steps on tag runs, and each OS receives only its
 own credentials. Temporary Apple key files are removed after packaging. The build
-checks macOS signatures, stapled notarization and Gatekeeper assessment, and checks
-Windows Authenticode signatures on the app and installers. These settings use
+checks macOS signatures, stapled notarization and Gatekeeper assessment. Windows
+signing will be configured when Windows releases resume. These settings use
 [electron-builder v26's signing configuration](https://www.electron.build/v26/docs/features/code-signing/).
 
 Prereleases may be unsigned when credentials have not been configured. Their

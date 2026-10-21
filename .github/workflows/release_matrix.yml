@@ -83,17 +83,15 @@ jobs:
           APPLE_ID: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
-          WIN_CSC_LINK: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
-          WIN_CSC_KEY_PASSWORD: ${{ needs.validate.outputs.publish == 'true' && matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
       - run: npm ci
       - name: Install Linux packaging and test dependencies
-        if: runner.os == 'Linux'
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends rpm fakeroot dpkg gnome-keyring libsecret-tools libglib2.0-bin dbus-x11
           npx playwright install --with-deps chromium
       - name: Install browser test runtime
-        if: runner.os != 'Linux'
+        if: matrix.platform != 'linux'
         run: npx playwright install chromium
       - run: npm run check:dependencies
       - run: npm run build
@@ -101,10 +99,10 @@ jobs:
         run: node scripts/release/build.cjs
         env: *signing
       - name: Test the packaged Linux application
-        if: runner.os == 'Linux'
+        if: matrix.platform == 'linux'
         run: bash scripts/run-linux-e2e.sh node scripts/run-packaged-host-services.cjs
       - name: Test the packaged desktop application
-        if: runner.os != 'Linux'
+        if: matrix.platform != 'linux'
         run: node scripts/run-packaged-host-services.cjs
       - name: Stage exact installer inventory and checksums
         run: node scripts/release/artifacts.cjs stage
@@ -145,7 +143,7 @@ jobs:
         with:
           pattern: release-build-*
           path: release-downloads
-      - name: Verify all platforms and produce SHA256SUMS
+      - name: Verify supported platforms and produce SHA256SUMS
         run: node scripts/release/artifacts.cjs assemble
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}

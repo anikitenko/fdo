@@ -195,7 +195,7 @@ contextBridge.exposeInMainWorld('electron', {
         },
         certificates: {
             getRoot: () => ipcRenderer.invoke(SettingsChannels.certificates.GET_ROOT),
-            create: () => ipcRenderer.invoke(SettingsChannels.certificates.CREATE),
+            create: label => ipcRenderer.invoke(SettingsChannels.certificates.CREATE, label),
             rename: (id, newName) => ipcRenderer.invoke(SettingsChannels.certificates.RENAME, id, newName),
             export: (id) => ipcRenderer.invoke(SettingsChannels.certificates.EXPORT, id),
             import: (file) => ipcRenderer.invoke(SettingsChannels.certificates.IMPORT, file),

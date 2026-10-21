@@ -1,10 +1,11 @@
 import {SettingsChannels} from './channels';
 import {publicObservabilityConfig, langfuseConfig, validateObservabilityConfig, exportDestination, storedObservabilityConfig} from '../utils/persistence/observabilityConfig';
 import {observabilityRequest, observabilityStorageStatus, getTrace} from '../utils/persistence/observabilityStorage';
-import {decryptDiagnostic} from '../utils/persistence/osProtection';
+import {decryptDiagnostic, encryptDiagnostic} from '../utils/persistence/osProtection';
 import {createLangfuseExporter} from './ai/langfuseExporter';
 import {NotificationCenter} from '../utils/desktop/NotificationCenter';
 import {createIncidentReporter} from '../utils/desktop/backgroundNotifications';
+import {settings} from '../utils/persistence/store';
 
 async function verifyConnectionResponse(response) {
     if (!response.ok) throw new Error(`Connection failed (HTTP ${response.status}). Check the server URL and project keys.`);
@@ -28,7 +29,20 @@ export function registerObservabilityHandlers({ipcMain, fetchImpl = (input, init
     }, 3600000); pruneTimer.unref?.();
     void run();
     const channels = SettingsChannels.observability;
-    const snapshot = async () => ({...publicObservabilityConfig(), storage: observabilityStorageStatus(), lastExportError, ...await observabilityRequest('overview')});
+    const migrateLegacySecret = () => {
+        const staged = settings.get('observabilityMigration');
+        if (!staged?.secretKey) return;
+        const encrypted = encryptDiagnostic(staged.secretKey);
+        if (decryptDiagnostic(encrypted) !== staged.secretKey) throw new Error('Could not verify protected Langfuse secret');
+        const config = storedObservabilityConfig();
+        config.langfuse.encryptedSecretKey = encrypted.toString('base64');
+        settings.set('ai.observability', config);
+        settings.delete('observabilityMigration');
+    };
+    const snapshot = async () => {
+        migrateLegacySecret();
+        return {...publicObservabilityConfig(), storage: observabilityStorageStatus(), lastExportError, ...await observabilityRequest('overview')};
+    };
     ipcMain.handle(channels.GET, snapshot);
     ipcMain.handle(channels.SAVE, async (_event, input) => {
         validateObservabilityConfig(input, {save: true});

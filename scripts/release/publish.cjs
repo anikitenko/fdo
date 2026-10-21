@@ -24,10 +24,10 @@ function previousRelease(releases, version, isAncestor) {
     }).sort((a, b) => compareVersions(b.tag_name.slice(1), a.tag_name.slice(1)))[0]?.tag_name;
 }
 function notes({generated, history, repository, tag, previous, manifest}) {
-    const unsigned = manifest.builds.filter(build => build.platform !== 'linux-x64' && !build.signed).map(build => build.platform);
     const body = [generated.slice(0, 70000), '\n## Downloads and verification',
         'Installers are attached below. `SHA256SUMS` covers every installer and `release-manifest.json`; the manifest records source commit, platform and signing status.',
-        unsigned.length ? `\n**Unsigned prerelease builds:** ${unsigned.join(', ')}. macOS Gatekeeper and Windows SmartScreen may block these builds.` : '\nmacOS builds are Developer ID signed and notarized; Windows builds are Authenticode signed.',
+        '\nmacOS installers are Developer ID signed and notarized.',
+        '\nWindows installers are published unsigned.',
         `\nSource: [${manifest.commit.slice(0, 12)}](https://github.com/${repository}/commit/${manifest.commit}).`,
         '\n<details>\n<summary>Commit history (up to 200 commits, newest first)</summary>\n',
         ...history.map(({sha, subject}) => `- ${subject.slice(0, 220).replace(/[\\`*_{}\[\]<>!|]/g, '\\$&')} ([${sha.slice(0, 8)}](https://github.com/${repository}/commit/${sha}))`),

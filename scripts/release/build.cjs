@@ -3,13 +3,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const {spawnSync} = require('node:child_process');
-const {parseVersion, readJson, git} = require('./common.cjs');
+const {readJson, git} = require('./common.cjs');
 function releaseConfig(metadata, {platform, arch, publish, env = process.env}) {
     if (!['mac', 'linux', 'win'].includes(platform) || !['x64', 'arm64'].includes(arch)) throw new Error('Invalid platform/architecture.');
-    const stable = publish && !parseVersion(metadata.version).prerelease;
     const macCredentials = !!env.MAC_CSC_LINK && (!!env.APPLE_API_KEY_BASE64 && !!env.APPLE_API_KEY_ID && !!env.APPLE_API_ISSUER || !!env.APPLE_ID && !!env.APPLE_APP_SPECIFIC_PASSWORD && !!env.APPLE_TEAM_ID);
-    const signed = publish && (platform === 'mac' ? macCredentials : platform === 'win' ? !!env.WIN_CSC_LINK : false);
-    if (stable && platform !== 'linux' && !signed) throw new Error(`Stable ${platform} releases require code signing${platform === 'mac' ? ' and notarization' : ''} credentials.`);
+    const signed = publish && platform === 'mac' && macCredentials;
+    if (publish && platform === 'mac' && !signed) throw new Error('Published macOS releases require code signing and notarization credentials.');
     if (publish && platform === 'mac' && !!env.MAC_CSC_LINK !== !!macCredentials) throw new Error('Incomplete Apple signing/notarization credentials.');
     const config = {...metadata.build, publish: null, forceCodeSigning: !!signed};
     if (platform === 'mac') config.mac = {...config.mac, target: [{target: 'dmg', arch: [arch]}, {target: 'zip', arch: [arch]}], artifactName: 'fdo-${version}-mac-${arch}.${ext}', hardenedRuntime: !!signed, notarize: !!signed, ...(!signed ? {identity: null} : {})};

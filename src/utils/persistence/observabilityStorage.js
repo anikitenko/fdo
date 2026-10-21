@@ -18,27 +18,20 @@ export function initializeObservabilityStorage() {
         const staged = settings.get('observabilityMigration');
         const records = [];
         if (staged?.metrics) {
-            const {totals, misses} = splitMetrics(staged.metrics);
-            records.push({kind: 'metrics', value: {createdAt: Date.now(), totals}}, ...misses.map(encryptedMiss));
+            const {totals} = splitMetrics(staged.metrics);
+            records.push({kind: 'metrics', value: {createdAt: Date.now(), totals}});
         }
         for (const entry of staged?.usageLedger || []) records.push({kind: 'usage', value: entry});
-        let secret;
-        if (staged?.secretKey) {
-            secret = encryptDiagnostic(staged.secretKey);
-            if (decryptDiagnostic(secret) !== staged.secretKey) throw new Error('Could not verify protected Langfuse secret');
-        }
         await client.request('initialize', {records});
-        if (secret) {
-            const config = storedObservabilityConfig();
-            config.langfuse.encryptedSecretKey = secret.toString('base64');
-            settings.set('ai.observability', config);
+        if (staged) {
+            if (staged.secretKey) settings.set('observabilityMigration', {secretKey: staged.secretKey});
+            else settings.delete('observabilityMigration');
         }
-        if (staged) settings.delete('observabilityMigration');
         await client.request('prune', storedObservabilityConfig().retention);
         const saved = await client.request('metrics');
-        metrics = {...saved.totals, retrieval: {...saved.totals.retrieval, recentMisses: saved.misses.map(data => {
-            try {return decryptDiagnostic(data);} catch {return null;}
-        }).filter(Boolean)}};
+        // Recent miss details can contain user queries. Do not decrypt them during startup;
+        // aggregate counters remain available without prompting for Keychain access.
+        metrics = {...saved.totals, retrieval: {...saved.totals.retrieval, recentMisses: []}};
         initialized = true;
         timer = setInterval(() => {flushObservability().catch(() => {});}, 1000); timer.unref?.();
         return true;
@@ -91,18 +84,16 @@ export async function loadUsageEntries() {await initializeObservabilityStorage()
 export function recordRuntimeSamples(value) {enqueue({kind: 'runtime', value}).catch(error => {storageError = error.message;});}
 export async function recordStartupEvent(entry) {
     await initializeObservabilityStorage();
-    const {event, session, elapsed, memory, cpu, ...extra} = entry;
-    let details = null;
-    try {details = encryptDiagnostic(extra);} catch { /* Numerical timings remain useful when the keychain is locked. */ }
+    const {event, session, elapsed, memory, cpu} = entry;
     return enqueue({kind: 'startup', value: {id: randomUUID(), createdAt: entry.createdAt || Date.now(), sessionId: session,
-        event, elapsed: Number.parseInt(elapsed, 10) || 0, summary: {memory, cpu}, details}});
+        event, elapsed: Number.parseInt(elapsed, 10) || 0, summary: {memory, cpu}, details: null}});
 }
 export async function importStartupEvents(entries) {
     await initializeObservabilityStorage();
     const records = entries.map(({id, entry, createdAt}) => {
-        const {event, session, elapsed, memory, cpu, ...extra} = entry;
+        const {event, session, elapsed, memory, cpu} = entry;
         return {kind: 'startup', value: {id, createdAt, sessionId: session || 'imported', event: String(event || 'imported'),
-            elapsed: Number.parseInt(elapsed, 10) || 0, summary: {memory, cpu, imported: true}, details: encryptDiagnostic(extra)}};
+            elapsed: Number.parseInt(elapsed, 10) || 0, summary: {memory, cpu, imported: true}, details: null}};
     });
     return client.request('batch', records);
 }

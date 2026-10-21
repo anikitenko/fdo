@@ -47,7 +47,9 @@ export const CertificatePanel = () => {
                 <Button intent={"success"} text="New root certificate" loading={generateRootCertProgress}
                         style={{marginLeft: "auto", borderRadius: "6px"}} onClick={() => {
                     setGenerateRootCertProgress(true)
-                    window.electron.settings.certificates.create().then(() => {
+                    const label = rootCertificates.some(cert => cert.label === 'root')
+                        ? `Signing-${(Math.random() + 1).toString(36).substring(2)}` : 'root';
+                    window.electron.settings.certificates.create(label).then(() => {
                         updateCertificates()
                     }).catch(error => AppToaster.show({message: operationError('Could not create a signing certificate', error, 'Unlock your OS credential store and check disk access, then retry.'), intent: 'danger'}))
                         .finally(() => setGenerateRootCertProgress(false))
@@ -79,6 +81,11 @@ export const CertificatePanel = () => {
                 Root certificates are used to verify the authenticity of plugins.
                 They form the foundation of trust in your system. Only trusted root certificates should be used,
                 and you can manage them here.
+            </p>
+            <p className="bp6-text-muted">
+                FDO uses macOS Keychain to encrypt private signing keys. macOS may ask you to allow FDO to access
+                Keychain when you create, import, renew, or use a private key to sign a plugin. Certificate storage
+                does not need Keychain access just to start.
             </p>
             {rootCertificates?.length > 0 ? (
                 <CardList>
