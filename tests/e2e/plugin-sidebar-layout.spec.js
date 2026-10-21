@@ -1,5 +1,6 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
+const {ensureRootSigningCertificate} = require('./helpers/rootCertificate');
 
 // Exercise a real signed plugin and its iframe, including state held inside its UI.
 test('the right sidebar preserves plugin iframe geometry and state and has no duplicate notification bell', async ({}, testInfo) => {
@@ -9,8 +10,7 @@ test('the right sidebar preserves plugin iframe geometry and state and has no du
     try {
         app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {FDO_E2E_MULTI_INSTANCE: '0'}});
         const page = await app.firstWindow();
-        await expect.poll(() => page.evaluate(async () => (await window.electron.settings.certificates.getRoot())
-            .some(certificate => certificate.label === 'root' && certificate.hasPrivateKey)), {timeout: 30000}).toBe(true);
+        await ensureRootSigningCertificate(page);
         await page.evaluate(() => window.electron.notifications.savePreferences({successToasts: false, failureToasts: false, infoToasts: false}));
         const deployed = await page.evaluate(async id => window.electron.plugin.deployToMainFromEditor({
             name: id, sandbox: 'sidebar-layout-fixture', entrypoint: 'dist/index.cjs', rootCert: 'root',

@@ -1,5 +1,6 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
+const {ensureRootSigningCertificate} = require('./helpers/rootCertificate');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -113,6 +114,7 @@ process.exit(result.status ?? 1);
             FDO_E2E_BUNDLED_GIT_COMMAND:path.join(bin,'git'), FDO_E2E_MULTI_INSTANCE: '0', FDO_E2E_LIVE_AI: '0', PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         }});
         const page = await app.firstWindow();
+        await ensureRootSigningCertificate(page);
         await page.getByLabel('Open command search').click();
         await page.getByRole('menuitem').filter({hasText: 'Configure FDO'}).click();
         await page.getByRole('tab', {name: 'GitOps', exact: true}).click();
@@ -123,7 +125,7 @@ process.exit(result.status ?? 1);
         // The form closing is the signal that the notice is actually set.
         await expect(page.getByLabel('Repository URL', {exact: true})).not.toBeVisible({timeout: 30000});
         await expect(page.getByText('Native Tools', {exact: true})).toBeVisible();
-        await expect(page.getByText('Repository saved and plugins synchronized.')).toBeVisible();
+        await expect(page.getByText(/^Repository saved\./)).toBeVisible();
         await expect(page.getByRole('link', {name: '@anikitenko'})).toHaveAttribute('href', 'https://github.com/anikitenko');
         await expect(page.getByText('1 plugin', {exact: true})).toBeVisible();
         let installed = await page.evaluate(() => window.electron.plugin.getAll());

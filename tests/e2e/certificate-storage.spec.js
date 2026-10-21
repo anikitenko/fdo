@@ -22,7 +22,15 @@ test('migrates signing keys to OS-encrypted SQLite, exposes public records only,
         expect(certificates).toHaveLength(1);
         expect(certificates[0]).toMatchObject({id: original.id, cert: original.cert, label: 'migrated', hasPrivateKey: true});
         expect(certificates[0]).not.toHaveProperty('key');
+        // Reading public certificate metadata must not unlock the key store.
+        expect(store.has('certificates')).toBe(true);
+        // A deliberate signing-key write migrates the legacy private key into
+        // OS-encrypted SQLite; startup and read-only listing remain deferred.
+        await page.evaluate(() => window.electron.settings.certificates.create('migration-probe'));
         expect(store.has('certificates')).toBe(false);
+        const migrationProbe = (await page.evaluate(() => window.electron.settings.certificates.getRoot())).find(item => item.label === 'migration-probe');
+        expect(migrationProbe).toBeDefined();
+        await page.evaluate(id => window.electron.settings.certificates.delete(id), migrationProbe.id);
         const checkSigning = () => app.evaluate(({safeStorage}, {profile, id}) => {
             const {DatabaseSync} = process.getBuiltinModule('node:sqlite');
             const crypto = process.getBuiltinModule('node:crypto');

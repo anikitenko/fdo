@@ -1,5 +1,6 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
 const {launchElectronApp, closeElectronApp, clickOpenNotifications, dismissBlueprintOverlays} = require('./helpers/electronApp');
+const {ensureRootSigningCertificate} = require('./helpers/rootCertificate');
 
 test('real plugin failures use display names, actionable saved notices, and recovery without startup noise', async ({}, testInfo) => {
     test.setTimeout(90000);
@@ -8,7 +9,7 @@ test('real plugin failures use display names, actionable saved notices, and reco
     try {
         app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {FDO_E2E_MULTI_INSTANCE: '0'}});
         const page = await app.firstWindow();
-        await expect.poll(() => page.evaluate(async () => (await window.electron.settings.certificates.getRoot()).some(item => item.label === 'root' && item.hasPrivateKey)), {timeout: 30000}).toBe(true);
+        await ensureRootSigningCertificate(page);
         await page.evaluate(() => window.electron.notifications.savePreferences({successToasts: false, failureToasts: true, infoToasts: false}));
         const deployed = await page.evaluate(id => window.electron.plugin.deployToMainFromEditor({name: id, sandbox: 'audit', entrypoint: 'dist/index.cjs', rootCert: 'root',
             metadata: {name: 'Rose Calculator', author: 'Fixture', version: '1.0.0', description: 'Notifications fixture', icon: 'calculator'},
