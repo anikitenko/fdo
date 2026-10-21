@@ -16,6 +16,10 @@ export function createPluginRequestBridge(target = window) {
         const requestId = event.data.requestId;
         const resolve = pending.get(requestId);
         if (!resolve || !isValidPluginUiResponseEvent(event.data, requestId)) return;
+        if (typeof resolve !== 'function') {
+            pending.delete(requestId);
+            return;
+        }
         pending.delete(requestId);
         resolve(event.data.error ? {success: false, error: event.data.error} : event.data.content);
     };
