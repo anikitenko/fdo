@@ -19,12 +19,13 @@ test('validates tag, package and lock versions and classifies prereleases', () =
     expect(()=>validateRelease({ref:'refs/heads/main',version:'1.0.0',lockVersion:'0.9.0',lockRootVersion:'1.0.0'})).toThrow('versions');
     expect(compareVersions('1.0.0-rc.10','1.0.0-rc.2')).toBe(1);expect(compareVersions('1.0.0','1.0.0-rc.2')).toBe(1);
 });
-test('stable builds require credentials; branch rehearsals cannot sign or publish', () => {
+test('published macOS builds require credentials; Windows stays unsigned and branch rehearsals cannot sign or publish', () => {
     const metadata = require('../../package.json');
-    for (const platform of ['mac','win']) expect(()=>releaseConfig({...metadata,version:'1.0.0'},{platform,arch:'x64',publish:true,env:{}})).toThrow('require');
+    expect(()=>releaseConfig({...metadata,version:'1.0.0'},{platform:'mac',arch:'x64',publish:true,env:{}})).toThrow('require');
+    expect(releaseConfig({...metadata,version:'1.0.0'},{platform:'win',arch:'x64',publish:true,env:{}}).signed).toBe(false);
     const mac = releaseConfig({...metadata,version:'1.0.0'},{platform:'mac',arch:'arm64',publish:true,env:{MAC_CSC_LINK:'certificate',APPLE_ID:'id',APPLE_APP_SPECIFIC_PASSWORD:'password',APPLE_TEAM_ID:'team'}});
     expect(mac).toMatchObject({signed:true,notarized:true,config:{forceCodeSigning:true,publish:null}});
-    expect(releaseConfig({...metadata,version:'1.0.0-rc.1'},{platform:'mac',arch:'arm64',publish:true,env:{}})).toMatchObject({signed:false,notarized:false});
+    expect(()=>releaseConfig({...metadata,version:'1.0.0-rc.1'},{platform:'mac',arch:'arm64',publish:true,env:{}})).toThrow('require');
     const rehearsal = releaseConfig(metadata,{platform:'win',arch:'x64',publish:false,env:{WIN_CSC_LINK:'present'}});
     expect(rehearsal.signed).toBe(false);expect(rehearsal.config.publish).toBeNull();
     expect(rehearsal.config.nsis.artifactName).not.toBe(rehearsal.config.portable.artifactName);
@@ -79,7 +80,7 @@ test('rejects missing platforms, tampered bytes, duplicate assets and unsigned s
     fs.copyFileSync(asset,path.join(source,path.basename(asset)));
     await expect(assemble({source,destination:path.join(root,'out'),version:'1.0.0-rc.1',commit})).rejects.toThrow('Duplicate');
     fs.rmSync(source,{recursive:true});const stable = await fixture('1.0.0');
-    await expect(assemble({source:stable,destination:path.join(root,'stable'),version:'1.0.0',commit,stable:true})).rejects.toThrow('signed');
+    await expect(assemble({source:stable,destination:path.join(root,'stable'),version:'1.0.0',commit,publishing:true})).rejects.toThrow('signed and notarized');
     fs.unlinkSync(path.join(stable,'mac-x64','mac-x64.json'));
     await expect(assemble({source:stable,destination:path.join(root,'missing'),version:'1.0.0',commit})).rejects.toThrow('Missing build manifest');
 });
@@ -89,7 +90,7 @@ test('release history excludes drafts, non-ancestors and prereleases for stable 
     expect(previousRelease(releases,'1.1.0',ancestor)).toBe('v1.0.0');
     expect(previousRelease(releases,'1.1.0-rc.2',ancestor)).toBe('v1.1.0-rc.1');
     const body = notes({generated:'## Changes\nPR #1',history:[{sha:commit,subject:'fix: <unsafe> [text]'}],repository:'owner/repo',tag:'v1.0.0-rc.1',manifest:{commit,builds:[{platform:'mac-x64',signed:false}]}});
-    expect(body).toContain('Unsigned prerelease');expect(body).toContain('Commit history');expect(body).toContain('PR #1');expect(body).toContain('\\<unsafe\\>');
+    expect(body).toContain('Windows installers are published unsigned');expect(body).toContain('Commit history');expect(body).toContain('PR #1');expect(body).toContain('\\<unsafe\\>');
 });
 function fakeApi({failUpload = false, published = false} = {}) {
     const state = {published, assets:[], calls:[], draft:null};
