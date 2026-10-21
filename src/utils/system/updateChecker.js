@@ -22,8 +22,8 @@ export const compareReleaseVersions = (left, right) => {
 const expectedAssetNames = (version, platform) => ({
     'mac-arm64': [`fdo-${version}-mac-arm64.dmg`, `fdo-${version}-mac-arm64.zip`],
     'mac-x64': [`fdo-${version}-mac-x64.dmg`, `fdo-${version}-mac-x64.zip`],
-    'win-x64': [`fdo-${version}-win-x64-setup.exe`, `fdo-${version}-win-x64-portable.exe`],
     'linux-x64': [`fdo-${version}-linux-x64.AppImage`, `fdo-${version}-linux-x64.deb`, `fdo-${version}-linux-x64.rpm`],
+    'win-x64': [`fdo-${version}-win-x64-setup.exe`, `fdo-${version}-win-x64-portable.exe`],
 }[platform] || []);
 
 export const checkForFdoUpdate = async ({channel = 'stable', currentVersion, platform, fetchImpl = fetch}) => {

@@ -4,29 +4,63 @@ import {settings} from './store';
 import {openCertificateDatabase, readCertificateMetadata} from './certificateDatabase.cjs';
 
 let database;
+function legacyCertificates(scope) {
+    const legacy = settings.get('certificates') || {};
+    const scopes = scope === undefined ? ['root', 'org', 'registry'] : [scope];
+    return scopes.flatMap(currentScope => (legacy[currentScope] || []).map(({key, ...entry}) => ({
+        ...entry,
+        scope: currentScope,
+        hasPrivateKey: typeof key === 'string' && !!key,
+    })));
+}
 function requireProtection() {
     if (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text') {
         throw new Error('Certificate private keys require an available OS credential store. Unlock or configure your system keychain and try again.');
     }
 }
-export function initializeCertificateStorage() {
-    if (database) return database;
+export function initializeCertificateStorage({migrateLegacy = true} = {}) {
+    if (database) {
+        if (migrateLegacy) database.migrate(settings);
+        return database;
+    }
     if (!app.isReady()) throw new Error('Certificate storage requires Electron to be ready');
     const candidate = openCertificateDatabase(path.join(path.dirname(settings.path), 'certificates.sqlite'), {
         encrypt(key) {requireProtection(); return safeStorage.encryptString(key);},
         decrypt(data) {requireProtection(); return safeStorage.decryptString(data);},
     });
-    try {candidate.migrate(settings); database = candidate;}
+    try {
+        if (migrateLegacy) candidate.migrate(settings);
+        database = candidate;
+    }
     catch (error) {candidate.close(); throw error;}
     return database;
 }
+function migrateLegacy() {
+    return initializeCertificateStorage({migrateLegacy: true});
+}
 export const certificateStorage = {
-    list: scope => initializeCertificateStorage().list(scope),
-    put: (entry, scope, previousId) => initializeCertificateStorage().put(entry, scope, previousId),
-    putIfLabelMissing: (entry, scope) => initializeCertificateStorage().putIfLabelMissing(entry, scope),
-    update: (id, patch, scope) => initializeCertificateStorage().update(id, patch, scope),
-    remove: (id, scope) => initializeCertificateStorage().remove(id, scope),
-    privateKey: (id, scope) => initializeCertificateStorage().privateKey(id, scope),
+    list(scope) {
+        const stored = initializeCertificateStorage({migrateLegacy: false}).list(scope);
+        const known = new Set(stored.map(entry => `${entry.scope}:${entry.id}`));
+        return [...stored, ...legacyCertificates(scope).filter(entry => !known.has(`${entry.scope}:${entry.id}`))];
+    },
+    put(entry, scope, previousId) {migrateLegacy().put(entry, scope, previousId);},
+    putIfLabelMissing(entry, scope) {return migrateLegacy().putIfLabelMissing(entry, scope);},
+    update(id, patch, scope = 'root') {
+        const db = initializeCertificateStorage({migrateLegacy: false}), stored = db.list(scope).some(entry => entry.id === id);
+        if (stored) return db.update(id, patch, scope);
+        const legacy = settings.get('certificates');
+        if (!legacy || !Array.isArray(legacy[scope])) return;
+        settings.set('certificates', {...legacy, [scope]: legacy[scope].map(entry => entry.id === id ? {...entry, ...patch} : entry)});
+    },
+    remove(id, scope = 'root') {
+        const db = initializeCertificateStorage({migrateLegacy: false}), stored = db.list(scope).some(entry => entry.id === id);
+        if (stored) return db.remove(id, scope);
+        const legacy = settings.get('certificates');
+        if (!legacy || !Array.isArray(legacy[scope])) return;
+        settings.set('certificates', {...legacy, [scope]: legacy[scope].filter(entry => entry.id !== id)});
+    },
+    privateKey(id, scope) {return migrateLegacy().privateKey(id, scope);},
 };
 export function closeCertificateStorage() {database?.close(); database = undefined;}
 

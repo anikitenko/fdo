@@ -506,7 +506,7 @@ const createWindow = async () => {
 app.whenReady().then(async () => {
     if (!gotTheLock) return;
     debugLog('[MAIN] app.whenReady() fired!');
-    try {initializeCertificateStorage();}
+    try {initializeCertificateStorage({migrateLegacy: false});}
     catch (error) {
         dialog.showErrorBox('Could not open certificate storage', `${error.message}\nExisting certificates have been preserved. FDO will close so you can resolve the problem and retry.`);
         app.exit(1);
@@ -622,7 +622,18 @@ app.whenReady().then(async () => {
         applicationName: app.getName(),
         applicationVersion: app.getVersion(),
         version: app.getVersion(),
-        copyright: 'Copyright © AleXvWaN',
+        copyright: `Copyright © ${new Date().getFullYear()} Oleksandr Nykytenko`,
+        credits: [
+            'FDO (FlexDevOPs) is a modular desktop workspace for DevOps and SRE workflows.',
+            '',
+            'Extend FDO with plugins for automation, deployment, monitoring, and custom tools.',
+            '',
+            `Version ${app.getVersion()}`,
+            'Source code and documentation: github.com/anikitenko/fdo',
+            'Report issues: github.com/anikitenko/fdo/issues',
+            '',
+            'Built with Electron and React. Licensed under the MIT License.',
+        ].join('\n'),
     });
     ipcMain.handle(SettingsChannels.updates.CHECK, async () => {
         const channel = settings.get('updates.channel', 'stable');
@@ -798,40 +809,6 @@ app.whenReady().then(async () => {
     registerAiChatHandlers();
     registerAiCodingAgentHandlers();
     registerAiCodingActivityHandlers({rendererUrl: MAIN_WINDOW_WEBPACK_ENTRY});
-
-    const skipE2ECertBootstrap = process.env.FDO_E2E === "1" && process.env.FDO_E2E_MULTI_INSTANCE === "1";
-    if (!skipE2ECertBootstrap) {
-        const allRoots = certificateStorage.list('root');
-        const rootCert = allRoots.find(cert =>
-            cert.label === 'root' &&
-            cert.cert &&
-            cert.hasPrivateKey
-        );
-
-        if (rootCert) {
-            const days = Certs.daysUntilExpiry(rootCert.cert);
-
-            if (days < Certs.EXPIRY_THRESHOLD_DAYS) {
-                try {
-                    await Certs.generateRootCA('root', true);
-                } catch (e) {
-                    log.warn('❌ Failed to regenerate "FDO Root Certificate":', e);
-                    NotificationCenter.addNotification(failureNotification({source: 'security', title: 'The default signing certificate could not be renewed', message: 'FDO could not prepare its signing identity. Unlock your OS credential store or check disk access, then restart FDO.', error: e, actions: [{kind: 'view-settings', tab: 'certificates'}]}));
-                    dialog.showErrorBox('Could not renew the signing certificate', e.message);
-                    app.quit();
-                }
-            }
-        } else {
-            try {
-                await Certs.generateRootCA('root', false, {onlyIfMissing: true});
-            } catch (e) {
-                log.warn('❌ Failed to generate "FDO Root Certificate":', e);
-                NotificationCenter.addNotification(failureNotification({source: 'security', title: 'The default signing certificate could not be created', message: 'FDO could not prepare its signing identity. Unlock your OS credential store or check disk access, then restart FDO.', error: e, actions: [{kind: 'view-settings', tab: 'certificates'}]}));
-                dialog.showErrorBox('Could not create the signing certificate', e.message);
-                app.quit();
-            }
-        }
-    }
 
     if (!existsSync(PLUGINS_DIR)) {
         mkdirSync(PLUGINS_DIR, {recursive: true});

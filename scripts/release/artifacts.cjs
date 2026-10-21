@@ -106,7 +106,7 @@ function walk(directory) {
         return entry.isDirectory() ? walk(file) : [file];
     });
 }
-async function assemble({source, destination, version, commit, stable = false}) {
+async function assemble({source, destination, version, commit, publishing = false}) {
     const downloaded = walk(source), byName = new Map();
     for (const file of downloaded) {
         const name = path.basename(file);
@@ -119,7 +119,7 @@ async function assemble({source, destination, version, commit, stable = false}) 
         if (!byName.has(name)) throw new Error(`Missing build manifest: ${platform}`);
         const manifest = readJson(byName.get(name));
         if (manifest.schemaVersion !== 1 || manifest.platform !== platform || manifest.version !== version || manifest.commit !== commit) throw new Error(`Mismatched build manifest: ${platform}`);
-        if (stable && platform !== 'linux-x64' && (manifest.signed !== true || platform.startsWith('mac-') && manifest.notarized !== true)) throw new Error('Stable desktop assets must be signed and macOS notarized.');
+        if (publishing && platform.startsWith('mac-') && (manifest.signed !== true || manifest.notarized !== true)) throw new Error('Published macOS assets must be signed and notarized.');
         const names = assetNames(version, platform);
         if (!Array.isArray(manifest.files) || manifest.files.length !== names.length || new Set(manifest.files.map(file => file.name)).size !== names.length) throw new Error(`Invalid artifact inventory: ${platform}`);
         for (const asset of manifest.files) {
@@ -144,6 +144,6 @@ if (require.main === module) {
     const env = process.env;
     const operation = process.argv[2] === 'stage'
         ? stage({source: 'release', destination: 'release-staging', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, platform: `${env.RELEASE_PLATFORM}-${env.RELEASE_ARCH}`, ...readJson('release/signing.json'), verifyPackaged: true})
-        : assemble({source: 'release-downloads', destination: 'release-assets', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, stable: env.RELEASE_PUBLISH === 'true' && !parseVersion(env.RELEASE_VERSION).prerelease});
+        : assemble({source: 'release-downloads', destination: 'release-assets', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, publishing: env.RELEASE_PUBLISH === 'true'});
     operation.catch(error => {console.error(error.message);process.exitCode = 1;});
 }

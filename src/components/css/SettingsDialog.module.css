@@ -1,13 +1,41 @@
 .panel{
     border-left: solid 1px #d4d5d7;
+    box-sizing: border-box;
     width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
     padding-right: 20px;
     padding-bottom: 20px;
+    overflow: hidden;
+}
+
+.settings :global(.bp6-dialog-body) {
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.settings :global(.bp6-tabs.bp6-vertical) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.settings :global(.bp6-tabs.bp6-vertical > .bp6-tab-panel) {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .settings :global(.bp6-tab-list) {
     background-color: white;
-    height: 580px;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .settings :global(.bp6-heading) {

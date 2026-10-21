@@ -2,6 +2,19 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {Button, Callout, Card, HTMLSelect, H4, Intent, Spinner, Switch} from '@blueprintjs/core';
 import Markdown from 'markdown-to-jsx';
 
+const formatReleaseNotes = value => String(value || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\*\*Unsigned prerelease builds:\*\*\s*win-x64\.\s*macOS Gatekeeper and Windows SmartScreen may block these builds\./gi, 'Windows installers are published unsigned.')
+    .replace(/<details\b[^>]*>\s*<summary\b[^>]*>([\s\S]*?)<\/summary>/gi, '\n### $1\n')
+    .replace(/<\/details\s*>/gi, '\n')
+    .replace(/<\/?summary\b[^>]*>/gi, '')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .trim();
+
 export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
     const [checking, setChecking] = useState(false);
     const [result, setResult] = useState(null);
@@ -52,7 +65,7 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
         if (/^https:\/\//i.test(href || '')) openDownload(href);
     }}>{children}</a>;
 
-    return <div style={{padding: 20, maxWidth: 760, overflowY: 'auto', height: '100%'}}>
+    return <div style={{padding: 20, maxWidth: 760, overflowY: 'auto', height: '100%', minHeight: 0, boxSizing: 'border-box'}}>
         <H4>Software Updates</H4>
         <Card style={{marginBottom: 16}}>
             <p>Check GitHub Releases for FDO updates. Download the installer for this computer and install it yourself.</p>
@@ -85,14 +98,16 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
                         {index === 0 ? `Download for ${result.platform}` : `Download ${download.name}`}
                     </Button>)}
                 </div>}
-                {result.hasUpdate && !result.downloads?.length && <p>No installer was found for this OS and architecture. Open the release page to see available downloads.</p>}
+                {result.hasUpdate && !result.downloads?.length && <p>{result.platform?.startsWith('win-')
+                    ? 'No Windows installer was found for this architecture. Open the release page to see available downloads. Windows installers are published unsigned.'
+                    : 'No installer was found for this OS and architecture. Open the release page to see available downloads.'}</p>}
                 {result.hasUpdate && <p>After downloading, open the installer and follow its prompts to update FDO.</p>}
                 <Button variant={"minimal"} icon="share" onClick={openRelease}>View GitHub release</Button>
             </Callout>
             {!!result.releaseNotes && <Card style={{marginTop: 12, maxHeight: 300, overflow: 'auto'}}>
-                <H4>Release Notes</H4>
+                <H4>Latest Release Notes{result.latestVersion ? ` · ${result.latestVersion}` : ''}</H4>
                 <div className="bp6-text-small" style={{overflowWrap: 'anywhere'}}>
-                    <Markdown options={{disableParsingRawHTML: true, overrides: {a: {component: openMarkdownLink}}}}>{result.releaseNotes}</Markdown>
+                    <Markdown options={{disableParsingRawHTML: true, overrides: {a: {component: openMarkdownLink}}}}>{formatReleaseNotes(result.releaseNotes)}</Markdown>
                 </div>
             </Card>}
         </>}

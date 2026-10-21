@@ -383,9 +383,10 @@ export function registerSettingsHandlers() {
         return certificateStorage.list('root');
     });
 
-    ipcMain.handle(SettingsChannels.certificates.CREATE, async () => {
-        const randomName = (Math.random() + 1).toString(36).substring(2)
-        await Certs.generateRootCA(randomName);
+    ipcMain.handle(SettingsChannels.certificates.CREATE, async (_event, requestedLabel) => {
+        const label = typeof requestedLabel === 'string' && /^[\w .-]{1,64}$/.test(requestedLabel)
+            ? requestedLabel : (Math.random() + 1).toString(36).substring(2);
+        await Certs.generateRootCA(label);
     });
 
     ipcMain.handle(SettingsChannels.certificates.RENAME, async (event, oldName, newName) => {

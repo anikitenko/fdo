@@ -260,7 +260,7 @@ export const Certs = {
         const certEntry = roots.find(cert => cert.label === signerLabel);
 
         if (!certEntry?.hasPrivateKey) {
-            return {success: false, error: "Signer not found or missing private key"}
+            return {success: false, error: `Signing certificate “${signerLabel}” is missing. Create one in Settings → Certificates first. FDO encrypts signing keys with macOS Keychain, which may request access when you create or use the key.`}
         }
 
         this.ensureFdoIgnore(pluginDir);

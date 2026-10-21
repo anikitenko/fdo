@@ -19,6 +19,10 @@ async function startWithProfile() {
         app.setPath('userData', selection.directory);
         app.setPath('sessionData', selection.directory);
     }
+    // The SDK eagerly creates its default log directory during module import.
+    // Launch Services starts GUI apps with `/` as cwd, which would make that
+    // default `/logs` and abort startup before main.js can initialize.
+    process.env.FDO_SDK_LOG_ROOT ??= path.join(selection.directory, 'sdk-logs');
     if (process.env.FDO_E2E === '1' && process.env.FDO_E2E_USER_DATA_DIR) process.env.FDO_E2E_USER_DATA_DIR = selection.directory;
     Object.assign(cliProfile, selection, {baseDirectory: path.resolve(base)});
     // Eager bundling keeps the executable layout unchanged while deferring
