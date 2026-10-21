@@ -25,7 +25,7 @@ test('shows release notes and opens the matching platform installer', async () =
     await waitFor(() => expect(screen.getByRole('button', {name: 'Check for Updates'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button', {name: 'Check for Updates'}));
     expect(await screen.findByText('Version 1.1.0 is available')).toBeVisible();
-    expect(screen.getByRole('heading', {name: 'Release Notes'})).toBeVisible();
+    expect(screen.getByRole('heading', {name: 'Latest Release Notes · 1.1.0'})).toBeVisible();
     expect(screen.getByText('A useful update.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', {name: 'Download for mac-arm64'}));
     expect(window.electron.system.openExternal).toHaveBeenCalledWith(availableUpdate.downloads[0].url);
