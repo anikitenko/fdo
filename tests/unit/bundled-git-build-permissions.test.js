@@ -37,3 +37,17 @@ test('main build repairs copied Git, HTTPS transport and LFS executables before 
         expect(fs.readlinkSync(path.join(core,'git-commit'))).toBe('git');
     } finally {fs.rmSync(gitRoot,{recursive:true,force:true});}
 });
+(process.platform==='win32'?test.skip:test)('keeps HTTPS Git transport aliases linked to git-remote-http',()=>{
+    const gitRoot=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-git-http-transport-'));
+    try {
+        const core=path.join(gitRoot,'libexec','git-core');
+        fs.mkdirSync(core,{recursive:true});
+        fs.writeFileSync(path.join(core,'git'),'#!/bin/sh\n',{mode:0o755});
+        fs.writeFileSync(path.join(core,'git-remote-http'),'#!/bin/sh\n',{mode:0o755});
+        for(const name of ['git-remote-https','git-remote-ftp','git-remote-ftps']) fs.symlinkSync('git',path.join(core,name));
+        expect(repairBundledGitSymlinks(gitRoot)).toEqual(['git-remote-https','git-remote-ftp','git-remote-ftps'].map(name=>path.join(core,name)).sort());
+        for(const name of ['git-remote-https','git-remote-ftp','git-remote-ftps']) {
+            expect(fs.readlinkSync(path.join(core,name))).toBe('git-remote-http');
+        }
+    } finally {fs.rmSync(gitRoot,{recursive:true,force:true});}
+});

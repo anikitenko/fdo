@@ -150,10 +150,24 @@ function repairBundledGitSymlinks(gitRoot) {
         let targetPath;
         try {targetPath = resolveSymlink(entry);} catch {continue;}
         const link = fs.readlinkSync(entry);
-        if (fs.existsSync(targetPath) && isInsideBundle(targetPath, gitRoot) && !path.isAbsolute(link)) continue;
-
         const directory = path.dirname(entry);
         const base = path.basename(entry);
+        // Git invokes the HTTP transport as an external helper. Pointing these
+        // names at the main Git executable makes it look for a nonexistent
+        // `remote-https` builtin and breaks every HTTPS repository operation.
+        if (path.basename(directory) === "git-core" && /^git-remote-(?:https|ftp|ftps)$/.test(base)) {
+            const httpHelper = path.join(directory, "git-remote-http");
+            if (!fs.existsSync(httpHelper) || !fs.statSync(httpHelper).isFile()) {
+                throw new Error(`Missing bundled Git HTTP transport helper: ${httpHelper}`);
+            }
+            if (link !== "git-remote-http") {
+                fs.unlinkSync(entry);
+                fs.symlinkSync("git-remote-http", entry);
+                repaired.push(entry);
+            }
+            continue;
+        }
+        if (fs.existsSync(targetPath) && isInsideBundle(targetPath, gitRoot) && !path.isAbsolute(link)) continue;
         fs.unlinkSync(entry);
 
         if (path.basename(directory) === "git-core" && base !== "git" && fs.existsSync(coreGit)) {
