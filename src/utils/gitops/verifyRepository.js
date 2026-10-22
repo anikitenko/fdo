@@ -12,6 +12,9 @@ class RevisionResolutionError extends Error {}
 
 function repositoryFailure(error) {
     const detail = `${error?.stderr || ''}\n${error?.message || ''}`.toLowerCase();
+    if (/cannot handle remote-https as a builtin|remote helper ['"]https['"] aborted/.test(detail)) {
+        return 'FDO’s bundled Git HTTPS transport is incomplete. Reinstall or update FDO so it can repair its Git runtime.';
+    }
     if (/could not resolve host|temporary failure in name resolution|name or service not known/.test(detail)) {
         return 'FDO could not resolve the repository host. Check your internet connection, DNS, VPN, or proxy settings.';
     }

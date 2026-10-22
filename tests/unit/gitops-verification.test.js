@@ -120,6 +120,7 @@ test('redacts server failures and always cleans up after failed verification', a
 });
 
 test.each([
+    ["fatal: cannot handle remote-https as a builtin\nfatal: remote helper 'https' aborted session", 'bundled Git HTTPS transport is incomplete'],
     ['Could not resolve host: github.com', 'could not resolve the repository host'],
     ['SSL certificate problem: unable to get local issuer certificate', 'could not verify the repository’s TLS certificate'],
     ['fatal: unable to access URL: The requested URL returned error: 301', 'redirected to another address'],
