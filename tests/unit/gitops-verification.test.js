@@ -119,6 +119,20 @@ test('redacts server failures and always cleans up after failed verification', a
     await expect(access(directory)).rejects.toThrow();
 });
 
+test.each([
+    ['Could not resolve host: github.com', 'could not resolve the repository host'],
+    ['SSL certificate problem: unable to get local issuer certificate', 'could not verify the repository’s TLS certificate'],
+    ['fatal: unable to access URL: The requested URL returned error: 301', 'redirected to another address'],
+    ['Authentication failed for URL', 'rejected the supplied credentials'],
+    ["fatal: couldn't find remote ref refs/heads/missing", 'not available from this repository'],
+    ['Failed to connect to github.com port 443: Operation timed out', 'could not connect to the repository host'],
+])('reports safe, actionable Git transport guidance for %s', async (stderr, message) => {
+    await expect(verifyRepository(input, async () => {throw Object.assign(new Error('private URL and secret token'), {stderr});}))
+        .rejects.toThrow(message);
+    await expect(verifyRepository(input, async () => {throw Object.assign(new Error('private URL and secret token'), {stderr});}))
+        .rejects.not.toThrow(/private URL|secret token/i);
+});
+
 test('distinguishes a missing Git executable', async () => {
     await expect(verifyRepository(input, async () => {throw Object.assign(new Error(), {code: 'ENOENT'});})).rejects.toThrow('bundled Git runtime could not start');
 });
