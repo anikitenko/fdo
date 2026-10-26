@@ -263,6 +263,7 @@
       "dist/main/node_modules/@bufbuild/**/*",
       "dist/main/node_modules/@connectrpc/**/*",
       "dist/main/node_modules/@statsig/**/*",
+      "dist/main/node_modules/zod/**/*",
       "dist/main/node_modules/@typescript/**/*"
     ],
     "compression": "maximum",

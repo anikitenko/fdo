@@ -2,7 +2,7 @@
 const {expect, jest: mock, test} = require('@jest/globals');
 const {createProtection} = require('../../src/utils/hostServices/protection.cjs');
 const backend = (selected, available = true) => ({getSelectedStorageBackend: () => selected, isEncryptionAvailable: () => available,
-    encryptString: mock.fn(value => value), decryptString: mock.fn(value => value)});
+    encryptString: mock.fn(value => value), decryptString: mock.fn(value => Buffer.isBuffer(value) ? value.toString() : value)});
 test.each(['basic_text', 'unknown', ''])('Linux rejects %s even when Electron reports availability', selected => {
     const storage = backend(selected), protection = createProtection(storage, 'linux');
     expect(() => protection.check()).toThrow(expect.objectContaining({code: 'UNAVAILABLE'}));
