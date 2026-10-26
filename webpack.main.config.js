@@ -80,7 +80,7 @@ module.exports = {
                 {from: 'src/utils/persistence/chatDatabase.cjs', to: 'chatDatabase.cjs'},
                 // Keep the SDK's lazy local-runtime chunks intact, together with
                 // its platform helpers and direct runtime dependencies.
-                ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client'].map(name => ({
+                ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client', 'zod'].map(name => ({
                     from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
                 })),
                 ...['typescript', '@typescript', '@types/node', 'undici-types'].map(name => ({
