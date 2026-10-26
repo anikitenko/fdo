@@ -2,6 +2,7 @@ import {app, safeStorage} from 'electron';
 import path from 'node:path';
 import {settings} from './store';
 import {openCertificateDatabase, readCertificateMetadata} from './certificateDatabase.cjs';
+import {osCredentialSession} from './osCredentialSession.cjs';
 
 let database;
 function legacyCertificates(scope) {
@@ -14,7 +15,9 @@ function legacyCertificates(scope) {
     })));
 }
 function requireProtection() {
-    if (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text') {
+    const unavailable = safeStorage.getSelectedStorageBackend?.() === 'basic_text'
+        || (!osCredentialSession(safeStorage).usesIsolatedKeychainPrompt() && !safeStorage.isEncryptionAvailable());
+    if (unavailable) {
         throw new Error('Certificate private keys require an available OS credential store. Unlock or configure your system keychain and try again.');
     }
 }
@@ -25,8 +28,8 @@ export function initializeCertificateStorage({migrateLegacy = true} = {}) {
     }
     if (!app.isReady()) throw new Error('Certificate storage requires Electron to be ready');
     const candidate = openCertificateDatabase(path.join(path.dirname(settings.path), 'certificates.sqlite'), {
-        encrypt(key) {requireProtection(); return safeStorage.encryptString(key);},
-        decrypt(data) {requireProtection(); return safeStorage.decryptString(data);},
+        encrypt(key) {requireProtection(); return osCredentialSession(safeStorage).encrypt(key);},
+        decrypt(data) {requireProtection(); return osCredentialSession(safeStorage).decrypt(data);},
     });
     try {
         if (migrateLegacy) candidate.migrate(settings);

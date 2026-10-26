@@ -324,7 +324,8 @@ plugin files, diagnostics, and public plugin SDK declarations. Do not request,
 infer, or describe product-host source, settings, credentials, internal logs,
 or application architecture.
 
-${reviewReport ? typeof reviewReport === "string" ? reviewReport : WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()}
+${buildPluginAuthoringGuide()}
+${reviewReport ? typeof reviewReport === "string" ? reviewReport : WORKSPACE_REVIEW_REPORT_CONTRACT : ""}
 ${providerInstructions}
 `);
     return llm;
@@ -1120,7 +1121,7 @@ async function runCodingPromptAttempt(event, requestId, assistantInfo, prompt, {
             getAiProviderInstructions(settings.get("ai.providerInstructions", {}), assistantInfo.provider),
         );
         const reviewReport = prompt.includes(INVESTIGATION_CONTRACT) ? INVESTIGATION_CONTRACT : prompt.includes(WORKSPACE_REVIEW_REPORT_CONTRACT);
-        const providerPrompt = isCliProvider && !reviewReport
+        const providerPrompt = isCliProvider
             ? `${buildPluginCodingPrompt(prompt)}${providerInstructions}`
             : prompt;
         const scopedPrompt = `${PLUGIN_WORKSPACE_ONLY_PROMPT}\n\n${providerPrompt}`;
@@ -1421,7 +1422,7 @@ END VIRTUAL PLUGIN WORKSPACE SOURCE
         if (!Array.isArray(repairPaths) || !repairPaths.length || repairPaths.some(path => !available.has(path))) {
             throw new Error('Repair source is missing from the supplied candidate workspace. No repair request was sent.');
         }
-        return `Repair the reported plugin-local defects using the supplied candidate source. Do not create a new plan or request files from disk.
+        return `Repair the reported plugin-local defects using the supplied candidate source and the installed @anikitenko/fdo-sdk. Do not create a new plan or request files from disk. Do not invent SDK exports.
 USER REQUEST
 ${prompt}
 ${workspaceContext}
@@ -1686,12 +1687,20 @@ export function buildSmartModePrompt({ prompt, code, language, context, investig
         : "";
     const additionalContext = context ? `Additional plugin context:\n${context}\n\n` : "";
     if (isWorkspaceQualityReviewPrompt(prompt)) {
-        return `USER REQUEST\n${prompt}\n\n${selectedCode}${additionalContext}\n${WORKSPACE_REVIEW_REPORT_CONTRACT}`;
+        return `USER REQUEST\n${prompt}\n\n${selectedCode}${additionalContext}
+Judge every plugin API against the installed @anikitenko/fdo-sdk evidence in the context. Do not invent exports.
+${WORKSPACE_REVIEW_REPORT_CONTRACT}`;
     }
     return `USER REQUEST\n${prompt}\n\n${selectedCode}${additionalContext}
-Use the supplied plugin workspace context and public plugin contract for workspace facts. Separately configured MCP tools may retrieve external documentation when relevant. For documentation or explanation requests, return prose and retrieved links; keep the workspace unchanged and do not emit SOLUTION markers or file replacements. Do not claim you inspected local files, ran commands, or received diagnostics that are absent from the context. Do not request or describe product-host source, settings, credentials, internal logs, or application architecture.
+INTERPRET THE REQUEST
+Read the whole request, including short follow-ups, informal wording, and languages other than English. Do not ask the user to rename it into an internal mode. The installed @anikitenko/fdo-sdk in the supplied evidence is the only plugin API. Plugin tests use node:test and node:assert/strict.
+- Explanation, documentation, or a question: return prose and retrieved links; keep the workspace unchanged and do not emit SOLUTION markers or file replacements.
+- Review or diagnosis without an edit: explain concrete plugin issues and the SDK-based correction. Keep the workspace unchanged.
+- A request to create, change, fix, or repair plugin behavior: return complete workspace file sections that use virtual paths only.
+If one detail is ambiguous, make the smallest assumption that fulfills the request and state it in one sentence.
 
-For implementation requests, return complete workspace file sections that use virtual paths only. For review requests, explain concrete plugin issues and keep the workspace unchanged. Do not include meta-commentary about action selection.`;
+Use the supplied plugin workspace context and public plugin contract for workspace facts. Separately configured MCP tools may retrieve external documentation when relevant. Do not claim you inspected local files, ran commands, or received diagnostics that are absent from the context. Do not request or describe product-host source, settings, credentials, internal logs, or application architecture.
+Do not include meta-commentary about action selection.`;
 }
 
 // Handle smart mode - AI determines the action
@@ -1755,6 +1764,7 @@ async function handleRouteJudge(_event, data = {}) {
             "- explain = explain selected code",
             "- fix = repair bugs or failing code/tests",
             "- plan = multi-file or executable workspace plan request",
+            "- Understand the request in the user's own wording, including short follow-ups and languages other than English.",
             "- If the user is asking a question, verification request, or log check, prefer smart unless explicit code changes are requested.",
             "- If the turn is a short follow-up like 'yes, please make those changes', only choose a mutating route when the turn itself clearly confirms code changes.",
             "- When uncertain, choose smart.",

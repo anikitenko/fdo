@@ -25,6 +25,7 @@ const formatReleaseNotes = value => {
 
 export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
     const [checking, setChecking] = useState(false);
+    const [installing, setInstalling] = useState(false);
     const [result, setResult] = useState(null);
     const [preferences, setPreferences] = useState({autoCheck: false, channel: 'stable'});
     const [preferencesLoaded, setPreferencesLoaded] = useState(false);
@@ -67,6 +68,17 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
     };
 
     const openDownload = url => window.electron.system.openExternal(url);
+    const installUpdate = async () => {
+        setInstalling(true);
+        try {
+            const installed = await window.electron.settings.updates.install();
+            if (!installed?.success) setResult(current => ({...current, success: false, error: installed?.error || 'Could not install the update.'}));
+        } catch (error) {
+            setResult(current => ({...current, success: false, error: error.message || 'Could not install the update.'}));
+        } finally {
+            setInstalling(false);
+        }
+    };
     const openRelease = () => result?.releaseUrl && openDownload(result.releaseUrl);
     const openMarkdownLink = ({href, children}) => <a href={href} onClick={event => {
         event.preventDefault();
@@ -76,7 +88,7 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
     return <div style={{padding: 20, maxWidth: 760, overflowY: 'auto', height: '100%', minHeight: 0, boxSizing: 'border-box'}}>
         <H4>Software Updates</H4>
         <Card style={{marginBottom: 16}}>
-            <p>Check GitHub Releases for FDO updates. Download the installer for this computer and install it yourself.</p>
+            <p>Check GitHub Releases for FDO updates. A signed and notarized Mac app can install the update itself. Other builds download an installer.</p>
             <Switch
                 checked={preferences.autoCheck}
                 disabled={!preferencesLoaded}
@@ -101,6 +113,11 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
             <Callout intent={result.hasUpdate ? Intent.PRIMARY : Intent.SUCCESS}
                      title={result.hasUpdate ? `Version ${result.latestVersion} is available` : `FDO is up to date (${result.currentVersion})`}>
                 {result.releaseName && <p>{result.releaseName}</p>}
+                {result.hasUpdate && result.macAutoUpdate?.available && <div style={{margin: '8px 0'}}>
+                    <Button intent={Intent.PRIMARY} icon="download" loading={installing} onClick={installUpdate}>Update and Restart</Button>
+                    <p>FDO will verify the signed update, replace this app, and reopen.</p>
+                </div>}
+                {result.hasUpdate && result.platform?.startsWith('mac-') && result.macAutoUpdate && !result.macAutoUpdate.available && <p>{result.macAutoUpdate.reason}</p>}
                 {result.hasUpdate && result.downloads?.length > 0 && <div style={{display: 'flex', flexWrap: 'wrap', gap: 8}}>
                     {result.downloads.map((download, index) => <Button key={download.name} icon="download" onClick={() => openDownload(download.url)}>
                         {index === 0 ? `Download for ${result.platform}` : `Download ${download.name}`}
@@ -109,7 +126,7 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
                 {result.hasUpdate && !result.downloads?.length && <p>{result.platform?.startsWith('win-')
                     ? 'No Windows installer was found for this architecture. Open the release page to see available downloads. Windows installers are published unsigned.'
                     : 'No installer was found for this OS and architecture. Open the release page to see available downloads.'}</p>}
-                {result.hasUpdate && <p>After downloading, open the installer and follow its prompts to update FDO.</p>}
+                {result.hasUpdate && !result.macAutoUpdate?.available && <p>After downloading, open the installer and follow its prompts to update FDO.</p>}
                 <Button variant={"minimal"} icon="share" onClick={openRelease}>View GitHub release</Button>
             </Callout>
             {!!result.releaseNotes && <Card style={{marginTop: 12, maxHeight: 300, overflow: 'auto'}}>

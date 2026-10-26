@@ -92,6 +92,7 @@ describe("ai coding agent prompts", () => {
             context: "Recent test output",
         });
 
+        expect(prompt).toContain("installed @anikitenko/fdo-sdk");
         expect(prompt).toContain("Do not claim you inspected local files, ran commands");
         expect(prompt).toContain("product-host source, settings, credentials");
         expect(prompt).not.toMatch(/PluginManager|PluginContainer|PluginPage|VirtualFS|ipc\/channels/);
@@ -99,6 +100,7 @@ describe("ai coding agent prompts", () => {
 
     test("workspace reviews request reports rather than executable workspace files", () => {
         const prompt = buildSmartModePrompt({prompt: 'Workspace quality review. Do not modify files.', context: '/index.ts supplied source'});
+        expect(prompt).toContain('installed @anikitenko/fdo-sdk');
         expect(prompt).toContain('Return one JSON object');
         expect(prompt).toContain('Do not invoke tools');
         expect(prompt).toContain('never a source file');

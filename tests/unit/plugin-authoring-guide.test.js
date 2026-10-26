@@ -113,7 +113,8 @@ process.stdout.write(result.renderView());`;
 
     test("supplies the guide to API system prompts and CLI prompts", () => {
         const source = fs.readFileSync(path.resolve("src/ipc/ai_coding_agent.js"), "utf8");
-        expect(source).toContain('reviewReport ? typeof reviewReport === "string" ? reviewReport : WORKSPACE_REVIEW_REPORT_CONTRACT : buildPluginAuthoringGuide()');
-        expect(source).toMatch(/const providerPrompt = isCliProvider && !reviewReport\s*\? `\$\{buildPluginCodingPrompt\(prompt\)}\$\{providerInstructions}`\s*: prompt;/);
+        expect(source).toContain('${buildPluginAuthoringGuide()}');
+        expect(source).toContain('reviewReport ? typeof reviewReport === "string" ? reviewReport : WORKSPACE_REVIEW_REPORT_CONTRACT : ""');
+        expect(source).toMatch(/const providerPrompt = isCliProvider\s*\? `\$\{buildPluginCodingPrompt\(prompt\)}\$\{providerInstructions}`\s*: prompt;/);
     });
 });

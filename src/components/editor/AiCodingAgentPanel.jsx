@@ -41,7 +41,7 @@ import {createVirtualFile} from "./utils/createVirtualFile";
 import {validateAiWorkspaceCandidate} from './utils/validateAiWorkspaceCandidate';
 import {readWorkspaceRepairScope} from '../../utils/plugins/validation/workspaceRepairScope';
 import {applyAiWorkspaceFiles} from './utils/applyAiWorkspaceFiles';
-import {formatSdkKnowledgeContext, shouldUseFdoSdkKnowledge} from "../../utils/sdk/fdoSdkKnowledge.js";
+import {SDK_KNOWLEDGE_BASELINE_QUERY, formatSdkKnowledgeContext, shouldUseFdoSdkKnowledge} from "../../utils/sdk/fdoSdkKnowledge.js";
 import {formatExternalReferenceContext, shouldUseExternalReferenceKnowledge} from "../../utils/ai/assistant/externalReferenceKnowledge.js";
 import {getAiCodingAgentIdleTimeoutMs} from "./utils/aiCodingAgentTimeouts.js";
 import {shouldIncludeProjectContext} from "./utils/aiCodingAgentContextPolicy.js";
@@ -1921,7 +1921,11 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
 
     const getRelevantSdkKnowledgeContext = async (query) => {
         try {
-            const result = await window.electron.system.getFdoSdkKnowledge(query, 6);
+            const load = (text, limit) => window.electron.system.getFdoSdkKnowledge(text, limit);
+            let result = await load(query, 6);
+            if (!result?.success || !Array.isArray(result.results) || result.results.length === 0) {
+                result = await load(SDK_KNOWLEDGE_BASELINE_QUERY, 4);
+            }
             if (!result?.success || !Array.isArray(result.results) || result.results.length === 0) {
                 return "";
             }
@@ -3805,7 +3809,7 @@ Rules:
                 let firstAnalysis=true;
                 const cancel=()=>window.electron.aiCodingAgent.cancelRequest?.({requestId:streamingRequestIdRef.current});
                 const report=await runCodingInvestigation({prompt:requestPrompt,files:refreshedProjectFiles,
-                    context:`${getProblemsContext()}${getBuildOutputContext(refreshedProjectFiles)}\n${conversationContext}`,
+                    context:`${sdkKnowledgeContext}${getProblemsContext()}${getBuildOutputContext(refreshedProjectFiles)}\n${conversationContext}`,
                     budget:investigationBudget(refreshedProjectFiles,requestPrompt,selectedAssistant.firstResponseTimeoutMs),
                     signal:controller.signal,assertCurrent,cancel,
                     initialActions:initialInvestigationActions(refreshedProjectFiles,requestPrompt),

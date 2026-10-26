@@ -1,3 +1,5 @@
+import {describePublishedMacUpdate} from './macAutoUpdate';
+
 export const compareReleaseVersions = (left, right) => {
     const parse = value => {
         const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(value || ''));
@@ -43,6 +45,9 @@ export const checkForFdoUpdate = async ({channel = 'stable', currentVersion, pla
     const downloads = expectedAssetNames(latestVersion, platform)
         .map(name => assets.find(asset => asset.name === name)).filter(Boolean)
         .map(asset => ({name: asset.name, url: asset.browser_download_url}));
+    const macAutoUpdate = String(platform || '').startsWith('mac-')
+        ? await describePublishedMacUpdate({latestVersion, platform, assets, fetchImpl})
+        : null;
     return {
         success: true,
         currentVersion,
@@ -54,5 +59,6 @@ export const checkForFdoUpdate = async ({channel = 'stable', currentVersion, pla
         releaseUrl: release.html_url || 'https://github.com/anikitenko/fdo/releases/latest',
         releaseName: release.name || '',
         releaseNotes: release.body || '',
+        macAutoUpdate,
     };
 };
