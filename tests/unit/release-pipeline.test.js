@@ -24,10 +24,10 @@ test('published macOS builds require credentials; Windows stays unsigned and bra
     expect(()=>releaseConfig({...metadata,version:'1.0.0'},{platform:'mac',arch:'x64',publish:true,env:{}})).toThrow('require');
     expect(releaseConfig({...metadata,version:'1.0.0'},{platform:'win',arch:'x64',publish:true,env:{}}).signed).toBe(false);
     const mac = releaseConfig({...metadata,version:'1.0.0'},{platform:'mac',arch:'arm64',publish:true,env:{MAC_CSC_LINK:'certificate',APPLE_ID:'id',APPLE_APP_SPECIFIC_PASSWORD:'password',APPLE_TEAM_ID:'team'}});
-    expect(mac).toMatchObject({signed:true,notarized:true,config:{forceCodeSigning:true,publish:null}});
+    expect(mac).toMatchObject({signed:true,notarized:true,config:{forceCodeSigning:true,publish:metadata.build.publish}});
     expect(()=>releaseConfig({...metadata,version:'1.0.0-rc.1'},{platform:'mac',arch:'arm64',publish:true,env:{}})).toThrow('require');
     const rehearsal = releaseConfig(metadata,{platform:'win',arch:'x64',publish:false,env:{WIN_CSC_LINK:'present'}});
-    expect(rehearsal.signed).toBe(false);expect(rehearsal.config.publish).toBeNull();
+    expect(rehearsal.signed).toBe(false);expect(rehearsal.config.publish).toEqual({provider:'github',owner:'anikitenko',repo:'fdo'});
     expect(rehearsal.config.nsis.artifactName).not.toBe(rehearsal.config.portable.artifactName);
     expect(metadata.desktopName).toBe(metadata.build.appId);
     expect(metadata.build.executableName).toMatch(/^[\p{L}\p{N}._\- ]+$/u);
@@ -106,14 +106,20 @@ function fakeApi({failUpload = false, published = false} = {}) {
         if(method==='PATCH'){if(body.draft===false)state.published=true;Object.assign(state.draft,body);return state.draft;}
         throw new Error(`Unexpected API call: ${method} ${endpoint}`);
     });
-    return {state,api};
+    const uploadFile = async (file, release) => {
+        const url = new URL(release.upload_url.split('{')[0]);
+        url.searchParams.set('name', path.basename(file));
+        const stream = fs.createReadStream(file);
+        try {return await api('POST', url.href, stream, true);} finally {stream.destroy();}
+    };
+    return {state, api, uploadFile};
 }
 test('publishes only after every asset uploads; failed uploads leave an unpublished draft', async () => {
     const source=await fixture(),directory=path.join(root,'assets');await assemble({source,destination:directory,version:'1.0.0-rc.1',commit});
     const broken=fakeApi({failUpload:true});
-    await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:broken.api,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('upload failed');
+    await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:broken.api,uploadFile:broken.uploadFile,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('upload failed');
     expect(broken.state.draft.draft).toBe(true);expect(broken.state.published).toBe(false);
-    const good=fakeApi();await publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:good.api,isAncestor:()=>true,history:()=>[]});
+    const good=fakeApi();await publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:good.api,uploadFile:good.uploadFile,isAncestor:()=>true,history:()=>[]});
     expect(good.state.assets).toHaveLength(11);expect(good.state.calls.at(-1).body).toEqual({draft:false,prerelease:true,make_latest:'false'});
     const immutable=fakeApi({published:true});await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:immutable.api,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('already published');
     expect(immutable.state.calls.every(call=>call.method==='GET')).toBe(true);
@@ -133,7 +139,7 @@ test('resumes a matching draft, skips byte-identical uploaded assets and refuses
     const good=fakeApi();good.state.draft={id:1,tag_name:'v1.0.0-rc.1',target_commitish:commit,body:`<!-- fdo-release:${commit} -->`,draft:true,upload_url:'https://uploads.github.com/repos/owner/repo/releases/1/assets{?name,label}'};
     const name='SHA256SUMS',file=path.join(directory,name);
     good.state.assets=[{id:1,name,state:'uploaded',size:fs.statSync(file).size,digest:`sha256:${await sha256(file)}`}];
-    await publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:good.api,isAncestor:()=>true,history:()=>[]});
+    await publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:good.api,uploadFile:good.uploadFile,isAncestor:()=>true,history:()=>[]});
     expect(good.state.calls.filter(call=>call.binary)).toHaveLength(10);expect(good.state.calls.some(call=>call.method==='DELETE')).toBe(false);
     const foreign=fakeApi();foreign.state.draft={id:1,tag_name:'v1.0.0-rc.1',target_commitish:'other',draft:true};
     await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:foreign.api,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('different release source');
@@ -143,8 +149,34 @@ test('tag movement after upload leaves the release as a draft', async () => {
     const source=await fixture(),directory=path.join(root,'assets');await assemble({source,destination:directory,version:'1.0.0-rc.1',commit});
     const fake=fakeApi();let lookups=0;
     const api=async(...args)=>args[1].includes('/git/ref/tags/')?{object:{type:'commit',sha:++lookups===1?commit:'b'.repeat(40)}}:fake.api(...args);
-    await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('tag moved');
+    await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api,uploadFile:fake.uploadFile,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('tag moved');
     expect(fake.state.assets).toHaveLength(11);expect(fake.state.published).toBe(false);
+});
+test('merges electron-builder macOS update metadata and keeps blockmaps', async () => {
+    const source = await fixture(), destination = path.join(root, 'metadata');
+    const zip = 'fdo-1.0.0-rc.1-mac-arm64.zip';
+    fs.writeFileSync(path.join(source, 'mac-arm64', 'latest-mac-arm64.yml'), yaml.dump({version: '1.0.0-rc.1', files: [{url: zip, sha512: 'arm', size: 3}]}));
+    fs.writeFileSync(path.join(source, 'mac-arm64', `${zip}.blockmap`), 'arm-map');
+    fs.writeFileSync(path.join(source, 'mac-x64', 'latest-mac-x64.yml'), yaml.dump({version: '1.0.0-rc.1', files: [{url: 'fdo-1.0.0-rc.1-mac-x64.zip', sha512: 'intel', size: 4}]}));
+    await assemble({source, destination, version: '1.0.0-rc.1', commit});
+    const info = yaml.load(fs.readFileSync(path.join(destination, 'latest-mac.yml'), 'utf8'));
+    expect(info.files.map(file => file.url)).toEqual([zip, 'fdo-1.0.0-rc.1-mac-x64.zip']);
+    expect(fs.readFileSync(path.join(destination, 'SHA256SUMS'), 'utf8')).toContain('latest-mac.yml');
+    expect(fs.existsSync(path.join(destination, `${zip}.blockmap`))).toBe(true);
+});
+test('uploads a verified release through electron-builder', async () => {
+    const source = await fixture(), directory = path.join(root, 'builder');
+    await assemble({source, destination: directory, version: '1.0.0-rc.1', commit});
+    const fake = fakeApi();
+    const publishArtifacts = jest.fn(async tasks => {
+        for (const task of tasks) fake.state.assets.push({id: fake.state.assets.length + 1, name: path.basename(task.file), size: fs.statSync(task.file).size, state: 'uploaded'});
+        return tasks;
+    });
+    await publish({repository: 'owner/repo', version: '1.0.0-rc.1', commit, directory, api: fake.api, isAncestor: () => true, history: () => [], publishArtifacts});
+    expect(publishArtifacts).toHaveBeenCalledWith(expect.any(Array), '1.0.0-rc.1', null, {provider: 'github', owner: 'owner', repo: 'repo', releaseType: 'draft'}, {publish: 'always'});
+    expect(publishArtifacts.mock.calls[0][0]).toHaveLength(11);
+    expect(fake.state.published).toBe(true);
+    expect(fake.state.calls.some(call => call.binary)).toBe(false);
 });
 test('tampered assembled files and stable version regressions never publish', async () => {
     const source=await fixture('1.0.0',true),directory=path.join(root,'assets');await assemble({source,destination:directory,version:'1.0.0',commit,stable:true});

@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
+const yaml = require('js-yaml');
 const {assetNames, platforms, sha256, readJson, parseVersion} = require('./common.cjs');
 
 function run(command, args) {
@@ -93,11 +94,37 @@ async function stage({source, destination, version, commit, platform, signed = f
         if (!stat.isFile() || stat.isSymbolicLink() || !stat.size) throw new Error(`Missing or invalid release asset: ${name}`);
         files.push({name, size: stat.size, sha256: await sha256(file)});
     }
+    const metadata = [];
+    for (const name of updateMetadataNames(source)) {
+        const targetName = name === 'latest-mac.yml' && platform.startsWith('mac-') ? `latest-${platform}.yml` : name;
+        const file = path.join(source, name);
+        metadata.push({name: targetName, sourceName: name});
+    }
     fs.mkdirSync(destination, {recursive: true});
     for (const file of files) fs.copyFileSync(path.join(source, file.name), path.join(destination, file.name), fs.constants.COPYFILE_EXCL);
+    for (const file of metadata) fs.copyFileSync(path.join(source, file.sourceName), path.join(destination, file.name), fs.constants.COPYFILE_EXCL);
     const manifest = {schemaVersion: 1, version, commit, platform, signed, notarized, files};
     fs.writeFileSync(path.join(destination, `${platform}.json`), JSON.stringify(manifest, null, 2) + '\n', {flag: 'wx'});
     return manifest;
+}
+function updateMetadataNames(source) {
+    if (!fs.existsSync(source)) return [];
+    return fs.readdirSync(source).filter(name => {
+        const stat = fs.lstatSync(path.join(source, name));
+        return stat.isFile() && !stat.isSymbolicLink() && (name.endsWith('.blockmap') || name === 'latest.yml' || name === 'latest-mac.yml' || name === 'latest-linux.yml');
+    });
+}
+function allowedUpdateMetadata(name, expected) {
+    if (name.endsWith('.blockmap')) return expected.has(name.slice(0, -'.blockmap'.length));
+    return name === 'latest.yml' || name === 'latest-linux.yml' || /^latest-mac-(arm64|x64)\.yml$/.test(name);
+}
+function mergeMacUpdateInfo(byName, destination) {
+    const parts = ['latest-mac-arm64.yml', 'latest-mac-x64.yml'].map(name => byName.get(name)).filter(Boolean);
+    if (!parts.length) return;
+    const documents = parts.map(file => yaml.load(fs.readFileSync(file, 'utf8')));
+    const seen = new Set();
+    const files = documents.flatMap(document => document?.files || []).filter(file => file?.url && !seen.has(file.url) && seen.add(file.url));
+    fs.writeFileSync(path.join(destination, 'latest-mac.yml'), yaml.dump({...documents[0], files}, {lineWidth: 120}));
 }
 function walk(directory) {
     return fs.readdirSync(directory, {withFileTypes: true}).flatMap(entry => {
@@ -130,12 +157,16 @@ async function assemble({source, destination, version, commit, publishing = fals
         }
         builds.push(manifest);
     }
-    if (downloaded.length !== expected.size) throw new Error('Unexpected files in release artifacts.');
+    for (const name of byName.keys()) if (!expected.has(name) && !allowedUpdateMetadata(name, expected)) throw new Error('Unexpected files in release artifacts.');
     fs.mkdirSync(destination, {recursive: true});
     const assets = builds.flatMap(build => build.files).sort((a, b) => a.name.localeCompare(b.name));
     for (const asset of assets) fs.copyFileSync(byName.get(asset.name), path.join(destination, asset.name), fs.constants.COPYFILE_EXCL);
+    for (const [name, file] of byName) if (name.endsWith('.blockmap') || name === 'latest.yml' || name === 'latest-linux.yml') fs.copyFileSync(file, path.join(destination, name), fs.constants.COPYFILE_EXCL);
+    mergeMacUpdateInfo(byName, destination);
+    const updateInventory = [];
+    for (const name of fs.readdirSync(destination).filter(name => !assets.some(asset => asset.name === name)).sort()) updateInventory.push({name, sha256: await sha256(path.join(destination, name))});
     fs.writeFileSync(path.join(destination, 'release-manifest.json'), JSON.stringify({schemaVersion: 1, version, commit, builds}, null, 2) + '\n', {flag: 'wx'});
-    const inventory = [...assets, {name: 'release-manifest.json', sha256: await sha256(path.join(destination, 'release-manifest.json'))}].sort((a, b) => a.name.localeCompare(b.name));
+    const inventory = [...assets, ...updateInventory, {name: 'release-manifest.json', sha256: await sha256(path.join(destination, 'release-manifest.json'))}].sort((a, b) => a.name.localeCompare(b.name));
     fs.writeFileSync(path.join(destination, 'SHA256SUMS'), inventory.map(file => `${file.sha256}  ${file.name}\n`).join(''), {flag: 'wx'});
     return {version, commit, builds};
 }

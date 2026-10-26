@@ -179,6 +179,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
+          cache: npm
+      - run: npm ci
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-assets
@@ -187,7 +189,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: release-assets/*
-      - name: Generate changelog, upload draft assets, then publish
+      - name: Publish the verified release with electron-builder
         run: node scripts/release/publish.cjs
         env:
           GH_TOKEN: ${{ github.token }}

@@ -21,10 +21,21 @@ function observe(promise) {
     return promise;
 }
 
+const menuBadgeListeners = new Set();
+export function watchNotificationMenuBadge(listener) {
+    menuBadgeListeners.add(listener);
+    return () => menuBadgeListeners.delete(listener);
+}
 function mutate(operation, value) {
     return observe(notificationStorage(operation, value).then(result => {
         if (result.changed) {
             broadcast(NotificationChannels.on_off.UPDATED, result.notifications);
+            if (Array.isArray(result.notifications)) {
+                for (const listener of menuBadgeListeners) {
+                    try {listener(result.notifications);}
+                    catch (error) {console.error('Could not update the notification menu badge:', error);}
+                }
+            }
         }
         return result;
     }));

@@ -102,12 +102,14 @@ Use PR labels such as `feature`, `bug`, `security`, `breaking-change`,
 from GitHub's categorized section; the complete commit history remains available.
 No manually maintained changelog file is required.
 
-Each release includes `SHA256SUMS`, `release-manifest.json` and GitHub build-provenance
-attestations. The manifest records source commit, platforms, hashes and signing
-status. A draft is created first, all assets are uploaded and checked, then the
-draft is published. Failed uploads leave an unpublished draft. Re-run the failed
-job to resume a draft from the same source; matching uploaded bytes are reused.
-Published releases are never overwritten. If a tag moves, source validation fails.
+Each release includes `SHA256SUMS`, `release-manifest.json`, electron-builder update
+metadata (`latest*.yml` and blockmaps) and GitHub build-provenance attestations.
+The manifest records source commit, platforms, hashes and signing status. A draft
+is created first. electron-builder's GitHub publisher then uploads the verified
+files. After every asset is checked, the draft is published. Failed uploads leave
+an unpublished draft. Re-run the failed job to resume a draft from the same source;
+matching uploaded bytes are reused. Published releases are never overwritten. If a
+tag moves, source validation fails.
 Protect `v*` tags against updates/deletion in repository rulesets and keep the
 default branch protected.
 

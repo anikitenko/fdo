@@ -1,4 +1,4 @@
-import {NotificationCenter} from '../../src/utils/desktop/NotificationCenter';
+import {NotificationCenter, watchNotificationMenuBadge} from '../../src/utils/desktop/NotificationCenter';
 import {notificationStorage} from '../../src/utils/persistence/notificationStorage';
 import {webContents} from 'electron';
 
@@ -19,6 +19,15 @@ test('broadcasts only after the database write commits', async () => {
     await request;
     expect(notificationStorage).toHaveBeenCalledWith('read', 'one');
     expect(send).toHaveBeenCalledWith('notifications:on_off:updated', notifications);
+});
+
+test('tells the menu badge watcher about the saved notification list', async () => {
+    const seen = [];
+    const stop = watchNotificationMenuBadge(list => seen.push(list));
+    notificationStorage.mockResolvedValue({changed: true, notifications: [{id: 'one', read: false}]});
+    await NotificationCenter.markAsRead('one');
+    stop();
+    expect(seen).toEqual([[{id: 'one', read: false}]]);
 });
 
 test.each(['markAsRead', 'markAllAsRead', 'deleteNotification', 'deleteAllNotifications'])('%s does not broadcast unchanged data', async method => {

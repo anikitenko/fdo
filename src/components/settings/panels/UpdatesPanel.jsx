@@ -115,7 +115,7 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
                 {result.releaseName && <p>{result.releaseName}</p>}
                 {result.hasUpdate && result.macAutoUpdate?.available && <div style={{margin: '8px 0'}}>
                     <Button intent={Intent.PRIMARY} icon="download" loading={installing} onClick={installUpdate}>Update and Restart</Button>
-                    <p>FDO will verify the signed update, replace this app, and reopen.</p>
+                    <p>{result.macAutoUpdate.feed ? 'Electron will download the signed update, replace this app, and reopen.' : 'FDO will verify the signed update, replace this app, and reopen.'}</p>
                 </div>}
                 {result.hasUpdate && result.platform?.startsWith('mac-') && result.macAutoUpdate && !result.macAutoUpdate.available && <p>{result.macAutoUpdate.reason}</p>}
                 {result.hasUpdate && result.downloads?.length > 0 && <div style={{display: 'flex', flexWrap: 'wrap', gap: 8}}>
