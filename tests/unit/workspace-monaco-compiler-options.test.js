@@ -11,6 +11,7 @@ describe("workspace monaco compiler options", () => {
 
         expect(options.typeRoots).toContain("/node_modules/@types");
         expect(options.types).toContain("node");
+        expect(options.paths["node:*"]).toEqual(["/node_modules/@types/node/*"]);
         expect(options.target).toBe(9);
         expect(options.moduleResolution).toBe(100);
         expect(options.module).toBe(99);

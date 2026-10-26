@@ -17,6 +17,7 @@ import {
 
 import {resolveMonacoTypeScriptApi} from "./monacoTypeScriptApi";
 import {PLUGIN_CSS_TYPES, PLUGIN_UI_TYPES} from '../../../utils/sdk/pluginCssTypes';
+import {registerNodeBuiltinEditorTypes} from './nodeBuiltinEditorTypes';
 
 function getMonacoTypeScriptApi() {
     return resolveMonacoTypeScriptApi(monaco);
@@ -804,6 +805,7 @@ const virtualFS = {
                     if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
                         continue;
                     }
+                    file.path = file.path.replace(/\\/g, "/");
                     if (file.path.startsWith("@babel/") || file.path.startsWith("goober/")) {
                         continue;
                     }
@@ -821,6 +823,13 @@ const virtualFS = {
                         suppressCompilerRefresh: true
                     });
                 }
+                const nodeBuiltinTypes = registerNodeBuiltinEditorTypes(tsDefaults, jsDefaults, moduleFiles);
+                createVirtualFile(nodeBuiltinTypes.path, nodeBuiltinTypes.content, undefined, false, false, undefined, {
+                    suppressTreeUpdate: true,
+                    suppressFileSelected: true,
+                    suppressDefaultSelection: true,
+                    suppressCompilerRefresh: true,
+                });
 
                 for (const file of sdkTypeFiles) {
                     if (!file || typeof file.path !== "string" || typeof file.content !== "string") {

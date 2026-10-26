@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {osCredentialSession} from '../utils/persistence/osCredentialSession.cjs';
 import {SettingsChannels} from './channels';
 import {validateRepository} from '../utils/gitops/manifest';
 import {verifyRepository} from '../utils/gitops/verifyRepository';
@@ -22,15 +23,20 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
     const channels = SettingsChannels.gitops;
     const repositories = () => settings.get('gitops.repositories', []);
     let busy = false;
+    const credentialsSession = osCredentialSession(safeStorage);
     const assertEncryption = () => {
-        if (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text') {
+        if (safeStorage.getSelectedStorageBackend?.() === 'basic_text'
+            || (!credentialsSession.usesIsolatedKeychainPrompt() && !safeStorage.isEncryptionAvailable())) {
             throw new Error('Secure credential storage is unavailable. Unlock your OS keychain or use a public repository without credentials.');
         }
     };
     const credentials = repository => {
         assertEncryption();
-        try { return JSON.parse(safeStorage.decryptString(Buffer.from(repository.encryptedCredentials, 'base64'))); }
-        catch { throw new Error('Cannot unlock these repository credentials. Edit the repository and enter them again.'); }
+        try { return JSON.parse(credentialsSession.decrypt(Buffer.from(repository.encryptedCredentials, 'base64'))); }
+        catch (error) {
+            if (error?.code === 'KEYCHAIN_DENIED') throw error;
+            throw new Error('Cannot unlock these repository credentials. Edit the repository and enter them again.');
+        }
     };
     const replace = repository => settings.set('gitops.repositories', repositories().map(repo => repo.id === repository.id ? repository : repo));
     const incident = (repository, pluginName, error) => {
@@ -133,8 +139,11 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
             let encryptedCredentials;
             if (config.authType === 'basic') {
                 assertEncryption();
-                try { encryptedCredentials = safeStorage.encryptString(JSON.stringify({username: candidate.username, password: candidate.password})).toString('base64'); }
-                catch { throw new Error('Could not encrypt repository credentials. Unlock your OS keychain and try again.'); }
+                try { encryptedCredentials = credentialsSession.encrypt(JSON.stringify({username: candidate.username, password: candidate.password})).toString('base64'); }
+                catch (error) {
+                    if (error?.code === 'KEYCHAIN_DENIED') throw error;
+                    throw new Error('Could not encrypt repository credentials. Unlock your OS keychain and try again.');
+                }
             }
             const verified = await verify({...candidate, ...config});
             const {encryptedCredentials: _oldSecret, ...previousState} = previous || {};

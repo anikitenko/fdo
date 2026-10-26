@@ -135,7 +135,7 @@ export function buildProblemsRepairPlanPrompt({
 
 IMPORTANT REPAIR INSTRUCTION:
 The workspace files from your previous response were applied, and the Editor Problems panel now reports errors. Correct every listed error while preserving the requested plugin behavior.
-This is a focused repair of the existing workspace, not a new scaffold. Return only files that must change to resolve the diagnostics, including directly affected dependencies. Keep unaffected files and their public interfaces unchanged. Do not regenerate the entire workspace or add a new feature-module architecture. Complete any missing implementations required by the diagnostics; do not replace them with stubs.
+This is a focused repair of the existing workspace, not a new scaffold. Use the installed @anikitenko/fdo-sdk for every plugin API. Return only files that must change to resolve the diagnostics, including directly affected dependencies. Keep unaffected files and their public interfaces unchanged. Do not regenerate the entire workspace or add a new feature-module architecture. Complete any missing implementations required by the diagnostics; do not replace them with stubs.
 
 ${repairPaths.length ? `Host-selected repair files: ${JSON.stringify(repairPaths)}. Return only these files. Other files remain immutable; do not re-plan, split or regenerate their code or styles.` : ''}
 

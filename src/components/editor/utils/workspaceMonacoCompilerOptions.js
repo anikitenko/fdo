@@ -31,5 +31,11 @@ export function buildWorkspaceMonacoCompilerOptions(monacoTs) {
         jsx: jsxMode,
         skipDefaultLibCheck: true,
         ...workspaceTsCompilerOptions,
+        // Bundled @types/node publishes node:test, node:assert/strict and the
+        // other builtins as ambient modules. Map the protocol onto those files
+        // so Monaco resolves them without a directory listing of typeRoots.
+        paths: {
+            "node:*": ["/node_modules/@types/node/*"],
+        },
     };
 }

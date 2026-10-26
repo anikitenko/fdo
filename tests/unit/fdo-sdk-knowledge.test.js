@@ -147,7 +147,7 @@ const response = requestScopedProcessExec("internal-runner", { args: ["status"],
         expect(context).toContain("@types/DOMTable.d.ts");
     });
 
-    test("enables SDK knowledge for plan mode only when the new request carries FDO/plugin signals", () => {
+    test("enables installed SDK knowledge for every non-empty coding request", () => {
         expect(shouldUseFdoSdkKnowledge({
             action: "plan",
             prompt: "Build an FDO plugin settings panel",
@@ -156,38 +156,26 @@ const response = requestScopedProcessExec("internal-runner", { args: ["status"],
         expect(shouldUseFdoSdkKnowledge({
             action: "plan",
             prompt: "Proceed with implementation from TODO and mark completed items",
-        })).toBe(false);
-    });
-
-    test("enables SDK knowledge for smart/generate/fix/edit/explain only when FDO signals are present", () => {
-        expect(shouldUseFdoSdkKnowledge({
-            action: "smart",
-            prompt: "Build an FDO plugin settings panel with DOMTable",
         })).toBe(true);
 
         expect(shouldUseFdoSdkKnowledge({
             action: "generate",
             prompt: "I need a production grade hosts file replacer like switchhosts",
-        })).toBe(false);
-
-        expect(shouldUseFdoSdkKnowledge({
-            action: "fix",
-            error: "DOMTable build is not a function in my FDO plugin",
         })).toBe(true);
 
         expect(shouldUseFdoSdkKnowledge({
             action: "edit",
             prompt: "Refactor this function for readability",
             code: "function sum(a, b) { return a + b; }",
-        })).toBe(false);
-    });
+        })).toBe(true);
 
-    test("does not enable SDK knowledge for generic reference-product prompts just because current file is an FDO plugin", () => {
         expect(shouldUseFdoSdkKnowledge({
             action: "smart",
             prompt: "I want a production grade hosts file replacer similar to https://switchhosts.app but even better",
             context: "export default class MyPlugin extends FDO_SDK { render(): string { return '<div />'; } }",
-        })).toBe(false);
+        })).toBe(true);
+
+        expect(shouldUseFdoSdkKnowledge({})).toBe(false);
     });
 
     test("enables SDK knowledge for best-practice plugin edit prompts even without explicit sdk symbol names", () => {

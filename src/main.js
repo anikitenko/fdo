@@ -1,5 +1,6 @@
 import {cliProfile} from './utils/system/cliProfile';
 import {checkForFdoUpdate} from './utils/system/updateChecker';
+import {applyLocalMacSignature, assessCurrentMacApp, installMacAutoUpdate} from './utils/system/macAutoUpdate';
 import {failureNotification, pluginDisplayName} from './utils/desktop/notificationContent';
 import {closeHostServices, removeHostServices} from './utils/hostServices/runtime';
 import {registerHostServiceSettings} from './ipc/hostServices';
@@ -8,6 +9,7 @@ import {initializeObservabilityStorage, closeObservabilityStorage, recordRuntime
 import {registerObservabilityHandlers} from './ipc/observability';
 import {usageLedger} from './utils/ai/billing/ledger';
 import {certificateStorage, previewSigningCertificates, initializeCertificateStorage, closeCertificateStorage} from './utils/persistence/certificateStorage';
+import {osCredentialSession, runOsCredentialHelper, closeOsCredentialSessions} from './utils/persistence/osCredentialSession.cjs';
 import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
@@ -61,6 +63,14 @@ import {ipcMain} from 'electron';
 import {StartupChannels} from "./ipc/channels";
 import {registerAiChatHandlers} from "./ipc/ai/ai_chat";
 import {registerAiCodingAgentHandlers} from "./ipc/ai_coding_agent";
+
+// A Keychain denial is cached inside this process. Handle credential access in a
+// fresh process so Deny does not stop later certificate and credential prompts.
+if (process.argv.includes('--fdo-os-credential-helper')) {
+    try {app.dock?.hide();} catch { /* The helper has no dock icon. */ }
+    await runOsCredentialHelper({app, safeStorage});
+    process.exit(0);
+}
 
 // Isolate Chromium storage as well as config/plugin files in native tests.
 // This must run before the first BrowserWindow/default session is created.
@@ -236,7 +246,12 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
         const sign = (directory, label) => withCliLock(directory, () => withCertificateLock(() => signUnlocked(directory, label)));
         const compile = directory => withCliLock(directory, () => compilePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata}));
         const validate = directory => validatePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata});
-        const credentialStoreAvailable = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
+        const credentialStoreAvailable = () => {
+            if (safeStorage.getSelectedStorageBackend?.() === 'basic_text') return false;
+            const session = osCredentialSession(safeStorage);
+            if (!session.usesIsolatedKeychainPrompt()) return !!safeStorage.isEncryptionAvailable();
+            try {session.encrypt('FDO credential store check'); return true;} catch {return false;}
+        };
         const deploy = async (directory, label) => {
             const compiled = await deployCliPluginDirectory(directory, {registryFile: PLUGINS_REGISTRY_FILE, build: buildUsingEsbuild, extractMetadata,
                 sign: target => withCertificateLock(() => signUnlocked(target, label))});
@@ -635,15 +650,41 @@ app.whenReady().then(async () => {
             'Built with Electron and React. Licensed under the MIT License.',
         ].join('\n'),
     });
+    const currentMacAppPath = () => nodePath.resolve(process.execPath, '..', '..', '..');
+    const macUpdateEligibility = () => assessCurrentMacApp({
+        platform: process.platform,
+        packaged: app.isPackaged,
+        appPath: currentMacAppPath(),
+    });
     ipcMain.handle(SettingsChannels.updates.CHECK, async () => {
         const channel = settings.get('updates.channel', 'stable');
         try {
             const platform = {darwin: 'mac', win32: 'win', linux: 'linux'}[process.platform];
             const supportedArch = process.arch === 'arm64' || process.arch === 'x64';
             const platformKey = platform && supportedArch ? `${platform}-${process.arch}` : '';
-            return await checkForFdoUpdate({channel, currentVersion: app.getVersion(), platform: platformKey});
+            const result = await checkForFdoUpdate({channel, currentVersion: app.getVersion(), platform: platformKey});
+            if (result?.macAutoUpdate) result.macAutoUpdate = applyLocalMacSignature(result.macAutoUpdate, macUpdateEligibility());
+            return result;
         } catch (error) {
             return {success: false, error: error.message || 'Could not check for updates.'};
+        }
+    });
+    ipcMain.handle(SettingsChannels.updates.INSTALL, async () => {
+        try {
+            if (process.platform !== 'darwin') return {success: false, error: 'Automatic update is available on signed macOS builds.'};
+            const local = macUpdateEligibility();
+            if (!local.eligible) return {success: false, error: local.reason};
+            const channel = settings.get('updates.channel', 'stable');
+            const platformKey = `mac-${process.arch}`;
+            const result = await checkForFdoUpdate({channel, currentVersion: app.getVersion(), platform: platformKey});
+            const decision = applyLocalMacSignature(result.macAutoUpdate, local);
+            if (!result.hasUpdate) return {success: false, error: 'FDO is already up to date.'};
+            if (!decision.available) return {success: false, error: decision.reason};
+            await installMacAutoUpdate({asset: decision.asset, appPath: currentMacAppPath()});
+            setImmediate(() => app.quit());
+            return {success: true};
+        } catch (error) {
+            return {success: false, error: error.message || 'Could not install the update.'};
         }
     });
     ipcMain.handle(SettingsChannels.updates.GET_PREFERENCES, () => ({
@@ -859,7 +900,7 @@ app.on("will-quit", (event) => {
         }).then(results => {
             for (const result of results) if (result.status === 'rejected') console.error('Storage shutdown failed:', result.reason);
         })
-            .finally(() => { storageDrained = true; app.quit(); });
+            .finally(() => { closeOsCredentialSessions(); storageDrained = true; app.quit(); });
     }
 });
 

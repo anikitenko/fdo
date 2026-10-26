@@ -51,7 +51,7 @@ export const CertificatePanel = () => {
                         ? `Signing-${(Math.random() + 1).toString(36).substring(2)}` : 'root';
                     window.electron.settings.certificates.create(label).then(() => {
                         updateCertificates()
-                    }).catch(error => AppToaster.show({message: operationError('Could not create a signing certificate', error, 'Unlock your OS credential store and check disk access, then retry.'), intent: 'danger'}))
+                    }).catch(error => AppToaster.show({message: operationError('Could not create a signing certificate', error, 'Try again and choose Allow if macOS asks FDO to use the Keychain.'), intent: 'danger'}))
                         .finally(() => setGenerateRootCertProgress(false))
                 }}/>
                 <Button intent={"primary"} text="Import" icon={"import"} loading={importRootCertProgress}
@@ -84,8 +84,8 @@ export const CertificatePanel = () => {
             </p>
             <p className="bp6-text-muted">
                 FDO uses macOS Keychain to encrypt private signing keys. macOS may ask you to allow FDO to access
-                Keychain when you create, import, renew, or use a private key to sign a plugin. Certificate storage
-                does not need Keychain access just to start.
+                Keychain when you create, import, renew, or use a private key to sign a plugin. If you choose Deny,
+                try that action again and choose Allow. Certificate storage does not need Keychain access just to start.
             </p>
             {rootCertificates?.length > 0 ? (
                 <CardList>
