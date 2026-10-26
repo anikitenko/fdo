@@ -1,0 +1,11 @@
+{
+  "name": "lodash.isequal",
+  "version": "4.5.1",
+  "private": true,
+  "description": "Deep equality for electron-updater using Node's isDeepStrictEqual",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "license": "MIT"
+}
