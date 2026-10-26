@@ -54,6 +54,13 @@ test('offers a macOS auto-update only when the release is signed, notarized, and
     });
     const signed = await checkForFdoUpdate({channel: 'stable', currentVersion: '1.3.0', platform: 'mac-arm64', fetchImpl});
     expect(signed.macAutoUpdate).toEqual({available: true, asset: {name: zip, url: `https://github.com/anikitenko/fdo/releases/download/${zip}`, sha256: sha}});
+    const fed = await checkForFdoUpdate({channel: 'stable', currentVersion: '1.3.0', platform: 'mac-arm64', fetchImpl: jest.fn(async url => {
+        if (String(url).includes('/releases?')) return {ok: true, json: async () => [makeRelease({version: '1.4.0', assets: [asset(zip), asset('SHA256SUMS'), asset('release-manifest.json'), asset('latest-mac.yml')]})]};
+        if (String(url).endsWith('SHA256SUMS')) return {ok: true, text: async () => `${sha}  ${zip}\n`};
+        if (String(url).endsWith('release-manifest.json')) return {ok: true, text: async () => JSON.stringify(manifest)};
+        throw new Error(`Unexpected ${url}`);
+    })});
+    expect(fed.macAutoUpdate.feed).toBe(true);
 
     const unsigned = await checkForFdoUpdate({channel: 'stable', currentVersion: '1.3.0', platform: 'mac-arm64', fetchImpl: jest.fn(async url => {
         if (String(url).includes('/releases?')) return {ok: true, json: async () => [makeRelease({version: '1.4.0', assets: [asset(zip), asset('SHA256SUMS'), asset('release-manifest.json')]})]};

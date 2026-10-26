@@ -64,7 +64,8 @@ export async function describePublishedMacUpdate({latestVersion, platform, asset
             return {available: false, reason: 'The macOS update archive has no matching checksum.'};
         }
         assertGithubDownloadUrl(zip.browser_download_url);
-        return {available: true, asset: {name: zipName, url: zip.browser_download_url, sha256: publishedSha}};
+        const feed = assets.some(asset => asset.name === 'latest-mac.yml');
+        return {available: true, asset: {name: zipName, url: zip.browser_download_url, sha256: publishedSha}, ...(feed ? {feed: true} : {})};
     } catch {
         return {available: false, reason: 'The published macOS update could not be verified.'};
     }
@@ -94,7 +95,7 @@ export function applyLocalMacSignature(published, local) {
         return {available: false, reason: published?.reason || 'No signed macOS update is published.'};
     }
     if (!local?.eligible) return {available: false, reason: local?.reason || 'This Mac app is not signed and notarized.'};
-    return {available: true, asset: published.asset};
+    return {available: true, asset: published.asset, ...(published.feed ? {feed: true} : {})};
 }
 
 export async function downloadUpdateArchive({url, sha256, fetchImpl, redirectLimit = 5}) {

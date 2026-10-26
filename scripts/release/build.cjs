@@ -10,7 +10,8 @@ function releaseConfig(metadata, {platform, arch, publish, env = process.env}) {
     const signed = publish && platform === 'mac' && macCredentials;
     if (publish && platform === 'mac' && !signed) throw new Error('Published macOS releases require code signing and notarization credentials.');
     if (publish && platform === 'mac' && !!env.MAC_CSC_LINK !== !!macCredentials) throw new Error('Incomplete Apple signing/notarization credentials.');
-    const config = {...metadata.build, publish: null, forceCodeSigning: !!signed};
+    const config = {...metadata.build, forceCodeSigning: !!signed};
+    if (config.publish?.provider !== 'github' || !config.publish.owner || !config.publish.repo) throw new Error('electron-builder GitHub publish configuration is required.');
     if (platform === 'mac') config.mac = {...config.mac, target: [{target: 'dmg', arch: [arch]}, {target: 'zip', arch: [arch]}], artifactName: 'fdo-${version}-mac-${arch}.${ext}', hardenedRuntime: !!signed, notarize: !!signed, ...(!signed ? {identity: null} : {})};
     // electron-builder rewrites ${arch} to x86_64 (AppImage/rpm) or amd64 (deb), not x64.
     if (platform === 'linux') config.linux = {...config.linux, target: ['AppImage', 'deb', 'rpm'].map(target => ({target, arch: [arch]})), artifactName: `fdo-\${version}-linux-${arch}.\${ext}`};
@@ -50,6 +51,7 @@ function main(env = process.env) {
     const childEnv = signingChildEnv({platform, signed, env, temp});
     try {
         const file = path.join(temp, 'builder.json');fs.writeFileSync(file, JSON.stringify(config));
+        // build.publish writes app-update.yml, blockmaps and latest*.yml. Upload waits until every platform is verified.
         run(process.execPath, ['node_modules/electron-builder/cli.js', '--config', file, `--${platform}`, `--${arch}`, '--publish', 'never'], {env: childEnv});
         if (platform === 'mac' && signed) {
             const root = path.resolve(output, arch === 'x64' ? 'mac' : `mac-${arch}`, `${metadata.build.executableName || metadata.build.productName}.app`);

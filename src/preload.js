@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld('electron', {
         markAllAsRead: () => ipcRenderer.invoke(NotificationChannels.MARK_ALL_AS_READ),
         remove: (id) => ipcRenderer.invoke(NotificationChannels.REMOVE, id),
         removeAll: () => ipcRenderer.invoke(NotificationChannels.REMOVE_ALL),
+        onOpen: callback => {
+            const listener = () => callback();
+            ipcRenderer.on(NotificationChannels.OPEN, listener);
+            return () => ipcRenderer.removeListener(NotificationChannels.OPEN, listener);
+        },
         on: {
             updated: (callback) => ipcRenderer.on(NotificationChannels.on_off.UPDATED, callback)
         },

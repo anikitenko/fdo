@@ -25,7 +25,7 @@
     "build:renderer": "webpack --config webpack.renderer.config.js --mode=production",
     "build:renderer:dev": "webpack --config webpack.renderer.config.js --mode=development --watch",
     "build:analyze": "npm run build && source-map-explorer 'dist/renderer/*.js' 'dist/main/*.js' --html bundle-report.html --only-mapped",
-    "package": "npm run build && electron-builder",
+    "package": "npm run build && electron-builder --publish=never",
     "dist": "npm run build && electron-builder --publish=never",
     "dist:mac": "npm run build && electron-builder --mac --publish=never",
     "dist:linux": "npm run build && electron-builder --linux --publish=never",
@@ -87,7 +87,7 @@
     "concurrently": "^10.0.6",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^7.1.5",
-    "electron": "^44.7.2",
+    "electron": "45.0.0",
     "electron-builder": "26.15.3",
     "html-webpack-plugin": "^5.6.8",
     "identity-obj-proxy": "^3.0.0",
@@ -145,7 +145,7 @@
     "@blueprintjs/datetime": "^6.3.0",
     "@blueprintjs/icons": "^6.14.1",
     "@blueprintjs/select": "^6.4.0",
-    "@cursor/sdk": "1.0.37",
+    "@cursor/sdk": "1.0.40",
     "@dnd-kit/core": "^6.3.1",
     "@expo/sudo-prompt": "^9.3.2",
     "@google/genai": "2.30.0",
@@ -166,6 +166,7 @@
     "electron-localshortcut": "^3.2.1",
     "electron-log": "^5.4.4",
     "electron-store": "^12.0.0",
+    "electron-updater": "^6.8.11",
     "emojibase-data": "^17.0.0",
     "esbuild": "^0.28.2",
     "file-type": "^22.2.0",
@@ -229,10 +230,20 @@
       "react": "$react",
       "react-dom": "$react-dom"
     },
-    "dompurify": "^3.4.17"
+    "dompurify": "^3.4.17",
+    "body-parser": "^2.4.0",
+    "fast-uri": "^3.1.9",
+    "serialize-javascript": "^7.1.4",
+    "undici": "^7.30.1",
+    "zod": "^4.6.7"
   },
   "build": {
     "appId": "me.alexvwan.fdo",
+    "publish": {
+      "provider": "github",
+      "owner": "anikitenko",
+      "repo": "fdo"
+    },
     "productName": "FDO (FlexDevOPs)",
     "executableName": "FDO",
     "asar": {

@@ -25,7 +25,7 @@ function previousRelease(releases, version, isAncestor) {
 }
 function notes({generated, history, repository, tag, previous, manifest}) {
     const body = [generated.slice(0, 70000), '\n## Downloads and verification',
-        'Installers are attached below. `SHA256SUMS` covers every installer and `release-manifest.json`; the manifest records source commit, platform and signing status.',
+        'Installers are attached below. electron-builder publishes the files, including its update metadata. `SHA256SUMS` covers every attached file except itself, and `release-manifest.json` records source commit, platform and signing status.',
         '\nmacOS installers are Developer ID signed and notarized.',
         '\nWindows installers are published unsigned.',
         `\nSource: [${manifest.commit.slice(0, 12)}](https://github.com/${repository}/commit/${manifest.commit}).`,
@@ -34,7 +34,20 @@ function notes({generated, history, repository, tag, previous, manifest}) {
         '\n</details>', `\n[Full changelog](https://github.com/${repository}/${previous ? `compare/${encodeURIComponent(previous)}...${encodeURIComponent(tag)}` : `commits/${encodeURIComponent(tag)}`})`, `\n<!-- fdo-release:${manifest.commit} -->`];
     return body.join('\n');
 }
-async function publish({repository, version, commit, directory, api, isAncestor, history}) {
+async function uploadPending(uploadFile, release, pending) {
+    for (const item of pending) {
+        const uploaded = await uploadFile(item.file, release);
+        if (uploaded.size !== item.size || uploaded.digest && uploaded.digest !== item.digest) throw new Error(`Upload integrity check failed: ${item.name}`);
+    }
+}
+async function publishWithElectronBuilder({repository, version, files, publishArtifacts}) {
+    const [owner, repo] = repository.split('/');
+    const tasks = files.map(file => ({file, arch: null}));
+    const publish = publishArtifacts || require('electron-builder/out/publish').publishArtifactsWithOptions;
+    const uploaded = await publish(tasks, version, null, {provider: 'github', owner, repo, releaseType: 'draft'}, {publish: 'always'});
+    if (!uploaded) throw new Error('electron-builder publish failed.');
+}
+async function publish({repository, version, commit, directory, api, isAncestor, history, uploadFile, publishArtifacts}) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository.');
     const prerelease = !!parseVersion(version).prerelease, tag = `v${version}`, base = `/repos/${repository}`;
     const manifest = readJson(path.join(directory, 'release-manifest.json'));
@@ -70,22 +83,26 @@ async function publish({repository, version, commit, directory, api, isAncestor,
     let assets = await paginate(api, `${base}/releases/${release.id}/assets`);
     const unexpected = assets.filter(asset => !inventory.includes(asset.name));
     if (unexpected.length) throw new Error('Draft has unexpected assets. Review the draft before retrying.');
+    const pending = [];
     for (const name of inventory) {
         const file = path.join(directory, name), size = fs.statSync(file).size, digest = `sha256:${await sha256(file)}`;
         const old = assets.find(asset => asset.name === name);
         if (old && old.size === size && old.digest === digest) continue;
         if (old) await api('DELETE', `${base}/releases/assets/${old.id}`);
-        const url = new URL(release.upload_url.split('{')[0]);url.searchParams.set('name', name);
-        const stream = fs.createReadStream(file);let uploaded;
-        try {uploaded = await api('POST', url.href, stream, true);} finally {stream.destroy();}
-        if (uploaded.size !== size || uploaded.digest && uploaded.digest !== digest) throw new Error(`Upload integrity check failed: ${name}`);
+        pending.push({file, name, size, digest});
     }
+    if (pending.length) await (uploadFile
+        ? uploadPending(uploadFile, release, pending)
+        : publishWithElectronBuilder({repository, version, files: pending.map(item => item.file), publishArtifacts}));
     assets = await paginate(api, `${base}/releases/${release.id}/assets`);
-    if (assets.length !== inventory.length || inventory.some(name => !assets.some(asset => asset.name === name && asset.state === 'uploaded'))) throw new Error('Release upload is incomplete; draft retained.');
+    if (assets.length !== inventory.length || pending.some(item => {
+        const asset = assets.find(candidate => candidate.name === item.name);
+        return !asset || asset.state !== 'uploaded' || asset.size !== item.size || (asset.digest && asset.digest !== item.digest);
+    }) || inventory.some(name => !assets.some(asset => asset.name === name && asset.state === 'uploaded'))) throw new Error('Release upload is incomplete; draft retained.');
     await verifyTag();
     return api('PATCH', `${base}/releases/${release.id}`, {draft: false, prerelease, make_latest: prerelease ? 'false' : 'true'});
 }
-module.exports = {githubApi, previousRelease, notes, publish};
+module.exports = {githubApi, previousRelease, notes, publish, publishWithElectronBuilder};
 if (require.main === module) {
     const env = process.env;
     if (!env.GH_TOKEN) {console.error('GH_TOKEN is required.');process.exitCode = 1;}

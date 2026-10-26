@@ -1,6 +1,7 @@
 import {cliProfile} from './utils/system/cliProfile';
 import {checkForFdoUpdate} from './utils/system/updateChecker';
 import {applyLocalMacSignature, assessCurrentMacApp, installMacAutoUpdate} from './utils/system/macAutoUpdate';
+import {installWithElectronAutoUpdater} from './utils/system/electronAutoUpdate';
 import {failureNotification, pluginDisplayName} from './utils/desktop/notificationContent';
 import {closeHostServices, removeHostServices} from './utils/hostServices/runtime';
 import {registerHostServiceSettings} from './ipc/hostServices';
@@ -19,7 +20,7 @@ import {syncCollection, detachCollection, decideGitOpsUpdate} from './utils/gito
 import {readPluginRepository} from './utils/gitops/verifyRepository';
 import {normalizeAndValidatePluginMetadata} from './utils/plugins/runtime/pluginMetadataContract';
 import UserORM from './utils/persistence/UserORM';
-import {SettingsChannels} from './ipc/channels';
+import {NotificationChannels, SettingsChannels} from './ipc/channels';
 import {installAssistantWindowPolicy} from './utils/desktop/assistantWindowPolicy';
 import nodeUrl from 'node:url';
 import PluginManager from "./utils/plugins/runtime/PluginManager";
@@ -36,7 +37,8 @@ import {registerNotificationHandlers} from "./ipc/notifications";
 import {registerSystemHandlers} from "./ipc/system";
 import {buildUsingEsbuild, registerPluginHandlers} from "./ipc/plugin";
 import {interruptAllCodexAuthProcesses, registerSettingsHandlers} from "./ipc/settings";
-import {NotificationCenter} from "./utils/desktop/NotificationCenter";
+import {NotificationCenter, watchNotificationMenuBadge} from "./utils/desktop/NotificationCenter";
+import {applyNotificationMenuBadge, macOSMajorVersion} from "./utils/desktop/notificationMenuBadge";
 import {closeNotificationStorage} from './utils/persistence/notificationStorage';
 import {closeChatStorage} from './utils/persistence/chatStorage';
 import {readFile} from "node:fs/promises";
@@ -680,6 +682,10 @@ app.whenReady().then(async () => {
             const decision = applyLocalMacSignature(result.macAutoUpdate, local);
             if (!result.hasUpdate) return {success: false, error: 'FDO is already up to date.'};
             if (!decision.available) return {success: false, error: decision.reason};
+            if (decision.feed) {
+                await installWithElectronAutoUpdater({channel});
+                return {success: true};
+            }
             await installMacAutoUpdate({asset: decision.asset, appPath: currentMacAppPath()});
             setImmediate(() => app.quit());
             return {success: true};
@@ -739,11 +745,28 @@ app.whenReady().then(async () => {
         mainWindow.focus();
         mainWindow.webContents.send('app:open-settings', {tab, checkNow: tab === 'updates'});
     };
+    const openNotifications = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send(NotificationChannels.OPEN);
+    };
+    const notificationsMenuItem = {id: 'notifications', label: 'Notifications', click: openNotifications};
+    const refreshNotificationMenuBadge = notifications => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('notifications');
+        applyNotificationMenuBadge(item, notifications, {
+            platform: process.platform,
+            macOSMajor: macOSMajorVersion(typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : ''),
+        });
+    };
+    watchNotificationMenuBadge(refreshNotificationMenuBadge);
     const appMenu = [
         ...(process.platform === 'darwin' ? [{
             label: app.getName(),
             submenu: [
                 {role: 'about'},
+                {type: 'separator'},
+                notificationsMenuItem,
                 {type: 'separator'},
                 {label: 'Check for Updates…', click: () => openSettings('updates')},
                 {type: 'separator'},
@@ -753,12 +776,13 @@ app.whenReady().then(async () => {
                 {type: 'separator'}, {role: 'quit'},
             ],
         }] : []),
-        {label: 'File', submenu: [{label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings('general')}, {type: 'separator'}, {role: 'close'}]},
+        {label: 'File', submenu: [...(process.platform === 'darwin' ? [] : [notificationsMenuItem]), {label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings('general')}, {type: 'separator'}, {role: 'close'}]},
         {label: 'Edit', submenu: [{role: 'undo'}, {role: 'redo'}, {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'}]},
         {label: 'View', submenu: [{role: 'reload'}, {role: 'forceReload'}, {role: 'toggleDevTools'}, {type: 'separator'}, {role: 'resetZoom'}, {role: 'zoomIn'}, {role: 'zoomOut'}, {type: 'separator'}, {role: 'togglefullscreen'}]},
         {label: 'Window', submenu: [{role: 'minimize'}, {role: 'zoom'}, {role: 'front'}]},
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(appMenu));
+    NotificationCenter.getAllNotifications().then(refreshNotificationMenuBadge).catch(error => console.error('Could not read the notification count:', error));
 
     mainWindow.on('closed', () => {
         PluginManager.setMainWindow(null)

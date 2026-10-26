@@ -25,6 +25,7 @@ export const NotificationChannels = withPrefix('notifications', {
     MARK_ALL_AS_READ: 'mark-read-all',
     REMOVE: 'remove',
     REMOVE_ALL: 'remove-all',
+    OPEN: 'open',
     on_off: {
         UPDATED: 'updated',
         ALERT: 'alert',
