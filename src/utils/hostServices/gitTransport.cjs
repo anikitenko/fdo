@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
+const shellQuote = require('shell-quote');
 const {failure,ensure} = require('./contracts.cjs');
 const {trusted, prepareSshCredentials} = require('./ssh.cjs');
 
@@ -18,9 +19,8 @@ function buildRemoteCommand(endpoint) {
         throw Object.assign(failure('INVALID_REQUEST'), {gitFailure:'HELPER_ARGUMENTS_REJECTED'});
     }
     // Git invokes the remote command through a POSIX shell, including when the
-    // SSH transport is Git for Windows. The repository allowlist below excludes
-    // shell metacharacters, so an explicit quoted argument is deterministic.
-    return `${endpoint.service} '${endpoint.repository}'${endpoint.direction ? ` ${endpoint.direction}` : ''}`;
+    // SSH transport is Git for Windows. Quote every argument at this boundary.
+    return shellQuote.quote([endpoint.service, endpoint.repository, ...(endpoint.direction ? [endpoint.direction] : [])]);
 }
 
 async function resolveGitWorkingDirectory(cwd) {

@@ -27,7 +27,7 @@ test('installed Git supports scp-style and ssh:// paths and reports rejected aut
         sockets.add(connection); connection.on('close', () => sockets.delete(connection)); connection.on('error', () => {});
         connection.on('authentication', ctx => ctx.method === 'password' && ctx.password === 'fixture-password' ? ctx.accept() : ctx.reject());
         connection.on('ready', () => connection.on('session', accept => accept().on('exec', (acceptCommand, reject, info) => {
-            if (!["git-upload-pack 'team/repo.git'", "git-upload-pack '/team/repo.git'"].includes(info.command)) return reject();
+            if (!["git-upload-pack 'team/repo.git'", "git-upload-pack '/team/repo.git'", 'git-upload-pack team/repo.git', 'git-upload-pack /team/repo.git'].includes(info.command)) return reject();
             requests.push(info.command);
             const channel = acceptCommand(), child = spawn(git.command, ['upload-pack', path.join(dir, 'remote.git')], {env: {...process.env, ...git.env}});
             channel.pipe(child.stdin); child.stdout.pipe(channel, {end: false}); child.stderr.pipe(channel.stderr);
@@ -45,7 +45,7 @@ test('installed Git supports scp-style and ssh:// paths and reports rejected aut
             signal: new AbortController().signal, helperPath: path.resolve(__dirname, '../../src/utils/hostServices/gitSshHelper.cjs')});
         expect(helperTarget(['git@127.0.0.1', "git-upload-pack 'team/repo.git'"])).toMatchObject({repository:'team/repo.git',port:22});
         expect((await run('/team/repo.git')).exitCode).toBe(0);
-        expect(requests).toEqual(["git-upload-pack '/team/repo.git'"]);
+        expect(requests).toEqual(['git-upload-pack /team/repo.git']);
         await expect(run('/team/repo.git', 'wrong-password')).rejects.toMatchObject({code: 'CONNECTION_FAILED', gitFailure: 'AUTHENTICATION_FAILED', message: 'Host service request failed.'});
     } finally {
         for (const socket of sockets) socket.destroy();

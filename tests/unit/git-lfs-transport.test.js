@@ -27,15 +27,15 @@ test('bundled LFS transfers binary objects through pinned SSH without an externa
         connections.add(connection);connection.on('error',()=>{});connection.once('close',()=>connections.delete(connection));
         connection.on('authentication',ctx=>ctx.method==='password'&&ctx.password==='fixture'?ctx.accept():ctx.reject());
         connection.on('ready',()=>connection.on('session',accept=>accept().on('exec',(accept,reject,info)=>{
-            if(info.command==="git-upload-pack '/remote.git'") {
+            if(["git-upload-pack '/remote.git'",'git-upload-pack /remote.git'].includes(info.command)) {
                 const channel=accept(),child=spawn(git.command,['upload-pack',path.join(root,'remote.git')],{env});processes.add(child);
                 channel.pipe(child.stdin);child.stdout.pipe(channel,{end:false});child.stderr.pipe(channel.stderr);child.stdin.on('error',()=>{});
                 child.on('close',code=>{processes.delete(child);channel.exit(code);channel.end();});channel.on('close',()=>child.kill());return;
             }
-            if(info.command==="git-lfs-authenticate '/remote.git' download"&&denyHTTPS) {
+            if(["git-lfs-authenticate '/remote.git' download",'git-lfs-authenticate /remote.git download'].includes(info.command)&&denyHTTPS) {
                 authAttempts++;const channel=accept();channel.write(JSON.stringify({href:'https://unapproved.example.test/info/lfs',header:{Authorization:'Bearer private-fixture-token'}}));channel.exit(0);channel.end();return;
             }
-            if(info.command!=="git-lfs-transfer '/remote.git' download"||denyHTTPS)return reject();
+            if(!["git-lfs-transfer '/remote.git' download",'git-lfs-transfer /remote.git download'].includes(info.command)||denyHTTPS)return reject();
             const channel=accept();let pending=Buffer.alloc(0),request=[];
             channel.write(Buffer.concat([packet('version=1\n'),Buffer.from('0000')]));
             channel.on('data',chunk=>{

@@ -63,7 +63,7 @@ test('real plugin consumes host-enrolled credentials for pinned SSH and Git CLI 
         connections.add(client); client.on('error', () => {}); client.on('close', () => connections.delete(client));
         client.on('authentication', ctx => {authentications++; return ctx.method === 'password' && ctx.username === 'fixture' && ctx.password === 'private-e2e-password' ? ctx.accept() : ctx.reject();});
         client.on('ready', () => client.on('session', accept => accept().on('exec', (acceptCommand, reject, info) => {
-            if (info.command === "git-upload-pack '/fixture/repo.git'") {
+            if (["git-upload-pack '/fixture/repo.git'", 'git-upload-pack /fixture/repo.git'].includes(info.command)) {
                 const stream = acceptCommand(), child = spawn(gitCommand, ['upload-pack',path.join(gitRoot,'remote.git')]);
                 stream.pipe(child.stdin); child.stdout.pipe(stream,{end:false}); child.stderr.pipe(stream.stderr);
                 child.on('close', code => {stream.exit(code);stream.end();}); stream.on('close',()=>child.kill()); child.stdin.on('error',()=>{}); return;
@@ -325,7 +325,7 @@ test('Git starter displays selected repository output using different Git-only S
             } else ctx.reject();
         });
         connection.on('ready', () => connection.on('session', accept => accept().on('exec', (acceptCommand, reject, info) => {
-            if (info.command !== `git-upload-pack '/${authorizedRepository}.git'`) return reject();
+            if (![ `git-upload-pack '/${authorizedRepository}.git'`, `git-upload-pack /${authorizedRepository}.git` ].includes(info.command)) return reject();
             accessed.push(authorizedRepository);
             const stream = acceptCommand(), child = spawn(gitExecutable, ['upload-pack', path.join(gitRoot, 'remote.git')]);
             stream.pipe(child.stdin); child.stdout.pipe(stream, {end: false}); child.stderr.pipe(stream.stderr);
