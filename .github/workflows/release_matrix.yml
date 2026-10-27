@@ -27,11 +27,11 @@ jobs:
       publish: ${{ steps.release.outputs.publish }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v5 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v7 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - name: Check tag, versions and default-branch ancestry
@@ -65,10 +65,10 @@ jobs:
       RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
       RELEASE_PUBLISH: ${{ needs.validate.outputs.publish }}
     steps:
-      - uses: actions/checkout@v5 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -107,7 +107,7 @@ jobs:
       - name: Stage exact installer inventory and checksums
         run: node scripts/release/artifacts.cjs stage
       - name: Upload verified build
-        uses: actions/upload-artifact@v7 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-build-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-staging/*
@@ -117,7 +117,7 @@ jobs:
           compression-level: 0
       - name: Upload test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v7 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-diagnostics-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -133,16 +133,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
       - name: Install release verification dependencies
         run: npm ci
-      - uses: actions/download-artifact@v8 # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: release-build-*
           path: release-downloads
@@ -152,7 +152,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
           RELEASE_PUBLISH: ${{ needs.validate.outputs.publish }}
-      - uses: actions/upload-artifact@v7 # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-assets
           path: release-assets/*
@@ -175,21 +175,21 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v5 # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v7 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - uses: actions/download-artifact@v8 # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-assets
           path: release-assets
       - name: Attest release assets
-        uses: actions/attest-build-provenance@v4 # v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: release-assets/*
       - name: Publish the verified release with electron-builder

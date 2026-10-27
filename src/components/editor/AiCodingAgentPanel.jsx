@@ -15,6 +15,7 @@ import FdoAiMark from "../ai/FdoAiMark";
 import AiTimeEstimate from '../ai/AiTimeEstimate';
 import {createCodingEstimator} from '../../utils/ai/assistant/aiCodingEstimate';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from "react";
+import {rasterImagePreview} from './utils/rasterImagePreview';
 import {historyStorageKey, normalizeHistory, readHistory, writeHistory, buildHistoryContext} from "./utils/aiCodingAgentHistory";
 import {
     Button,
@@ -826,6 +827,8 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const skillReviewActionRef = useRef(null);
     useEffect(() => { if (!isLoading) setSkillReview(null); }, [isLoading]);
     const [imagePreview, setImagePreview] = useState(null);
+    const imageUploadVersion = useRef(0);
+    useEffect(() => () => { imageUploadVersion.current++; }, []);
     const [imageName, setImageName] = useState("");
     const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
     const [operationSummary, setOperationSummary] = useState(null);
@@ -2738,6 +2741,7 @@ Rules:
     };
 
     const handleImageUpload = (event) => {
+        const uploadVersion = ++imageUploadVersion.current;
         if (inputCapabilities.imageSupport === 'unsupported') {
             setError(`${imageSupportLabel(inputCapabilities)}. Select an image-capable assistant for screenshots.`);
             return;
@@ -2758,24 +2762,26 @@ Rules:
         }
 
         const reader = new FileReader();
-        reader.onload = (e) => {
-            const base64Image = e.target.result;
-            setUploadedImage(base64Image);
-            setImagePreview(URL.createObjectURL(file));
-            setImageName(file.name || "UI mockup");
-            console.log('[AI Coding Agent] Image uploaded', { size: file.size, type: file.type });
+        reader.onload = async (e) => {
+            try {
+                const preview = await rasterImagePreview(file);
+                if (uploadVersion !== imageUploadVersion.current) return;
+                setUploadedImage(e.target.result);
+                setImagePreview(preview);
+                setImageName(file.name || "UI mockup");
+            } catch {
+                if (uploadVersion === imageUploadVersion.current) setError('Failed to decode image preview');
+            }
         };
         reader.onerror = () => {
-            setError('Failed to read image file');
+            if (uploadVersion === imageUploadVersion.current) setError('Failed to read image file');
         };
         reader.readAsDataURL(file);
     };
 
     const handleRemoveImage = () => {
+        imageUploadVersion.current++;
         setUploadedImage(null);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
         setImagePreview(null);
         setImageName("");
         setIsImagePreviewOpen(false);
