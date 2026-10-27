@@ -2751,10 +2751,9 @@ Rules:
             'image/gif',
             'image/webp',
             'image/bmp',
-            'image/svg+xml',
         ]);
         if (!allowedImageMimeTypes.has(file.type)) {
-            setError('Please upload a valid image file (PNG, JPEG, GIF, WEBP, BMP, or SVG)');
+            setError('Please upload a raster image file (PNG, JPEG, GIF, WEBP, or BMP)');
             return;
         }
 
@@ -4876,7 +4875,7 @@ Rules:
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept="image/*"
+                            accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
                             onChange={handleImageUpload}
                             style={{ display: 'none' }}
                         />
