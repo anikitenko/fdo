@@ -45,9 +45,11 @@ async function mountProduct(page, {links = false, brokenJson = false} = {}) {
     function seo() {
       open('HTML analysis'); const field = input('HTML input'); const result = output();
       control('Analyze', () => {
-        const doc = new DOMParser().parseFromString(field.value, 'text/html');
-        const title = doc.querySelector('title')?.textContent ?? '';
-        const missingAlt = doc.querySelectorAll('img:not([alt])').length;
+        const source = field.value;
+        const titleMatch = source.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+        const title = titleMatch ? titleMatch[1].trim() : '';
+        const imgTags = source.match(/<img\b[^>]*>/gi) || [];
+        const missingAlt = imgTags.filter(tag => !/\balt\s*=/i.test(tag)).length;
         result.replaceChildren(document.createTextNode(`${title}; Missing alt: ${missingAlt}`));
       });
     }
