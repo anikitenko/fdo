@@ -44,7 +44,12 @@ async function mountProduct(page, {links = false, brokenJson = false} = {}) {
     }
     function seo() {
       open('HTML analysis'); const field = input('HTML input'); const result = output();
-      control('Analyze', () => {const doc = new DOMParser().parseFromString(field.value, 'text/html'); result.textContent = `${doc.title}; Missing alt: ${doc.querySelectorAll('img:not([alt])').length}`;});
+      control('Analyze', () => {
+        const doc = new DOMParser().parseFromString(field.value, 'text/html');
+        const title = doc.querySelector('title')?.textContent ?? '';
+        const missingAlt = doc.querySelectorAll('img:not([alt])').length;
+        result.replaceChildren(document.createTextNode(`${title}; Missing alt: ${missingAlt}`));
+      });
     }
     function images() {
       open('Image information'); const field = input('SVG input'); const result = output();

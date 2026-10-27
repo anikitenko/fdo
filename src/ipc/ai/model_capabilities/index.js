@@ -1,6 +1,6 @@
 // src/main/ai/model_capabilities/index.js
 import fs from "fs/promises";
-import {createHash} from "node:crypto";
+import {createHmac, createSecretKey, randomBytes} from "node:crypto";
 import path from "path";
 import { app } from "electron";
 import { STATIC_MODEL_CAPABILITIES } from "./static_map.js";
@@ -13,6 +13,10 @@ import {inspectGeminiModel} from "../../../utils/ai/providers/geminiProvider.cjs
 let cacheFile;
 const getCacheFile = () => cacheFile || (cacheFile = path.join(app.getPath("userData"), "ai_model_cache.json"));
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h
+// Refresh identifiers are short-lived process memory keys, not stored hashes.
+// A process-local HMAC key prevents API keys from being guessable from a
+// captured identifier while retaining credential-scoped refresh coalescing.
+const refreshKeySecret = createSecretKey(randomBytes(32));
 
 let cache = {};
 let lastUpdated = 0;
@@ -46,7 +50,7 @@ export async function getModelCapabilities(modelName, assistantInfo) {
     if (canRefresh && (stale || (["gemini", "anthropic"].includes(assistantInfo.provider) && !cache[modelName]))) {
         // Share only compatible inspections. Credentials never enter persisted
         // cache metadata, and in-flight keys are removed as soon as work settles.
-        const key = createHash('sha256').update(JSON.stringify([
+        const key = createHmac('sha256', refreshKeySecret).update(JSON.stringify([
             assistantInfo.provider, assistantInfo.provider === 'gemini' ? assistantInfo.model : null,
             assistantInfo.apiKey, assistantInfo.baseUrl,
         ])).digest('hex');

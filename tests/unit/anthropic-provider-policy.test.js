@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import AiProviderClient from '../../src/utils/ai/providers/aiProviderClient';
-import {anthropicParameters} from '../../src/utils/ai/providers/anthropicPolicy';
+import {anthropicMetadata, anthropicParameters} from '../../src/utils/ai/providers/anthropicPolicy';
 import {listAnthropicModels} from '../../src/utils/ai/providers/catalog';
 import {tokenUsage} from '../../src/utils/ai/providers/messages';
 import {anthropicEvents, consume, responseFor} from '../helpers/aiProviderWire';
@@ -23,6 +23,21 @@ test.each([0, 1023, 4096, 9000, 1024.5])('rejects invalid manual budget %s befor
 test('unknown and unsupported thinking capabilities do not guess a mode', () => {
     expect(() => anthropicParameters({think: true}, {})).toThrow('capabilities are unavailable');
     expect(() => anthropicParameters({think: true}, {capabilities: {thinking: {supported: false}}})).toThrow('does not support thinking');
+});
+test('Anthropic metadata cache stays scoped to each credential and model', async () => {
+    const client = {models: {retrieve: jest.fn(async model => ({id: model, max_tokens: 4096}))}};
+    const first = await anthropicMetadata(client, {apiKey: 'credential-one', model: 'cache-scope-model'});
+    const cached = await anthropicMetadata(client, {apiKey: 'credential-one', model: 'cache-scope-model'});
+    const secondCredential = await anthropicMetadata(client, {apiKey: 'credential-two', model: 'cache-scope-model'});
+    const secondModel = await anthropicMetadata(client, {apiKey: 'credential-one', model: 'other-cache-scope-model'});
+    expect(first).toBe(cached);
+    expect(secondCredential).not.toBe(first);
+    expect(secondModel.id).toBe('other-cache-scope-model');
+    expect(client.models.retrieve.mock.calls).toEqual([
+        ['cache-scope-model', {}, {signal: undefined, timeout: 15000}],
+        ['cache-scope-model', {}, {signal: undefined, timeout: 15000}],
+        ['other-cache-scope-model', {}, {signal: undefined, timeout: 15000}],
+    ]);
 });
 test.each(['image/png', 'application/pdf'])('rejects explicitly unsupported attachment %s before inference', mediaType => {
     expect(() => anthropicParameters({}, {capabilities: {image_input: {supported: false}, pdf_input: {supported: false}}}, [{mediaType}])).toThrow('does not support');
