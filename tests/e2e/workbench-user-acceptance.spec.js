@@ -44,11 +44,27 @@ async function mountProduct(page, {links = false, brokenJson = false} = {}) {
     }
     function seo() {
       open('HTML analysis'); const field = input('HTML input'); const result = output();
-      control('Analyze', () => {const doc = new DOMParser().parseFromString(field.value, 'text/html'); result.textContent = `${doc.title}; Missing alt: ${doc.querySelectorAll('img:not([alt])').length}`;});
+      control('Analyze', () => {
+        const source = field.value;
+        const titleMatch = source.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+        const title = titleMatch ? titleMatch[1].trim() : '';
+        const imgTags = source.match(/<img\b[^>]*>/gi) || [];
+        const missingAlt = imgTags.filter(tag => !/\balt\s*=/i.test(tag)).length;
+        result.replaceChildren(document.createTextNode(`${title}; Missing alt: ${missingAlt}`));
+      });
     }
     function images() {
       open('Image information'); const field = input('SVG input'); const result = output();
-      control('Inspect', () => {const svg = new DOMParser().parseFromString(field.value, 'image/svg+xml').documentElement; result.textContent = `${svg.getAttribute('width')} × ${svg.getAttribute('height')}`;});
+      control('Inspect', () => {
+        const source = field.value;
+        const svgTagMatch = source.match(/<svg\b[^>]*>/i);
+        const svgTag = svgTagMatch ? svgTagMatch[0] : '';
+        const widthMatch = svgTag.match(/\bwidth\s*=\s*(['"])(.*?)\1/i);
+        const heightMatch = svgTag.match(/\bheight\s*=\s*(['"])(.*?)\1/i);
+        const width = widthMatch ? widthMatch[2] : null;
+        const height = heightMatch ? heightMatch[2] : null;
+        result.textContent = `${width} × ${height}`;
+      });
     }
     function social() {
       open('Social preview'); const title = input('Title'); const description = input('Description'); const url = input('URL'); const result = output();

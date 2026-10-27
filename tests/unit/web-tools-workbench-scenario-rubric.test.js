@@ -212,9 +212,6 @@ test("accepts role and style-map helpers that preserve concrete rendered values"
   files["/render.tsx"] = files["/render.tsx"].replace(
     'const shell = dom.createClassFromStyle(css.shell); const dashboard = dom.createClassFromStyle(css.dashboard); const card = dom.createClassFromStyle(css.card); const library = dom.createClassFromStyle(css.library); const workspace = dom.createClassFromStyle(css.workspace); const result = dom.createClassFromStyle(css.result); const dock = dom.createClassFromStyle(css.dock);',
     'const cls = (key: string) => dom.createClassFromStyle((css as any)[key]); const shell = cls("shell"); const dashboard = cls("dashboard"); const card = cls("card"); const library = cls("library"); const workspace = cls("workspace"); const result = cls("result"); const dock = cls("dock");',
-  ).replace(
-    '<button class="' + "' + card + '" + '" type="button" data-role="tool-card-json">JSON Formatter</button><button class="' + "' + card + '" + '" type="button" data-role="tool-card-case">Text case</button>',
-    '<button class="' + "' + card + '" + '" type="button" data-role="tool-card-json">JSON Formatter</button><button class="' + "' + card + '" + '" type="button" data-role="tool-card-case">Text case</button>',
   );
   files["/index.ts"] += '\nconst cards = [["text", "tool-card-text"], ["data", "tool-card-data"], ["seo", "tool-card-seo"], ["images", "tool-card-images"], ["social", "tool-card-social"]]; const roleAttrs = cards.map(([, role]) => ({"data-role": role}));';
   expect(evaluateWebToolsWorkbenchScenario(files).checks.styleMapRendered).toBe(true);

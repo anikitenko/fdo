@@ -300,6 +300,13 @@ async function closeElectronApp(app) {
 async function openEditorWithMockedIPC(app, overrides = {}) {
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
+  // Unmount the previous editor before resetting its storage; otherwise its
+  // pending snapshot work can write back into localStorage after the reset.
+  await window.evaluate(() => {
+    if (window.location.hash.startsWith('#/editor')) window.location.hash = '#/';
+  });
+  await window.locator('.monaco-editor').first().waitFor({state: 'detached', timeout: 5000}).catch(() => {});
+  await window.waitForTimeout(50);
   const useRealAssistants = !!overrides?.__useRealAssistants;
   const fixtureId = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const pluginDisplayName = String(overrides?.pluginDisplayName || `E2E Plugin ${fixtureId}`);
@@ -310,13 +317,16 @@ async function openEditorWithMockedIPC(app, overrides = {}) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-+)|(-+$)/g, '')}`;
 
-  await window.evaluate(({ extra, sandboxName, useRealAssistants }) => {
+  await window.evaluate(({ extra, useRealAssistants }) => {
     window.__E2E__ = true;
     window.__SNAPSHOTS_ENABLED = true;
     window.electron = window.electron || {};
     window.electron.system = window.electron.system || {};
     try {
-      window.localStorage.removeItem(sandboxName);
+      // These editor fixtures run in a disposable E2E profile. Clear its full
+      // origin storage so earlier app and workspace fixtures cannot consume
+      // quota needed by this editor's compressed snapshot.
+      window.localStorage.clear();
     } catch (_) {}
     if (!useRealAssistants) {
       window.electron.system.getModuleFiles = () => Promise.resolve({ files: [] });

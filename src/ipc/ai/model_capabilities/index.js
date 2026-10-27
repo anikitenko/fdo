@@ -1,6 +1,5 @@
 // src/main/ai/model_capabilities/index.js
 import fs from "fs/promises";
-import {createHash} from "node:crypto";
 import path from "path";
 import { app } from "electron";
 import { STATIC_MODEL_CAPABILITIES } from "./static_map.js";
@@ -13,11 +12,14 @@ import {inspectGeminiModel} from "../../../utils/ai/providers/geminiProvider.cjs
 let cacheFile;
 const getCacheFile = () => cacheFile || (cacheFile = path.join(app.getPath("userData"), "ai_model_cache.json"));
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h
-
 let cache = {};
 let lastUpdated = 0;
 let cacheRead;
 let cacheWrite = Promise.resolve();
+// selectAssistant creates a fresh object for each IPC request, so object
+// identity cannot coalesce concurrent lookups. Keep the API key only as an
+// in-memory key for the lifetime of an in-flight refresh; never derive or
+// persist a credential fingerprint.
 const refreshes = new Map();
 
 function summarizeAssistantForLogs(assistantInfo) {
@@ -44,18 +46,22 @@ export async function getModelCapabilities(modelName, assistantInfo) {
     const stale = now - lastUpdated > MAX_CACHE_AGE_MS;
     const canRefresh = assistantInfo?.apiKey && ["openai", "gemini", "anthropic"].includes(assistantInfo.provider);
     if (canRefresh && (stale || (["gemini", "anthropic"].includes(assistantInfo.provider) && !cache[modelName]))) {
-        // Share only compatible inspections. Credentials never enter persisted
-        // cache metadata, and in-flight keys are removed as soon as work settles.
-        const key = createHash('sha256').update(JSON.stringify([
-            assistantInfo.provider, assistantInfo.provider === 'gemini' ? assistantInfo.model : null,
-            assistantInfo.apiKey, assistantInfo.baseUrl,
-        ])).digest('hex');
-        if (!refreshes.has(key)) {
-            console.log("[capabilities] Cache stale — refreshing…");
-            const refresh = refreshCapabilities(assistantInfo).finally(() => refreshes.delete(key));
-            refreshes.set(key, refresh);
+        let byModel = refreshes.get(assistantInfo.apiKey);
+        if (!byModel) {
+            byModel = new Map();
+            refreshes.set(assistantInfo.apiKey, byModel);
         }
-        await refreshes.get(key);
+        const refreshKey = `${assistantInfo.provider}\0${assistantInfo.model || modelName}`;
+        let refresh = byModel.get(refreshKey);
+        if (!refresh) {
+            console.log("[capabilities] Cache stale — refreshing…");
+            refresh = refreshCapabilities(assistantInfo).finally(() => {
+                byModel.delete(refreshKey);
+                if (!byModel.size) refreshes.delete(assistantInfo.apiKey);
+            });
+            byModel.set(refreshKey, refresh);
+        }
+        await refresh;
     }
 
     const merged = { ...STATIC_MODEL_CAPABILITIES, ...cache };

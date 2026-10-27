@@ -4,6 +4,11 @@ import {contextBridge, ipcRenderer} from 'electron'
 import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels, LiveUiChannels} from "./ipc/channels";
 
 const {add: addPluginListener, remove: removePluginListener} = createPluginEventRegistry(ipcRenderer);
+const subscribeSystemEvent = (channel, callback) => {
+    const listener = (_event, ...args) => callback(...args);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+};
 
 contextBridge.exposeInMainWorld('electron', {
     toolSettings: {inspect: () => ipcRenderer.invoke(HostServiceSettingsChannels.TOOLS_STATE, {})},
@@ -269,8 +274,8 @@ contextBridge.exposeInMainWorld('electron', {
         addFdoInPath: () => ipcRenderer.invoke(SystemChannels.ADD_FDO_IN_PATH),
         removeFdoFromPath: () => ipcRenderer.invoke(SystemChannels.REMOVE_FDO_FROM_PATH),
         on: {
-            confirmEditorClose: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_CLOSE, callback),
-            confirmEditorReload: (callback) => ipcRenderer.on(SystemChannels.on_off.CONFIRM_RELOAD, callback),
+            confirmEditorClose: (callback) => subscribeSystemEvent(SystemChannels.on_off.CONFIRM_CLOSE, callback),
+            confirmEditorReload: (callback) => subscribeSystemEvent(SystemChannels.on_off.CONFIRM_RELOAD, callback),
         },
         off: {
             confirmEditorClose: (callback) => ipcRenderer.removeListener(SystemChannels.on_off.CONFIRM_CLOSE, callback),

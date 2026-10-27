@@ -5,8 +5,23 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
+const shellQuote = require('shell-quote');
 const {failure,ensure} = require('./contracts.cjs');
 const {trusted, prepareSshCredentials} = require('./ssh.cjs');
+
+function buildRemoteCommand(endpoint) {
+    const allowedServices = new Set(['git-upload-pack','git-receive-pack','git-lfs-authenticate','git-lfs-transfer']);
+    if (!allowedServices.has(endpoint?.service)) throw Object.assign(failure('INVALID_REQUEST'), {gitFailure:'HELPER_ARGUMENTS_REJECTED'});
+    if (endpoint?.direction !== undefined && endpoint?.direction !== null && endpoint.direction !== '' && endpoint.direction !== 'download' && endpoint.direction !== 'upload') {
+        throw Object.assign(failure('INVALID_REQUEST'), {gitFailure:'HELPER_ARGUMENTS_REJECTED'});
+    }
+    if (typeof endpoint?.repository !== 'string' || !/^[\w./:@+-]+$/.test(endpoint.repository)) {
+        throw Object.assign(failure('INVALID_REQUEST'), {gitFailure:'HELPER_ARGUMENTS_REJECTED'});
+    }
+    // Git invokes the remote command through a POSIX shell, including when the
+    // SSH transport is Git for Windows. Quote every argument at this boundary.
+    return shellQuote.quote([endpoint.service, endpoint.repository, ...(endpoint.direction ? [endpoint.direction] : [])]);
+}
 
 async function resolveGitWorkingDirectory(cwd) {
     try {return await fs.realpath(cwd);} catch {throw Object.assign(failure('UNAVAILABLE'),{gitFailure:'GIT_EXECUTABLE_OR_CWD_MISSING'});}
@@ -78,7 +93,9 @@ async function runGitTransport({Client, plan, invocation = parse(plan), selectio
             client.once('ready', () => {
                 clearCredentials(selected.credentials);
                 if (!verified) return fail('HOST_KEY_REJECTED');
-                client.exec(endpoint.command,{pty:false},(error,stream) => {
+                let remoteCommand;
+                try {remoteCommand=buildRemoteCommand(endpoint);} catch (error) {fail(error.code,error.gitFailure); return;}
+                client.exec(remoteCommand,{pty:false},(error,stream) => {
                     if(error&&endpoint.service==='git-lfs-transfer'&&!signal.aborted&&!transportError) {
                         finished=true;socket.end(frame(3,Buffer.from([1])));client.end();return;
                     }
