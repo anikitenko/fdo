@@ -1,6 +1,5 @@
 // src/main/ai/model_capabilities/index.js
 import fs from "fs/promises";
-import {createHmac, createSecretKey, randomBytes} from "node:crypto";
 import path from "path";
 import { app } from "electron";
 import { STATIC_MODEL_CAPABILITIES } from "./static_map.js";
@@ -13,16 +12,11 @@ import {inspectGeminiModel} from "../../../utils/ai/providers/geminiProvider.cjs
 let cacheFile;
 const getCacheFile = () => cacheFile || (cacheFile = path.join(app.getPath("userData"), "ai_model_cache.json"));
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24h
-// Refresh identifiers are short-lived process memory keys, not stored hashes.
-// A process-local HMAC key prevents API keys from being guessable from a
-// captured identifier while retaining credential-scoped refresh coalescing.
-const refreshKeySecret = createSecretKey(randomBytes(32));
-
 let cache = {};
 let lastUpdated = 0;
 let cacheRead;
 let cacheWrite = Promise.resolve();
-const refreshes = new Map();
+const refreshes = new WeakMap();
 
 function summarizeAssistantForLogs(assistantInfo) {
     if (!assistantInfo) return null;
@@ -48,18 +42,16 @@ export async function getModelCapabilities(modelName, assistantInfo) {
     const stale = now - lastUpdated > MAX_CACHE_AGE_MS;
     const canRefresh = assistantInfo?.apiKey && ["openai", "gemini", "anthropic"].includes(assistantInfo.provider);
     if (canRefresh && (stale || (["gemini", "anthropic"].includes(assistantInfo.provider) && !cache[modelName]))) {
-        // Share only compatible inspections. Credentials never enter persisted
-        // cache metadata, and in-flight keys are removed as soon as work settles.
-        const key = createHmac('sha256', refreshKeySecret).update(JSON.stringify([
-            assistantInfo.provider, assistantInfo.provider === 'gemini' ? assistantInfo.model : null,
-            assistantInfo.apiKey, assistantInfo.baseUrl,
-        ])).digest('hex');
-        if (!refreshes.has(key)) {
+        // Coalesce by assistant object identity. This keeps API keys out of
+        // derived identifiers while ensuring separate assistant credentials
+        // never share a provider refresh.
+        let refresh = refreshes.get(assistantInfo);
+        if (!refresh) {
             console.log("[capabilities] Cache stale — refreshing…");
-            const refresh = refreshCapabilities(assistantInfo).finally(() => refreshes.delete(key));
-            refreshes.set(key, refresh);
+            refresh = refreshCapabilities(assistantInfo).finally(() => refreshes.delete(assistantInfo));
+            refreshes.set(assistantInfo, refresh);
         }
-        await refreshes.get(key);
+        await refresh;
     }
 
     const merged = { ...STATIC_MODEL_CAPABILITIES, ...cache };
