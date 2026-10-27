@@ -1,11 +1,14 @@
-import {createHash} from 'node:crypto';
+import {createHmac, createSecretKey, randomBytes} from 'node:crypto';
 import {outputLimit} from './messages';
 
 const metadataCache = new Map();
+// Metadata is scoped to the credential without retaining or exposing a
+// guessable, unkeyed digest of the API key. This key is process-local and is
+// discarded with the in-memory cache on exit.
+const metadataCacheSecret = createSecretKey(randomBytes(32));
 export async function anthropicMetadata(client, options, signal) {
     if (options.modelMetadata) return options.modelMetadata;
-    // Scope metadata to credential + model without retaining the credential.
-    const key = createHash('sha256').update(`${options.apiKey}\0${options.model}`).digest('hex');
+    const key = createHmac('sha256', metadataCacheSecret).update(`${options.apiKey}\0${options.model}`).digest('hex');
     const cached = metadataCache.get(key);
     if (cached && cached.expires > Date.now()) return cached.value;
     const value = await client.models.retrieve(options.model, {}, {signal, timeout: 15000});

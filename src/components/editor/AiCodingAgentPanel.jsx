@@ -4912,10 +4912,11 @@ Rules:
                                         <Button
                                             variant="minimal"
                                             size="small"
-                                            text={imageName || "Open reference image"}
                                             icon="zoom-in"
                                             onClick={() => setIsImagePreviewOpen(true)}
-                                        />
+                                        >
+                                            {imageName || "Open reference image"}
+                                        </Button>
                                         <Button
                                             icon="cross"
                                             variant={"minimal"}
