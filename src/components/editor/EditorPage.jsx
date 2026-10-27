@@ -268,8 +268,8 @@ export const EditorPage = () => {
     const diagnosticsListenerDisposeRef = useRef(null);
     const initialSnapshotCreatedRef = useRef(false)
     // Request deduplication flags for window close/reload
-    const [closeInProgress, setCloseInProgress] = useState(false)
-    const [reloadInProgress, setReloadInProgress] = useState(false)
+    // These are synchronous event guards; React state/effects can lag behind
+    // duplicate native close/reload notifications and must not reset the lock.
     const closeInProgressRef = useRef(false)
     const reloadInProgressRef = useRef(false)
     const suppressBeforeUnloadPromptRef = useRef(false)
@@ -977,14 +977,6 @@ export const EditorPage = () => {
     }, [hasOpenTabs]);
 
     useEffect(() => {
-        closeInProgressRef.current = closeInProgress;
-    }, [closeInProgress]);
-
-    useEffect(() => {
-        reloadInProgressRef.current = reloadInProgress;
-    }, [reloadInProgress]);
-
-    useEffect(() => {
         if (jumpTo) {
             if (jumpTo.id && codeEditor) {
                 if (!virtualFS.getModel(jumpTo.id)) return
@@ -1104,6 +1096,8 @@ export const EditorPage = () => {
         });
 
         const isTestEnv = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test') || (typeof window !== 'undefined' && window.__TEST__);
+        let unsubscribeEditorClose;
+        let unsubscribeEditorReload;
 
         const handleBeforeUnload = (event) => {
             if (suppressBeforeUnloadPromptRef.current) {
@@ -1120,7 +1114,6 @@ export const EditorPage = () => {
                 return;
             }
             closeInProgressRef.current = true;
-            setCloseInProgress(true);
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
@@ -1130,7 +1123,6 @@ export const EditorPage = () => {
             } else {
                 // User cancelled, allow retry
                 closeInProgressRef.current = false;
-                setCloseInProgress(false);
             }
         }
         const handleElectronReload = () => {
@@ -1140,7 +1132,6 @@ export const EditorPage = () => {
                 return;
             }
             reloadInProgressRef.current = true;
-            setReloadInProgress(true);
             const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
@@ -1150,22 +1141,23 @@ export const EditorPage = () => {
             } else {
                 // User cancelled, allow retry
                 reloadInProgressRef.current = false;
-                setReloadInProgress(false);
             }
         };
 
         // Skip blocking handlers in tests/E2E to avoid hangs
         if (!isTestEnv) {
             window.addEventListener('beforeunload', handleBeforeUnload)
-            window.electron?.system?.on?.confirmEditorClose?.(handleElectronClose);
-            window.electron?.system?.on?.confirmEditorReload?.(handleElectronReload);
+            unsubscribeEditorClose = window.electron?.system?.on?.confirmEditorClose?.(handleElectronClose);
+            unsubscribeEditorReload = window.electron?.system?.on?.confirmEditorReload?.(handleElectronReload);
         }
 
         return () => {
             if (!isTestEnv) {
                 window.removeEventListener('beforeunload', handleBeforeUnload);
-                window.electron?.system?.off?.confirmEditorClose?.(handleElectronClose);
-                window.electron?.system?.off?.confirmEditorReload?.(handleElectronReload);
+                if (typeof unsubscribeEditorClose === 'function') unsubscribeEditorClose();
+                else window.electron?.system?.off?.confirmEditorClose?.(handleElectronClose);
+                if (typeof unsubscribeEditorReload === 'function') unsubscribeEditorReload();
+                else window.electron?.system?.off?.confirmEditorReload?.(handleElectronReload);
             }
             unsubscribe()
             unsubscribeFileRemoved()
