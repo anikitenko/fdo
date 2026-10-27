@@ -55,7 +55,7 @@ test('Git CLI uses different encrypted keys per repository, streams real clone/f
             ctx.reject();
         });
         connection.on('ready', () => connection.on('session', accept => accept().on('exec', (acceptCommand, reject, info) => {
-            const match = /^git-(upload|receive)-pack '\/?(work|personal)\/repo.git'$/.exec(info.command);
+            const match = /^git-(upload|receive)-pack '?\/?(work|personal)\/repo.git'?$/.exec(info.command);
             if (!match || match[2] !== identity) return reject();
             seen.push({identity, command: info.command}); const stream = acceptCommand();
             const child = spawn('git', [match[1] + '-pack', path.join(root, identity, 'repo.git')], {stdio: ['pipe', 'pipe', 'pipe']}); processes.add(child);
