@@ -16,7 +16,11 @@ let cache = {};
 let lastUpdated = 0;
 let cacheRead;
 let cacheWrite = Promise.resolve();
-const refreshes = new WeakMap();
+// selectAssistant creates a fresh object for each IPC request, so object
+// identity cannot coalesce concurrent lookups. Keep the API key only as an
+// in-memory key for the lifetime of an in-flight refresh; never derive or
+// persist a credential fingerprint.
+const refreshes = new Map();
 
 function summarizeAssistantForLogs(assistantInfo) {
     if (!assistantInfo) return null;
@@ -42,14 +46,20 @@ export async function getModelCapabilities(modelName, assistantInfo) {
     const stale = now - lastUpdated > MAX_CACHE_AGE_MS;
     const canRefresh = assistantInfo?.apiKey && ["openai", "gemini", "anthropic"].includes(assistantInfo.provider);
     if (canRefresh && (stale || (["gemini", "anthropic"].includes(assistantInfo.provider) && !cache[modelName]))) {
-        // Coalesce by assistant object identity. This keeps API keys out of
-        // derived identifiers while ensuring separate assistant credentials
-        // never share a provider refresh.
-        let refresh = refreshes.get(assistantInfo);
+        let byModel = refreshes.get(assistantInfo.apiKey);
+        if (!byModel) {
+            byModel = new Map();
+            refreshes.set(assistantInfo.apiKey, byModel);
+        }
+        const refreshKey = `${assistantInfo.provider}\0${assistantInfo.model || modelName}`;
+        let refresh = byModel.get(refreshKey);
         if (!refresh) {
             console.log("[capabilities] Cache stale — refreshing…");
-            refresh = refreshCapabilities(assistantInfo).finally(() => refreshes.delete(assistantInfo));
-            refreshes.set(assistantInfo, refresh);
+            refresh = refreshCapabilities(assistantInfo).finally(() => {
+                byModel.delete(refreshKey);
+                if (!byModel.size) refreshes.delete(assistantInfo.apiKey);
+            });
+            byModel.set(refreshKey, refresh);
         }
         await refresh;
     }
