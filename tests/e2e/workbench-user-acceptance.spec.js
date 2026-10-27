@@ -48,7 +48,16 @@ async function mountProduct(page, {links = false, brokenJson = false} = {}) {
     }
     function images() {
       open('Image information'); const field = input('SVG input'); const result = output();
-      control('Inspect', () => {const svg = new DOMParser().parseFromString(field.value, 'image/svg+xml').documentElement; result.textContent = `${svg.getAttribute('width')} × ${svg.getAttribute('height')}`;});
+      control('Inspect', () => {
+        const source = field.value;
+        const svgTagMatch = source.match(/<svg\b[^>]*>/i);
+        const svgTag = svgTagMatch ? svgTagMatch[0] : '';
+        const widthMatch = svgTag.match(/\bwidth\s*=\s*(['"])(.*?)\1/i);
+        const heightMatch = svgTag.match(/\bheight\s*=\s*(['"])(.*?)\1/i);
+        const width = widthMatch ? widthMatch[2] : null;
+        const height = heightMatch ? heightMatch[2] : null;
+        result.textContent = `${width} × ${height}`;
+      });
     }
     function social() {
       open('Social preview'); const title = input('Title'); const description = input('Description'); const url = input('URL'); const result = output();
