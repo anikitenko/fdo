@@ -83,9 +83,10 @@ export const CertificatePanel = () => {
                 and you can manage them here.
             </p>
             <p className="bp6-text-muted">
-                FDO uses macOS Keychain to encrypt private signing keys. macOS may ask you to allow FDO to access
-                Keychain when you create, import, renew, or use a private key to sign a plugin. If you choose Deny,
-                try that action again and choose Allow. Certificate storage does not need Keychain access just to start.
+                FDO uses macOS Keychain to protect private signing keys in your local profile. You may see a macOS
+                permission prompt when you create, import, renew, or use a key to sign a plugin. Choose Allow to
+                continue; the plugin itself never receives Keychain access. FDO does not request this access at startup
+                or for a deployment preview.
             </p>
             {rootCertificates?.length > 0 ? (
                 <CardList>

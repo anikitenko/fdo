@@ -192,7 +192,10 @@ const CodeDeployActions = ({
                 setDeployStatus({progress: 45, message: "Deployment cancelled", intent: "warning"});
                 return;
             }
-            setDeployStatus({progress: 50, message: "Preparing deployment…", intent: "primary"});
+            const isMac = navigator.platform?.toLowerCase?.().includes("mac");
+            setDeployStatus({progress: 50, message: isMac
+                ? "Signing plugin. macOS may ask FDO to unlock its protected signing key in Keychain; choose Allow. The plugin does not get Keychain access."
+                : "Signing plugin with the selected certificate…", intent: "primary"});
             const metadata = await virtualFS.build.getMetadata();
             if (!metadata) {
                 //noinspection ExceptionCaughtLocallyJS

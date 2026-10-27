@@ -78,8 +78,10 @@ test('deploy preview reports install/update and preserves files, grants and iden
     const {certificateFixture} = require('../helpers/certificateFixture.cjs');
     workspace();
     const registryFile = path.join(root, 'plugins.json');
-    const options = {registryFile, profile: root, validate: jest.fn(async () => ({name: 'fixture', metadata, warnings: []})), listCertificates: () => [], credentialStoreAvailable: () => true};
+    const credentialStoreAvailable = jest.fn(() => {throw new Error('A preview must not probe Keychain access');});
+    const options = {registryFile, profile: root, validate: jest.fn(async () => ({name: 'fixture', metadata, warnings: []})), listCertificates: () => [], credentialStoreAvailable};
     expect(await planCliDeployment(root, 'root', options)).toMatchObject({action: 'install', signer: {label: 'root', status: 'will-create'}, grants: {capabilities: []}});
+    expect(credentialStoreAvailable).not.toHaveBeenCalled();
     expect(fs.existsSync(registryFile)).toBe(false);
     const existing = JSON.stringify({plugins: [{id: 'fixture', metadata: {version: '0.9.0'}, capabilities: ['storage']}]});
     fs.writeFileSync(registryFile, existing);
@@ -90,7 +92,6 @@ test('deploy preview reports install/update and preserves files, grants and iden
     await expect(planCliDeployment(root, 'missing', options)).rejects.toThrow('not found');
     await expect(planCliDeployment(root, 'root', {...options, now: new Date('2100-01-01')})).rejects.toThrow('validity period');
     await expect(planCliDeployment(root, 'root', {...options, listCertificates: () => [{...cert, hasPrivateKey: false}]})).rejects.toThrow('no private key');
-    await expect(planCliDeployment(root, 'root', {...options, credentialStoreAvailable: () => false})).rejects.toThrow('credential store');
     fs.writeFileSync(registryFile, JSON.stringify({plugins: [{id: 'fixture', gitops: {}}]}));
     options.validate.mockClear();
     await expect(planCliDeployment(root, 'root', options)).rejects.toThrow('GitOps');

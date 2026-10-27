@@ -20,6 +20,9 @@ function spawnCli(args, profile) {
         // Chromium reads --no-sandbox from process argv before app.commandLine
         // switches apply. It must precede the development app path.
         ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+        // The macOS Keychain mock must be present in Electron's initial argv;
+        // appending it from a Node preload is too late in packaged launches.
+        ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
         ...(packaged ? [] : ['.']),
         ...args,
     ];

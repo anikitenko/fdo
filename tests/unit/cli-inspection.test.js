@@ -17,6 +17,7 @@ test('fresh profile inspection does not create files or signing identities', asy
     expect(await inspectCliPlugins(options)).toEqual([]);
     const report = await diagnoseCli(options);
     expect(report.checks.find(check => check.id === 'signing')).toMatchObject({status: 'warning', fix: expect.any(String)});
+    expect(report.checks.find(check => check.id === 'credential-store').message).toContain('only when protecting or using');
     expect(fs.readdirSync(root)).toEqual([]);
 });
 test('plugin info uses saved activation and grants, verifies every selected plugin and isolates signature failures', async () => {
