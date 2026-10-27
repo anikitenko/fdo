@@ -2745,8 +2745,16 @@ Rules:
         const file = event.target.files[0];
         if (!file) return;
 
-        if (!file.type.startsWith('image/')) {
-            setError('Please upload an image file');
+        const allowedImageMimeTypes = new Set([
+            'image/png',
+            'image/jpeg',
+            'image/gif',
+            'image/webp',
+            'image/bmp',
+            'image/svg+xml',
+        ]);
+        if (!allowedImageMimeTypes.has(file.type)) {
+            setError('Please upload a valid image file (PNG, JPEG, GIF, WEBP, BMP, or SVG)');
             return;
         }
 
@@ -4904,10 +4912,11 @@ Rules:
                                         <Button
                                             variant="minimal"
                                             size="small"
-                                            text={imageName || "Open reference image"}
                                             icon="zoom-in"
                                             onClick={() => setIsImagePreviewOpen(true)}
-                                        />
+                                        >
+                                            {imageName || "Open reference image"}
+                                        </Button>
                                         <Button
                                             icon="cross"
                                             variant={"minimal"}

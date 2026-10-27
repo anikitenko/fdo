@@ -1,16 +1,21 @@
-import {createHash} from 'node:crypto';
 import {outputLimit} from './messages';
 
-const metadataCache = new Map();
+// The SDK client is already scoped to one credential. A WeakMap keeps metadata
+// isolated to that client without retaining or hashing API keys.
+const metadataCache = new WeakMap();
 export async function anthropicMetadata(client, options, signal) {
     if (options.modelMetadata) return options.modelMetadata;
-    // Scope metadata to credential + model without retaining the credential.
-    const key = createHash('sha256').update(`${options.apiKey}\0${options.model}`).digest('hex');
-    const cached = metadataCache.get(key);
+    let clientCache = metadataCache.get(client);
+    if (!clientCache) {
+        clientCache = new Map();
+        metadataCache.set(client, clientCache);
+    }
+    const key = options.model;
+    const cached = clientCache.get(key);
     if (cached && cached.expires > Date.now()) return cached.value;
     const value = await client.models.retrieve(options.model, {}, {signal, timeout: 15000});
-    if (metadataCache.size >= 100) metadataCache.delete(metadataCache.keys().next().value);
-    metadataCache.set(key, {value, expires: Date.now() + 15 * 60 * 1000});
+    if (clientCache.size >= 100) clientCache.delete(clientCache.keys().next().value);
+    clientCache.set(key, {value, expires: Date.now() + 15 * 60 * 1000});
     return value;
 }
 export function anthropicParameters(options, metadata, attachments = []) {

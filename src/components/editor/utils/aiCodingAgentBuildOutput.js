@@ -50,7 +50,7 @@ function normalizeOutputMessage(message = "", workspaceFiles = []) {
     }
 
     const pathRegexes = [
-        /\/[^\s:'"`)]+(?:\/[^\s:'"`)]+)*\.[A-Za-z0-9]+/g,
+        /\/[^\s\/:'"`)]+(?:\/[^\s\/:'"`)]+)*\.[A-Za-z0-9]+/g,
         /[A-Za-z]:\\[^\\/\s:'"`)]+(?:\\[^\\/\s:'"`)]+)*\.[A-Za-z0-9]+/g,
     ];
 

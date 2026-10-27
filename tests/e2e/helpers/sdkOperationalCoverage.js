@@ -8,6 +8,12 @@ function operationalCoverageSupport(compiled, invokeInitializer = false) {
   const counter = ast.program.body.find(node => node.type === 'FunctionDeclaration' && /^cov_/.test(node.id?.name || ''));
   if (!counter) throw new Error('Instrumented example is missing its Istanbul counter bootstrap');
   const frontendBootstrap = require('@babel/generator').default(counter, {compact: true, comments: false}).code + '\n' + counter.id.name + '();\n';
+  // JSON.stringify already escapes quotes, backslashes, and control characters.
+  // Escape only characters that remain unsafe when this JSON string literal is
+  // embedded into the generated JavaScript source.
+  const unsafeCharMap = {'<':'\\u003C','>':'\\u003E','/':'\\u002F','\u2028':'\\u2028','\u2029':'\\u2029'};
+  const escapeUnsafeForEmbeddedJs = str => str.replace(/[<>\/\u2028\u2029]/g, ch => unsafeCharMap[ch]);
+  const serializedFrontendBootstrap = escapeUnsafeForEmbeddedJs(JSON.stringify(frontendBootstrap));
   return `\n;(() => {
     const sdk = require('@anikitenko/fdo-sdk');
     const serializers = sdk.FDO_SDK.prototype.__e2eCoverageSerializers || {};
@@ -21,7 +27,7 @@ function operationalCoverageSupport(compiled, invokeInitializer = false) {
       };
       sdk.FDO_SDK.prototype.__e2eCoverageSerializers = serializers;
     }
-    serializers[${JSON.stringify(counter.id.name)}] = serialized => JSON.stringify("() => {\\n" + ${JSON.stringify(frontendBootstrap)} + "return (" + JSON.parse(serialized).replace(/;\\s*$/, '') + ")${invokeInitializer ? "()" : ""};\\n}");
+    serializers[${JSON.stringify(counter.id.name)}] = serialized => JSON.stringify("() => {\\n" + ${serializedFrontendBootstrap} + "return (" + JSON.parse(serialized).replace(/;\\s*$/, '') + ")${invokeInitializer ? "()" : ""};\\n}");
     const names = ['__FDO_AUTH_BROKER','__FDO_CONTENT_BROKER','__FDO_BROWSER_BROKER','__FDO_SESSION_REQUEST','__FDO_AI_REQUEST','__FDO_AI_ASSISTANT','__FDO_AI_LIST_ASSISTANTS','__FDO_AI_ASSISTANTS'];
     const originalFetch = globalThis.fetch;
     const reply = spec => {

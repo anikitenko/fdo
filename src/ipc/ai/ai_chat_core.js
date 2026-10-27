@@ -1491,7 +1491,7 @@ function stripRetrievalMetadata(text = "") {
         value = value.replace(new RegExp(`^${prefix}\\s*`, "i"), "");
     }
     return value
-        .replace(/(?:\n|\r|^|\s)*sources used:?\s*[\s\S]*$/i, "")
+        .replace(/^[\s\r\n]*sources used:?\s*[\s\S]*$/i, "")
         .trim();
 }
 

@@ -49,7 +49,7 @@ export function simulationPreset(node) {
     if (selector?.type !== 'StringLiteral' || text?.type !== 'StringLiteral' || text.value.length > 2000) return null;
     const match = /^\[data-fdo-result="(visual-result-\d+)"]$/.exec(selector.value);
     if (!match) return null;
-    const expected = parseExpression(`() => { const target = document.querySelector(${JSON.stringify(selector.value)}); if (target) target.textContent = ${JSON.stringify(text.value)}; }`);
+    const expected = parseExpression(`() => { const target = document.querySelector(${escapeUnsafeChars(JSON.stringify(selector.value))}); if (target) target.textContent = ${escapeUnsafeChars(JSON.stringify(text.value))}; }`);
     return isNodesEquivalent(node,expected) ? {marker:match[1],text:text.value} : null;
 }
 
