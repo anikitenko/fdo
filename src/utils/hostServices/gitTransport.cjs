@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const {StringDecoder} = require('node:string_decoder');
+const shellQuote = require('shell-quote');
 const {failure,ensure} = require('./contracts.cjs');
 const {trusted, prepareSshCredentials} = require('./ssh.cjs');
 
@@ -17,8 +18,7 @@ function buildRemoteCommand(endpoint) {
     if (typeof endpoint?.repository !== 'string' || !/^[\w./:@+-]+$/.test(endpoint.repository)) {
         throw Object.assign(failure('INVALID_REQUEST'), {gitFailure:'HELPER_ARGUMENTS_REJECTED'});
     }
-    const quotedRepository = endpoint.repository.replace(/'/g, `'\"'\"'`);
-    return endpoint.service+" '"+quotedRepository+"'"+(endpoint.direction?' '+endpoint.direction:'');
+    return shellQuote.quote([endpoint.service, endpoint.repository, ...(endpoint.direction ? [endpoint.direction] : [])]);
 }
 
 async function resolveGitWorkingDirectory(cwd) {

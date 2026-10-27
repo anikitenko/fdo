@@ -26,30 +26,32 @@ test('unknown and unsupported thinking capabilities do not guess a mode', () => 
 });
 test('Anthropic metadata cache stays scoped to each credential and model', async () => {
     const client = {models: {retrieve: jest.fn(async model => ({id: model, max_tokens: 4096}))}};
+    const otherCredentialClient = {models: {retrieve: jest.fn(async model => ({id: model, max_tokens: 8192}))}};
     const first = await anthropicMetadata(client, {apiKey: 'credential-one', model: 'cache-scope-model'});
     const cached = await anthropicMetadata(client, {apiKey: 'credential-one', model: 'cache-scope-model'});
-    const secondCredential = await anthropicMetadata(client, {apiKey: 'credential-two', model: 'cache-scope-model'});
+    const secondCredential = await anthropicMetadata(otherCredentialClient, {apiKey: 'credential-two', model: 'cache-scope-model'});
     const secondModel = await anthropicMetadata(client, {apiKey: 'credential-one', model: 'other-cache-scope-model'});
     expect(first).toBe(cached);
     expect(secondCredential).not.toBe(first);
+    expect(secondCredential.max_tokens).toBe(8192);
     expect(secondModel.id).toBe('other-cache-scope-model');
     expect(client.models.retrieve.mock.calls).toEqual([
         ['cache-scope-model', {}, {signal: undefined, timeout: 15000}],
-        ['cache-scope-model', {}, {signal: undefined, timeout: 15000}],
         ['other-cache-scope-model', {}, {signal: undefined, timeout: 15000}],
     ]);
+    expect(otherCredentialClient.models.retrieve).toHaveBeenCalledWith('cache-scope-model', {}, {signal: undefined, timeout: 15000});
 });
 test.each(['image/png', 'application/pdf'])('rejects explicitly unsupported attachment %s before inference', mediaType => {
     expect(() => anthropicParameters({}, {capabilities: {image_input: {supported: false}, pdf_input: {supported: false}}}, [{mediaType}])).toThrow('does not support');
 });
-test('model metadata is fetched once per credential and model, then used by the native request', async () => {
+test('model metadata is fetched once for each provider client, then used by the native request', async () => {
     const fetchImpl = jest.fn(async (url, init) => init.method === 'GET' ? Response.json({...adaptive, id: 'metadata-test-model'}) : responseFor(anthropicEvents(), 'anthropic'));
     for (let i = 0; i < 2; i++) {
         const client = new AiProviderClient({service: 'anthropic', model: 'metadata-test-model', apiKey: 'metadata-test-key', think: true, fetchImpl});
         client.system('Stable workspace guide');
         await consume(await client.chat('Build', {stream: true}));
     }
-    expect(fetchImpl.mock.calls.filter(([, init]) => init.method === 'GET')).toHaveLength(1);
+    expect(fetchImpl.mock.calls.filter(([, init]) => init.method === 'GET')).toHaveLength(2);
     const requests = fetchImpl.mock.calls.filter(([, init]) => init.method === 'POST');
     expect(requests).toHaveLength(2);
     expect(JSON.parse(requests[0][1].body)).toMatchObject({max_tokens: 4096, thinking: {type: 'adaptive'}, system: [{type: 'text', text: 'Stable workspace guide', cache_control: {type: 'ephemeral'}}]});
