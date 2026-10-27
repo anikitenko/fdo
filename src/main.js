@@ -10,7 +10,7 @@ import {initializeObservabilityStorage, closeObservabilityStorage, recordRuntime
 import {registerObservabilityHandlers} from './ipc/observability';
 import {usageLedger} from './utils/ai/billing/ledger';
 import {certificateStorage, previewSigningCertificates, initializeCertificateStorage, closeCertificateStorage} from './utils/persistence/certificateStorage';
-import {osCredentialSession, runOsCredentialHelper, closeOsCredentialSessions} from './utils/persistence/osCredentialSession.cjs';
+import {runOsCredentialHelper, closeOsCredentialSessions} from './utils/persistence/osCredentialSession.cjs';
 import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
@@ -231,12 +231,17 @@ function initializePaths() {
 }
 
 let cliFinished = false;
+let keychainAccessNoticeShown = false;
 if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
     let result;
     try {
         await app.whenReady();
         initializePaths();
         const signUnlocked = async (directory, label) => {
+            if (process.platform === 'darwin' && process.env.FDO_E2E !== '1' && !keychainAccessNoticeShown) {
+                console.error('FDO needs macOS Keychain access to protect or unlock the private signing key for this plugin. Choose Allow in the macOS prompt. The plugin itself does not receive Keychain access.');
+                keychainAccessNoticeShown = true;
+            }
             if (label === 'root' && !certificateStorage.list('root').some(cert => cert.label === 'root')) {
                 const created = await Certs.generateRootCA('root', false, {notify: false, onlyIfMissing: true});
                 if (created) (cliArgs.includes('--json') ? console.error : console.log)('Created the default root signing certificate in OS-protected storage.');
@@ -250,9 +255,9 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
         const validate = directory => validatePluginDirectory(directory, {build: buildUsingEsbuild, extractMetadata});
         const credentialStoreAvailable = () => {
             if (safeStorage.getSelectedStorageBackend?.() === 'basic_text') return false;
-            const session = osCredentialSession(safeStorage);
-            if (!session.usesIsolatedKeychainPrompt()) return !!safeStorage.isEncryptionAvailable();
-            try {session.encrypt('FDO credential store check'); return true;} catch {return false;}
+            // Availability checks must not encrypt a probe value: on macOS that
+            // would request Keychain access during `doctor`, before signing.
+            return !!safeStorage.isEncryptionAvailable();
         };
         const deploy = async (directory, label) => {
             const compiled = await deployCliPluginDirectory(directory, {registryFile: PLUGINS_REGISTRY_FILE, build: buildUsingEsbuild, extractMetadata,
@@ -279,7 +284,7 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
                 return untilQuit(signal => watchPluginDirectory(directory, {deploy: target => deploy(target, label), signal}));
             },
             planDeployment: (directory, label) => planCliDeployment(directory, label, {registryFile: PLUGINS_REGISTRY_FILE, profile: getUserDataRoot(), validate,
-                listCertificates: previewSigningCertificates, credentialStoreAvailable}),
+                listCertificates: previewSigningCertificates}),
             listCertificates: () => certificateStorage.list('root'),
             inspectPlugins: id => inspectCliPlugins({registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE, verifyPlugin: directory => Certs.verifyPlugin(directory)}, id),
             doctor: () => diagnoseCli({version: app.getVersion(), profile: getUserDataRoot(), registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE,

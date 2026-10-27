@@ -114,7 +114,7 @@ export function registerCliPlugin(file, directory, compiled) {
     return plugin;
 }
 
-export async function planCliDeployment(directory, label, {registryFile, profile, validate, listCertificates, credentialStoreAvailable, now = new Date()}) {
+export async function planCliDeployment(directory, label, {registryFile, profile, validate, listCertificates, now = new Date()}) {
     assertCliDeployAllowed(registryFile, directory);
     const plugin = await validate(directory);
     const existing = readCliRegistry(registryFile).plugins.find(item => item.id === plugin.name);
@@ -130,7 +130,6 @@ export async function planCliDeployment(directory, label, {registryFile, profile
         if (parsed.publicKey.asymmetricKeyType !== 'rsa') throw new Error('Plugin signing requires an RSA private key.');
         signer = {label, id: certificate.id, status: 'existing', expiresAt: new Date(parsed.validTo).toISOString()};
     }
-    if (!credentialStoreAvailable()) throw new Error('OS credential store is unavailable. Unlock or configure it before deploying.');
     return {dryRun: true, profile, registryFile, action: existing ? 'update' : 'install', previousVersion: existing?.metadata?.version || null,
         plugin, signer, grants: {capabilities: existing?.capabilities || [], customProcessScopes: existing?.customProcessScopes || [], customFilesystemScopes: existing?.customFilesystemScopes || []},
         warnings: [...plugin.warnings, 'Private key access is not tested by a dry run. Signing and deployment are rechecked when applied.']};

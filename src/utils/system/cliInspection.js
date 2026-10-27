@@ -68,7 +68,7 @@ export async function diagnoseCli({version, profile, registryFile, configFile, i
     }, 'Restore a valid plugins.json/config.json backup or review Manage Plugins.');
     await check('credential-store', () => {
         if (!credentialStoreAvailable()) throw new Error('OS credential store is unavailable for protected signing keys.');
-        return {status: 'ok', message: 'OS credential store is available (private keys were not decrypted).'};
+        return {status: 'ok', message: 'OS credential store is configured. FDO requests Keychain access only when protecting or using a credential or signing key.'};
     }, 'Unlock or configure your OS credential store and retry.');
     await check('signing', () => {
         const cert = listCertificates().find(item => item.label === 'root');

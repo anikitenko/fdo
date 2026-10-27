@@ -9,7 +9,7 @@ const readline = require('node:readline');
 // or credential action in that process never shows the prompt again. Each
 // denial therefore ends the helper process; the next action starts a new one
 // and macOS can ask again.
-const KEYCHAIN_DENIED_MESSAGE = 'macOS Keychain access was denied. Try again and choose Allow when macOS asks FDO to use the Keychain.';
+const KEYCHAIN_DENIED_MESSAGE = 'macOS denied FDO access to Keychain. Retry the operation and choose Allow in the system prompt. FDO uses Keychain to protect credentials and signing keys; plugins do not receive this access.';
 const sessions = new Set();
 const shared = new WeakMap();
 
@@ -39,6 +39,10 @@ function defaultLaunch() {
     const replyPath = path.join(userDataDir, 'reply');
     execFileSync('mkfifo', ['-m', '600', replyPath]);
     const args = [];
+    // A macOS E2E parent uses Electron's mock Keychain to keep CI independent
+    // of interactive prompts. The credential helper is a separate process, so
+    // it must receive the switch before Electron initializes safeStorage too.
+    if (process.platform === 'darwin' && process.env.FDO_E2E === '1') args.push('--use-mock-keychain');
     if (!app.isPackaged) args.push(app.getAppPath());
     args.push('--fdo-os-credential-helper', `--fdo-credential-reply=${replyPath}`, '--disable-gpu', '--user-data-dir', userDataDir);
     return {command: process.execPath, args, replyPath, userDataDir, env: helperEnv()};

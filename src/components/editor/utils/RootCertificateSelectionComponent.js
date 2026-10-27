@@ -65,6 +65,9 @@ export const RootCertificateSelectionComponent = ({show, setShow, rootCertificat
                         </div>
                     </Card>
                 ))}
+                <p className="bp6-text-muted" style={{marginTop: "12px"}}>
+                    Signing uses a private key protected by FDO in your local profile. macOS may ask you to allow FDO to unlock it in Keychain. This does not give the plugin access to Keychain.
+                </p>
                 <div style={{ marginTop: "12px" }}>
                     <Checkbox
                         defaultChecked={false}
