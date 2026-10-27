@@ -78,7 +78,8 @@ async function runGitTransport({Client, plan, invocation = parse(plan), selectio
             client.once('ready', () => {
                 clearCredentials(selected.credentials);
                 if (!verified) return fail('HOST_KEY_REJECTED');
-                client.exec(endpoint.command,{pty:false},(error,stream) => {
+                const remoteCommand=endpoint.service+" '"+endpoint.repositoryQuoted+"'"+(endpoint.direction?' '+endpoint.direction:'');
+                client.exec(remoteCommand,{pty:false},(error,stream) => {
                     if(error&&endpoint.service==='git-lfs-transfer'&&!signal.aborted&&!transportError) {
                         finished=true;socket.end(frame(3,Buffer.from([1])));client.end();return;
                     }
