@@ -8,8 +8,11 @@ function operationalCoverageSupport(compiled, invokeInitializer = false) {
   const counter = ast.program.body.find(node => node.type === 'FunctionDeclaration' && /^cov_/.test(node.id?.name || ''));
   if (!counter) throw new Error('Instrumented example is missing its Istanbul counter bootstrap');
   const frontendBootstrap = require('@babel/generator').default(counter, {compact: true, comments: false}).code + '\n' + counter.id.name + '();\n';
-  const unsafeCharMap = {'<':'\\u003C','>':'\\u003E','/':'\\u002F','\\':'\\\\','\b':'\\b','\f':'\\f','\n':'\\n','\r':'\\r','\t':'\\t','\0':'\\0','\u2028':'\\u2028','\u2029':'\\u2029'};
-  const escapeUnsafeForEmbeddedJs = str => str.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g, ch => unsafeCharMap[ch]);
+  // JSON.stringify already escapes quotes, backslashes, and control characters.
+  // Escape only characters that remain unsafe when this JSON string literal is
+  // embedded into the generated JavaScript source.
+  const unsafeCharMap = {'<':'\\u003C','>':'\\u003E','/':'\\u002F','\u2028':'\\u2028','\u2029':'\\u2029'};
+  const escapeUnsafeForEmbeddedJs = str => str.replace(/[<>\/\u2028\u2029]/g, ch => unsafeCharMap[ch]);
   const serializedFrontendBootstrap = escapeUnsafeForEmbeddedJs(JSON.stringify(frontendBootstrap));
   return `\n;(() => {
     const sdk = require('@anikitenko/fdo-sdk');
