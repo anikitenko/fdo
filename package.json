@@ -74,6 +74,7 @@
     "@babel/preset-env": "^8.0.7",
     "@babel/preset-react": "^8.0.1",
     "@electron/asar": "^4.3.1",
+    "@fdo/jest-deepmerge": "file:packages/jest-deepmerge",
     "@jest/globals": "30.5.2",
     "@playwright/test": "1.64.1",
     "@testing-library/dom": "^10.4.1",
@@ -211,6 +212,7 @@
     "vscode-icons-js": "^11.6.1"
   },
   "overrides": {
+    "deepmerge": "$@fdo/jest-deepmerge",
     "glob": "^13.0.6",
     "rimraf": "^6.0.0",
     "sourcemap-codec": "npm:@jridgewell/sourcemap-codec@^1.5.0",

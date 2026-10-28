@@ -1,0 +1,11 @@
+{
+  "name": "@fdo/jest-deepmerge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Jest's default deepmerge API backed by @fastify/deepmerge",
+  "main": "index.cjs",
+  "dependencies": {
+    "@fastify/deepmerge": "3.2.4"
+  },
+  "license": "MIT"
+}
