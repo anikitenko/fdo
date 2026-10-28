@@ -1,4 +1,5 @@
 import {pluginDisplayName, operationError} from '../utils/desktop/notificationContent';
+import PluginLocation from './plugin/PluginLocation';
 import {
     Alert,
     Button,
@@ -57,6 +58,7 @@ import {getPluginTrustTier} from "../utils/plugins/security/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "../utils/plugins/security/pluginCapabilityDeclaration";
 import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 import GitOpsBadge from './plugin/GitOpsBadge';
+import PluginCompatibilityNotice from './plugin/PluginCompatibilityNotice';
 
 function scopeCategoryLabel(scopeItem = {}) {
     if (scopeItem?.userDefined === true) {
@@ -2573,16 +2575,16 @@ const SelectPluginPanel = ({
                 )}
             </div>
             <span className={classNames("bp6-text-small", "bp6-text-muted")}>{plugin.description}</span>
+            <PluginCompatibilityNotice report={plugin.compatibility}/>
             <Divider/>
-            <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-                <div style={{flex: "1", minWidth: "0", width: "0"}}>
-                    <div>
-                        Loaded from: <TooltipBP content={plugin.home}><i className={"bp6-heading"} style={{wordBreak: "break-all"}}>{plugin.home}</i></TooltipBP>
-                    </div>
-                    <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong
+            <div style={{display: "flex", flexDirection: "column", gap: 12}}>
+                <PluginLocation path={plugin.home}/>
+                <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12}}>
+                    <Switch size="medium" style={{margin: 0}} labelElement={<strong
                         style={{color: activePlugins?.some((p) => p.id === plugin.id) ? "green" : "red"}}>Enabled</strong>}
                             innerLabelChecked="yes :)" innerLabel="no :("
                             checked={activePlugins?.some((p) => p.id === plugin.id)}
+                            disabled={plugin.compatibility?.status === 'incompatible' && !activePlugins?.some((p) => p.id === plugin.id)}
                             onChange={() => {
                                 if (activePlugins?.some((p) => p.id === plugin.id)) {
                                     deselectPlugin(plugin)
@@ -2591,13 +2593,12 @@ const SelectPluginPanel = ({
                                 }
                             }}
                     />
-                </div>
                 <Button
                     icon="archive"
                     text={"Export"}
                     intent="success"
                     loading={exportProgress}
-                    style={{marginLeft: "auto", alignSelf: "center"}}
+                    style={{marginLeft: "auto"}}
                     onClick={async () => {
                         setExportProgress(true)
                         const data = await window.electron.plugin.export(plugin.id)
@@ -2616,6 +2617,7 @@ const SelectPluginPanel = ({
                         setExportProgress(false)
                     }}
                 />
+                </div>
             </div>
             <Divider/>
             <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>

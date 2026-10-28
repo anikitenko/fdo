@@ -4,15 +4,21 @@ import Module from 'node:module';
 import path from 'node:path';
 import {getHostPluginNodeModulesPath} from '../plugins/runtime/pluginRuntimeBundle';
 import {validatePluginWorkspaceSdkContract} from './pluginWorkspaceSdkContract';
+import {validateAiCompatibilityChanges, workspaceAuthoringContract} from './pluginAuthoringContract';
+import {createHash} from 'node:crypto';
 
 // Resolve from the same runtime dependency directory used by the plugin build.
 // Never execute generated code to discover whether an SDK export exists.
-export function createInstalledSdkValidator() {
+export function createInstalledSdkValidator(workspaceFiles = []) {
     const requireSdk = Module.createRequire(path.join(getHostPluginNodeModulesPath(), 'fdo-plugin-sdk-contract.cjs'));
     const sdk = requireSdk('@anikitenko/fdo-sdk');
     const runtimeExports = [...Object.getOwnPropertyNames(Object(sdk)), 'default'];
     const methodSignatures = new Map();
     const capabilities = installedSdkCapabilities(requireSdk, sdk, {methodSignatures});
+    const workspace = Object.fromEntries(workspaceFiles.map(file => [file.path, file.content]));
+    capabilities.hostTarget = workspaceAuthoringContract(workspace);
+    capabilities.fingerprint = createHash('sha256').update(capabilities.fingerprint)
+        .update(JSON.stringify({host: capabilities.hostTarget.host, contract: capabilities.hostTarget.contract})).digest('hex');
     const check = file => validatePluginWorkspaceSdkContract([file], {
         runtimeExports, createActionSource: sdk.createRenderOnLoadActionsSource,
     }).map((error, index) => {
@@ -41,7 +47,7 @@ export function createInstalledSdkValidator() {
     const validate = file => file.path === '/SKILL.md'
         ? report(file.content).findings.filter(item => item.status === 'conflict')
             .map(item => `/SKILL.md:${item.line || 1}: ${item.message} ${item.correction} Contract source: ${source}`)
-        : check(file);
+        : [...check(file), ...(file.path === '/package.json' ? validateAiCompatibilityChanges(workspace['/package.json'], file.content) : [])];
     validate.report = report;
     validate.capabilities = capabilities;
     validate.plan = files => files.flatMap(file => compatibility(file.contract).findings.filter(item => item.status === 'conflict').map(item => `${file.path}: ${item.message}`));

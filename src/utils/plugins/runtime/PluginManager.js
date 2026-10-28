@@ -1,4 +1,6 @@
 import {randomUUID} from 'node:crypto';
+import {installedPluginCompatibility} from '../../sdk/pluginCompatibilityHost';
+import {assertPluginCompatibility} from '../../sdk/pluginCompatibility';
 import {auditFailureDetails} from '../security/privilegedAuditDiagnostics';
 import {runGitWithProfiles, invalidateHostServices} from '../../hostServices/runtime';
 import {failureNotification, pluginDisplayName} from '../../desktop/notificationContent';
@@ -624,6 +626,12 @@ const PluginManager = {
                 return { success: false, error: result.error, notified: true };
             }
 
+            const compatibility = installedPluginCompatibility(plugin.home, plugin.entry);
+            assertPluginCompatibility(compatibility);
+            if (compatibility.status === 'unverified') {
+                NotificationCenter.addNotification({...notificationContext, type: 'warning', title: `${displayName}: supported FDO versions unknown`,
+                    message: `${compatibility.summary} ${compatibility.remediation}`});
+            }
             let runtimeEntry = plugin.entry;
             let hostNodeModulesPath = process.env.NODE_PATH || "";
             try {
@@ -1005,14 +1013,14 @@ const PluginManager = {
                     message: 'Review System Settings → Privacy & Security → Files and Folders, then try starting this plugin again.', error: err}));
                 return {success: false, error: err.message, notified: true};
             } else {
-                NotificationCenter.addNotification(failureNotification({...notificationContext, title: `Couldn’t start ${displayName}`, message: "The plugin did not start. Review its logs and permissions in Manage Plugins, then try again.", error: err}));
+                NotificationCenter.addNotification(failureNotification({...notificationContext, title: `Couldn’t start ${displayName}`, message: err.code === 'PLUGIN_HOST_INCOMPATIBLE' ? err.message : "The plugin did not start. Review its logs and permissions in Manage Plugins, then try again.", error: err}));
                 this.sendToMainWindow(PluginChannels.on_off.UNLOADED, {
                     id,
                     reason: "load_failed",
                     notificationReported: true,
                     message: err?.message || String(err),
                 });
-                return {success: false, error: err.message, notified: true};
+                return {success: false, error: err.message, code: err.code, compatibility: err.compatibility, notified: true};
             }
         }
     },

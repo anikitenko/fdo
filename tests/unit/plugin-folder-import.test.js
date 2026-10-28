@@ -7,6 +7,19 @@ import {getIgnoreInstance} from '../../src/utils/filesystem/getIgnoreInstance';
 let root;
 const metadata = {name: 'Folder Tools', version: '1.0.0', author: 'Team', description: 'Folder import', icon: 'application'};
 const source = `export class Plugin {get metadata() {return ${JSON.stringify(metadata)};}}`;
+
+test('previews supported FDO versions and blocks an incompatible import before building or registering', async () => {
+    const dir = await fixture({'package.json': JSON.stringify({...metadata, source: 'index.ts', main: 'dist/index.cjs',
+        fdo: {compatibility: {fdo: '>=99.0.0'}}}), 'dist/index.cjs': 'module.exports = {};'});
+    const snapshot = await inspectPluginFolder(dir);
+    expect(snapshot.compatibility).toMatchObject({status: 'incompatible', supportedFdo: '>=99.0.0'});
+    for (const mode of ['build', 'bundle']) {
+        const config = {...options(), mode};
+        await expect(installPluginFolder(snapshot, config)).rejects.toThrow('Requires FDO');
+        expect(config.build).not.toHaveBeenCalled();
+        expect(config.registry.addPlugin).not.toHaveBeenCalled();
+    }
+});
 async function fixture(files = {}) {
     const dir = path.join(root, 'input'); await fs.mkdir(dir, {recursive: true});
     const defaults = {'package.json': JSON.stringify({...metadata, name: 'folder-tools', source: 'index.ts', main: 'dist/index.cjs'}), 'index.ts': source};

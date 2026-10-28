@@ -3,6 +3,8 @@ import fs, {chmodSync, existsSync, mkdirSync, statSync} from "node:fs";
 import Module from "node:module";
 import path from "node:path";
 import {compileCssStyleModule} from "../../esbuild/plugins/cssStyleModule";
+import {pluginCompatibilityBanner} from '../../sdk/pluginCompatibility';
+import {pluginCompatibilityHost} from '../../sdk/pluginCompatibilityHost';
 
 function resolveHostNodeModulesPath() {
     return !app.isPackaged
@@ -114,6 +116,7 @@ export async function buildPluginRuntimeBundle(pluginId, pluginHome) {
         platform: "node",
         outfile,
         external: ["@anikitenko/fdo-sdk"],
+        banner: {js: pluginCompatibilityBanner(JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).fdo?.compatibility, pluginCompatibilityHost())},
         plugins: [createRuntimeCssPlugin(pluginHome)],
         absWorkingDir: pluginHome,
         tsconfigRaw: {

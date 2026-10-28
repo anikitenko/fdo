@@ -19,7 +19,7 @@ export function describeHtmlLiteralStructure(elements,nodes,range) {
         const parent = byNode.get(node.parentNode);
         const intact = location && range(location.startOffset,location.endOffset);
         if (element.structure.unique && parent?.structure.unique && containers.has(node.parentNode.tagName)
-            && passiveTags.has(node.tagName) && element.text && location.endTag && intact
+            && passiveTags.has(node.tagName) && element.text && !element.text.partial && location.endTag && intact
             && (node.attrs || []).every(attr => ['class','style','title','aria-label','aria-description','lang','dir'].includes(attr.name))) {
             element.structure.duplicable = true;
         }

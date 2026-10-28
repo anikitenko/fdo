@@ -48,7 +48,7 @@ test('invalid declaration lists and transformed tags remain read-only', async()=
     }
     const files = filesFor("'<main title=before>Text</main>'.replace('before','after')"), preview = await render(files);
     expect(preview.elements[0].inlineStyle.editable).toBe(false);
-    expect(()=>edit(files,preview,preview.elements[0],{property:'color',value:'red'})).toThrow('shared or transformed');
+    expect(()=>edit(files,preview,preview.elements[0],{property:'color',value:'red'})).toThrow(/shared.*transformed/);
 });
 test('host rejects declaration/selector injection and preserves JS literal syntax in CSS values', async()=>{
     const files = filesFor('`<main>Text</main>`'), preview = await render(files), target = preview.elements[0];

@@ -9,7 +9,7 @@ function declarations(value) {
     if (new Set(names).size !== names.length) throw new Error('Duplicate inline declarations need to be resolved in the IDE.');
     return root.first;
 }
-export function describeHtmlLiteralStyle(element, node, range) {
+export function describeHtmlLiteralStyle(element, node, range, unique = source => !!source) {
     const value = node.attrs.find(item=>item.name === 'style')?.value || '';
     const location = node.sourceCodeLocation.attrs?.style;
     const target = location && range(location.startOffset,location.endOffset);
@@ -17,10 +17,11 @@ export function describeHtmlLiteralStyle(element, node, range) {
     try {
         const rule = declarations(value);
         const present = rule.nodes.filter(item=>item.type === 'decl');
-        element.inlineStyle = {editable:!!source && (!location || !!target),value,source,target,
+        const editable = !!source && (!location || unique(target));
+        element.inlineStyle = {editable,value,source,target,
             declarations:present.map(item=>({property:normalizeCssProperty(item.prop),value:item.value,important:!!item.important})),
-            presentProperties:present.map(item=>normalizeCssProperty(item.prop)),canAddDeclarations:!!source,
-            reason:source ? '' : 'This start tag is shared or transformed. Edit its styles in the IDE.'};
+            presentProperties:present.map(item=>normalizeCssProperty(item.prop)),canAddDeclarations:editable,
+            reason:editable ? '' : 'This start tag or style is shared, computed or transformed. Edit its styles in the IDE.'};
     } catch (error) {element.inlineStyle = {editable:false,declarations:[],presentProperties:[],canAddDeclarations:false,reason:error.message};}
 }
 export function inlineStyleValueError(property,value) {
@@ -57,8 +58,9 @@ export function planHtmlLiteralStyle(files,element,request) {
     if (!rule.raws.after || /^\s*$/.test(rule.raws.after)) rule.raws.after = '';
     const serialized = rule.toString();
     const css = serialized.slice(serialized.indexOf('{') + 1,-1);
-    const {file,quote} = style.source;
     const target = style.target || style.source;
+    const {file} = target;
+    const quote = style.target ? (target.quote === '"' ? "'" : '"') : style.source.quote;
     const start = target.start, end = target.end;
     const replacement = css ? (style.target ? '' : ' ') + 'style=' + quote + encodeHtmlLiteralText(css) + quote : '';
     const before = files[file], after = before.slice(0,start) + replacement + before.slice(end);

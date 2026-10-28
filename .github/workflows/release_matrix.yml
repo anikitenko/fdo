@@ -39,6 +39,8 @@ jobs:
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: node scripts/release/validate.cjs
+      - name: Require the latest stable FDO SDK
+        run: node scripts/release/check-sdk.cjs
 
   quality:
     name: Release quality gates
@@ -94,6 +96,7 @@ jobs:
         if: matrix.platform != 'linux'
         run: npx playwright install chromium
       - run: npm run check:dependencies
+      - run: npm run check:host-contract
       - run: npm run build
       - name: Build and verify signing (builder publishing disabled)
         run: node scripts/release/build.cjs

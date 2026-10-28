@@ -44,6 +44,8 @@ jobs:
       - run: npm ci
       - name: Check dependency security and deprecations
         run: npm run check:dependencies
+      - name: Check host contract backward compatibility
+        run: npm run check:host-contract
       - name: Run every Jest suite
         run: |
           mkdir -p artifacts

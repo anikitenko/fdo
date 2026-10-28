@@ -16,6 +16,9 @@ import AiTimeEstimate from '../ai/AiTimeEstimate';
 import {createCodingEstimator} from '../../utils/ai/assistant/aiCodingEstimate';
 import React, {useEffect, useMemo, useReducer, useRef, useState} from "react";
 import {rasterImagePreview} from './utils/rasterImagePreview';
+import PluginAuthoringContract from '../plugin/PluginAuthoringContract';
+import {workspaceAuthoringContract} from '../../utils/sdk/pluginAuthoringContract';
+
 import {historyStorageKey, normalizeHistory, readHistory, writeHistory, buildHistoryContext} from "./utils/aiCodingAgentHistory";
 import {
     Button,
@@ -104,6 +107,13 @@ import "../../assets/css/hljs/xt256.min.css"
 import classnames from "classnames";
 import {AppToaster} from "../AppToaster.jsx";
 import {isAiCodingOutputLimitError} from "../../utils/ai/assistant/aiCodingOutputRecovery";
+
+function authoringContractForEditor() {
+    const entry = virtualFS.files?.['/package.json'];
+    const model = entry?.model;
+    const packageText = model && !model.isDisposed?.() ? model.getValue() : entry?.content;
+    return workspaceAuthoringContract({'/package.json': packageText});
+}
 export {isAiCodingOutputLimitError} from "../../utils/ai/assistant/aiCodingOutputRecovery";
 
 if (typeof hljs?.configure === "function") {
@@ -4849,6 +4859,7 @@ Rules:
                     />
                 </FormGroup>
 
+                <PluginAuthoringContract context={authoringContractForEditor()}/>
                 {smartModeGuidance && !mentionMenuVisible && (
                     <details className={styles['request-help']} open={eventDocument === document || ['warning', 'danger'].includes(smartModeGuidance.intent)}>
                     <summary>Smart Mode guidance</summary>

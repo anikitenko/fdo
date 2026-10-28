@@ -25,6 +25,11 @@ test('Live UI hands committed source to AI without replacing the prompt or losin
         const editor = await opening;
         await editor.waitForFunction(() => window.__editorTestApi?.getState().workspaceTreeIds.includes('/render.tsx'));
         await editor.getByRole('tab', {name: 'AI Coding Agent'}).click();
+        const target = editor.getByRole('region', {name: 'Plugin target compatibility'});
+        await expect(target.getByText(/Supported FDO:/)).toBeVisible();
+        await target.getByText(/Supported FDO:/).click();
+        await expect(target.getByText(/Installed FDO/)).toContainText('Host API 1.0.0');
+        await target.getByText(/Supported FDO:/).click();
         await editor.locator('#prompt-input').fill('Make this label clearer while keeping the existing behavior.');
         await editor.locator('#action-select').selectOption('edit');
         const original = await editor.evaluate(() => ({source: window.__editorTestApi.getFileContent('/render.tsx'), version: window.__editorTestApi.getState().currentVersion}));

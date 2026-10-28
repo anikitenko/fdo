@@ -34,6 +34,28 @@ test('invalid flags/patterns, coercion objects and non-global replaceAll are rej
     expect(() => replace('abc','a',{})).toThrow('string replacement');
     expect(() => replace('abc',/a/,'x',true)).toThrow('global');
 });
+
+test.each([
+    ['class="af-primary" disabled title="Tools"', 'class="[^"]*"', 'g'],
+    ["class='one' class='two' data-id='3'", "class='[^']*'", 'g'],
+    ['CLASS="first" class="second"', 'class="[^"]*"', 'gi'],
+    ['data-label="Team 😀" title="Keep"', 'data-label="[^"]*"', 'gu'],
+    ['class="unterminated', 'class="[^"]*"', 'g'],
+    ['class="one" class="two"', 'class="[^"]*"', ''],
+])('quoted attribute replacement matches native semantics: %s', (input, pattern, flags) => {
+    const regex = previewRegExp(pattern, flags, reject);
+    expect(replace(input, regex, '')).toBe(input.replace(new RegExp(pattern, flags), ''));
+    expect(replace(input, regex, '$&/$$')).toBe(input.replace(new RegExp(pattern, flags), '$&/$$'));
+});
+
+test.each(['class=".*"', 'class="[^"]*.*"', 'class="[^x]*"', '(class="[^"]*")', 'class="[^"]*"|other', 'class="[^"]*".*', 'class="[^"]*?"'])('quoted attribute support does not admit broader backtracking patterns: %s', pattern => {
+    expect(() => previewRegExp(pattern, 'g', reject)).toThrow('preview adapter');
+});
+
+test('quoted attribute searches handle a long missing closing quote without a broad repetition pattern', () => {
+    const input = 'class="' + 'x'.repeat(100000);
+    expect(replace(input, previewRegExp('class="[^"]*"', 'g', reject), '')).toBe(input);
+});
 test('expanding replacement tokens stop before joining an oversized output', () => {
     expect(() => replace('x'.repeat(2000),'x',"$'",true)).toThrow('500 KB');
 });
@@ -43,6 +65,7 @@ test.each([
     [`'&"<>'.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')`, '&amp;&quot;&lt;&gt;'],
     [`'x_x'.replaceAll('_', '<p>safe static text</p>')`, 'x<p>safe static text</p>x'],
     [`'a a'.replace(/a/g,(match,index,whole)=>String(index)+match+whole)`, '0aa a 2aa a'],
+    [`'class="af-primary" disabled'.replace(/class="[^"]*"/g, '')`, ' disabled'],
 ])('restricted interpreter supports replacement: %s', async (expression, expected) => {
     const result = await createStaticUiPreview(filesFor(expression),sdk);
     expect(result.status === 'ready' ? null : result).toBeNull();

@@ -8,6 +8,14 @@ function context(overrides = {}) {
         typecheck: jest.fn(async () => ({success: true})), readWorkspace: () => workspaceFiles, assertActive: jest.fn(), build: jest.fn(async () => ({success: true})), ...overrides};
 }
 
+test('final merged AI candidates cannot discard the declared support policy before application', async () => {
+    const original = {path: '/package.json', content: JSON.stringify({fdo: {compatibility: {fdo: '^1.0.0'}}})};
+    const args = context({workspaceFiles: [original], files: [{path: '/package.json', content: '{}'}]});
+    args.readWorkspace = () => args.workspaceFiles;
+    expect((await validateAiWorkspaceCandidate(args)).join('\n')).toContain('AI cannot remove fdo.compatibility');
+    expect(args.build).not.toHaveBeenCalled();
+});
+
 test('compiles the merged workspace without altering retained or generated source', async () => {
     const args = context();
     const before = JSON.stringify([args.workspaceFiles, args.files]);

@@ -2,6 +2,18 @@ import React from 'react';
 import {fireEvent, render, screen, waitFor, act} from '@testing-library/react';
 import {CreatePluginDialog} from '../../src/components/CreatePluginDialog';
 
+test('an incompatible folder preview shows supported versions and disables installation', async () => {
+    window.electron.system.openFileDialog = jest.fn(async () => '/tmp/versioned-plugin');
+    window.electron.plugin.inspectFolder = jest.fn(async () => ({success: true, token: 'preview', proposedId: 'future-tools',
+        metadata: {name: 'Future tools', version: '1.0.0'}, hasCompiled: true, hasSource: false,
+        compatibility: {status: 'incompatible', supportedFdo: '>=99.0.0', summary: 'This plugin cannot run on this FDO installation.',
+            issues: ['Requires FDO >=99.0.0'], remediation: 'Install a supported FDO version.'}}));
+    render(<CreatePluginDialog show close={() => {}}/>);
+    fireEvent.click(screen.getByRole('button', {name: 'Select folder'}));
+    expect(await screen.findByText('Supported FDO: >=99.0.0')).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Install compiled plugin'})).toBeDisabled();
+});
+
 beforeEach(() => {
     localStorage.clear();
     window.electron.plugin = {...window.electron.plugin, getAll: jest.fn(async () => ({success: true, plugins: []}))};

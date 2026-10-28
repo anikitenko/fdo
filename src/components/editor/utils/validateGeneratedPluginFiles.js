@@ -5,6 +5,7 @@ import {validateGeneratedFileSyntax} from "../../../utils/plugins/validation/gen
 import {validateGeneratedCallbackParameters} from "../../../utils/plugins/validation/generatedCallbackParameters";
 import {resolveGeneratedImport, validateGeneratedWorkspaceImports} from "../../../utils/plugins/validation/generatedWorkspaceImports";
 import {hasInvalidBackendRequest} from "../../../utils/plugins/validation/generatedBackendRequests";
+import {validateGeneratedInteractions} from '../../../utils/plugins/validation/generatedInteractions';
 
 const BLUEPRINT_ICON_SET = new Set(
     Object.values(IconNames)
@@ -153,7 +154,7 @@ function findForbiddenHostImports(content = "") {
     const violations = [];
 
     lines.forEach((line, index) => {
-        const importMatch = line.match(/(?:from\s+["'`]([^"'`]+)["'`]|require\(\s*["'`]([^"'`]+)["'`]\s*\))/);
+        const importMatch = line.match(/from\s+["'`]([^"'`]+)["'`]|require\(\s*["'`]([^"'`]+)["'`]\s*\)/);
         const rawPath = importMatch?.[1] || importMatch?.[2];
         if (!rawPath) return;
 
@@ -241,10 +242,11 @@ function analyzePluginTestFrameworkUsage(content = "") {
 function validateInjectedUiFoundation(files, errors) {
     const uiFiles = files.filter((file) => !isPluginTestFilePath(file?.path));
     const source = uiFiles.map((file) => normalizeLineEndings(file?.content || "")).join("\n");
-    const primaryUiPath = uiFiles.find((file) => /(?:<textarea\b|<input\b|<select\b|createElement\s*\(\s*["'](?:textarea|input|select)["'])/i.test(file?.content || ""))?.path
+    const formFieldPattern = /<textarea\b|<input\b|<select\b|createElement\s*\(\s*["'](?:textarea|input|select)["']/i;
+    const primaryUiPath = uiFiles.find((file) => formFieldPattern.test(file?.content || ""))?.path
         || "/render.tsx";
-    const hasFormField = /(?:<textarea\b|<input\b|<select\b|createElement\s*\(\s*["'](?:textarea|input|select)["'])/i.test(source);
-    const hasActionButton = /(?:<button\b|createElement\s*\(\s*["']button["'])/i.test(source);
+    const hasFormField = formFieldPattern.test(source);
+    const hasActionButton = /<button\b|createElement\s*\(\s*["']button["']/i.test(source);
 
     if (hasFormField && (!/\bpure-form\b/.test(source) || !/\bpure-form-stacked\b/.test(source))) {
         errors.push(`${primaryUiPath}: interactive forms must use the injected Pure CSS foundation. Add a "pure-form pure-form-stacked" wrapper; do not import Pure CSS.`);
@@ -252,7 +254,7 @@ function validateInjectedUiFoundation(files, errors) {
     if (hasFormField && hasActionButton && (!/\bpure-button\b/.test(source) || !/\bpure-button-primary\b/.test(source))) {
         errors.push(`${primaryUiPath}: an interactive plugin needs a primary action styled with injected Pure CSS. Add "pure-button pure-button-primary" to its main button; do not import Pure CSS.`);
     }
-    if (hasFormField && /(?:from\s+["']purecss(?:\/[^"']*)?["']|import\s+["']purecss(?:\/[^"']*)?["'])/i.test(source)) {
+    if (hasFormField && /from\s+["']purecss(?:\/[^"']*)?["']|import\s+["']purecss(?:\/[^"']*)?["']/i.test(source)) {
         errors.push(`${primaryUiPath}: Pure CSS is already injected into every plugin iframe. Remove the Pure CSS import and use its class names directly.`);
     }
 }
@@ -293,21 +295,10 @@ function validatePluginDomHelperUsage(files, errors) {
 function validateReservedHostBindingMarkers(files, errors) {
     files.filter((file) => !isPluginTestFilePath(file?.path)).forEach((file) => {
         const content = normalizeLineEndings(file?.content || "");
-        if (/(?:\bdataset\s*\.\s*bound\b|["'`]data-bound["'`])/.test(content)) {
+        if (/\bdataset\s*\.\s*bound\b|["'`]data-bound["'`]/.test(content)) {
             errors.push(`${file.path || "/render.tsx"}: data-bound and element.dataset.bound are reserved for FDO host bindings. Use a plugin-specific marker such as element.dataset.myPluginBound when a manual listener must be attached once.`);
         }
     });
-}
-
-function validateBackendFormSubmitBindings(files, errors) {
-    const uiFiles = files.filter((file) => !isPluginTestFilePath(file?.path));
-    const source = uiFiles.map((file) => normalizeLineEndings(file?.content || "")).join("\n");
-    if (!/\bwindow\.createBackendReq\s*\(/.test(source) || !/\baddEventListener\s*\(\s*["']submit["']/.test(source)) {
-        return;
-    }
-    for (const file of uiFiles.filter(file => /\baddEventListener\s*\(\s*["']submit["']/.test(file?.content || ""))) {
-        errors.push(`${file.path}: backend UI actions must use defineRenderOnLoadActions(...) with a click binding on a type="button" control. Do not attach a manual form submit listener in the plugin iframe.`);
-    }
 }
 
 function escapeRegExp(value = "") {
@@ -355,7 +346,7 @@ export function normalizeReservedHostBindingMarkers(files = []) {
         }
         const content = normalizeLineEndings(file?.content || "");
         const normalizedContent = content
-            .replace(/\bdataset\s*(?:\.\s*bound\b|\[\s*["']bound["']\s*\])/g, "dataset.pluginListenerBound")
+            .replace(/\bdataset\s*(?:\.\s*bound\b|\[\s*["']bound["']\s*])/g, "dataset.pluginListenerBound")
             .replace(/(["'`])data-bound\1/g, "$1data-plugin-listener-bound$1");
         if (normalizedContent !== content) {
             normalizedPaths.push(file?.path || "/render.tsx");
@@ -366,7 +357,7 @@ export function normalizeReservedHostBindingMarkers(files = []) {
     return {files: normalizedFiles, normalizedPaths};
 }
 
-export function validateGeneratedPluginFiles(files = [], {partial = false, workspaceFiles = []} = {}) {
+export function validateGeneratedPluginFiles(files = [], {partial = false, workspaceFiles = [], interactionBaseline = workspaceFiles} = {}) {
     const warnings = [];
     const errors = validateGeneratedWorkspaceImports(files, {sources: [], paths: files.map(file => file.path), checkMissing: false});
     const pluginEntry = findPluginEntryFile(files);
@@ -424,7 +415,7 @@ export function validateGeneratedPluginFiles(files = [], {partial = false, works
     const candidateFiles = partial ? files
         : [...new Map([...workspaceFiles, ...files].map(file => [file.path, file])).values()];
     validateBackendRequestEnvelopes(candidateFiles, errors);
-    validateBackendFormSubmitBindings(candidateFiles, errors);
+    errors.push(...validateGeneratedInteractions(candidateFiles,{baseline:interactionBaseline}));
     // A leaf module can rely on wrappers, actions and handlers in pending files.
     // Cross-file rules run only on a complete workspace in the editor.
     if (!partial) {

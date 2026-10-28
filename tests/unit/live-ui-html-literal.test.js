@@ -56,9 +56,9 @@ test('escaped/interpolated literals, mixed text and protected layout remain cons
     const files = filesFor('`<main><p>Text <em>nested</em></p></main>`');
     const result = await render(files);
     const paragraph = result.elements.find(item => item.tag === 'p');
-    expect(paragraph.text).toBeNull();
+    expect(paragraph.text).toMatchObject({value:'Text ',partial:true});
     expect(() => planVisualSourceEdit(files,result.elements,{kind:'remove',elementId:paragraph.id})).toThrow('Literal HTML');
-    expect(() => planVisualSourceEdit(files,result.elements,{kind:'text',elementId:paragraph.id,value:'Wrong'})).toThrow('computed');
+    expect(planVisualSourceEdit(files,result.elements,{kind:'text',elementId:paragraph.id,value:'Changed '}).after).toContain('<p>Changed <em>nested</em></p>');
 });
 
 test('multiline text edits remain valid inside a quoted HTML string', async () => {

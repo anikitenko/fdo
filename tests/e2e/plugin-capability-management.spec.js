@@ -121,6 +121,17 @@ test('manage plugins shows friendly capability labels and dependency recovery', 
 
   await expect(window.getByRole('heading', { name: /Manage Plugins/i })).toBeVisible({ timeout: 10000 });
   await expect(window.locator(`text=${PLUGIN_DISPLAY}`).first()).toBeVisible({ timeout: 10000 });
+  const installed = await window.evaluate(id => window.electron.plugin.get(id), PLUGIN_NAME);
+  await window.getByRole('button', {name: 'Copy plugin path', exact: true}).click();
+  await expect(window.getByRole('status')).toContainText('Path copied to clipboard.');
+  const pathLayout = await window.getByRole('button', {name:'Copy plugin path'}).evaluate(button => {
+    const code = button.querySelector('code');
+    return {whiteSpace:getComputedStyle(code).whiteSpace,overflow:getComputedStyle(code).textOverflow,height:code.getBoundingClientRect().height};
+  });
+  expect(pathLayout).toMatchObject({whiteSpace:'nowrap',overflow:'ellipsis'});
+  expect(pathLayout.height).toBeLessThan(24);
+  await expect.poll(() => electronApp.evaluate(({clipboard}) => clipboard.readText())).toBe(installed.plugin.home);
+  await window.screenshot({path: test.info().outputPath('manage-plugin-copy-path.png'), animations: 'disabled'});
 
   await expect(window.locator('text=Capabilities & Privileged Access')).toBeVisible();
   await window.getByRole('button', {name: 'Expand', exact: true}).click();

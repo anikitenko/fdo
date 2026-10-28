@@ -7,6 +7,8 @@ import {Script} from 'node:vm';
 import {extractMetadata} from '../runtime/extractMetadata';
 import {pluginBuildSource, pluginBuildEntrypoint} from '../runtime/pluginBuildArtifact';
 import generatePluginName from '../../../components/editor/utils/generatePluginName';
+import {inspectPluginCompatibility, inspectSourcePluginCompatibility} from '../../sdk/pluginCompatibilityHost';
+import {assertPluginCompatibility} from '../../sdk/pluginCompatibility';
 
 function relativeFile(value, field) {
     if (typeof value !== 'string' || !value || /[\\\0:]/.test(value) || path.posix.isAbsolute(value) || value.split('/').includes('..')) throw new Error(`${field} must name a file inside the selected folder.`);
@@ -71,7 +73,9 @@ export async function inspectPluginFolder(directory) {
         description: pkg.description, icon: pkg.fdo?.icon || 'application'};
     const sourceMetadata = sourceEntry ? await extractMetadata(virtual['/' + sourceEntry]) || fallbackMetadata : null;
     const metadata = hasCompiled ? await extractMetadata(virtual['/' + runtimeEntry] || '') || fallbackMetadata : sourceMetadata;
-    return {files, virtual, sourceEntry, runtimeEntry, hasCompiled, signed, bundleError, metadata, sourceMetadata, bytes,
+    const compatibility = inspectPluginCompatibility(virtual['/package.json'], virtual['/' + runtimeEntry]);
+    const sourceCompatibility = inspectSourcePluginCompatibility(virtual['/package.json']);
+    return {files, virtual, sourceEntry, runtimeEntry, hasCompiled, signed, bundleError, metadata, sourceMetadata, bytes, compatibility, sourceCompatibility,
         proposedId: generatePluginName([metadata.name, pkg.name, path.basename(directory)].find(value => typeof value === 'string' && value) || 'imported-plugin')};
 }
 
@@ -81,6 +85,7 @@ export async function installPluginFolder(snapshot, {id, mode, pluginsDir, regis
     if (getRegistry().isInstalled(id)) throw new Error('This plugin ID is already installed. Import with a different ID; existing plugins are never overwritten.');
     if (!['bundle', 'build'].includes(mode) || mode === 'bundle' && !snapshot.hasCompiled || mode === 'build' && !snapshot.sourceEntry) throw new Error('The selected import mode is unavailable for this folder.');
     if (mode === 'bundle' && snapshot.bundleError) throw new Error(snapshot.bundleError);
+    assertPluginCompatibility(mode === 'bundle' ? snapshot.compatibility : snapshot.sourceCompatibility);
     const metadata = normalizeMetadata(mode === 'build' ? snapshot.sourceMetadata : snapshot.metadata);
     const temporary = path.join(pluginsDir, '.import-' + randomUUID()), destination = path.join(pluginsDir, randomUUID());
     let committed = false;

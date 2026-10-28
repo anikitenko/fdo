@@ -208,6 +208,7 @@ const CodeDeployActions = ({
                 entrypoint: virtualFS.build.getEntrypoint(),
                 metadata,
                 content: virtualFS.build.getContent(),
+                packageJson: virtualFS.getLatestContent()['/package.json'],
                 rootCert: selectedLabel,
             });
             if (!result.success) {

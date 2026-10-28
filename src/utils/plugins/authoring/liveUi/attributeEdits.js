@@ -49,16 +49,18 @@ export function planAttributeEdit(files, element, request) {
     // The installed SDK escapes attribute values when producing HTML. Store the
     // literal text as JSON, not pre-escaped markup (which would escape twice).
     const literal = target.kind === 'html-literal';
+    const file = literal && field.present ? field.file || target.file : target.file;
+    const quote = literal && field.present ? (field.quote === '"' ? "'" : '"') : target.quote;
     const operations = action === 'remove' ? field.removal.map(range => ({...range, replacement: ''})) :
         literal ? [{start:field.present ? field.start : target.start,end:field.present ? field.end : target.start,
-            replacement:(field.present ? '' : ' ') + field.name + '=' + target.quote + encodeHtmlLiteralText(request.value) + target.quote}] :
+            replacement:(field.present ? '' : ' ') + field.name + '=' + quote + encodeHtmlLiteralText(request.value) + quote}] :
         field.present ? [{start: field.start, end: field.end, replacement: JSON.stringify(request.value)}] :
             [{start: target.start + 1, end: target.start + 1, replacement: JSON.stringify(field.name) + ': ' + JSON.stringify(request.value) + ', '}];
-    let source = files[target.file];
+    let source = files[file];
     const patches = operations.sort((a, b) => b.start - a.start).map(operation => {
         const {start, end, replacement} = operation, before = source;
         source = before.slice(0, start) + replacement + before.slice(end);
-        return {file: target.file, ...operation, before, after: source, removed: before.slice(start, end), added: replacement,
+        return {file, ...operation, before, after: source, removed: before.slice(start, end), added: replacement,
             description: `${action === 'remove' ? 'Remove' : 'Change'} ${element.tag} ${field.name}`, affected: 1};
     });
     return {...patches[0], patches};

@@ -1,0 +1,7 @@
+import {DOM} from '@anikitenko/fdo-sdk';import styles from './styles.css';
+export function render():string {
+ const dom=new DOM().collectStylesFrom(),cls=dom.createClassFromStyle(styles.shell);
+ const button=(id:string,label:string,extra='')=>`<button type="button" id="${id}" class="pure-button ${extra.includes('primary')?'primary':''}" ${extra.replace(/class="[^"]*"/g,'')}>${label}</button>`;
+ const tabs:Array<[string,string]>=[['overview','Overview'],['resources','Resources']];
+ return dom.renderHTML(`<main id="app" class="${cls}"><h1>Costs</h1><nav>${tabs.map(([id,label])=>`<button data-page="${id}"><i aria-hidden="true"></i>${label}<span hidden></span></button>`).join('')}</nav><label>Tenant<select id="tenant"><option value="one">One</option></select></label><input aria-label="Search" placeholder="Search resources"/>${button('refresh','Refresh')}${button('save','Save','class="primary"')}</main>`);
+}

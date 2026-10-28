@@ -126,14 +126,14 @@ describe("plugin doctor presentation", () => {
         ]));
     });
 
-    test("schema mismatch produces warning but remains boot-compatible", () => {
+    test("schema minor mismatch produces warning but remains boot-compatible", () => {
         const {createPluginDoctorPresentation} = require("../../src/utils/plugins/runtime/pluginDoctor");
 
         const result = createPluginDoctorPresentation({
             ...diagnosticsFixture,
             handshake: {
                 ...diagnosticsFixture.handshake,
-                capabilitySchemaVersion: "2.0.0",
+                capabilitySchemaVersion: "1.1.0",
             },
         });
 

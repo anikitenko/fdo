@@ -4,6 +4,8 @@ import {isGeneratedTestFile, generatedWorkspaceTestDiagnostics} from '../../../u
 import {validateGeneratedWorkspaceImports} from '../../../utils/plugins/validation/generatedWorkspaceImports';
 import {validateGeneratedWorkspaceCalls} from '../../../utils/plugins/validation/generatedWorkspaceCalls';
 import {validateGeneratedWorkspaceOptions} from '../../../utils/plugins/validation/generatedWorkspaceOptions';
+import {validateAiCompatibilityChanges} from '../../../utils/sdk/pluginAuthoringContract';
+import {validateGeneratedInteractions} from '../../../utils/plugins/validation/generatedInteractions';
 
 const fingerprint = files => JSON.stringify(files.map(({path, content}) => [path, content]).sort(([a], [b]) => a.localeCompare(b)));
 
@@ -51,9 +53,12 @@ export async function validateAiWorkspaceCandidate({files, workspaceFiles, readW
         files.forEach(file => merged.set(file.path, file));
         const candidate = [...merged.values()];
         const errors = validateGeneratedWorkspaceImports(candidate);
+        errors.push(...validateAiCompatibilityChanges(workspaceFiles.find(file => file.path === '/package.json')?.content,
+            candidate.find(file => file.path === '/package.json')?.content));
         errors.push(...validateGeneratedCssCycles(candidate));
         errors.push(...validateGeneratedWorkspaceCalls(candidate));
         errors.push(...validateGeneratedWorkspaceOptions(candidate));
+        errors.push(...validateGeneratedInteractions(candidate,{baseline:workspaceFiles}));
         update('contracts', errors.length ? 'failed' : 'passed', errors.join('\n'));
         update('acceptance', 'running');
         const acceptanceErrors = validatePluginAcceptanceCriteria(candidate);
