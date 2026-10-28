@@ -6,6 +6,33 @@ import {
 } from "../../src/utils/sdk/pluginHandshakeCompatibility";
 
 describe("plugin handshake compatibility", () => {
+    test.each([
+        ['1.0.0', '1.0.0', 'compatible'],
+        ['1.1.0', '1.7.0', 'compatible'],
+        ['1', '1', 'compatible'],
+        ['2.0.0', '1.0.0', 'incompatible'],
+        ['1.0.0', '2.0.0', 'incompatible'],
+        ['', '1.0.0', 'incompatible'],
+        ['1.0.0', '1-malformed', 'incompatible'],
+    ])('released and unknown handshake versions %s / %s have explicit policy', (contractVersion, apiVersion, status) => {
+        __setOptionalSdkHandshakeModuleForTests({});
+        const report = evaluatePluginHandshakeCompatibility({handshake: {contractVersion, apiVersion,
+            sdkVersion: '1.5.2', capabilitySchemaVersion: '1.0.0', featureFlags: {pluginDoctorReport: true}}});
+        expect(report.status).toBe(status);
+    });
+    test('an SDK helper cannot relax invalid host protocol versions', () => {
+        __setOptionalSdkHandshakeModuleForTests({evaluateSdkHandshakeCompatibility: () => ({status: 'compatible'}), isSdkHandshakeCompatible: () => true});
+        const handshake = {contractVersion: '9.0.0', apiVersion: '1.0.0'};
+        expect(evaluatePluginHandshakeCompatibility({handshake}).status).toBe('incompatible');
+        expect(isPluginHandshakeCompatible({handshake})).toBe(false);
+    });
+    test.each([['1.1.0', 'needs-attention'], ['1', 'needs-attention'], ['2.0.0', 'incompatible'], ['bad', 'incompatible']])(
+        'capability schema %s keeps additive differences distinct from incompatible formats', (capabilitySchemaVersion, status) => {
+            __setOptionalSdkHandshakeModuleForTests({});
+            const report = evaluatePluginHandshakeCompatibility({handshake: {contractVersion: '1.0.0', apiVersion: '1.0.0',
+                capabilitySchemaVersion, featureFlags: {pluginDoctorReport: true}}});
+            expect(report.status).toBe(status);
+        });
     afterEach(() => {
         __setOptionalSdkHandshakeModuleForTests(undefined);
     });

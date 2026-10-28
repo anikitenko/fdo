@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Module from 'node:module';
 import Ajv2020 from 'ajv/dist/2020';
+import {valid, major} from 'semver';
+import {HOST_AUTHORING_CONTRACT_MAJORS} from './pluginHostContract';
 
 const artifacts = {dom: 'dom-authoring-contract', components: 'ui-components', previews: 'ui-previews'};
 const validators = new Map();
@@ -32,8 +34,8 @@ export function readInstalledAuthoringContracts(packagePath) {
                 return {path: relative.split(path.sep).join('/'), content: fs.readFileSync(filename, 'utf8')};
             };
             const file = read(''), data = JSON.parse(file.content);
-            if (!/^1\.\d+\.\d+$/.test(data.contractVersion || '')) {
-                contracts[kind] = {status: 'unsupported', version: data.contractVersion, message: 'FDO supports authoring contract major 1 only.'}; continue;
+            if (!valid(data.contractVersion) || !HOST_AUTHORING_CONTRACT_MAJORS[kind]?.includes(major(data.contractVersion))) {
+                contracts[kind] = {status: 'unsupported', version: data.contractVersion, message: `FDO supports ${kind} authoring contract major ${HOST_AUTHORING_CONTRACT_MAJORS[kind]?.join(', ')} only.`}; continue;
             }
             if (kind !== 'previews' && data.sdkVersion !== manifest.version) {
                 //noinspection ExceptionCaughtLocallyJS

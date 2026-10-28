@@ -16,12 +16,36 @@ plugin compile/runtime error. The source location points to the expression that
 stopped interpretation. Source stays unchanged; the plugin can still be built and
 run in the IDE. Broader expression and dynamic-layout adapters remain on the roadmap.
 
+Statically resolvable `if`/`else` branches and early returns are supported,
+including stylesheet guards such as `if (!styles.shell) return ...`. Only the
+selected branch is interpreted. Block-scoped declarations, local helper defaults
+and array tuple parameters such as `tabs.map(([id, label]) => ...)` are supported.
+Dynamic conditions, loops and arbitrary side effects remain diagnostic; no
+backend, constructor or frontend lifecycle code from the plugin is executed.
+String and array `includes` are supported for read-only membership checks,
+including an optional numeric start position. String searches accept primitive
+values, and both forms count toward preview processing budgets.
+Reviewed DOM text, input, semantic and nested helpers use methods marked
+`staticPreviewSafe` with HTML/class-name results in the installed, validated DOM
+authoring contract. Unknown contract majors and callback-bearing builder inputs
+remain unsupported. Helper-generated markup can preview even where a dedicated
+visual source-edit adapter is unavailable.
+
+The Live UI heading and window title use the plugin's literal source metadata
+name, falling back to its package name and workspace name. GitOps IDs remain the
+workspace identity for synchronization and draft recovery.
+
 String `replace` and `replaceAll` now support literal searches, bounded literal
 regular expressions and source-mapped render callbacks. This covers chained HTML
 escaping (for example `.replace(/&/g, "&amp;")`) and replacing a placeholder with
 SDK-generated markup. Callbacks are interpreted with match/index/input arguments;
 no workspace callback is invoked as native JavaScript. `replaceAll` regexes require
 `g`, as in JavaScript. Replacement text supports `$$`, `$&`, prefix and suffix tokens.
+
+Quoted attribute removal such as `.replace(/class="[^"]*"/g, '')` is supported,
+as are single-quoted attributes and other literal attribute names. This audited
+form requires the repeated character class to exclude the closing quote and
+does not allow suffixes or alternatives. General `.*` patterns remain unsupported.
 
 Supported regexes have at most 128 characters, g/i/u flags, no captures,
 backreferences, alternation or general repetition. Fixed-width patterns and
@@ -44,6 +68,19 @@ attaches preview-only selection IDs, and retains verified source offsets separat
 from string values. The actual JSON Inspector literal template is covered by a fixture.
 Safe replace/replaceAll operations retain provenance only for unchanged source spans,
 so this plugin's submit-to-button attribute replacement still preserves its tree.
+
+Interpolated templates retain the unchanged source spans of each template part
+and literal helper argument. Concatenation, array `map().join()` composition and
+the SDK's stylesheet/script wrapper preserve those mappings. This keeps authored
+headings, controls and helper-generated labels selectable instead of presenting
+an opaque preview. A literal label passed into a helper edits its call argument;
+captions beside icons or nested controls can be changed without replacing those
+children. The Inspector identifies these as direct-text edits. Mixed fragments
+with several separate text nodes remain protected rather than merging content.
+Unique unchanged tag endings allow adding attributes and inline overrides beside
+computed classes without replacing the interpolation. Shared, transformed or
+computed attribute values stay protected, with cross-file edits written to the
+file that actually owns the literal.
 
 Selecting an element shows **Source-mapped HTML**. **Show in code** uses its original
 source range. Leaf text can be edited through the existing draft, diff, Undo/Redo,
@@ -77,7 +114,7 @@ meaningful interleaved text, transformed regions and browser-inferred closing ta
 block movement across them. Blocks containing script/style/template or foreign
 markup also remain protected. Container insertion/removal, cross-container moves and
 action changes are still code-only for literal HTML; SDK controls remain separate. Mixed-content text, changed replacement
-spans, ambiguous origins, interpolated/escaped literals and compositions without
+spans, ambiguous origins, escaped source spans and compositions without
 verified provenance stay conservative. Script/style/template contents are not exposed
 as editable elements. The existing sanitizer, opaque iframe and disabled backend
 execution remain in force. Mapping is bounded to 1,000 elements and 20,000 visited

@@ -22,11 +22,23 @@ import {describeSdkComponent} from './sdkComponentEdits';
 import {isolationReason} from './styleIsolation';
 
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
-const methods = {DOM: new Set(['createElement', 'createClassFromStyle', 'renderHTML']), DOMText: new Set(['createPText']), DOMNested: new Set(['createBlockDiv'])};
+const legacyMethods = {DOM: ['createElement', 'createClassFromStyle', 'renderHTML'], DOMText: ['createPText'], DOMNested: ['createBlockDiv']};
+const reviewedDomClasses = new Set(['DOM', 'DOMText', 'DOMNested', 'DOMInput', 'DOMSemantic']);
 
 // Deliberately interpret a small expression language. Never eval/transpile/run
 // workspace code, module initialization, plugin constructors or backend handlers.
-export async function createStaticUiPreview(files, sdk, componentContract) {
+export async function createStaticUiPreview(files, sdk, componentContract, domContract) {
+    const methods = Object.fromEntries(Object.entries(legacyMethods).map(([name, entries]) => [name, new Set(entries)]));
+    if (/^1\.\d+\.\d+$/.test(domContract?.contractVersion || '')) {
+        for (const definition of domContract.classes || []) {
+            if (!reviewedDomClasses.has(definition.name) || typeof sdk[definition.name] !== 'function') continue;
+            methods[definition.name] ||= new Set();
+            for (const method of definition.methods || []) {
+                if (method.staticPreviewSafe === true && ['html-string', 'class-name-string'].includes(method.returnKind)
+                    && !forbidden.has(method.name)) methods[definition.name].add(method.name);
+            }
+        }
+    }
     const literalHtml = createHtmlLiteralMapper(files);
     let currentFile = '/index.ts';
     let operations = 0;
@@ -71,6 +83,10 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
     const bind = (pattern, value, scope) => {
         if (pattern.type === 'Identifier') scope.set(pattern.name, value);
         else if (pattern.type === 'AssignmentPattern') bind(pattern.left, value === undefined ? evaluate(pattern.right, scope) : value, scope);
+        else if (pattern.type === 'ArrayPattern') {
+            if (!Array.isArray(value)) fail(pattern, 'Preview tuple bindings require an array.');
+            pattern.elements.forEach((element, index) => {if (element) bind(element, value[index], scope);});
+        }
         else if (pattern.type === 'ObjectPattern') {
             for (const prop of pattern.properties) {
                 if (prop.type !== 'ObjectProperty' || prop.computed) fail(prop, 'This parameter pattern is not supported.');
@@ -88,14 +104,30 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
             const scope = new Map(fn.scope);
             fn.node.params.forEach((param, index) => bind(param, args[index], scope));
             if (fn.node.body.type !== 'BlockStatement') return evaluate(fn.node.body, scope);
-            for (const statement of fn.node.body.body) {
+            const run = (statement, blockScope, nesting = 0) => {
+                if (++operations > 20000 || nesting > 40) fail(statement, 'Preview statement budget exceeded.');
                 if (statement.type === 'VariableDeclaration') {
-                    for (const declaration of statement.declarations) bind(declaration.id, evaluate(declaration.init, scope), scope);
-                } else if (statement.type === 'ReturnStatement') return evaluate(statement.argument, scope);
+                    if (statement.kind === 'var' && nesting > 0) fail(statement, 'Use block-scoped declarations in preview branches.');
+                    for (const declaration of statement.declarations) bind(declaration.id, evaluate(declaration.init, blockScope), blockScope);
+                } else if (statement.type === 'ReturnStatement') return {value: evaluate(statement.argument, blockScope)};
+                else if (statement.type === 'IfStatement') {
+                    const branch = evaluate(statement.test, blockScope) ? statement.consequent : statement.alternate;
+                    if (branch) return run(branch, blockScope, nesting + 1);
+                } else if (statement.type === 'BlockStatement') {
+                    const local = new Map(blockScope);
+                    for (const child of statement.body) {
+                        const result = run(child, local, nesting + 1);
+                        if (result) return result;
+                    }
+                }
                 else if (statement.type === 'ExpressionStatement' && statement.expression.type === 'CallExpression'
                     && statement.expression.callee.type === 'MemberExpression' && !statement.expression.callee.computed
-                    && statement.expression.callee.property.name === 'collectStylesFrom') evaluate(statement.expression, scope);
+                    && statement.expression.callee.property.name === 'collectStylesFrom') evaluate(statement.expression, blockScope);
                 else if (!['TSTypeAliasDeclaration', 'TSInterfaceDeclaration', 'EmptyStatement'].includes(statement.type)) fail(statement, `Preview does not execute ${statement.type}.`);
+            };
+            for (const statement of fn.node.body.body) {
+                const result = run(statement, scope);
+                if (result) return result.value;
             }
         } finally { currentFile = previous; depth--; }
     };
@@ -123,10 +155,18 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
             case 'StringLiteral': return literalHtml.literal(node, currentFile, node.value);
             case 'NumericLiteral': case 'BooleanLiteral': return node.value;
             case 'NullLiteral': return null;
+            case 'UnaryExpression':
+                if (node.operator === '!') return !evaluate(node.argument, scope);
+                if (node.operator === '-' || node.operator === '+') {
+                    const operand = evaluate(node.argument, scope);
+                    if (typeof operand !== 'number') fail(node, 'Preview numeric operators require a number.');
+                    return node.operator === '-' ? -operand : operand;
+                }
+                break;
             case 'Identifier': return node.name === 'undefined' ? undefined : lookup(node.name, scope, node);
             case 'ThisExpression': return lookup('this', scope, node);
             case 'TSAsExpression': case 'TSNonNullExpression': case 'ParenthesizedExpression': return evaluate(node.expression, scope);
-            case 'TemplateLiteral': return literalHtml.literal(node, currentFile, check(node.quasis.map((part, i) => part.value.cooked + (i < node.expressions.length ? String(evaluate(node.expressions[i], scope)) : '')).join(''), node));
+            case 'TemplateLiteral': return check(literalHtml.template(node,currentFile,node.expressions.map(expression=>evaluate(expression,scope))),node);
             case 'ArrayExpression': return check(node.elements.map(item => evaluate(item, scope)), node);
             case 'ObjectExpression': {
                 value = Object.create(null);
@@ -154,7 +194,7 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
             }
             case 'BinaryExpression': {
                 const left = evaluate(node.left, scope), right = evaluate(node.right, scope);
-                if (node.operator === '+') return check(left + right, node);
+                if (node.operator === '+') return check(typeof left === 'string' || typeof right === 'string' ? literalHtml.concatenate([left,right]) : left + right, node);
                 if (node.operator === '===') return left === right;
                 if (node.operator === '!==') return left !== right;
                 break;
@@ -168,7 +208,9 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
             case 'NewExpression': {
                 const ctor = evaluate(node.callee, scope);
                 if (ctor?.kind !== 'sdk' || !Object.hasOwn(methods, ctor.name)) fail(node, 'Only supported SDK DOM helpers can be constructed.');
-                const instance = new sdk[ctor.name](...node.arguments.map(arg => evaluate(arg, scope)));
+                const args = node.arguments.map(arg => evaluate(arg, scope));
+                args.forEach(arg => inspectSdkInput(arg, node));
+                const instance = new sdk[ctor.name](...args);
                 instances.set(instance, ctor.name);
                 sdkEntries.set(instance, ctor.entry);
                 // SDK 1.6 allows an isolated owner shared by trusted helpers.
@@ -233,6 +275,7 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
                         }
                         const output = check(object[name](...args), node);
                         if (sdkClass === 'DOM' && name === 'renderHTML' && typeof args[0] === 'string') {
+                            literalHtml.wrap(args[0], output);
                             const emitted = renderedDomInstances.get(object) || new Set();
                             for (const match of args[0].matchAll(/\bdata-fdo-ui-id="([^"]+)"/g)) emitted.add(match[1]);
                             renderedDomInstances.set(object, emitted);
@@ -246,11 +289,24 @@ export async function createStaticUiPreview(files, sdk, componentContract) {
                         }
                         return output;
                     }
+                    if (name === 'includes' && (typeof object === 'string' || Array.isArray(object))) {
+                        if (args.length > 2 || args[1] !== undefined && typeof args[1] !== 'number') fail(node, 'Preview includes requires a numeric start position.');
+                        if (typeof object === 'string') {
+                            if (args[0] !== null && typeof args[0] === 'object') fail(node, 'Preview string includes requires a primitive search value.');
+                            const search = String(args[0]);
+                            check(object, node); check(search, node);
+                            return object.includes(search, args[1]);
+                        }
+                        if ((operations += object.length) > 20000) fail(node, 'Preview expression budget exceeded.');
+                        return object.includes(args[0], args[1]);
+                    }
                     if (Array.isArray(object) && name === 'join') {
                         if (object.some(item => item !== null && typeof item === 'object')) fail(node, 'Preview join requires primitive values.');
                         const separator = args[0] === undefined ? ',' : String(args[0]);
                         if (object.reduce((sum, item) => sum + String(item ?? '').length, 0) + separator.length * Math.max(0, object.length - 1) > 500000) fail(node, 'Preview output exceeds 500 KB.');
-                        return check(object.join(separator), node);
+                        const parts = [];
+                        object.forEach((entry,index)=>{if(index) parts.push(separator);parts.push(entry ?? '');});
+                        return check(literalHtml.concatenate(parts), node);
                     }
                     if (Array.isArray(object) && name === 'map') return object.map((item, i) => invoke(args[0], [item, i], node));
                     if (typeof object === 'string' && ['replace', 'replaceAll'].includes(name)) {

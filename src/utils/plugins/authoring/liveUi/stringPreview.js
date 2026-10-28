@@ -1,10 +1,19 @@
-// Native regex execution is restricted to fixed-width patterns plus a few audited
-// linear whitespace patterns. Never run arbitrary plugin regular expressions.
+// Native regex execution is restricted to fixed-width patterns plus audited
+// linear whitespace and quoted-attribute patterns. Never run arbitrary regexes.
 const whitespacePatterns = new Set(['\\s+', '^\\s+', '[\\r\\n]+', '\\r?\\n']);
-const escapedAtoms = new Set('dDsSwWbBtnrvf0\\^$.*+?()[]{}|/');
+const escapedAtoms = new Set([...'dDsSwWbBtnrvf0\\^$.*+?()[]{}|/']);
+function quotedAttributePattern(pattern) {
+    const prefix = /^([A-Za-z_:][A-Za-z0-9_:-]{0,63})=(["'])/.exec(pattern);
+    if (!prefix) return false;
+    const quote = prefix[2];
+    // The repeated body cannot consume its terminator. A later candidate prefix
+    // contains that same quote, so failed searches cannot rescan overlapping
+    // unbounded bodies. This admits class="[^"]*", not general repetition.
+    return pattern === `${prefix[1]}=${quote}[^${quote}]*${quote}`;
+}
 export function previewRegExp(pattern, flags, reject) {
     if (pattern.length > 128 || !/^[giu]*$/.test(flags)) reject('Preview replacement patterns support up to 128 characters and only g/i/u flags.');
-    if (!whitespacePatterns.has(pattern)) {
+    if (!whitespacePatterns.has(pattern) && !quotedAttributePattern(pattern)) {
         let inClass = false;
         for (let index = 0; index < pattern.length; index++) {
             const char = pattern[index];

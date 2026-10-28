@@ -27,7 +27,7 @@ test('an explicit request not to add tests does not require a test inventory', a
 test('targeted repairs recheck workspace foundation errors before accepting the file', async () => {
     const path = '/features/dashboard/render.ts';
     const invalid = 'export const render = () => `<input><button>Search</button>`;';
-    const fixed = 'export const render = () => `<form class="pure-form pure-form-stacked"><input><button class="pure-button pure-button-primary">Search</button></form>`;';
+    const fixed = 'export const render = () => `<form class="pure-form pure-form-stacked"><input><button type="button" class="pure-button pure-button-primary">Search</button></form>`;';
     const request = jest.fn().mockResolvedValueOnce(file(path, invalid)).mockResolvedValueOnce(file(path, fixed));
     const onFileValidated = jest.fn();
     const result = await generateStagedWorkspace({prompt: 'Correct the reported form foundation errors.',
@@ -175,7 +175,7 @@ test.each(['initial', 'source repair', 'format recovery'])('normalizes reserved 
     if (element.dataset.bound) return;
     element.dataset["bound"] = "true";
     element.setAttribute("data-bound", "true");
-    element.addEventListener("click", () => element.classList.toggle("active"));
+    window.addEventListener("resize", () => element.classList.toggle("compact", window.innerWidth < 800));
 }`;
     const expected = source.replace('dataset.bound', 'dataset.pluginListenerBound')
         .replace('dataset["bound"]', 'dataset.pluginListenerBound')

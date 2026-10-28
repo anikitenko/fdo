@@ -34,7 +34,7 @@ async function publishingPreview() {
     liveUiWorkspacePayload.mockReturnValue({workspaceId: 'workspace', files: {'/render.tsx': 'edited'}});
     act(() => {jest.advanceTimersByTime(750);});
     expect(liveUi.publish).toHaveBeenCalledTimes(1);
-    return {...hook, finishPublish: () => resolve(), failPublish: () => reject(new Error('Live UI closed'))};
+    return {...hook, finishPublish: result => resolve(result), failPublish: () => reject(new Error('Update failed'))};
 }
 
 test('an explicit reopen waits for an in-flight publish instead of losing the click', async () => {
@@ -69,4 +69,25 @@ test('does not reopen a preview after its IDE unmounts while synchronization is 
     hook.unmount();
     await asyncAct(async () => {hook.finishPublish(); await reopening;});
     expect(liveUi.open).toHaveBeenCalledTimes(1);
+});
+
+test('closing Live UI ends synchronization quietly and the toolbar can open it again', async () => {
+    const hook = await publishingPreview();
+    await asyncAct(async () => {hook.finishPublish({status: 'closed'});});
+    expect(hook.result.current.error).toBe('');
+    liveUiWorkspacePayload.mockReturnValue({workspaceId: 'workspace', files: {'/render.tsx': 'edited again'}});
+    await asyncAct(async () => {jest.advanceTimersByTime(2250);});
+    expect(liveUi.publish).toHaveBeenCalledTimes(1);
+    expect(liveUi.open).toHaveBeenCalledTimes(1);
+    await asyncAct(async () => {await hook.result.current.open();});
+    expect(liveUi.open).toHaveBeenCalledTimes(2);
+    expect(liveUi.open.mock.calls.at(-1)[0]).toMatchObject({files: {'/render.tsx': 'edited again'}});
+    hook.unmount();
+});
+
+test('an unexpected synchronization failure identifies the preview and the available retry action', async () => {
+    const hook = await publishingPreview();
+    await asyncAct(async () => {hook.failPublish();});
+    expect(hook.result.current.error).toBe('The Live UI preview could not be updated. Select “Live UI editor” to try again.');
+    hook.unmount();
 });

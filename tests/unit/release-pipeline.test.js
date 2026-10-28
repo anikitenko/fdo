@@ -127,6 +127,7 @@ test('publishes only after every asset uploads; failed uploads leave an unpublis
 test('workflow contracts gate publication and freeze action versions', () => {
     const workflow=yaml.load(fs.readFileSync('.github/workflows/release_matrix.yml','utf8'));
     expect(workflow.permissions).toEqual({contents:'read'});
+    expect(workflow.jobs.validate.steps.some(step => step.run === 'node scripts/release/check-sdk.cjs')).toBe(true);
     expect(workflow.jobs.build.needs).toEqual(['validate','quality']);expect(workflow.jobs.quality.uses).toContain('editor_ui_tests.yml');
     expect(workflow.jobs.publish.needs).toEqual(['validate','assemble']);
     expect(workflow.jobs.assemble.steps.find(step=>step.uses?.startsWith('actions/download-artifact')).with.pattern).toBe('release-build-*');

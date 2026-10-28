@@ -11,7 +11,7 @@ test('repairs a workspace foundation failure while retaining every other generat
     const prompt = buildValidationRepairPlanPrompt({validationErrors: errors, repairPaths: paths, invalidResponse: 'OLD FULL RESPONSE'});
     expect(prompt).toContain('Do not replan the workspace');
     expect(prompt).not.toContain('OLD FULL RESPONSE');
-    const repaired = '### File: /ui/cards.tsx\n```typescript\nexport const cards = `<form class="pure-form pure-form-stacked"><input><button class="pure-button pure-button-primary">Run</button></form>`;\n```';
+    const repaired = '### File: /ui/cards.tsx\n```typescript\nexport const cards = `<form class="pure-form pure-form-stacked"><input><button type="button" class="pure-button pure-button-primary">Run</button></form>`;\n```';
     const merged = parseAiWorkspacePlanResponse(mergeValidationRepairResponse(files, repaired, paths)).files;
     expect(merged).toHaveLength(21);
     expect(merged.slice(1).map(({path, content}) => ({path, content}))).toEqual(files.slice(1));

@@ -9,6 +9,8 @@ import {getAllFilesWithIgnorance} from '../filesystem/getAllFilesWithIgnorance';
 import {pluginBuildSource, pluginBuildEntrypoint} from '../plugins/runtime/pluginBuildArtifact';
 import {normalizeAndValidatePluginMetadata} from '../plugins/runtime/pluginMetadataContract';
 import generatePluginName from '../../components/editor/utils/generatePluginName';
+import {inspectPluginCompatibility} from '../sdk/pluginCompatibilityHost';
+import {assertPluginCompatibility} from '../sdk/pluginCompatibility';
 
 export function requirePluginDirectory(directory) {
     if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) throw new Error(`Plugin directory does not exist: ${directory}`);
@@ -66,7 +68,8 @@ async function preparePluginDirectory(directory, {build, extractMetadata}) {
     if (typeof output?.text !== 'string') throw new Error('The compiler produced no plugin bundle.');
     // Imported metadata modules are included in the bundle, unlike index.ts alone.
     const metadata = normalizeAndValidatePluginMetadata(await extractMetadata(output.text));
-    return {metadata, entryPoint, name: generatePluginName(manifest.name), destination, source, bundle: output.text};
+    const compatibility = assertPluginCompatibility(inspectPluginCompatibility(files['/package.json'], output.text));
+    return {metadata, entryPoint, name: generatePluginName(manifest.name), destination, source, bundle: output.text, compatibility};
 }
 
 export async function validatePluginDirectory(directory, dependencies) {

@@ -1,0 +1,11 @@
+import {DOM} from '@anikitenko/fdo-sdk'; import styles from './styles.css';
+export function render(){
+ const dom = new DOM().collectStylesFrom(), cls = dom.createClassFromStyle(styles.shell);
+ const tabs = [['overview','Overview'],['resources','Resources']];
+ const button = (id,label,extra='') => `<button id="${id}" class="pure-button ${extra.includes('primary')?'primary':''}" ${extra.replace(/class="[^"]*"/g,'')}>${label}</button>`;
+ return dom.renderHTML(`<main class="${cls}"><h1 id="title">Azure FinOps</h1>
+ <nav>${tabs.map(([id,label])=>`<button data-page="${id}">${label}</button>`).join('')}</nav>
+ <section id="panel"><input placeholder="Search resources"/><p>Static text</p></section>
+ ${button('refresh','Refresh')}${button('save','Save','class="primary"')}
+ </main>`);
+}

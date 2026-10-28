@@ -4,6 +4,7 @@ import {liveUiWorkspacePayload} from '../../../utils/plugins/authoring/liveUi/wo
 import {applyVisualEdit} from './applyVisualEdit';
 import * as monaco from 'monaco-editor';
 import {focusLiveUiAiSelection} from './focusAiSelection';
+import {reviewPluginSupportChange} from '../../../utils/sdk/pluginSupportEditing';
 
 export function useLiveUiConnection() {
     const session = useRef(null), last = useRef(''), busy = useRef(null), alive = useRef(true);
@@ -38,6 +39,10 @@ export function useLiveUiConnection() {
                     isActive: () => alive.current,
                     canCommit: () => window.electron.liveUi.canCommit(request.sessionId, request.requestId),
                     validate: async latestContent => {
+                        if (request.supportOnly === true) {
+                            reviewPluginSupportChange(request.base.files, latestContent);
+                            return {success: true};
+                        }
                         const types = await window.electron.plugin.typecheck({latestContent});
                         if (!types.success) return {success: false, error: types.error || types.diagnostics?.map(item => `${item.path}:${item.line}: ${item.message}`).join('\n') || 'Type validation failed.'};
                         const build = await window.electron.plugin.build({latestContent});
@@ -92,12 +97,16 @@ export function useLiveUiConnection() {
                 const data = payload();
                 const fingerprint = JSON.stringify(data);
                 if (fingerprint !== last.current) {
-                    await window.electron.liveUi.publish(session.current, data);
+                    const result = await window.electron.liveUi.publish(session.current, data);
+                    if (result?.status === 'closed') {
+                        session.current = null;
+                        return;
+                    }
                     last.current = fingerprint;
                 }
             } catch (failure) {
                 session.current = null;
-                if (alive.current) setError('Live UI disconnected. Open it again to reconnect.');
+                if (alive.current) setError('The Live UI preview could not be updated. Select “Live UI editor” to try again.');
             } finally {release();}
         }, 750);
         return () => {alive.current = false; clearInterval(timer); unsubscribe?.(); unsubscribeReveal?.(); unsubscribeAi?.();};

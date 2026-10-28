@@ -1,7 +1,8 @@
 import {HOST_SERVICES_AUTHORING_SUMMARY} from './hostServicesAuthoringGuide';
+import {PLUGIN_ACTION_GUIDANCE} from './pluginActionGuidance';
 // Public plugin-facing authoring context. Keep this independent of FDO host
 // implementation details so every coding provider receives the same contract.
-export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.19";
+export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.28";
 
 export const PLUGIN_STYLE_RENDERING_GUIDANCE = "CSS entries are objects, not strings: never test typeof css.panel === 'string', stringify an entry, or fall back to literal selector names. Share one DOM across child renderers, register styles there and finish with dom.renderHTML(html). In SDK 1.6, collectStylesFrom() starts an isolated retained collector; attach helpers before styling. Legacy collection is shared and drained. DOMStyleMap supports nested rules and numbers without automatic units. Plugin render() must call this composition entry; an unused renderShell does not style the deployed UI. Register palette/custom-property styles on an ancestor of every styled region. For repairs, inspect the actual entry-to-render call chain, replace string-only style lookups, preserve state and handlers, and test the deployed render path and emitted CSS, not only class attributes or stylesheet text.";
 
@@ -88,9 +89,9 @@ export function buildPluginAuthoringGuide() {
 
 WORKING METHOD
 - Inspect the user's goal, workspace and installed SDK evidence. Declarations and existing consumers define interfaces; examples show usage. Never invent SDK APIs, signatures or globals. Do not claim all models produce identical results.
-- Implement the smallest coherent change. Plan contracts and dependency order; split modules as needed. No minimum line or file count. Respect creation restrictions; preserve unrelated files and passing behavior.
-- Validate against source/import checks, compiler and editor diagnostics, tests, and rendered results when available. Treat each failure as new evidence: locate its owner, inspect that owner's dependencies and consumers, repair only the cause, then repeat validation. Preserve assertions and required behavior. A type assertion is not runtime validation. Bundling alone does not establish type correctness.
-- Return complete changed files in the requested format. Distinguish verified outcomes from assumptions. Never claim a build, test or visual inspection happened without tool evidence.
+- Make the smallest coherent change, planning contracts and dependency order. Split cohesive modules without minimum file/line counts; preserve unrelated files and behavior.
+- Check imports, compiler/editor diagnostics, tests and available rendered evidence. Locate each failure's owner and consumers, repair its cause, then repeat validation. Preserve assertions. A type assertion is not runtime validation. Bundling alone does not establish type correctness.
+- Return complete changed files. Distinguish evidence from assumptions; never claim unperformed build/test/visual checks.
 
 ${HOST_SERVICES_AUTHORING_SUMMARY}
 
@@ -100,11 +101,13 @@ PLUGIN CONTRACT
 - The UI_MESSAGE bridge passes the content payload directly to the handler. Expected input-validation failures belong in application result data, not transport failure flags.
 - Plugin UI renders HTML strings. Do not use React, JSX, className, htmlFor, or react/jsx-runtime. Use documented SDK imports and instance APIs as declared.
 - Avoid autofocus/autoFocus in sandboxed UI; use SDK or user-triggered focus.
-- Prefer installed SDK DOM helpers/components for all new or changed UI, including nested/dynamic fragments. Use dom.createElement(...) on a DOM instance when no dedicated helper fits. Compose helper-produced strings instead of raw HTML tags; wrapping raw HTML in renderHTML is insufficient. Explain any unavoidable SDK limitation. Preserve input escaping, styles, IDs and bindings; leave unrelated code and user data intact.
+- New/changed UI uses installed SDK DOM helpers/components, including nested fragments. Fall back to dom.createElement(...) on an instance, not raw HTML wrapped in renderHTML. Explain SDK limitations; preserve escaping, styles, IDs, bindings and user data.
 
+PLUGIN ACTIONS AND MUTATIONS
+${PLUGIN_ACTION_GUIDANCE}
 DEFAULT VISUAL QUALITY
-- The attached screenshot is visual evidence: infer hierarchy, proportions, spacing, typography, palette, shapes and states. Preserve behavior and reference intent across viewports. Do not invent unseen screens or claim visual verification from source alone.
-- Keep a coherent, distinctive visual identity. Check navigation, state visibility, keyboard focus, accessible labels, contrast, overflow, narrow layouts and reduced motion. Preserve design during code-only repairs.
+- The attached screenshot is visual evidence for hierarchy, spacing, typography, palette and states. Preserve behavior across viewports; do not invent unseen screens or claim visual checks from source.
+- Keep a distinctive visual identity, accessible navigation/focus/labels/contrast, narrow layouts and reduced motion. Preserve design during code repairs.
 
 VERIFIED IFRAME RUNTIME
 ${libraries}
@@ -117,22 +120,22 @@ Preserve data-fdo-ui-toast-* queue bindings.
 Host supplies these libraries; do not add dependencies.
 
 PLUGIN STYLESHEET CONTRACT
-- Relative .css imports produce style maps, not global stylesheets. Selector keys omit the leading dot. Register style entries through the documented SDK API and apply the returned class names to their elements.
+- Relative .css imports yield style maps. Keys omit the leading dot; register entries with the SDK and apply returned class names.
 - ${PLUGIN_STYLE_RENDERING_GUIDANCE}
-- Apply every component's styles; registering only the shell leaves its contents unstyled. Preserve supplied state when routing plugin render() through the composition entry.
+- Style every component and preserve state when routing render() through the composition entry.
 Canonical composition (use the actual stylesheet keys and existing public interfaces):
 ~~~typescript
 ${PLUGIN_STYLE_RENDERING_EXAMPLE}
 ~~~
-- Pure CSS is already injected into plugin iframes. Interactive forms must use a "pure-form pure-form-stacked" wrapper and their main action must use "pure-button pure-button-primary". Keep these foundation classes alongside generated style-map classes; do not import Pure CSS.
-- Optional AI identity: the host injects .fdo-ai-mark. Use a decorative span beside readable AI status text; data-active="true" animates pending work. This visual class does not grant AI access or invoke the SDK.
-- The loader supports grouped selectors, nested rules, media/state selectors, keyframes and relative CSS imports. Register complete style entries, including nested objects: the loader attaches top-level media/supports/container rules to their class entries. It is not a Sass compiler. Missing imports and cycles fail; package/URL imports and import qualifiers are unsupported. Scope shared styles to registered ancestors and verify every visible style is actually applied.
+- Pure CSS is injected: use "pure-form pure-form-stacked" groups and "pure-button pure-button-primary" commands alongside style-map classes. Do not import Pure CSS.
+- Optional .fdo-ai-mark decorates readable AI status; data-active="true" animates pending work. It grants no access or SDK invocation.
+- The loader supports grouped/nested selectors, media/state rules, keyframes and relative CSS imports. Register complete nested entries; top-level media/supports/container rules attach to those entries. Missing/cyclic imports fail; Sass, package/URL imports and qualifiers are unsupported. Verify visible styles on registered ancestors.
 
 FOLDER STRUCTURE AND TYPESCRIPT QUALITY
 - New scaffolds need /SKILL.md: purpose, modules, SDK conventions and tests. Preserve existing guides.
-- Follow current naming, module and dependency conventions. Use import type where appropriate, explicit public contracts, and normal narrowing of unknown inputs. Do not hide errors with any, double casts or suppression comments.
+- Follow workspace conventions. Use import type, explicit contracts and input narrowing; never hide errors with any, double casts or suppressions.
 - Node tests lack process.parentPort: test pure modules, or install a bridge before dynamically importing the entry.
-- Test public behavior, invalid inputs and state transitions using node:test and node:assert/strict. Keep side effects at lifecycle boundaries, handle async failures, and clean up resources. Do not require cloud credentials or add external integrations unless the task authorizes them.
+- Test public behavior, invalid inputs and state transitions with node:test and node:assert/strict. Handle async failures and lifecycle cleanup. Do not require cloud credentials or unauthorized integrations.
 `;
 }
 

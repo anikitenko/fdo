@@ -6,6 +6,18 @@ The AI Coding Agent is a new feature integrated into the FDO built-in code edito
 
 The AI assistant is **FDO SDK-aware** and can help with plugin development using the `@anikitenko/fdo-sdk`.
 
+Every coding request receives the host-owned version and compatibility context.
+FDO and SDK versions come from the packages bundled in the running application;
+host protocol versions and feature flags come from `contracts/plugin-host.json`.
+The agent uses the supplied `defaultRequirements` for new declarations and
+preserves existing plugin support claims. Defaults are generated from the host
+versions under a fixed semver range policy; they do not certify every permitted
+release. SDK updates do not automatically increment host protocol versions or
+retarget existing plugins. Maintainers review target changes in the IDE or
+Live UI support editor before asking AI to work against the new baseline.
+See [version sources and default ranges](PLUGIN_COMPATIBILITY.md#where-versions-and-default-ranges-come-from)
+and [host contract versioning](PLUGIN_HOST_CONTRACT.md) for the full rules.
+
 For privileged integrations, the AI Coding Agent should prefer host-mediated scoped actions over raw shell or child-process spawning from plugin code. In practice, that means recommending:
 
 - `system.hosts.write` for `/etc/hosts` workflows
@@ -59,68 +71,101 @@ For operator-style request/response handling, the preferred SDK pattern is:
 
 For serialized `renderOnLoad()` handlers, prefer SDK helpers and avoid manually wiring `window.createBackendReq("requestPrivilegedAction", ...)`. If a low-level transport helper is still required for a `.toString()` embedding case, keep that as an explicit exception rather than the default authoring pattern.
 
-For UI action wiring inside `renderOnLoad()`, prefer declarative bindings when a plugin has more than one meaningful interactive element:
+For new or changed UI action wiring, use SDK declarative bindings even for a
+single command. Return the SDK descriptor from `renderOnLoad()`, directly or
+through an imported factory:
 
 - `defineRenderOnLoadActions(...)` for typed handlers plus selector/event bindings
 - `createRenderOnLoadActionsSource(...)` only when code generation needs the raw source string explicitly
 
 Use `strict: true` in authoring examples unless the plugin intentionally tolerates optional selectors. Strict mode is the preferred DX because selector mismatches become visible diagnostics instead of silently missing event listeners.
 
+Commands use `type="button"` and `event: "click"`. Forms may group fields, but
+native submission is unsupported in the plugin sandbox. Generated code must not
+substitute submit listeners, native `form.submit()` / `requestSubmit()`, HTML
+event attributes, `onclick` assignments or manual click/change listener loops.
+Putting those loops in SDK `setup` does not make them declarative. Setup owns
+state/widget initialization and cleanup; SDK component callbacks such as
+`onConfirm`, lifecycle cleanup and resize observers remain supported.
+
+Read or mutate DOM state inside the SDK handler, using its `document`, `element`
+and `window` context. Backend mutations remain in handlers registered through
+`PluginRegistry.registerHandler(...)` during `init()`; frontend actions request
+`window.createBackendReq('UI_MESSAGE', {handler, content})`. Preserve permission
+checks, confirmations, input/result validation and pending/error/cancellation
+behavior. The SDK descriptor must be returned through the plugin lifecycle;
+an unused helper import or a declaration never mounted by `renderOnLoad()` is
+insufficient. Serialized functions cannot capture module helpers automatically.
+
+Generation and the final merged-workspace Apply gate check new interaction
+wiring and decoded frontend script strings without executing them. Violations
+carry a file/line and `SDK_ACTION_BINDING_REQUIRED` diagnostic for scoped repair.
+Unchanged legacy wiring is retained during unrelated edits; newly added or
+changed wiring must use SDK actions. This static generation contract does not
+replace runtime permissions, behavior tests or a security audit. Verify an actual
+click dispatches to the registered handler and updates the expected state,
+including errors and cleanup/reinitialization.
+
 Before:
 
 ```typescript
-public renderOnLoad() {
-    return `
-        const button = document.querySelector("[data-role='refresh']");
-        if (button) {
-            button.addEventListener("click", async (event) => {
-                event.preventDefault();
-                const response = await window.createBackendReq("UI_MESSAGE", {
-                    handler: "refreshStatus",
-                    content: { source: "manual-onload" },
+class LegacyView {
+    public renderOnLoad() {
+        return `
+            const button = document.querySelector("[data-role='refresh']");
+            if (button) {
+                button.addEventListener("click", async (event) => {
+                    event.preventDefault();
+                    const response = await window.createBackendReq("UI_MESSAGE", {
+                        handler: "refreshStatus",
+                        content: { source: "manual-onload" },
+                    });
+                    const status = document.querySelector("[data-role='status']");
+                    if (status) {
+                        status.textContent = String(response?.message || "Updated");
+                    }
                 });
-                const status = document.querySelector("[data-role='status']");
-                if (status) {
-                    status.textContent = String(response?.message || "Updated");
-                }
-            });
-        }
-    `;
+            }
+        `;
+    }
 }
 ```
 
 After:
 
 ```typescript
-public renderOnLoad() {
-    return defineRenderOnLoadActions({
-        handlers: {
-            refreshStatus: async ({ element }) => {
-                const response = await window.createBackendReq("UI_MESSAGE", {
+import { defineRenderOnLoadActions } from "@anikitenko/fdo-sdk";
+
+class SdkView {
+    public renderOnLoad() {
+        return defineRenderOnLoadActions({
+            lifecycleKey: "example.refresh",
+            handlers: {
+                refreshStatus: async ({ element, document, window }) => {
+                    const response = await window.createBackendReq("UI_MESSAGE", {
+                        handler: "refreshStatus",
+                        content: { source: "renderOnLoad-actions" },
+                    });
+                    const status = document.querySelector("[data-role='status']");
+                    if (status) {
+                        status.textContent = String(response?.message || "Updated");
+                    }
+                    element.setAttribute("data-state", "ready");
+                },
+            },
+            bindings: [
+                {
+                    selector: "[data-role='refresh']",
+                    event: "click",
                     handler: "refreshStatus",
-                    content: { source: "renderOnLoad-actions" },
-                });
-                const status = document.querySelector("[data-role='status']");
-                if (status) {
-                    status.textContent = String(response?.message || "Updated");
-                }
-                if (element instanceof HTMLElement) {
-                    element.dataset.state = "ready";
-                }
-            },
-        },
-        bindings: [
-            {
-                selector: "[data-role='refresh']",
-                event: "click",
-                handler: "refreshStatus",
-                preventDefault: true,
-                required: true,
-            },
-        ],
-        strict: true,
-        language: "typescript",
-    });
+                    preventDefault: true,
+                    required: true,
+                },
+            ],
+            strict: true,
+            language: "typescript",
+        });
+    }
 }
 ```
 
@@ -493,7 +538,7 @@ The **Plan Code** action is a powerful feature that generates complete plugin pr
 
 The AI generates plans in a structured markdown format:
 
-```markdown
+````markdown
 ## Plan Overview
 Brief description of the plugin and its features.
 
@@ -502,10 +547,9 @@ Brief description of the plugin and its features.
 /package.json
 /tsconfig.json
 /index.ts
-/render.tsx
+/render.ts
 /components/
-  /WeatherCard.tsx
-  /ForecastList.tsx
+  /WeatherCard.ts
 ```
 
 ## Implementation
@@ -515,22 +559,46 @@ Brief description of the plugin and its features.
 {
   "name": "weather-plugin",
   "version": "1.0.0",
-  ...
+  "private": true
 }
 ```
 
 ### File: /index.ts
 ```typescript
-import { FDO_SDK, FDOInterface, PluginMetadata } from "@anikitenko/fdo-sdk";
-...
+import { FDO_SDK } from "@anikitenko/fdo-sdk";
+import { render } from "./render";
+
+export default class WeatherPlugin extends FDO_SDK {
+    get metadata() {
+        return { name: "Weather", version: "1.0.0", author: "Example",
+            description: "Weather dashboard", icon: "cloud" };
+    }
+    init(): void {}
+    render(): string { return render(); }
+}
+
+new WeatherPlugin();
 ```
 
-### File: /components/WeatherCard.tsx
-```tsx
-import React from 'react';
-...
+### File: /render.ts
+```typescript
+import { DOM } from "@anikitenko/fdo-sdk";
+import { renderWeatherCard } from "./components/WeatherCard";
+
+export function render(): string {
+    return new DOM().renderHTML(renderWeatherCard());
+}
 ```
+
+### File: /components/WeatherCard.ts
+```typescript
+import { DOMText } from "@anikitenko/fdo-sdk";
+
+export function renderWeatherCard(): string {
+    return new DOMText().createSpanText("Forecast unavailable", {});
+}
 ```
+````
 
 ### Features
 

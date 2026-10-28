@@ -7,7 +7,7 @@ import {rebuildVisualDraft} from './draftEdits';
 const MAX_BYTES = 10000000;
 const sourceHash = files => createHash('sha256').update(JSON.stringify(pickLiveUiSources(files))).digest('hex');
 export function savedVisualDraft(base, draft, sdkFingerprint) {
-    const selected = draft.preview.elements.find(element => element.id === draft.selectedId)?.structure;
+    const selected = draft.preview.elements?.find(element => element.id === draft.selectedId)?.structure;
     const steps = draft.steps.map(step => {
         const saved = {...step};
         // Each step already carries its complete atomic patches. Avoid storing
@@ -24,7 +24,7 @@ export function savedVisualDraft(base, draft, sdkFingerprint) {
 export function visualDraftRecoveryStatus(record, base, sdkFingerprint) {
     if (record.schemaVersion !== 1) return {status: 'unavailable', message: 'This saved draft uses an unsupported format. Its files have not been applied.'};
     if (record.workspaceId !== base.workspaceId || record.sourceHash !== sourceHash(base.files)) return {status: 'conflict', message: 'Workspace source has changed since this draft was saved. Automatic recovery is blocked; workspace files are unchanged.'};
-    if (record.sdkFingerprint !== sdkFingerprint) return {status: 'conflict', message: 'The installed SDK changed since this draft was saved. Automatic recovery is blocked; workspace files are unchanged.'};
+    if (record.sdkFingerprint !== sdkFingerprint) return {status: 'conflict', message: 'The FDO host or installed SDK changed since this draft was saved. Automatic recovery is blocked; workspace files are unchanged.'};
     return {status: 'available', savedAt: record.savedAt, message: 'Unapplied visual changes were saved locally. Restore the draft to review and continue, or discard it.'};
 }
 

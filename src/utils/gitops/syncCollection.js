@@ -7,6 +7,8 @@ import path from 'node:path';
 import {repositoryPath, repositoryUrl, validateCollection} from './manifest';
 import {extractMetadata} from '../plugins/runtime/extractMetadata';
 import {pluginBuildSource, pluginBuildEntrypoint} from '../plugins/runtime/pluginBuildArtifact';
+import {assertPluginCompatibility} from '../sdk/pluginCompatibility';
+import {inspectPluginCompatibility} from '../sdk/pluginCompatibilityHost';
 
 function requireApprovedRuntime(result) {
     if(!result.success)throw new Error(`The approved update could not start: ${result.error||'unknown error'}`);
@@ -148,6 +150,7 @@ export async function syncCollection({source, secret, pluginsDir, registryFile, 
             name: declaration.name, version: pkg.version, author: typeof pkg.author === 'object' ? pkg.author?.name : pkg.author,
             description: pkg.description || declaration.name, icon: pkg.fdo?.icon || 'application',
         });
+        assertPluginCompatibility(inspectPluginCompatibility(JSON.stringify(pkg), await readFile(path.join(home, entry), 'utf8')));
         const signed = await sign(home, 'root');
         if (!signed.success) throw new Error(`Default certificate signing failed: ${signed.error}`);
         const verified = await verifySignature(home);

@@ -13,7 +13,7 @@ let handlers, owner, child, savedDrafts, draftStore;
 const windowMock = id => {
     const window = new EventEmitter();
     Object.assign(window, {id, isDestroyed: () => false, webContents: Object.assign(new EventEmitter(), {send: jest.fn(), setWindowOpenHandler: jest.fn()}),
-        loadURL: jest.fn(async () => {}), destroy: jest.fn(() => window.emit('closed'))});
+        loadURL: jest.fn(async () => {}), setTitle: jest.fn(), destroy: jest.fn(() => window.emit('closed'))});
     return window;
 };
 const payload = {workspaceId: 'sandbox_a', name: 'A', snapshot: 'blue', files: {'/index.ts': 'class P { render() {return "hello";} }'}};
@@ -58,6 +58,8 @@ test('owner reload disconnects the retained preview and closing Live UI releases
     expect(owner.listenerCount('closed')).toBe(0);
     expect(owner.webContents.listenerCount('did-start-navigation')).toBe(0);
     expect(() => handlers[LiveUiChannels.READ]({sender: child.webContents}, sessionId)).toThrow('does not belong');
+    expect(handlers[LiveUiChannels.PUBLISH]({sender: owner.webContents}, sessionId, payload)).toEqual({status: 'closed'});
+    expect(() => handlers[LiveUiChannels.PUBLISH]({sender: child.webContents}, sessionId, payload)).toThrow('does not belong');
 });
 test('SDK metadata includes its installed version and a repeatable fingerprint', async () => {
     const first = await readLiveUiSdkMetadata();
@@ -79,6 +81,66 @@ async function prepareDraft() {
     return {data, sessionId, draft, button, state};
 }
 const applyRequest = () => owner.webContents.send.mock.calls.filter(call => call[0] === LiveUiChannels.APPLY_REQUEST).at(-1)[1];
+
+test('support policy editing can repair an incompatible target, but applying requires acknowledgement', async () => {
+    const files = createPluginTemplateFiles({name: 'future-policy', template: 'utility'});
+    const pkg = JSON.parse(files['/package.json']);
+    pkg.fdo.compatibility.fdo = '>=99.0.0';
+    delete pkg.fdo.compatibility.sdk;
+    files['/package.json'] = JSON.stringify(pkg);
+    const data = {...payload, files};
+    const {sessionId} = await open(data);
+    const state = handlers[LiveUiChannels.READ]({sender: child.webContents}, sessionId);
+    const draft = await handlers[LiveUiChannels.PROPOSE]({sender: child.webContents}, sessionId, {revision: state.revision, kind: 'compatibility', mode: 'missing'});
+    expect(draft).toMatchObject({status: 'ready', supportOnly: true, supportPolicy: {compatibility: {status: 'incompatible'}}});
+    expect(handlers[LiveUiChannels.APPLY]({sender: child.webContents}, sessionId, draft.id)).toMatchObject({status: 'confirmation-required'});
+    expect(owner.webContents.send.mock.calls.some(call => call[0] === LiveUiChannels.APPLY_REQUEST)).toBe(false);
+    const pending = handlers[LiveUiChannels.APPLY]({sender: child.webContents}, sessionId, draft.id, {confirmSupportChange: true});
+    const request = applyRequest();
+    expect(request.supportOnly).toBe(true);
+    expect(handlers[LiveUiChannels.CAN_COMMIT]({sender: owner.webContents}, sessionId, request.requestId)).toBe(true);
+    const result = {status: 'applied', workspace: {...data, files: {...files, '/package.json': draft.patch.after}}};
+    await handlers[LiveUiChannels.APPLIED]({sender: owner.webContents}, sessionId, request.requestId, result);
+    expect(await pending).toEqual(result);
+    expect(handlers[LiveUiChannels.READ]({sender: child.webContents}, sessionId).authoringContract.compatibility.status).toBe('incompatible');
+});
+
+test('support edits do not mix into an existing visual draft', async () => {
+    const {sessionId, state, draft} = await prepareDraft();
+    const result = await handlers[LiveUiChannels.PROPOSE]({sender: child.webContents}, sessionId,
+        {revision: state.revision, draftId: draft.id, kind: 'compatibility', mode: 'missing'});
+    expect(result.status).toBe('busy');
+});
+
+test('repeated support proposals return a no-op without replacing history, and validation errors are structured', async () => {
+    const {sessionId} = await open({...payload, files: {...payload.files, '/package.json': '{"name":"legacy"}'}});
+    const event = {sender: child.webContents};
+    const {revision} = handlers[LiveUiChannels.READ](event, sessionId);
+    const draft = await handlers[LiveUiChannels.PROPOSE](event, sessionId, {revision, kind: 'compatibility', mode: 'missing'});
+    const repeated = await handlers[LiveUiChannels.PROPOSE](event, sessionId, {revision, draftId: draft.id, kind: 'compatibility', mode: 'missing'});
+    expect(repeated).toMatchObject({status: 'unchanged', message: expect.stringContaining('No changes were added')});
+    const invalid = await handlers[LiveUiChannels.PROPOSE](event, sessionId, {revision, draftId: draft.id, kind: 'compatibility', requirements: {fdo: 'latest'}});
+    expect(invalid).toMatchObject({status: 'error', message: expect.stringContaining('valid version range')});
+    const undo = await handlers[LiveUiChannels.PROPOSE](event, sessionId, {revision, draftId: draft.id, kind: 'undo'});
+    expect(undo.patches).toHaveLength(0);
+    expect(undo.canRedo).toBe(true);
+});
+
+test('an incompatible workspace keeps a static preview but refuses visual proposals and apply', async () => {
+    const files = createPluginTemplateFiles({name: 'future', template: 'utility'});
+    const pkg = JSON.parse(files['/package.json']);
+    pkg.fdo.compatibility.fdo = '>=99.0.0';
+    files['/package.json'] = JSON.stringify(pkg);
+    const {sessionId} = await open({...payload, files});
+    const state = handlers[LiveUiChannels.READ]({sender: child.webContents}, sessionId);
+    expect(state.authoringContract.compatibility.status).toBe('incompatible');
+    const preview = await handlers[LiveUiChannels.PREVIEW]({sender: child.webContents}, sessionId, state.revision);
+    expect(preview.status).toBe('ready');
+    const result = await handlers[LiveUiChannels.PROPOSE]({sender: child.webContents}, sessionId, {revision: state.revision, kind: 'text'});
+    expect(result.status).toBe('incompatible');
+    expect(handlers[LiveUiChannels.APPLY]({sender: child.webContents}, sessionId, 'forged')).toMatchObject({status: 'incompatible'});
+    expect(owner.webContents.send.mock.calls.some(call => call[0] === LiveUiChannels.APPLY_REQUEST)).toBe(false);
+});
 
 test('approved drafts apply once through the owner; duplicate requests reuse the outcome', async () => {
     const {data, sessionId, draft} = await prepareDraft();

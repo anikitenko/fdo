@@ -11,6 +11,7 @@ import {
     Spinner, Card, Callout, HTMLSelect
 } from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
+import PluginCompatibilityNotice from './plugin/PluginCompatibilityNotice';
 
 import * as styles from './css/CreatePluginDialog.module.css'
 import {PLUGIN_TEMPLATES, resolvePluginTemplate} from "../utils/plugins/authoring/pluginTemplateCatalog";
@@ -42,7 +43,9 @@ export const CreatePluginDialog = ({show, close}) => {
     const hasSavedWorkspace = id => localStorage.getItem(`sandbox_${id}`) !== null;
     const validation = validateNewPluginName(pluginName, {plugins: nameInventory.plugins, hasSavedWorkspace});
     const pluginMetadata = importMode === 'build' ? importPreview?.sourceMetadata || importPreview?.metadata : importPreview?.metadata;
-    const importMetadataError = importMode === 'build' ? importPreview?.sourceMetadataError : importPreview?.metadataError;
+    const importCompatibility = importMode === 'build' ? importPreview?.sourceCompatibility : importPreview?.compatibility;
+    const importMetadataError = (importMode === 'build' ? importPreview?.sourceMetadataError : importPreview?.metadataError)
+        || (importCompatibility?.status === 'incompatible' ? importCompatibility.summary : '');
     let archives = [];
     try {archives = archivedDrafts(localStorage, validation.id);} catch { /* Storage errors are shown during validation. */ }
     const nameError = (nameTouched || !!pluginName) && !validation.valid;
@@ -268,6 +271,7 @@ export const CreatePluginDialog = ({show, close}) => {
                         <Tag>{importPreview.fileCount} files</Tag>
                         <Tag>{pluginMetadata?.version || 'Version missing'}</Tag>
                     </div>
+                    <PluginCompatibilityNotice report={importCompatibility}/>
                     <FormGroup label="Plugin ID" labelFor="import-plugin-id" helperText={<>{validation.message}{draftControls}</>} intent={!validation.valid ? 'danger' : 'none'} style={{marginTop: 16}}>
                         <InputGroup id="import-plugin-id" value={pluginName} disabled={createLoading || draftBusy} onValueChange={setPluginName}/>
                     </FormGroup>

@@ -1,5 +1,7 @@
 import {sdkComponentContextKey} from './utils/sdkComponentContext';
 import {ActionManager} from './ActionManager';
+import PluginAuthoringContract from '../plugin/PluginAuthoringContract';
+import {PluginSupportEditor} from './PluginSupportEditor';
 import {BackendResultEditor} from './BackendResultEditor';
 import {ClassNamesEditor,InputKindEditor} from './ElementBasicsEditors';
 import {BackendActionEditor} from './BackendActionEditor';
@@ -35,6 +37,7 @@ export function WorkspacePreview({sessionId}) {
     const [metadata, setMetadata] = useState({status: 'loading'}), [metadataRetry, setMetadataRetry] = useState(0);
     const [query, setQuery] = useState(''), [selectedId, setSelectedId] = useState('');
     const [draft, setDraft] = useState(null), [mode, setMode] = useState('text'), [value, setValue] = useState('');
+    const [supportAcknowledged, setSupportAcknowledged] = useState(false);
     const [keepCheckpoint, setKeepCheckpoint] = useState(false);
     const [collectionContext,setCollectionContext]=useState(new Map());
     useEffect(()=>setCollectionContext(new Map()),[workspace?.workspaceId]);
@@ -101,7 +104,10 @@ export function WorkspacePreview({sessionId}) {
     const textUses = selected?.text ? (surface?.tree || []).filter(item => item.text?.file === selected.text.file && item.text.start === selected.text.start).length : 0;
     const isolationBlocked = cssScope === 'element' && (!selectedStyle?.draftLocal || styleUses !== 1) && selectedStyle?.isolationReason;
     const recovery = !draft && workspace?.recovery;
-    const conflicted = !!recovery || !!draft && (draft.revision !== workspace?.revision || workspace?.disconnected);
+    const sourceConflicted = !!recovery || !!draft && (draft.revision !== workspace?.revision || workspace?.disconnected);
+    const targetBlocked = workspace?.authoringContract?.compatibility.status === 'incompatible';
+    const conflicted = sourceConflicted || targetBlocked || !!draft?.supportOnly;
+    const draftConflicted = sourceConflicted || targetBlocked && !draft?.supportOnly;
 
     useEffect(() => {
         let alive = true, received = false;
@@ -216,7 +222,12 @@ export function WorkspacePreview({sessionId}) {
         catch (error) {setEditError(error.message);}
     };
     const propose = async (operation = {}) => {
-        if (proposalBusy.current || working || conflicted || workspace?.disconnected) return false;
+        const supportRequest = operation.kind === 'compatibility';
+        const policyOperation = operation.kind === 'compatibility' || draft?.supportOnly && ['undo', 'redo'].includes(operation.kind);
+        if (proposalBusy.current || working || sourceConflicted || (targetBlocked || draft?.supportOnly) && !policyOperation || workspace?.disconnected) {
+            return supportRequest ? {status: 'busy', message: workspace?.disconnected ? 'Reconnect to the IDE to change support settings.'
+                : sourceConflicted ? 'The workspace changed. Resolve or discard the existing draft before trying again.' : 'Wait for the current operation to finish, then try again.'} : false;
+        }
         proposalBusy.current = true;
         const generation = ++draftGeneration.current;
         const selectionGeneration = selectionIntent.current.generation;
@@ -234,11 +245,12 @@ export function WorkspacePreview({sessionId}) {
             const result = await window.electron.liveUi.propose(sessionId, {revision: workspace.revision, elementId: selectedId, draftId: draft?.id, kind: mode, value, component,
                 styleFile: selectedStyle?.file, styleKey: selectedStyle?.key, property, scope: cssScope, state: cssState, breakpoint: cssBreakpoint, ...operation});
             if (generation !== draftGeneration.current) return;
+            if (supportRequest && result.status !== 'ready') return result;
             if (result.status !== 'ready') {
                 //noinspection ExceptionCaughtLocallyJS
                 throw new Error(result.message || 'Could not prepare this edit.');
             }
-            setDraft(result);
+            setDraft(result); setSupportAcknowledged(false);
             if (selectionIntent.current.generation !== selectionGeneration) setSelectedId(result.selectionMap?.[selectionIntent.current.id] || '');
             else if (result.selectedId !== undefined) setSelectedId(result.selectedId);
             if (!draft) setKeepCheckpoint(false);
@@ -252,8 +264,12 @@ export function WorkspacePreview({sessionId}) {
                 cssEditIntent.current = true;
                 setCssScope('element'); setCssState('base'); setCssBreakpoint(null); setStyleIndex(0); setProperty(''); setValue(''); setMode('css'); focusNewStyle.current = true;
             }
-            return true;
-        } catch (error) {if (generation === draftGeneration.current) setEditError(error.message); return false;}
+            return supportRequest ? {status: 'ready'} : true;
+        } catch (error) {
+            if (supportRequest) return {status: 'error', message: error.message};
+            if (generation === draftGeneration.current) setEditError(error.message);
+            return false;
+        }
         finally {proposalBusy.current = false; if (generation === draftGeneration.current) setWorking('');}
     };
     const chooseCustomBreakpoint = () => {
@@ -282,13 +298,14 @@ export function WorkspacePreview({sessionId}) {
         setWorking('apply'); setEditError('');
         // Validation failures intentionally share this boundary with operation failures.
         try {
-            const result = await window.electron.liveUi.apply(sessionId, draft.id, {keepCheckpoint});
+            const result = await window.electron.liveUi.apply(sessionId, draft.id, {keepCheckpoint, ...(draft.supportOnly ? {confirmSupportChange: supportAcknowledged} : {})});
             if (result.status !== 'applied') {
                 //noinspection ExceptionCaughtLocallyJS
                 throw new Error(result.message || 'The edit was not applied.');
             }
             setDraft(null); setSelectedId('');
-            setFeedback('Applied. Restore point: ' + result.restorePoint + '. Current snapshot: ' + result.snapshot + (result.changes ? '. ' + result.changes + ' design changes grouped' + (result.checkpointKept ? '; checkpoint kept' : '; working snapshot saved') : '') + (result.warning ? '. ' + result.warning : ''));
+            setFeedback((draft.supportOnly ? 'Support declaration applied to the workspace. Rebuild and redeploy to update the installed plugin. ' : 'Applied. ')
+                + 'Restore point: ' + result.restorePoint + '. Current snapshot: ' + result.snapshot + (result.changes ? '. ' + result.changes + ' design changes grouped' + (result.checkpointKept ? '; checkpoint kept' : '; working snapshot saved') : '') + (result.warning ? '. ' + result.warning : ''));
         } catch (error) {setEditError(error.message);}
         finally {setWorking('');}
     };
@@ -313,7 +330,7 @@ export function WorkspacePreview({sessionId}) {
                 //noinspection ExceptionCaughtLocallyJS
                 throw new Error(result.message || 'Could not restore the draft.');
             }
-            setDraft(result); setSelectedId(result.selectedId || ''); setKeepCheckpoint(false);
+            setDraft(result); setSupportAcknowledged(false); setSelectedId(result.selectedId || ''); setKeepCheckpoint(false);
             setWorkspace(current => ({...current, recovery: null}));
             setFeedback('Visual draft restored. Review the changes, continue editing, or apply through IDE validation.');
         } catch (error) {if (generation === draftGeneration.current) setEditError(error.message);}
@@ -327,6 +344,11 @@ export function WorkspacePreview({sessionId}) {
             <div><h1>Live UI · {workspace.name}</h1><p>Snapshot {workspace.snapshot || 'unsaved'} · Revision {workspace.revision.slice(0, 8)}</p></div>
             <Button icon="application" onClick={focus}>Show IDE</Button>
         </header>
+        <PluginAuthoringContract context={workspace.authoringContract} disclosureComponent={EditorSection}>
+            {workspace.authoringContract && <PluginSupportEditor context={draft?.supportOnly && draft.patches?.length
+                ? {...workspace.authoringContract, declaredRequirements: draft.supportPolicy.requirements} : workspace.authoringContract}
+                disabled={!!working || sourceConflicted || workspace.disconnected || !!draft && !draft.supportOnly} onReview={propose}/>}
+        </PluginAuthoringContract>
         {workspace.disconnected && <Callout intent="warning" title="IDE disconnected">The last preview is retained. Reopen Live UI from the IDE to reconnect.</Callout>}
         {recovery && <Callout intent={recovery.status === 'available' ? 'primary' : 'warning'} title={recovery.status === 'available' ? 'Saved visual draft found' : 'Saved draft needs attention'}>
             <p>{recovery.message}</p>
@@ -340,7 +362,7 @@ export function WorkspacePreview({sessionId}) {
                 <p className="bp6-text-muted">Select in the preview or this list. Computed content stays editable in the IDE.</p>
                 <div role="list" aria-label="Preview elements">
                     {(surface?.tree || []).map(item => <div role="listitem" key={item.id} style={{paddingLeft: item.depth * 10}}>
-                        <Button variant="minimal" fill active={selectedId === item.id} disabled={!!working || conflicted || workspace.disconnected} className={styles.element}
+                        <Button variant="minimal" fill active={selectedId === item.id} disabled={!!working || sourceConflicted || workspace.disconnected} className={styles.element}
                             onClick={() => chooseElement(item.id)} text={item.label} title={item.location.path + ':' + item.location.line}/>
                     </div>)}
                 </div>
@@ -399,14 +421,19 @@ export function WorkspacePreview({sessionId}) {
                 {draft && <section className={styles.draft} aria-label="Draft changes">
                     {draft.durability?.saved === false ? <Callout intent="warning" title="Draft is only in this window">{draft.durability.message}</Callout>
                         : draft.durability?.saved && <p className="bp6-text-muted">Draft and Undo/Redo history saved locally. Reopen this workspace to recover unapplied changes.</p>}
-                    {conflicted && <Callout intent="warning" title="Source changed">This draft is based on an older revision. Discard it and select the element again.</Callout>}
+                    {sourceConflicted && <Callout intent="warning" title="Source changed">This draft is based on an older revision. Discard it and select the element again.</Callout>}
                     <strong>{draft.patches?.length === 0 ? 'No unapplied changes' : `${draft.changedFileCount ?? draft.patches?.length ?? 1} changed ${(draft.changedFileCount ?? draft.patches?.length ?? 1) === 1 ? 'file' : 'files'}`}</strong>
-                    <p>Only source differences count here. Continue arranging or editing elements, then apply once.</p>
+                    <p>{draft.supportOnly ? 'Only the support declaration will change. Apply or discard this draft before making visual edits.' : 'Only source differences count here. Continue arranging or editing elements, then apply once.'}</p>
+                    {draft.supportOnly && <Callout intent={draft.supportPolicy.compatibility.status === 'incompatible' ? 'warning' : 'primary'} title="Review support policy">
+                        <ul>{draft.supportPolicy.warnings.map(warning => <li key={String(warning)}>{String(warning)}</li>)}</ul>
+                        <Checkbox checked={supportAcknowledged} disabled={!!working || draftConflicted}
+                            onChange={event => setSupportAcknowledged(event.target.checked)}>I have reviewed these support claims and understand their compatibility impact.</Checkbox>
+                    </Callout>}
                     {draft.historyTruncated && <p className="bp6-text-muted">Older Undo steps were dropped to keep this draft responsive. Discard still returns to the workspace version.</p>}
-                    <Button icon="undo" disabled={!!working || conflicted || !draft.canUndo} onClick={() => propose({kind: 'undo'})}>Undo</Button>{' '}
-                    <Button icon="redo" disabled={!!working || conflicted || !draft.canRedo} onClick={() => propose({kind: 'redo'})}>Redo</Button>
-                    <Checkbox checked={keepCheckpoint} disabled={!!working || conflicted} onChange={event => setKeepCheckpoint(event.target.checked)}>Keep this change as a checkpoint</Checkbox>
-                    <Button fill intent="primary" icon="tick" loading={working === 'apply'} disabled={conflicted || !!working || !(draft.patches?.length ?? !!draft.patch)} onClick={apply}>Apply to workspace</Button>
+                    <Button icon="undo" disabled={!!working || draftConflicted || !draft.canUndo} onClick={() => propose({kind: 'undo'})}>Undo</Button>{' '}
+                    <Button icon="redo" disabled={!!working || draftConflicted || !draft.canRedo} onClick={() => propose({kind: 'redo'})}>Redo</Button>
+                    <Checkbox checked={keepCheckpoint} disabled={!!working || draftConflicted} onChange={event => setKeepCheckpoint(event.target.checked)}>Keep this change as a checkpoint</Checkbox>
+                    <Button fill intent="primary" icon="tick" loading={working === 'apply'} disabled={draftConflicted || !!working || draft.supportOnly && !supportAcknowledged || !(draft.patches?.length ?? !!draft.patch)} onClick={apply}>Apply to workspace</Button>
                     <Button fill disabled={!!working} onClick={discard}>Discard draft</Button>
                     <EditorSection title="Source diff" icon="comparison" description="Review source and CSS changes">
                         {(draft.patches || (draft.patch ? [draft.patch] : [])).map(patch => <div key={patch.file}><p>{patch.description}</p><code>{patch.file}</code><pre className={styles.diff} aria-label="Source diff">{'− ' + patch.removed + '\n+ ' + patch.added}</pre></div>)}
@@ -415,8 +442,8 @@ export function WorkspacePreview({sessionId}) {
                 </section>}
                 {!selected ? <NonIdealState icon="select" title="Select an element" description="Select another element to continue this draft, or inspect its source."/> : <>
                     <p><strong>{selected.label}</strong></p><code>{selected.location.path}:{selected.location.line}</code>
-                    <Button fill icon="code" disabled={!!working || conflicted || workspace.disconnected || !!draft} title={draft ? 'Apply or discard the draft before showing workspace source' : undefined} onClick={reveal}>Show in code</Button>
-                    <Button fill icon="predictive-analysis" disabled={!!working || conflicted || workspace.disconnected || !!draft}
+                    <Button fill icon="code" disabled={!!working || sourceConflicted || workspace.disconnected || !!draft} title={draft ? 'Apply or discard the draft before showing workspace source' : undefined} onClick={reveal}>Show in code</Button>
+                    <Button fill icon="predictive-analysis" disabled={!!working || sourceConflicted || workspace.disconnected || !!draft}
                         title={draft ? 'Apply or discard the draft before editing with AI' : 'Select this source in the coding assistant. Your prompt stays unchanged until you submit.'}
                         onClick={editWithAi}>Edit with AI</Button>
                     {selected.htmlLiteral && <Callout icon="code" title="Source-mapped HTML">Edit plain text here, or labels and hints under Element attributes. Style overrides are below. Supported siblings can be reordered above. Duplicate text copies passive text without identity or bindings; shared classes are retained. Other insertions, removals and binding changes remain in the IDE.</Callout>}
@@ -487,7 +514,7 @@ export function WorkspacePreview({sessionId}) {
                         </EditorSection>}
                     </EditorSection>
                     <FormGroup label="Edit" labelFor="visual-edit-kind"><HTMLSelect id="visual-edit-kind" fill value={mode} disabled={!!working} options={[{value: 'text', label: 'Plain text', disabled: !selected.text}, {value: 'css', label: 'CSS declaration', disabled: !selected.styles?.some(editableStyle)}]} onChange={event => {cssEditIntent.current = event.target.value === 'css'; setMode(event.target.value); setValue(event.target.value === 'text' ? selected.text?.value || '' : ''); setProperty('');}}/></FormGroup>
-                    {mode === 'text' ? selected.text ? <FormGroup label="Text" labelFor="visual-text"><TextArea id="visual-text" fill value={value} maxLength={2000} disabled={!!working} onChange={event => setValue(event.target.value)}/>{textUses > 1 && <p className="bp6-text-muted">This text source is shared by {textUses} rendered elements.</p>}</FormGroup> : <p>This content is computed or contains markup. Use Show in code.</p> : <>
+                    {mode === 'text' ? selected.text ? <FormGroup label="Text" labelFor="visual-text"><TextArea id="visual-text" fill value={value} maxLength={2000} disabled={!!working} onChange={event => setValue(event.target.value)}/>{selected.text.partial && <p className="bp6-text-muted">Edits only this element’s direct text. Nested icons, controls and markup stay unchanged.</p>}{textUses > 1 && <p className="bp6-text-muted">This text source is shared by {textUses} rendered elements.</p>}</FormGroup> : <p>This content is computed or contains markup. Use Show in code.</p> : <>
                         <FormGroup label="Style source" labelFor="visual-style"><HTMLSelect id="visual-style" fill value={String(styleIndex)} disabled={!!working} options={(selected.styles || []).map((style, index) => ({value: String(index), label: style.selector + ' · ' + style.file}))} onChange={event => {setStyleIndex(Number(event.target.value)); setCssScope('element'); setCssState('base'); setCssBreakpoint(null); setProperty(''); setValue('');}}/></FormGroup>
                         <FormGroup label="Responsive rule" labelFor="visual-css-breakpoint"><HTMLSelect id="visual-css-breakpoint" fill value={cssBreakpoint == null ? 'all' : breakpointOptionValue(cssBreakpoint)} disabled={!!working || conflicted} options={[{value: 'all', label: 'All widths'}, ...breakpointChoices.map(context => ({value: breakpointOptionValue(context.breakpoint), label: breakpointLabel(context.breakpoint) + (context.missing ? ' · Not in draft' : '')}))]} onChange={event => {const context = breakpointChoices.find(item => breakpointOptionValue(item.breakpoint) === event.target.value); const width = context?.breakpoint ?? null; setCssBreakpoint(width); if (width != null) setPreviewWidth(breakpointPreviewWidth(width)); setProperty(''); setValue('');}}/></FormGroup>
                         <EditorSection title="Custom breakpoint" icon="mobile-phone" description="Choose minimum, maximum or a width range">

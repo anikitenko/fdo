@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {planVisualSourceEdit} from './sourceEdits';
+import {planPluginSupportEdit, reviewPluginSupportChange} from '../../../sdk/pluginSupportEditing';
 
 const locate = element => element?.structure ? {file: element.structure.file, start: element.structure.start, id: element.id} : null;
 const find = (preview, location) => {
@@ -58,7 +59,9 @@ export async function prepareVisualDraft({base, previous, preview, request, rend
         selection = undo ? step.selectionBefore : step.selectionAfter;
     } else {
         const element = preview.elements?.find(item => item.id === request.elementId);
-        const patch = planVisualSourceEdit(files, preview.elements || [], request,preview.actions || []);
+        const patch = request.kind === 'compatibility' ? planPluginSupportEdit(files, request)
+            : planVisualSourceEdit(files, preview.elements || [], request,preview.actions || []);
+        if (!patch) return {status: 'unchanged', message: 'These support settings already match. No changes were added.'};
         const patches = patch.patches || [patch];
         selection = locate(element);
         files = {...files};
@@ -68,7 +71,7 @@ export async function prepareVisualDraft({base, previous, preview, request, rend
             files[item.file] = item.after;
         }
         steps = steps.slice(0, cursor);
-        steps.push({file: patch.file, start: patch.start, removed: patch.removed, added: patch.added,
+        steps.push({...(request.kind === 'compatibility' ? {kind: 'compatibility'} : {}), file: patch.file, start: patch.start, removed: patch.removed, added: patch.added,
             patches: patches.map(({file, start, removed, added}) => ({file, start, removed, added})), isolatedStyle: patch.isolatedStyle,
             description: patch.description, affected: patch.affected, selectedSource: patch.selectedSource, insertedComponentId: patch.insertedComponentId, selectionBefore: locate(element), selectionAfter: selection});
         cursor++;
@@ -96,7 +99,9 @@ export async function prepareVisualDraft({base, previous, preview, request, rend
 export async function rebuildVisualDraft({base, files, steps, cursor, retainedLocalStyles = [], historyTruncated = false, selection, request = {kind: 'undo'}, render, acceptFiles}) {
     files = acceptFiles(files);
     const candidate = await render(files);
-    if (candidate.status !== 'ready') return {status: 'error', message: candidate.message};
+    const supportOnly = steps.length > 0 && steps.every(step => step.kind === 'compatibility');
+    const supportPolicy = supportOnly ? reviewPluginSupportChange(base.files, files) : null;
+    if (candidate.status !== 'ready' && !supportOnly) return {status: 'error', message: candidate.message};
     const activeSteps = steps.slice(0, cursor);
     const localStyles = [...retainedLocalStyles, ...activeSteps.flatMap(step => step.isolatedStyle ? [step.isolatedStyle] : [])];
     for (const element of candidate.elements || []) element.styles = element.styles.map(style => ({...style,
@@ -114,6 +119,7 @@ export async function rebuildVisualDraft({base, files, steps, cursor, retainedLo
         if(matches.length === 1) {selected=matches[0];steps[cursor-1].selectionAfter=locate(selected);}
     }
     return {id: randomUUID(), revision: base.revision, files, steps, cursor, retainedLocalStyles, preview: candidate, patches, patch: patches[0],
+        ...(supportOnly ? {supportOnly, supportPolicy} : {}),
         selectedId: selected?.id || '', canUndo: cursor > 0, canRedo: cursor < steps.length, changedFileCount: patches.length, historyTruncated};
 }
 

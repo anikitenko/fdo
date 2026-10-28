@@ -1,3 +1,6 @@
+import {extractMetadataLiterals} from '../../runtime/extractMetadata';
+import {pluginBuildSource} from '../../runtime/pluginBuildArtifact';
+
 export function pickLiveUiSources(files = {}) {
     return Object.fromEntries(Object.entries(files).filter(([file, content]) =>
         /^\/(?!node_modules\/|dist\/).+\.(?:[cm]?[jt]sx?|css|json)$/.test(file) && !file.includes('\\') &&
@@ -14,7 +17,14 @@ export function liveUiWorkspacePayload(workspace) {
         const model = entry.model;
         return [file, model && !model.isDisposed?.() ? model.getValue() : entry.content || ''];
     }));
-    return {workspaceId: workspace.sandboxName, name: workspace.pluginName,
+    let name;
+    let source = 'index.ts';
+    try {source = pluginBuildSource(files) || source;} catch { /* A new workspace may not have a valid package yet. */ }
+    try {name = extractMetadataLiterals(files['/' + source])?.name?.trim();} catch { /* Incomplete source still has a workspace name. */ }
+    if (!name) {
+        try {name = JSON.parse(files['/package.json']).name?.trim();} catch { /* Package metadata is optional during editing. */ }
+    }
+    return {workspaceId: workspace.sandboxName, name: name || workspace.pluginName || 'Untitled plugin',
         snapshot: String(workspace.fs.version()?.version ?? ''),
         files};
 }

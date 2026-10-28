@@ -1,18 +1,25 @@
 const path = require('node:path');
 const {createRequire} = require('node:module');
+const {createHash} = require('node:crypto');
 const esbuild = require('esbuild');
 let cachedFiles;
 
 // Recovery/transport recordings start inside an already reviewed workspace.
-// Read the actual SDK fingerprint without executing the SDK or workspace code.
+// Read the SDK and host contract fingerprint without executing workspace code.
 function reviewedWorkspaceFiles() {
     if (cachedFiles) return cachedFiles;
-    const loaded = {exports: {}};
-    const source = esbuild.buildSync({entryPoints: ['src/utils/sdk/installedSdkCapabilities.js'],
+    const loaded = {exports: Object.create(null)};
+    const source = esbuild.buildSync({stdin: {contents: `
+        export {installedSdkCapabilities} from './src/utils/sdk/installedSdkCapabilities.js';
+        export {workspaceAuthoringContract} from './src/utils/sdk/pluginAuthoringContract.js';
+    `, resolveDir: process.cwd()},
         bundle: true, platform: 'node', format: 'cjs', write: false}).outputFiles[0].text;
     new Function('require', 'module', 'exports', source)(require, loaded, loaded.exports);
     const requireSdk = createRequire(path.resolve('dist/main/node_modules/fixture-sdk-context.cjs'));
-    const {fingerprint} = loaded.exports.installedSdkCapabilities(requireSdk, {});
+    const capabilities = loaded.exports.installedSdkCapabilities(requireSdk, {});
+    const {host, contract} = loaded.exports.workspaceAuthoringContract();
+    const fingerprint = createHash('sha256').update(capabilities.fingerprint)
+        .update(JSON.stringify({host, contract})).digest('hex');
     const testFile = '/fixture-sdk-baseline.test.ts';
     cachedFiles = [
         {path: '/SKILL.md', content: '# Reviewed SDK fixture workspace\n\nKeep the existing SDK baseline test intact. Generate only the requested implementation changes.\n\n<!-- fdo-acceptance -->\n~~~json\n'

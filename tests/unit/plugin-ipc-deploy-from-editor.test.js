@@ -141,6 +141,7 @@ describe("plugin IPC deploy from editor", () => {
             entrypoint: "dist/index.cjs",
             metadata: {name: "Plugin A", version: "1.0.0", author: "A", description: "d", icon: "cube"},
             content: "module.exports = {};",
+            packageJson: JSON.stringify({name: 'plugin-a', fdo: {compatibility: {fdo: '^1.0.0'}}}),
             rootCert: "root-cert",
         });
 
@@ -151,5 +152,7 @@ describe("plugin IPC deploy from editor", () => {
         expect(mockUnloadPlugin).toHaveBeenCalledWith("plugin-a", {force: true});
         expect(mockLoadPlugin).toHaveBeenCalledWith("plugin-a");
         expect(mockAddPlugin).toHaveBeenCalled();
+        expect(require('../../src/utils/filesystem/ensureAndWrite').default).toHaveBeenCalledWith(
+            '/tmp/plugins/plugin-a/package.json', expect.stringContaining('compatibility'));
     });
 });

@@ -1,4 +1,8 @@
 export async function extractMetadata(content) {
+    return extractMetadataLiterals(content);
+}
+
+export function extractMetadataLiterals(content = '') {
     // Find ALL { ... } blocks
     const objectMatches = content.match(/{[\s\S]*?}/g);
     if (!objectMatches) return null;

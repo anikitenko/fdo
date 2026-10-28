@@ -14,6 +14,7 @@ import {validatePluginTypeScriptRepair} from '../utils/sdk/pluginWorkspaceTypech
 import {stampSkillFingerprint} from '../utils/sdk/installedSdkCapabilities';
 import {readPluginAcceptanceCriteria} from '../utils/plugins/authoring/pluginAcceptanceCriteria';
 import {createInstalledSdkValidator} from '../utils/sdk/installedSdkValidation';
+import {pluginAuthoringInstructions} from '../utils/sdk/pluginAuthoringContract';
 import {enforceCodingResponseSize} from '../utils/ai/generation/codingResponseSize';
 import {withUsageContext, usageLedger} from "../utils/ai/billing/ledger";
 import {codingFirstResponseTimeoutMs, codingAnswerIdleTimeoutMs} from "../utils/ai/generation/codingRequestPolicy.cjs";
@@ -856,6 +857,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
                 return '';
             }
         };
+        prompt += '\n\n' + pluginAuthoringInstructions(Object.fromEntries((workspaceFiles || []).map(file => [file.path, file.content])));
         const initialEvidence = workspace ? getEvidence({prompt, files: workspaceFiles || []}) : '';
         const staged = useStagedWorkspaceGeneration(assistantInfo.provider, workspace, repairPaths, !!generationCheckpoint);
         if (initialEvidence && !staged) prompt = `${prompt}\n\n${initialEvidence}`;
@@ -915,7 +917,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             const assertActive = () => {
                 if (isActiveCodingRequestCancelled(requestId)) throw new AiCodingRequestCancelledError();
             };
-            const installedValidator = createInstalledSdkValidator();
+            const installedValidator = createInstalledSdkValidator(workspaceFiles);
             recordE2ECodingLifecycle('capability-scan', requestId, installedValidator.capabilities);
             sendBackendStatus(event, requestId, `Scanned installed FDO SDK ${installedValidator.capabilities.sdkVersion} contracts before planning.`, {phase: 'capability-scan'});
             const validateGuide = file => {

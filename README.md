@@ -464,6 +464,8 @@ current UI. Notification diagnostics redact common credential forms and private 
 - [AI Coding Agent Documentation](docs/AI_CODING_AGENT.md)
 - [Plugin sidebar, quickbar, and tray actions](docs/PLUGIN_UI_ACTIONS.md)
 - [New plugin templates](docs/PLUGIN_TEMPLATES.md)
+- [Plugin support declarations, version sources and default ranges](docs/PLUGIN_COMPATIBILITY.md)
+- [Host contract versioning and backward compatibility](docs/PLUGIN_HOST_CONTRACT.md)
 - [Live UI Editor direction and roadmap](docs/LIVE_UI_EDITOR.md)
 - [FDO SDK Repository](https://github.com/anikitenko/fdo-sdk)
 

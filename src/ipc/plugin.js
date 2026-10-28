@@ -1,4 +1,6 @@
 import {inspectPluginFolder, installPluginFolder} from '../utils/plugins/importing/pluginFolderImport';
+import {pluginCompatibilityBanner, assertPluginCompatibility} from '../utils/sdk/pluginCompatibility';
+import {pluginCompatibilityHost, installedPluginCompatibility, inspectPluginCompatibility} from '../utils/sdk/pluginCompatibilityHost';
 import {validateNewPluginName} from '../utils/plugins/authoring/pluginNameValidation';
 import {pluginDisplayName} from '../utils/desktop/notificationContent';
 import {enqueuePluginUiBridge} from '../utils/plugins/runtime/pluginUiMessageQueue';
@@ -664,6 +666,7 @@ export async function buildUsingEsbuild(virtualData) {
         platform: "node",
         write: false,
         external: ["@anikitenko/fdo-sdk"],
+        banner: {js: pluginCompatibilityBanner(JSON.parse(virtualData['/package.json']).fdo?.compatibility, pluginCompatibilityHost())},
         plugins: [
             EsbuildVirtualFsPlugin(virtualData)
         ],
@@ -898,6 +901,7 @@ export function registerPluginHandlers() {
             if (snapshot.sourceMetadata) try {normalizeAndValidatePluginMetadata(snapshot.sourceMetadata);} catch (error) {sourceMetadataError = error.message;}
             const previewMetadata = value => value ? Object.fromEntries(['name', 'version', 'author', 'description', 'icon'].map(key => [key, typeof value[key] === 'string' ? value[key] : ''])) : null;
             return {success: true, token, proposedId: snapshot.proposedId, metadata: previewMetadata(snapshot.metadata), metadataError, sourceMetadata: previewMetadata(snapshot.sourceMetadata), sourceMetadataError,
+                compatibility: snapshot.compatibility, sourceCompatibility: snapshot.sourceCompatibility,
                 hasSource: !!snapshot.sourceEntry, hasCompiled: snapshot.hasCompiled, signed: snapshot.signed,
                 sourceEntry: snapshot.sourceEntry, entryPoint: snapshot.runtimeEntry, fileCount: snapshot.files.length, bytes: snapshot.bytes};
         } catch (error) {return {success: false, error: error.message};}
@@ -1138,6 +1142,11 @@ export function registerPluginHandlers() {
                 if (!result) {
                     rmSync(pluginPath, {recursive: true, force: true})
                 }
+                const compatibility = installedPluginCompatibility(pluginPath, entrypoint);
+                if (compatibility.status === 'incompatible') {
+                    rmSync(pluginPath, {recursive: true, force: true});
+                    assertPluginCompatibility(compatibility);
+                }
                 pluginORM.addPlugin(pluginName, metadata, pluginPath, entrypoint, false, capabilities)
 
                 PluginManager.sendToMainWindow(PluginChannels.on_off.DEPLOY_FROM_EDITOR, pluginName)
@@ -1176,7 +1185,7 @@ export function registerPluginHandlers() {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         try {
             const plugins = pluginORM.getAllPlugins();
-            return {success: true, plugins: plugins};
+            return {success: true, plugins: plugins.map(plugin => ({...plugin, compatibility: installedPluginCompatibility(plugin.home, plugin.entry)}))};
         } catch (error) {
             return {success: false, error: error.message};
         }
@@ -1186,7 +1195,7 @@ export function registerPluginHandlers() {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         try {
             const plugin = pluginORM.getPlugin(id);
-            return {success: true, plugin: plugin};
+            return {success: true, plugin: plugin ? {...plugin, compatibility: installedPluginCompatibility(plugin.home, plugin.entry)} : plugin};
         } catch (error) {
             return {success: false, error: error.message};
         }
@@ -2011,12 +2020,13 @@ export function registerPluginHandlers() {
         try {
             const result = await PluginManager.loadPlugin(id)
             if (!result.success) {
-                return {success: false, error: result.error, ...(result.notified ? {notified: true} : {})};
+                return {success: false, error: result.error, ...(result.notified ? {notified: true} : {}),
+                    ...(result.code ? {code: result.code, compatibility: result.compatibility} : {})};
             }
             userORM.activatePlugin(id)
             return {success: true};
         } catch (error) {
-            return {success: false, error: error.error};
+            return {success: false, error: error.message || String(error)};
         }
     });
 
@@ -2299,7 +2309,8 @@ export function registerPluginHandlers() {
         try {
             const latestContent = data?.latestContent || {};
             const result = await buildUsingEsbuild(latestContent)
-            return {success: true, files: result}
+            const runtime = result.outputFiles?.find(file => !file.path.endsWith('.map'));
+            return {success: true, files: result, compatibility: inspectPluginCompatibility(latestContent['/package.json'], runtime?.text)}
         } catch (error) {
             return {success: false, error: "Build error: "+error.toString()};
         }
@@ -2333,8 +2344,22 @@ export function registerPluginHandlers() {
             const pathToPlugin = path.join(pathToDir, data.entrypoint)
             const metadata = normalizeAndValidatePluginMetadata(data.metadata)
 
+            let packageText = data.packageJson;
+            if (packageText === undefined) {
+                packageText = await readFile(path.join(pathToDir, 'package.json'), 'utf8').catch(error => {
+                    if (error.code === 'ENOENT') return '{}';
+                    throw error;
+                });
+            }
+            assertPluginCompatibility(inspectPluginCompatibility(packageText, data.content));
+            if (data.packageJson !== undefined) {
+                const manifest = JSON.parse(packageText);
+                manifest.main = data.entrypoint;
+                packageText = JSON.stringify(manifest, null, 2);
+            }
             reportProgress(60, "Writing plugin files…");
             await ensureAndWrite(pathToPlugin, data.content)
+            if (data.packageJson !== undefined) await ensureAndWrite(path.join(pathToDir, 'package.json'), packageText);
             reportProgress(70, "Signing plugin…");
             const signResult = Certs.signPlugin(pathToDir, data.rootCert)
             if (!signResult.success) {

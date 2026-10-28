@@ -37,6 +37,7 @@ const build = async () => {
             const bundle = runtimeBundle(result);
             // Runtime output belongs to the build artifact, never to Monaco source models.
             virtualFS.build.setContent(bundle)
+            if (result.compatibility) virtualFS.build.addMessage(`Supported FDO: ${result.compatibility.supportedFdo}`, false, 'build');
 
             virtualFS.build.addProgress(100)
             virtualFS.build.addMessage("Compilation successful!", false, "build")

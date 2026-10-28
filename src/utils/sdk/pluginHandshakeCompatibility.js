@@ -4,8 +4,10 @@ import {
     HOST_PLUGIN_CONTRACT_VERSION,
     HOST_REQUIRED_SDK_FEATURE_FLAGS,
 } from "./pluginHostContract";
+import {valid, major} from 'semver';
 
 export const HANDSHAKE_API_INCOMPATIBLE = "HANDSHAKE_API_INCOMPATIBLE";
+export const HANDSHAKE_CONTRACT_INCOMPATIBLE = "HANDSHAKE_CONTRACT_INCOMPATIBLE";
 export const HANDSHAKE_CAPABILITY_SCHEMA_MISMATCH = "HANDSHAKE_CAPABILITY_SCHEMA_MISMATCH";
 export const HANDSHAKE_FEATURE_FLAG_MISSING = "HANDSHAKE_FEATURE_FLAG_MISSING";
 export const LEGACY_SDK_NO_HANDSHAKE = "LEGACY_SDK_NO_HANDSHAKE";
@@ -34,8 +36,10 @@ export function __setOptionalSdkHandshakeModuleForTests(value) {
 
 function parseVersionMajor(value) {
     const normalized = String(value || "").trim();
-    const match = normalized.match(/^v?(\d+)/i);
-    return match ? Number(match[1]) : null;
+    // Published older SDKs used a bare major. Keep that explicit alias, while
+    // rejecting malformed values such as "1-future-garbage" or missing fields.
+    if (/^\d+$/.test(normalized) && Number.isSafeInteger(Number(normalized))) return Number(normalized);
+    return valid(normalized) ? major(normalized) : null;
 }
 
 function normalizeFeatureFlags(flags) {
@@ -172,9 +176,16 @@ function evaluateLocalFallback(handshake = null, expectations = {}) {
         };
     }
 
+    const expectedContractMajor = parseVersionMajor(expectations.expectedContractVersion);
+    const receivedContractMajor = parseVersionMajor(normalizedHandshake.contractVersion);
+    if (expectedContractMajor !== receivedContractMajor || receivedContractMajor === null) {
+        findings.push({code: HANDSHAKE_CONTRACT_INCOMPATIBLE, severity: 'error',
+            message: `Plugin handshake ${normalizedHandshake.contractVersion || '(missing)'} is incompatible with host handshake ${expectations.expectedContractVersion}.`,
+            remediation: 'Use an SDK with a supported handshake contract major.', details: {expectedContractVersion: expectations.expectedContractVersion}});
+    }
     const expectedApiMajor = parseVersionMajor(expectations.expectedApiVersion);
     const receivedApiMajor = parseVersionMajor(normalizedHandshake.apiVersion);
-    if (expectedApiMajor !== null && receivedApiMajor !== null && expectedApiMajor !== receivedApiMajor) {
+    if (receivedApiMajor === null || expectedApiMajor !== receivedApiMajor) {
         findings.push({
             code: HANDSHAKE_API_INCOMPATIBLE,
             severity: "error",
@@ -192,9 +203,11 @@ function evaluateLocalFallback(handshake = null, expectations = {}) {
         && expectations.expectedCapabilitySchemaVersion
         && normalizedHandshake.capabilitySchemaVersion !== expectations.expectedCapabilitySchemaVersion
     ) {
+        const expectedSchemaMajor = parseVersionMajor(expectations.expectedCapabilitySchemaVersion);
+        const receivedSchemaMajor = parseVersionMajor(normalizedHandshake.capabilitySchemaVersion);
         findings.push({
             code: HANDSHAKE_CAPABILITY_SCHEMA_MISMATCH,
-            severity: "warning",
+            severity: receivedSchemaMajor === null || receivedSchemaMajor !== expectedSchemaMajor ? "error" : "warning",
             message: `Capability schema version ${normalizedHandshake.capabilitySchemaVersion} differs from host schema ${expectations.expectedCapabilitySchemaVersion}.`,
             remediation: "Upgrade plugin SDK or host capability schema so both sides use the same schema contract.",
             details: {
@@ -255,6 +268,10 @@ function normalizeSdkCompatibilityResult(result, handshake, expectations) {
     };
 }
 
+/**
+ * @param {{handshake?: Object|null, expectedContractVersion?: string, expectedApiVersion?: string,
+ * expectedCapabilitySchemaVersion?: string, requiredFeatureFlags?: string[]}} [options]
+ */
 export function evaluatePluginHandshakeCompatibility({
     handshake = null,
     ...overrides
@@ -262,6 +279,9 @@ export function evaluatePluginHandshakeCompatibility({
     const normalizedHandshake = normalizeDiagnosticsHandshake(handshake);
     const expectations = getHostHandshakeExpectations(overrides);
     const sdkModule = getOptionalSdkModule();
+
+    const local = evaluateLocalFallback(normalizedHandshake, expectations);
+    if (local.status === 'incompatible') return local;
 
     if (typeof sdkModule?.evaluateSdkHandshakeCompatibility === "function") {
         try {
@@ -274,9 +294,13 @@ export function evaluatePluginHandshakeCompatibility({
         }
     }
 
-    return evaluateLocalFallback(normalizedHandshake, expectations);
+    return local;
 }
 
+/**
+ * @param {{handshake?: Object|null, expectedContractVersion?: string, expectedApiVersion?: string,
+ * expectedCapabilitySchemaVersion?: string, requiredFeatureFlags?: string[]}} [options]
+ */
 export function isPluginHandshakeCompatible({
     handshake = null,
     ...overrides
@@ -284,6 +308,8 @@ export function isPluginHandshakeCompatible({
     const normalizedHandshake = normalizeDiagnosticsHandshake(handshake);
     const expectations = getHostHandshakeExpectations(overrides);
     const sdkModule = getOptionalSdkModule();
+
+    if (evaluateLocalFallback(normalizedHandshake, expectations).status === 'incompatible') return false;
 
     if (typeof sdkModule?.isSdkHandshakeCompatible === "function") {
         try {

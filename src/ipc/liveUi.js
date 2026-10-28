@@ -11,6 +11,8 @@ import {pickLiveUiSources} from '../utils/plugins/authoring/liveUi/workspaceStat
 import {prepareVisualDraft, visualDraftResponse} from '../utils/plugins/authoring/liveUi/draftEdits';
 import {sdkComponentCatalog} from '../utils/plugins/authoring/liveUi/sdkComponentCatalog';
 import {readInstalledAuthoringContracts} from '../utils/sdk/installedAuthoringContracts';
+import {workspaceAuthoringContract} from '../utils/sdk/pluginAuthoringContract';
+import {reviewPluginSupportChange} from '../utils/sdk/pluginSupportEditing';
 import {createVisualDraftStore, savedVisualDraft, restoreVisualDraft, visualDraftRecoveryStatus} from '../utils/plugins/authoring/liveUi/draftRecovery';
 
 export async function readLiveUiSdkMetadata() {
@@ -20,15 +22,18 @@ export async function readLiveUiSdkMetadata() {
     if (!Array.isArray(metadata) || !metadata.every(item => typeof item.className === 'string' && Array.isArray(item.constructors) && Array.isArray(item.methods))) throw new Error('Installed SDK DOM metadata is malformed.');
     const authoring = readInstalledAuthoringContracts(path.join(dist, '..'));
     const authoringContracts = Object.fromEntries(Object.entries(authoring.contracts).map(([name, {data, ...status}]) => [name, status]));
+    const hostTarget = workspaceAuthoringContract();
     return {metadata, components: authoring.contracts.components.status === 'supported' ? sdkComponentCatalog(authoring.contracts.components.data) : [], authoringContracts, sdkVersion: JSON.parse(pkg).version,
-        fingerprint: createHash('sha256').update(source).update(JSON.stringify(authoring)).digest('hex')};
+        hostTarget,
+        fingerprint: createHash('sha256').update(source).update(JSON.stringify(authoring))
+            .update(JSON.stringify(hostTarget.host)).update(JSON.stringify(hostTarget.contract)).digest('hex')};
 }
 
 export function registerLiveUiHandlers({entry, preload, draftStore}) {
     const sessions = new Map();
     const owners = new Map();
     const store = draftStore || createVisualDraftStore(path.join(app.getPath('userData'), 'live-ui-drafts'));
-    const publicState = session => ({...session.state, recovery: session.recoveryError
+    const publicState = session => ({...session.state, authoringContract: workspaceAuthoringContract(session.state.files), recovery: session.recoveryError
         ? {status: 'unavailable', message: session.recoveryError}
         : session.savedDraft || session.draft ? visualDraftRecoveryStatus(session.savedDraft || savedVisualDraft(session.draftBase, session.draft, session.sdkFingerprint), session.state, session.sdkFingerprint) : null});
     const persist = async (session, base, draft) => {
@@ -46,7 +51,13 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         if (['invalid', 'unsupported'].includes(authoring.status)) return {status: 'unsupported', html: '', elements: [],
             message: `Installed SDK authoring contract cannot be used: ${authoring.message} Update the SDK or FDO before using this preview.`};
         const requireSdk = Module.createRequire(path.join(dist, '..', 'package.json'));
-        return createStaticUiPreview(files, requireSdk('@anikitenko/fdo-sdk'), contracts.components.status === 'supported' ? contracts.components.data : undefined);
+        return createStaticUiPreview(files, requireSdk('@anikitenko/fdo-sdk'), contracts.components.status === 'supported' ? contracts.components.data : undefined,
+            authoring.status === 'supported' ? authoring.data : undefined);
+    };
+    const compatibilityFailure = session => {
+        const report = workspaceAuthoringContract(session.state.files).compatibility;
+        return report.status === 'incompatible' ? {status: 'incompatible',
+            message: [report.summary, ...(report.issues || []), 'Visual changes are paused. Review the target in the IDE; static preview does not prove runtime compatibility.'].join(' ')} : null;
     };
     const finish = (session, result) => {
         const pending = session.pending;
@@ -81,6 +92,7 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         if (session && session.state.workspaceId !== state.workspaceId) { session.window.destroy(); session = null; }
         if (session && !session.window.isDestroyed()) {
             session.state = state;
+            session.window.setTitle(`Live UI · ${state.name}`);
             session.window.webContents.send(LiveUiChannels.UPDATED, publicState(session));
             focusAssistantOwner(session.window);
             return {sessionId: session.id};
@@ -106,6 +118,7 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         ownerContents.on('render-process-gone', disconnect);
         ownerContents.on('did-start-navigation', onNavigation);
         window.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
+        window.on('page-title-updated', event => event.preventDefault());
         window.webContents.on('will-navigate', event => event.preventDefault());
         window.on('closed', () => {
             finish(session, {status: 'cancelled', message: 'Live UI closed.'});
@@ -120,11 +133,16 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         return {sessionId: session.id};
     });
     ipcMain.handle(LiveUiChannels.PUBLISH, (event, id, data) => {
+        if (!sessions.has(id)) {
+            const owner = BrowserWindow.fromWebContents(event.sender);
+            if (owner?.__fdoEditorWindow && !owner.isDestroyed()) return {status: 'closed'};
+        }
         const session = owned(event, id, 'owner');
         const state = accept(data);
         if (state.workspaceId !== session.state.workspaceId) throw new Error('The workspace changed. Reopen Live UI from the IDE.');
         if (state.revision !== session.state.revision || JSON.stringify(state.selection) !== JSON.stringify(session.state.selection)) {
             session.state = state;
+            session.window.setTitle(`Live UI · ${state.name}`);
             session.window.webContents.send(LiveUiChannels.UPDATED, publicState(session));
         }
         return {revision: state.revision};
@@ -193,21 +211,33 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
     });
     ipcMain.handle(LiveUiChannels.PROPOSE, async (event, id, request) => {
         const session = owned(event, id, 'window');
+        const mismatch = compatibilityFailure(session);
+        const policyOperation = request.kind === 'compatibility' || session.draft?.supportOnly && ['undo', 'redo'].includes(request.kind);
+        if (mismatch && !policyOperation) return mismatch;
         if (session.pending) return {status: 'busy', message: 'Wait for the current apply to finish.'};
         if (session.restoring || session.savedDraft || session.recoveryError) return {status: 'busy', message: 'Restore or discard the saved draft before making new visual changes.'};
         if (request.revision !== session.state.revision || session.state.disconnected) return {status: 'conflict', message: 'Source changed. Discard this draft and select the element again.'};
         const base = session.state;
         const previous = request.draftId ? session.draft : null;
+        if (previous && !['undo', 'redo'].includes(request.kind) && !!previous.supportOnly !== (request.kind === 'compatibility')) {
+            return {status: 'busy', message: 'Apply or discard the current draft before mixing support-policy changes with visual edits.'};
+        }
         if (request.draftId && previous?.id !== request.draftId) return {status: 'conflict', message: 'This draft changed. Retry from the current draft.'};
         if (!previous && ['undo', 'redo'].includes(request.kind)) return {status: 'conflict', message: 'There is no current draft to change.'};
         const generation = session.proposalGeneration = (session.proposalGeneration || 0) + 1;
         const preview = previous?.preview || (session.preview?.revision === base.revision ? session.preview : await render(base.files));
-        const draft = await prepareVisualDraft({base, previous, preview, request, render,
-            acceptFiles: files => accept({...base, files}).files});
+        let draft;
+        try {
+            draft = await prepareVisualDraft({base, previous, preview, request, render,
+                acceptFiles: files => accept({...base, files}).files});
+        } catch (error) {
+            if (request.kind === 'compatibility') return {status: 'error', message: error.message};
+            throw error;
+        }
         if (base.revision !== session.state.revision || session.state.disconnected) return {status: 'conflict', message: 'Source changed during preview. Discard this draft and select again.'};
         if (session.pending) return {status: 'busy', message: 'An apply started while preparing this draft. Wait for it to finish.'};
         if (generation !== session.proposalGeneration) return {status: 'stale', message: 'A newer draft operation replaced this request.'};
-        if (draft.status === 'error') return draft;
+        if (draft.status) return draft;
         session.draft = draft;
         session.draftBase = base;
         return {...visualDraftResponse(draft), durability: await persist(session, base, draft)};
@@ -218,19 +248,28 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         if (session.pending?.draftId === draftId) return session.pending.promise;
         if (session.pending) return {status: 'busy', message: 'Another edit is being applied.'};
         const draft = session.draft;
+        const mismatch = compatibilityFailure(session);
+        if (mismatch && !draft?.supportOnly) return mismatch;
         if (!draft?.patch || draft.id !== draftId || draft.revision !== session.state.revision || session.state.disconnected) return {status: 'conflict', message: 'This draft is stale. Discard it and select the element again.'};
+        if (draft.supportOnly) {
+            reviewPluginSupportChange(session.state.files, draft.files);
+            if (options?.confirmSupportChange !== true) return {status: 'confirmation-required', message: 'Review and acknowledge the support-policy change before applying it.'};
+        }
         const requestId = randomUUID();
         let resolve;
         const promise = new Promise(done => {resolve = done;});
         const timer = setTimeout(() => finish(session, {status: 'error', message: 'IDE validation timed out. No commit was authorized; retry from current source.'}), 120000);
-        session.pending = {requestId, draftId, promise, resolve, timer, committing: false};
-        session.owner.webContents.send(LiveUiChannels.APPLY_REQUEST, {sessionId: id, requestId, base: session.state, patch: draft.patch, patches: draft.patches, keepCheckpoint: options?.keepCheckpoint === true});
+        session.pending = {requestId, draftId, promise, resolve, timer, committing: false, supportOnly: draft.supportOnly === true};
+        session.owner.webContents.send(LiveUiChannels.APPLY_REQUEST, {sessionId: id, requestId, base: session.state, patch: draft.patch, patches: draft.patches,
+            ...(draft.supportOnly ? {supportOnly: true} : {}), keepCheckpoint: options?.keepCheckpoint === true});
         return promise;
     });
     ipcMain.handle(LiveUiChannels.CAN_COMMIT, (event, id, requestId) => {
         const session = owned(event, id, 'owner');
         const pending = session.pending;
         if (!pending || pending.requestId !== requestId || session.state.disconnected || session.draft?.revision !== session.state.revision) return false;
+        if (pending.supportOnly) reviewPluginSupportChange(session.state.files, session.draft.files);
+        else if (compatibilityFailure(session)) return false;
         pending.committing = true;
         clearTimeout(pending.timer);
         return true;
@@ -241,12 +280,13 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         if (result.status === 'applied') {
             if (!session.pending.committing) throw new Error('This edit was not authorized to commit.');
             const state = accept(result.workspace);
+            if (session.pending.supportOnly) reviewPluginSupportChange(session.state.files, state.files);
             if (state.workspaceId !== session.state.workspaceId) throw new Error('Applied workspace identity does not match.');
             session.state = state;
             session.draft = null;
             try {await store.clear(state.workspaceId, session.savedId ?? null); session.savedId = null;}
             catch (error) {result = {...result, warning: [result.warning, `Saved draft cleanup failed: ${error.message}`].filter(Boolean).join(' ')};}
-            session.window.webContents.send(LiveUiChannels.UPDATED, state);
+            session.window.webContents.send(LiveUiChannels.UPDATED, publicState(session));
         }
         finish(session, result);
         return true;
