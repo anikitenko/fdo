@@ -4,6 +4,7 @@ import {registerLiveUiHandlers, readLiveUiSdkMetadata} from '../../src/ipc/liveU
 import {LiveUiChannels} from '../../src/ipc/channels';
 import {ipcMain, BrowserWindow} from 'electron';
 import {createPluginTemplateFiles} from '../../src/components/editor/utils/virtualTemplates';
+import existingBindingsFixture from '../fixtures/live-ui/existing-bindings.cjs';
 
 jest.mock('electron', () => ({ipcMain: {handle: jest.fn()}, BrowserWindow: Object.assign(jest.fn(), {fromWebContents: jest.fn()})}));
 jest.mock('../../src/utils/desktop/assistantWindowPolicy', () => ({focusAssistantOwner: jest.fn(() => ({success: true}))}));
@@ -216,6 +217,22 @@ test('revealing code uses only the host source map and owning IDE', async () => 
     expect(owner.webContents.send).toHaveBeenCalledWith(LiveUiChannels.REVEAL_SOURCE, expect.objectContaining({path: '/render.tsx'}));
     expect(() => handlers[LiveUiChannels.REVEAL]({sender: child.webContents}, sessionId, state.revision, 'forged')).toThrow('selection');
 });
+test('binding source navigation uses only the selected host contract and refuses forged locations or draft offsets',async()=>{
+    const {sessionId}=await open({...payload,files:existingBindingsFixture()});
+    const event={sender:child.webContents},state=handlers[LiveUiChannels.READ](event,sessionId);
+    const preview=await handlers[LiveUiChannels.PREVIEW](event,sessionId,state.revision);
+    const button=preview.elements.find(item=>item.sdkBindings?.items.some(binding=>binding.selector==='#refresh'));
+    const binding=button.sdkBindings.items[0];
+    handlers[LiveUiChannels.REVEAL](event,sessionId,state.revision,button.id,{kind:'binding',bindingId:binding.id,path:'/Users/forged'});
+    expect(owner.webContents.send).toHaveBeenLastCalledWith(LiveUiChannels.REVEAL_SOURCE,expect.objectContaining({path:'/features/actions.ts',line:binding.location.line}));
+    handlers[LiveUiChannels.REVEAL](event,sessionId,state.revision,button.id,{kind:'handler',name:'command'});
+    expect(owner.webContents.send).toHaveBeenLastCalledWith(LiveUiChannels.REVEAL_SOURCE,expect.objectContaining({path:'/features/actions.ts'}));
+    expect(()=>handlers[LiveUiChannels.REVEAL](event,sessionId,state.revision,button.id,{kind:'binding',bindingId:'forged'})).toThrow('Refresh this binding');
+    expect(()=>handlers[LiveUiChannels.REVEAL](event,sessionId,state.revision,button.id,{kind:'handler',name:'forged'})).toThrow('Refresh this binding');
+    await handlers[LiveUiChannels.PROPOSE](event,sessionId,{revision:state.revision,kind:'sdk-binding',action:'remove',elementId:button.id,bindingId:binding.id});
+    expect(()=>handlers[LiveUiChannels.REVEAL](event,sessionId,state.revision,button.id,{kind:'binding',bindingId:binding.id})).toThrow('Apply or discard');
+});
+
 test('AI handoff uses the owning IDE and host source map, preserving the current source', async () => {
     const {sessionId, state, button, draft} = await prepareDraft();
     const event = {sender: child.webContents};
@@ -254,4 +271,27 @@ test('a draft can be continued and undone; stale predecessor IDs and net-empty a
     const redo = await handlers[LiveUiChannels.PROPOSE](event, sessionId, {revision: state.revision, draftId: empty.id, kind: 'redo'});
     expect(redo.patches).toHaveLength(1);
     expect(redo.changedFileCount).toBe(1);
+});
+
+test('deployment edits are owned metadata-only transactions even when preview is unsupported',async()=>{
+    const data={workspaceId:'deployment',name:'Cloud',snapshot:'one',files:{'/index.ts':'class P { render(){ return unknownRender(); } }','/package.json':JSON.stringify({name:'cloud',source:'index.ts',scripts:{build:'keep'}})}};
+    const {sessionId}=await open(data),event={sender:child.webContents};
+    const state=handlers[LiveUiChannels.READ](event,sessionId);
+    const draft=await handlers[LiveUiChannels.PROPOSE](event,sessionId,{revision:state.revision,kind:'deployment',declaration:{schemaVersion:1,tools:[{id:'azure-cli'}]}});
+    expect(draft.status).toBe('ready');expect(draft.deploymentOnly).toBe(true);expect(draft.patches.map(patch=>patch.file)).toEqual(['/package.json']);
+    const pending=handlers[LiveUiChannels.APPLY](event,sessionId,draft.id,{});
+    const request=owner.webContents.send.mock.calls.find(([channel])=>channel===LiveUiChannels.APPLY_REQUEST)[1];expect(request.deploymentOnly).toBe(true);expect(request.supportOnly).toBeUndefined();
+    expect(handlers[LiveUiChannels.CAN_COMMIT]({sender:owner.webContents},sessionId,request.requestId)).toBe(true);
+    const files={...state.files,'/package.json':draft.patch.after};
+    await handlers[LiveUiChannels.APPLIED]({sender:owner.webContents},sessionId,request.requestId,{status:'applied',workspace:{...state,files},restorePoint:'one',snapshot:'two'});
+    expect(await pending).toMatchObject({status:'applied'});expect(handlers[LiveUiChannels.READ](event,sessionId).deployment.tools[0].id).toBe('azure-cli');
+    expect(files['/index.ts']).toBe(data.files['/index.ts']);expect(JSON.parse(files['/package.json']).scripts).toEqual({build:'keep'});
+});
+
+test('deployment AI handoff selects the current owned package without requiring a render element',async()=>{
+    const {sessionId}=await open({...payload,files:{...payload.files,'/package.json':'{"name":"cloud"}'}});
+    const event={sender:child.webContents},state=handlers[LiveUiChannels.READ](event,sessionId);
+    handlers[LiveUiChannels.EDIT_WITH_AI](event,sessionId,state.revision,'__deployment__');
+    expect(owner.webContents.send).toHaveBeenCalledWith(LiveUiChannels.AI_SELECTION,expect.objectContaining({workspaceId:state.workspaceId,path:'/package.json',source:state.files['/package.json'],intent:'deployment',prompt:expect.stringContaining('Workspace quality review')}));
+    expect(()=>handlers[LiveUiChannels.EDIT_WITH_AI](event,sessionId,'stale','__deployment__')).toThrow('Refresh deployment');
 });

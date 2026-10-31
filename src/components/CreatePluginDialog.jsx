@@ -234,10 +234,13 @@ export const CreatePluginDialog = ({show, close}) => {
                             {validation.code === 'plugin_exists' && <Button size="small" variant="minimal" type="button" disabled={openingEditor || nameInventory.status !== 'ready'} onClick={event => openEditor(event, 'existing')}>Open existing plugin</Button>}
                         </div>}
                     >
-                        <InputGroup id={"plugin-name"} value={pluginName} onValueChange={value => {setPluginName(value); setNameTouched(true);}}
+                        <InputGroup className={styles.nameInput} id={"plugin-name"} value={pluginName} onValueChange={value => {setPluginName(value); setNameTouched(true);}}
                                     disabled={openingEditor || draftBusy} onBlur={() => setNameTouched(true)}
                                     aria-describedby="plugin-name-feedback" aria-invalid={nameError || nameInventory.status === 'error'}
-                                    rightElement={nameInventory.status === 'loading' ? <Spinner size={16}/> : validation.valid && nameInventory.status === 'ready' ? <Icon icon="tick" intent="success"/> : undefined}
+                                    rightElement={nameInventory.status === 'loading' || validation.valid && nameInventory.status === 'ready'
+                                        ? <span className={styles.nameStatus} aria-hidden="true">
+                                            {nameInventory.status === 'loading' ? <Spinner size={16}/> : <Icon icon="tick" size={16} intent="success"/>}
+                                        </span> : undefined}
                                     placeholder="Name of plugin" fill={true} autoFocus={true}/>
                     </FormGroup>
 

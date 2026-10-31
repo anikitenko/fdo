@@ -1,3 +1,4 @@
+import {reviewDeploymentChange} from '../../../utils/plugins/deployment/deploymentEditing';
 import {useEffect, useRef, useState} from 'react';
 import virtualFS from '../../editor/utils/VirtualFS';
 import {liveUiWorkspacePayload} from '../../../utils/plugins/authoring/liveUi/workspaceState';
@@ -43,6 +44,7 @@ export function useLiveUiConnection() {
                             reviewPluginSupportChange(request.base.files, latestContent);
                             return {success: true};
                         }
+                        if(request.deploymentOnly===true){reviewDeploymentChange(request.base.files,latestContent);return {success:true};}
                         const types = await window.electron.plugin.typecheck({latestContent});
                         if (!types.success) return {success: false, error: types.error || types.diagnostics?.map(item => `${item.path}:${item.line}: ${item.message}`).join('\n') || 'Type validation failed.'};
                         const build = await window.electron.plugin.build({latestContent});
@@ -86,7 +88,7 @@ export function useLiveUiConnection() {
                         virtualFS.tabs.add(file);
                         virtualFS.notifications.addToQueue('fileSelected', file);
                     }});
-                if (selected) virtualFS.notifications.addToQueue('liveUiAiSelection', {workspaceId: location.workspaceId});
+                if (selected) virtualFS.notifications.addToQueue('liveUiAiSelection', {workspaceId: location.workspaceId,...(location.intent==='deployment'?{intent:'deployment',prompt:location.prompt}:{})});
                 else if (alive.current) setError('The selected source changed or could not be opened. Refresh Live UI before editing with AI.');
             } catch (failure) {if (alive.current) setError(failure.message || 'The selected source could not be opened. Refresh Live UI before editing with AI.');}
         });
@@ -111,7 +113,7 @@ export function useLiveUiConnection() {
         }, 750);
         return () => {alive.current = false; clearInterval(timer); unsubscribe?.(); unsubscribeReveal?.(); unsubscribeAi?.();};
     }, []);
-    const open = async () => {
+    const open = async (options = {}) => {
         if (openingRef.current) return;
         openingRef.current = true;
         setOpening(true); setError('');
@@ -121,12 +123,14 @@ export function useLiveUiConnection() {
             if (!alive.current) return;
             release = acquire();
             setError('');
-            const data = payload();
+            const data = {...payload(),...(options.focus==='deployment'?{focus:'deployment',focusRequest:String(Date.now())}:{})};
             const result = await window.electron.liveUi.open(data);
             session.current = result.sessionId;
             last.current = JSON.stringify(data);
         } catch (failure) {if (alive.current) setError(failure.message || String(failure));}
         finally {release?.(); openingRef.current = false; if (alive.current) setOpening(false);}
     };
+    const openLatest=useRef(open);openLatest.current=open;
+    useEffect(()=>virtualFS.notifications.subscribe('openLiveUiDeployment',request=>{if(request.workspaceId===virtualFS.sandboxName && !virtualFS.aiCodingBusy)void openLatest.current({focus:'deployment'});}),[]);
     return {open, opening, error};
 }

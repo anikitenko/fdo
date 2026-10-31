@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('electron', {
         apply: (session, draftId, options) => ipcRenderer.invoke(LiveUiChannels.APPLY, session, draftId, options),
         canCommit: (session, requestId) => ipcRenderer.invoke(LiveUiChannels.CAN_COMMIT, session, requestId),
         applied: (session, requestId, result) => ipcRenderer.invoke(LiveUiChannels.APPLIED, session, requestId, result),
-        reveal: (session, revision, elementId) => ipcRenderer.invoke(LiveUiChannels.REVEAL, session, revision, elementId),
+        reveal: (session, revision, elementId, target) => ipcRenderer.invoke(LiveUiChannels.REVEAL, session, revision, elementId, target),
         editWithAi: (session, revision, elementId) => ipcRenderer.invoke(LiveUiChannels.EDIT_WITH_AI, session, revision, elementId),
         onAiSelection: callback => {
             const listener = (_, selection) => callback(selection);
@@ -328,6 +328,8 @@ contextBridge.exposeInMainWorld('electron', {
         verifySignature: (id) => ipcRenderer.invoke(PluginChannels.VERIFY_SIGNATURE, id),
         sign: (id, signerLabel) => ipcRenderer.invoke(PluginChannels.SIGN, id, signerLabel),
         export: (id) => ipcRenderer.invoke(PluginChannels.EXPORT, id),
+        previewExport: (id) => ipcRenderer.invoke(PluginChannels.EXPORT_PREVIEW, id),
+        exportAs: (id, options) => ipcRenderer.invoke(PluginChannels.EXPORT_AS, id, options),
         setCapabilities: (id, capabilities) => ipcRenderer.invoke(PluginChannels.SET_CAPABILITIES, id, capabilities),
         getPrivilegedAudit: (id, options) => ipcRenderer.invoke(PluginChannels.GET_PRIVILEGED_AUDIT, id, options),
         getLogTail: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TAIL, id, options),

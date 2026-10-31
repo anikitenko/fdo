@@ -1,3 +1,4 @@
+import {deploymentFindings,workspaceDeployment} from '../../../utils/plugins/deployment/workspaceDeployment';
 export function isWorkspaceQualityReviewPrompt(prompt = "") {
     return /\bworkspace quality review\b/i.test(String(prompt || ""));
 }
@@ -57,12 +58,14 @@ export function formatWorkspaceReviewReport(report, {repairSummary = '', tests =
         findings ? `${changed ? 'Findings identified before repair:' : 'Confirmed findings:'}\n\n${findings}`
             : 'No confirmed issues were reported in the supplied evidence. This does not establish that the workspace is clean.',
         report.limitations.length ? `Limitations:\n${report.limitations.map(item => `- ${item}`).join('\n')}` : '',
-        report.observations ? `Investigation actions: ${report.observations.map(item => item.action.tool).join(' → ') || 'none'}.\nBudget used: approximately ${Math.round(report.budget?.spentTokens || 0).toLocaleString()} tokens of ${Math.round(report.budget?.tokenLimit || 0).toLocaleString()}.` : '',
+        report.observations ? `Investigation actions: ${report.observations.map(item => item.action.tool).join(' → ') || 'none'}.\nBudget used: approximately ${Math.round(report.budget?.spentTokens || 0).toLocaleString()} tokens of ${Math.round(report.budget?.tokenLimit || 0).toLocaleString()}${report.budget?.carriedObservations ? ` in this attempt; continued from ${report.budget.carriedObservations} saved observations` : ''}.` : '',
         repairSummary, tests, changed ? 'Workspace changes were applied.' : 'Workspace files were unchanged.'].filter(Boolean).join('\n\n');
 }
 import {findWorkspaceStyleIssues} from './validateGeneratedPluginFiles';
 import {PLUGIN_STYLE_RENDERING_GUIDANCE} from '../../../utils/plugins/authoring/pluginAuthoringGuide';
 import {findWorkspaceHtmlIssues, PLUGIN_HTML_MIGRATION_GUIDANCE} from '../../../utils/plugins/validation/workspaceHtmlReview';
+import {findWorkspaceInteractionIssues} from '../../../utils/plugins/validation/generatedInteractions';
+import {PLUGIN_ACTION_GUIDANCE} from '../../../utils/plugins/authoring/pluginActionGuidance';
 
 export function workspaceStyleReviewContext(files) {
     return `STYLESHEET REVIEW CONTRACT\n${PLUGIN_STYLE_RENDERING_GUIDANCE}\nHost source diagnostics (not visual verification):\n${JSON.stringify(findWorkspaceStyleIssues(files))}`;
@@ -82,11 +85,32 @@ export function includeWorkspaceStyleFindings(report, files) {
 }
 
 export function workspaceReviewContext(files) {
-    return `${workspaceStyleReviewContext(files)}\n\n${PLUGIN_HTML_MIGRATION_GUIDANCE}\nHost HTML source diagnostics (migration candidates; verify UI use before rewriting):\n${JSON.stringify(findWorkspaceHtmlIssues(files))}`;
+    return `${workspaceStyleReviewContext(files)}\n\n${PLUGIN_HTML_MIGRATION_GUIDANCE}\nHost HTML source diagnostics (migration candidates; verify UI use before rewriting):\n${JSON.stringify(findWorkspaceHtmlIssues(files))}\n${workspaceInteractionReviewContext(files)}\n${workspaceDeploymentReviewContext(files)}`;
+}
+
+export function workspaceInteractionReviewContext(files) {
+    return `PLUGIN INTERACTION REVIEW CONTRACT\n${PLUGIN_ACTION_GUIDANCE}\nThe console error "Blocked form submission" / missing "allow-forms" means native form navigation was attempted. This is plugin-local interaction wiring; the host sandbox must remain unchanged. Check implicit submit buttons, SDK builder defaults, Enter in single-input forms, submit/requestSubmit, and SDK lifecycle mounting.\nHost interaction source diagnostics:\n${JSON.stringify(findWorkspaceInteractionIssues(files))}`;
+}
+
+export function includeWorkspaceInteractionFindings(report, files) {
+    let added=false;
+    for(const issue of findWorkspaceInteractionIssues(files))if(!report.findings.some(finding=>finding.file===issue.file && finding.code===issue.code)){
+        report.findings.push(issue);added=true;
+    }
+    if(added)report.summary+=' Host source checks found unsupported UI event wiring or native form submission requiring SDK action repair.';
+    return report;
 }
 
 export function includeWorkspaceAuthoringFindings(report, files) {
+    const deployment=workspaceDeployment(files);
+    for(const issue of deploymentFindings(files))if(!report.findings.some(finding=>finding.code===issue.code && finding.evidence===issue.evidence))report.findings.push(issue);
+    if(deployment.processDetected || deployment.declaration){
+        report.limitations ||= [];
+        const limitation='Deployment: image tool installation, CLI authentication and cloud permissions have not been verified. '+(deployment.status==='needs-declaration'?'Review ambiguous/dynamic tool requirements in Live UI → Deployment requirements.':'Use the exported tool checker and configure deployment identity separately.');
+        if(!report.limitations.includes(limitation))report.limitations.push(limitation);
+    }
     includeWorkspaceStyleFindings(report, files);
+    includeWorkspaceInteractionFindings(report, files);
     let added = false;
     for (const issue of findWorkspaceHtmlIssues(files)) {
         if (!report.findings.some(finding => finding.file === issue.file && finding.issue === issue.issue)) {
@@ -96,4 +120,9 @@ export function includeWorkspaceAuthoringFindings(report, files) {
     }
     if (added) report.summary += ' Host source checks also found handwritten HTML to review for SDK-helper migration.';
     return report;
+}
+
+export function workspaceDeploymentReviewContext(files) {
+    const assessment=workspaceDeployment(files);
+    return 'DEPLOYMENT REVIEW (source evidence only)\n'+JSON.stringify({status:assessment.status,declaration:assessment.declaration,usage:assessment.usage,suggestions:assessment.suggestions,errors:assessment.errors,checks:assessment.checks,findings:deploymentFindings(files)})+'\nMissing/invalid tool declarations are source issues. Unknown custom binaries and dynamic tool choices need an engineer decision. CLI installation, cloud login and RBAC are separate deployment configuration, not defects to repair by removing features or weakening scopes. Never run installers, login or cloud commands during workspace review.';
 }

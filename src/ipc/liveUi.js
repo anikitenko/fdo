@@ -1,3 +1,5 @@
+import {reviewDeploymentChange} from '../utils/plugins/deployment/deploymentEditing';
+import {workspaceDeployment,DEPLOYMENT_REVIEW_PROMPT,deploymentCatalog} from '../utils/plugins/deployment/workspaceDeployment';
 import {app, BrowserWindow, ipcMain} from 'electron';
 import {createHash, randomUUID} from 'node:crypto';
 import Module from 'node:module';
@@ -26,14 +28,14 @@ export async function readLiveUiSdkMetadata() {
     return {metadata, components: authoring.contracts.components.status === 'supported' ? sdkComponentCatalog(authoring.contracts.components.data) : [], authoringContracts, sdkVersion: JSON.parse(pkg).version,
         hostTarget,
         fingerprint: createHash('sha256').update(source).update(JSON.stringify(authoring))
-            .update(JSON.stringify(hostTarget.host)).update(JSON.stringify(hostTarget.contract)).digest('hex')};
+            .update(JSON.stringify(deploymentCatalog())).update(JSON.stringify(hostTarget.host)).update(JSON.stringify(hostTarget.contract)).digest('hex')};
 }
 
 export function registerLiveUiHandlers({entry, preload, draftStore}) {
     const sessions = new Map();
     const owners = new Map();
     const store = draftStore || createVisualDraftStore(path.join(app.getPath('userData'), 'live-ui-drafts'));
-    const publicState = session => ({...session.state, authoringContract: workspaceAuthoringContract(session.state.files), recovery: session.recoveryError
+    const publicState = session => ({...session.state, authoringContract: workspaceAuthoringContract(session.state.files), deployment:workspaceDeployment(session.state.files), recovery: session.recoveryError
         ? {status: 'unavailable', message: session.recoveryError}
         : session.savedDraft || session.draft ? visualDraftRecoveryStatus(session.savedDraft || savedVisualDraft(session.draftBase, session.draft, session.sdkFingerprint), session.state, session.sdkFingerprint) : null});
     const persist = async (session, base, draft) => {
@@ -81,7 +83,7 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         const selection = data.selection && Object.hasOwn(files, data.selection.path) && Number.isInteger(data.selection.line) && Number.isInteger(data.selection.column)
             ? {path: data.selection.path, line: Math.max(1, data.selection.line), column: Math.max(1, data.selection.column)} : null;
         return {workspaceId: data.workspaceId, name: String(data.name || data.workspaceId).slice(0, 200), snapshot, files,
-            selection,
+            selection,...(data.focus==='deployment'?{focus:'deployment',focusRequest:String(data.focusRequest || '').slice(0,60)}:{}),
             revision: createHash('sha256').update(snapshot + '\n' + serialized).digest('hex')};
     };
     ipcMain.handle(LiveUiChannels.OPEN, async (event, data) => {
@@ -187,17 +189,33 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         if (session.state.revision === state.revision) session.preview = {...result, revision: state.revision};
         return {...result, revision: state.revision};
     });
-    ipcMain.handle(LiveUiChannels.REVEAL, (event, id, revision, elementId) => {
+    ipcMain.handle(LiveUiChannels.REVEAL, (event, id, revision, elementId, target) => {
         const session = owned(event, id, 'window');
         const element = session.preview?.revision === revision && session.preview.elements?.find(item => item.id === elementId);
         if (!element || session.state.revision !== revision || session.state.disconnected) throw new Error('Refresh this selection before showing its source.');
-        session.owner.webContents.send(LiveUiChannels.REVEAL_SOURCE, {workspaceId: session.state.workspaceId, ...element.location});
+        let source=element.location;
+        if(target) {
+            if(session.draft || session.pending)throw new Error('Apply or discard the draft before showing binding source.');
+            const bindings=element.sdkBindings;
+            const item=target.kind==='binding' ? [...(bindings?.items || []),...(bindings?.unresolved || [])].find(item=>item.id===target.bindingId)
+                : target.kind==='handler' ? bindings?.handlers.find(item=>item.name===target.name) : target.kind==='setup' ? bindings?.setup : null;
+            if(!item?.location)throw new Error('Refresh this binding before showing its source.');
+            source=item.location;
+        }
+        session.owner.webContents.send(LiveUiChannels.REVEAL_SOURCE, {workspaceId: session.state.workspaceId, ...source});
         return focusAssistantOwner(session.owner);
     });
     ipcMain.handle(LiveUiChannels.EDIT_WITH_AI, (event, id, revision, elementId) => {
         const session = owned(event, id, 'window');
         if (session.draft || session.savedDraft || session.recoveryError || session.pending || session.restoring) {
             throw new Error('Apply or discard the visual draft before editing with AI.');
+        }
+        if(elementId==='__deployment__'){
+            if(session.state.revision!==revision || session.state.disconnected)throw new Error('Refresh deployment requirements before opening AI review.');
+            const source=session.state.files['/package.json'];if(typeof source!=='string')throw new Error('Create package.json in the IDE first.');
+            const lines=source.split('\n');
+            session.owner.webContents.send(LiveUiChannels.AI_SELECTION,{workspaceId:session.state.workspaceId,path:'/package.json',source,line:1,column:1,endLine:lines.length,endColumn:lines.at(-1).length+1,intent:'deployment',prompt:DEPLOYMENT_REVIEW_PROMPT});
+            return focusAssistantOwner(session.owner);
         }
         const element = session.preview?.revision === revision && session.preview.elements?.find(item => item.id === elementId);
         if (!element || session.state.revision !== revision || session.state.disconnected) {
@@ -212,15 +230,15 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
     ipcMain.handle(LiveUiChannels.PROPOSE, async (event, id, request) => {
         const session = owned(event, id, 'window');
         const mismatch = compatibilityFailure(session);
-        const policyOperation = request.kind === 'compatibility' || session.draft?.supportOnly && ['undo', 'redo'].includes(request.kind);
+        const policyOperation = ['compatibility','deployment'].includes(request.kind) || (session.draft?.supportOnly || session.draft?.deploymentOnly) && ['undo', 'redo'].includes(request.kind);
         if (mismatch && !policyOperation) return mismatch;
         if (session.pending) return {status: 'busy', message: 'Wait for the current apply to finish.'};
         if (session.restoring || session.savedDraft || session.recoveryError) return {status: 'busy', message: 'Restore or discard the saved draft before making new visual changes.'};
         if (request.revision !== session.state.revision || session.state.disconnected) return {status: 'conflict', message: 'Source changed. Discard this draft and select the element again.'};
         const base = session.state;
         const previous = request.draftId ? session.draft : null;
-        if (previous && !['undo', 'redo'].includes(request.kind) && !!previous.supportOnly !== (request.kind === 'compatibility')) {
-            return {status: 'busy', message: 'Apply or discard the current draft before mixing support-policy changes with visual edits.'};
+        if (previous && !['undo', 'redo'].includes(request.kind) && (previous.supportOnly?'compatibility':previous.deploymentOnly?'deployment':'visual') !== (['compatibility','deployment'].includes(request.kind)?request.kind:'visual')) {
+            return {status: 'busy', message: 'Apply or discard the current draft before mixing support, deployment and visual edits.'};
         }
         if (request.draftId && previous?.id !== request.draftId) return {status: 'conflict', message: 'This draft changed. Retry from the current draft.'};
         if (!previous && ['undo', 'redo'].includes(request.kind)) return {status: 'conflict', message: 'There is no current draft to change.'};
@@ -231,7 +249,7 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
             draft = await prepareVisualDraft({base, previous, preview, request, render,
                 acceptFiles: files => accept({...base, files}).files});
         } catch (error) {
-            if (request.kind === 'compatibility') return {status: 'error', message: error.message};
+            if (['compatibility','deployment'].includes(request.kind)) return {status: 'error', message: error.message};
             throw error;
         }
         if (base.revision !== session.state.revision || session.state.disconnected) return {status: 'conflict', message: 'Source changed during preview. Discard this draft and select again.'};
@@ -249,19 +267,20 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         if (session.pending) return {status: 'busy', message: 'Another edit is being applied.'};
         const draft = session.draft;
         const mismatch = compatibilityFailure(session);
-        if (mismatch && !draft?.supportOnly) return mismatch;
+        if (mismatch && !draft?.supportOnly && !draft?.deploymentOnly) return mismatch;
         if (!draft?.patch || draft.id !== draftId || draft.revision !== session.state.revision || session.state.disconnected) return {status: 'conflict', message: 'This draft is stale. Discard it and select the element again.'};
         if (draft.supportOnly) {
             reviewPluginSupportChange(session.state.files, draft.files);
             if (options?.confirmSupportChange !== true) return {status: 'confirmation-required', message: 'Review and acknowledge the support-policy change before applying it.'};
         }
+        if(draft.deploymentOnly)reviewDeploymentChange(session.state.files,draft.files);
         const requestId = randomUUID();
         let resolve;
         const promise = new Promise(done => {resolve = done;});
         const timer = setTimeout(() => finish(session, {status: 'error', message: 'IDE validation timed out. No commit was authorized; retry from current source.'}), 120000);
-        session.pending = {requestId, draftId, promise, resolve, timer, committing: false, supportOnly: draft.supportOnly === true};
+        session.pending = {requestId, draftId, promise, resolve, timer, committing: false, supportOnly: draft.supportOnly === true,deploymentOnly:draft.deploymentOnly===true};
         session.owner.webContents.send(LiveUiChannels.APPLY_REQUEST, {sessionId: id, requestId, base: session.state, patch: draft.patch, patches: draft.patches,
-            ...(draft.supportOnly ? {supportOnly: true} : {}), keepCheckpoint: options?.keepCheckpoint === true});
+            ...(draft.supportOnly ? {supportOnly: true} : {}),...(draft.deploymentOnly?{deploymentOnly:true}:{}), keepCheckpoint: options?.keepCheckpoint === true});
         return promise;
     });
     ipcMain.handle(LiveUiChannels.CAN_COMMIT, (event, id, requestId) => {
@@ -269,6 +288,7 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
         const pending = session.pending;
         if (!pending || pending.requestId !== requestId || session.state.disconnected || session.draft?.revision !== session.state.revision) return false;
         if (pending.supportOnly) reviewPluginSupportChange(session.state.files, session.draft.files);
+        else if(pending.deploymentOnly)reviewDeploymentChange(session.state.files,session.draft.files);
         else if (compatibilityFailure(session)) return false;
         pending.committing = true;
         clearTimeout(pending.timer);
@@ -281,6 +301,7 @@ export function registerLiveUiHandlers({entry, preload, draftStore}) {
             if (!session.pending.committing) throw new Error('This edit was not authorized to commit.');
             const state = accept(result.workspace);
             if (session.pending.supportOnly) reviewPluginSupportChange(session.state.files, state.files);
+            if(session.pending.deploymentOnly)reviewDeploymentChange(session.state.files,state.files);
             if (state.workspaceId !== session.state.workspaceId) throw new Error('Applied workspace identity does not match.');
             session.state = state;
             session.draft = null;

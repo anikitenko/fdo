@@ -2,8 +2,12 @@ function normalizeText(value = "") {
     return String(value || "").toLowerCase();
 }
 
-function isHostServiceQuery(query = "") {
-    return /\b(?:ssh|terminals?|pty|x11|xquartz|git|secrets?|credentials?|submodules?|lfs)\b|listProfiles|SSHProfileSummary|watchStatus|remote commands?|persistent.*sav|json.*flush/i.test(query);
+export function hostServiceEvidenceNeeds(query = '') {
+    return {
+        network: /\b(?:network|fetch|https?|websocket|endpoints?|outbound|connectivity|healthchecks?)\b/i.test(query),
+        secrets: /\b(?:secrets?|credentials?|SecretStore|bearer)\b|api[ -]?key|access[ -]?token/i.test(query),
+        ssh: /\b(?:ssh|terminals?|pty|x11|xquartz|git|submodules?|lfs)\b|listProfiles|SSHProfileSummary|watchStatus|remote commands?|persistent.*sav|json.*flush/i.test(query),
+    };
 }
 
 function tokenizeQuery(query = "") {
@@ -212,7 +216,9 @@ export function searchFdoSdkKnowledge(index = [], query = "", options = {}) {
     const { limit = 6 } = options;
     const terms = unique(tokenizeQuery(query));
     const operatorStyleQuery = isOperatorStyleQuery(query);
-    const hostServiceQuery = isHostServiceQuery(query);
+    const needs = hostServiceEvidenceNeeds(query);
+    const hostServiceQuery = needs.ssh;
+    const deploymentToolsQuery=/toolchain|fdo\.deployment/i.test(query) || /\b(?:docker|container|export|deployment)\b/i.test(query) && /\b(?:cli|tools?|binaries|dependencies)\b/i.test(query);
 
     if (terms.length === 0) {
         return index.slice(0, limit).map(({ searchableText, ...entry }) => entry);
@@ -230,10 +236,17 @@ export function searchFdoSdkKnowledge(index = [], query = "", options = {}) {
             if (operatorStyleQuery) {
                 score += getOperatorFixtureBoost(entry.path, query);
             }
+            if(deploymentToolsQuery && /fdo-host\/(?:DEPLOYMENT_TOOLS\.md|deployment-tools\.json)$/i.test(entry.path))score+=140;
             if (hostServiceQuery) {
                 if (/fdo-host\/SECRETS_SSH_GIT\.md$/i.test(entry.path)) score += 90;
                 if (/(?:^|\/)SECRETS_AND_SSH\.md$/i.test(entry.path)) score += 65;
                 if (/\bSSHProfileSummary\s*=/.test(entry.content) && /profile|host|port|username|fingerprint|metadata|authenticationType/i.test(query)) score += 100;
+            }
+            if (needs.network || needs.secrets) {
+                if (/fdo-host\/NETWORK_CREDENTIALS\.md$/i.test(entry.path)) score += 120;
+                if (needs.network && /fdo-host\/network-scopes\.json$/i.test(entry.path)) score += 80;
+                if (needs.secrets && /\bclass SecretStore\b/.test(entry.content)) score += 100;
+                if (needs.secrets && /(?:^|\/)SECRETS_AND_SSH\.md$/i.test(entry.path)) score += 65;
             }
             return { entry, score };
         })
@@ -242,13 +255,18 @@ export function searchFdoSdkKnowledge(index = [], query = "", options = {}) {
 
     // Keep host policy and the installed SDK contract together instead of
     // allowing many chunks from one document to crowd out the other source.
-    const evidence = hostServiceQuery ? [
-        scored.find(({entry})=>/fdo-host\/SECRETS_SSH_GIT\.md$/i.test(entry.path)),
-        scored.find(({entry})=>/(?:^|\/)SECRETS_AND_SSH\.md$/i.test(entry.path)),
-        /status|watch|monitor|stream|cancel|flush|persist|remote command/i.test(query)
+    const evidence = [
+        deploymentToolsQuery && scored.find(({entry})=>/fdo-host\/DEPLOYMENT_TOOLS\.md$/i.test(entry.path)),
+        deploymentToolsQuery && scored.find(({entry})=>/fdo-host\/deployment-tools\.json$/i.test(entry.path)),
+        (needs.network || needs.secrets) && scored.find(({entry})=>/fdo-host\/NETWORK_CREDENTIALS\.md$/i.test(entry.path)),
+        needs.secrets && scored.find(({entry})=>/\.d\.ts$/i.test(entry.path) && /\bclass SecretStore\b/.test(entry.content)),
+        hostServiceQuery && scored.find(({entry})=>/fdo-host\/SECRETS_SSH_GIT\.md$/i.test(entry.path)),
+        (hostServiceQuery || needs.secrets) && scored.find(({entry})=>/(?:^|\/)SECRETS_AND_SSH\.md$/i.test(entry.path)),
+        needs.network && scored.find(({entry})=>/fdo-host\/network-scopes\.json$/i.test(entry.path)),
+        hostServiceQuery && /status|watch|monitor|stream|cancel|flush|persist|remote command/i.test(query)
             ? scored.find(({entry})=>/(?:^|\/)FDO_HOST_REMOTE_COMMANDS_HANDOFF\.md$/i.test(entry.path)) : undefined,
-        scored.find(({entry})=>/\bSSHProfileSummary\s*=/.test(entry.content)),
-    ].filter(Boolean) : [];
+        hostServiceQuery && scored.find(({entry})=>/\bSSHProfileSummary\s*=/.test(entry.content)),
+    ].filter(Boolean);
     const selected = [...evidence, ...scored.filter(item=>!evidence.includes(item))];
     return selected.slice(0, limit).map(({ entry, score }) => {
         const { searchableText, ...rest } = entry;

@@ -48,6 +48,8 @@ test('capabilities and fingerprint come from the installed SDK, and detect stale
     const validator = createInstalledSdkValidator();
     expect(validator.capabilities.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(validator.capabilities.api).toEqual(expect.arrayContaining([expect.objectContaining({name: 'DOMText', methods: expect.arrayContaining(['createSpanText'])})]));
+    expect(validator.capabilities.api.find(item => item.name === 'FDO_SDK').properties)
+        .toEqual(expect.arrayContaining([{name: 'secrets', type: 'SecretStore', static: false}, {name: 'ssh', type: 'SSHClient', static: false}]));
     expect(validator.report('# Guide').migrationRequired).toBe(true);
     expect(validator.report(`<!-- fdo-sdk-fingerprint: ${validator.capabilities.fingerprint} -->`).migrationRequired).toBe(false);
     expect(validator.plan([{path: '/view.ts', contract: 'Call sdk.host.executeCommand()'}])[0]).toContain('does not expose host');

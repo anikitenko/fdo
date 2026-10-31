@@ -1067,6 +1067,65 @@ lifecycle probes. Words such as stop, verify, and render in those prompts refer
 to source review and tests, and do not authorize activate/deactivate/init/render
 actions. Review and repair therefore do not require the deployed plugin to be ready.
 
+### Continuing a partial workspace review
+
+The investigation phase gathers evidence without writing files. Authorized
+repairs run separately through scoped generation and the normal candidate
+validation and snapshot flow. The investigation's lack of write actions does
+not prevent the host from repairing confirmed findings.
+
+If the investigation exhausts its token or time allowance, the report says why
+repair did not start. Confirmed findings are retained; they are not relabeled as
+an empty review. **Saved workspace review** offers:
+
+- **Repair confirmed findings**: start a fresh bounded repair for the reported
+  files with the selected assistant, without repeating the investigation.
+- **Continue review**: start a fresh bounded, read-only investigation using the
+  saved findings and observations. Static checks, source reads, and tests are
+  reused for the unchanged workspace; volatile runtime and log evidence can
+  refresh. The displayed token budget covers the current attempt.
+- **Discard saved review**: release this session's retained review.
+
+Content edits, snapshot restoration, and plugin switches invalidate the saved
+review before another request or accepting a repair reply. Run a new review for
+the current workspace. Failed or cancelled repairs retain the review; candidate
+validation failures expose **Repair failed validation** with the proposed files
+and diagnostics instead. Successful repairs clear a completed review, or retain
+current host findings and unfinished checks for continuation. Cached source
+observations are discarded after applying changes. Recovery is session-only and is cleared
+when the panel is cleared, the plugin changes, or the panel is closed.
+
+Observation results are bounded to leave room for a report. Token counts are
+estimates supplemented by provider usage; a larger provider-reported charge is
+shown honestly and prevents further automatic investigation actions. Continuing
+or repairing is an explicit user action, rather than silently resetting an
+exhausted investigation budget.
+
+### Sandboxed form submission repairs
+
+Workspace reviews run the interaction source contract against existing files,
+including SDK DOM builders. They identify native submit controls, omitted button
+types in form context, submit/requestSubmit calls, unsupported manual event
+wiring, and statically known single-input forms without an SDK Enter guard.
+The `Blocked form submission` / missing `allow-forms` console diagnostic is
+classified as a plugin-local interaction problem. The agent must preserve the
+iframe sandbox and repair the plugin through SDK actions.
+
+Confirmed interaction findings carry `SDK_ACTION_BINDING_REQUIRED` into scoped
+generation and the final Apply gate. Their files cannot retain unsafe wiring
+through the unrelated-legacy exemption. Repairs are checked again after Apply;
+remaining source findings keep the review partial. Passing tests or using an
+SDK HTML builder alone does not establish safe submission behavior. Incomplete
+leaf generation defers cross-file keyboard checks until the full candidate is
+available. Static checks do not prove every dynamic render path or event target;
+actual clicks, Enter, normal Tab navigation, and multiline input need behavioral
+verification.
+
+If editor diagnostics fail after a validated write, the report records that
+earlier repairs were applied and retains a review of the current source. It does
+not describe those files as unchanged. Editor corrections cannot expand an
+explicit repair scope; diagnostics outside it require a new authorized request.
+
 ### Repeated manual validation recovery
 
 When a complete candidate fails validation and its diagnostics identify workspace

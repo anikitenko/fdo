@@ -1,5 +1,7 @@
 # AI Coding Agent Integration
 
+Deployment tooling is shared with AI Coding and Live UI: see [Deployment authoring workflow](DEPLOYMENT_AUTHORING.md) for source review, tool editing, authentication and recovery.
+
 ## Overview
 
 The AI Coding Agent is a new feature integrated into the FDO built-in code editor. It provides AI-powered coding assistance directly within the editor, using the official OpenAI, Anthropic, Google Gemini, Cloudflare and Ollama clients through FDO’s provider adapters and coding assistant configuration.
@@ -17,6 +19,69 @@ retarget existing plugins. Maintainers review target changes in the IDE or
 Live UI support editor before asking AI to work against the new baseline.
 See [version sources and default ranges](PLUGIN_COMPATIBILITY.md#where-versions-and-default-ranges-come-from)
 and [host contract versioning](PLUGIN_HOST_CONTRACT.md) for the full rules.
+
+Network and credential storage are supported backend capabilities. FDO guards
+backend `fetch(url, options)` with `system.network`, the transport grant (for
+example `system.network.https`), and a matching destination scope. Plugins do
+not need to invent or configure an SDK network adapter. The knowledge index
+includes `fdo-host/network-scopes.json`, derived from the host's current scope
+registry, rather than a separately maintained list.
+
+Use the installed `FDO_SDK.secrets` / `SecretStore` declarations for plugin-scoped
+credential storage. `secrets.use` plus the operation grant authorizes
+`set`, `get`, `delete`, or metadata-only `list`. `get` returns `null` for a missing
+key; unavailable or locked storage rejects. For authenticated HTTP calls, a
+backend may read a token with `secrets.get` when granted. `secrets.consume` and
+secret references do not provide plaintext tokens to `fetch`. Keep secret
+values out of logs, iframe responses and unencrypted JSON settings. SSH
+profiles remain managed through Settings → Credentials & SSH.
+
+The agent retrieves `fdo-host/NETWORK_CREDENTIALS.md` and installed service
+declarations before generic UI evidence for relevant requests. The installed
+API inventory includes public service properties and accessors with their
+declared types, without executing getters. Missing prompt excerpts do not
+establish that an API is absent. Generation and repair must retain a real
+backend implementation and distinguish missing credentials, denied grants,
+and runtime service failures with actionable setup/retry states, rather than
+permanently disabling checks behind an invented missing-adapter condition.
+API availability and declared capabilities do not prove grants or successful
+live access; only report verification actually performed.
+
+### Choosing an action
+
+The composer shows the action's target and expected result before submission.
+Explicit actions retain their mode; file-creation and investigation heuristics
+apply to Smart Mode. Plan Code retains the scaffold/workspace workflow.
+
+| Action | Target | Result |
+| --- | --- | --- |
+| Smart Mode | Request and workspace evidence | Answer, investigation, or implementation workflow chosen from the request |
+| Generate Code | Open plugin file and supplied context | One complete code proposal following Changes; a code draft if no file is open |
+| Edit Code | Selected code, otherwise the open plugin file | Exact patches for that file |
+| Explain Code | Selection, open file, or supplied workspace context | Answer to the user's question; files stay unchanged |
+| Fix Code | Selected code, otherwise the open plugin file | Exact repairs supported by the supplied errors and diagnostics |
+| Plan Code | Plugin workspace | Complete workspace files with the existing scaffold and validation flow |
+
+Edit and Fix require a nonempty plugin file. Generate can use an empty plugin
+file or return a draft without a target. The target, source baseline and
+selection are captured when submitted; cursor movement does not retarget the
+patch. Newer edits to that file block application. A single-file action cannot
+expand into other files through patches, full-file replies or follow-up repair.
+Use Smart Mode or Review & repair for failing tests across the workspace.
+
+Explain forwards the user's question, accepts an optional question when source
+is available, and disables Changes controls while preserving that preference
+for other modes. An Explain reply never exposes Apply controls, even if the
+model unexpectedly emits file sections or the next action changes.
+
+Replies distinguish executable proposals from prose/no-change answers and
+ambiguous alternatives. Unmarked competing code blocks are retained for
+clarification rather than choosing the last block. A uniquely marked solution
+remains compatible with earlier replies. No-change prose does not trigger an
+automatic rewrite. The completed IPC result replaces partial streamed text,
+and an empty result produces a retry message. These contracts constrain
+routing and application; generated code and unverified claims still require
+the normal review and verification process.
 
 For privileged integrations, the AI Coding Agent should prefer host-mediated scoped actions over raw shell or child-process spawning from plugin code. In practice, that means recommending:
 
@@ -81,7 +146,14 @@ through an imported factory:
 Use `strict: true` in authoring examples unless the plugin intentionally tolerates optional selectors. Strict mode is the preferred DX because selector mismatches become visible diagnostics instead of silently missing event listeners.
 
 Commands use `type="button"` and `event: "click"`. Forms may group fields, but
-native submission is unsupported in the plugin sandbox. Generated code must not
+native submission is unsupported in the plugin sandbox. A single text-entry
+input can submit a form implicitly on Enter even with `type="button"` commands.
+Use a non-submitting SDK container for layout, or an SDK `keydown` handler that
+conditionally prevents Enter's default action and invokes the same command.
+Preserve Tab navigation, IME composition, and multiline editing. SDK button
+builders also need an explicit button type; wrapping a submit control in an SDK
+helper does not make native submission supported. Never add `allow-forms` to
+the host sandbox as a repair. Generated code must not
 substitute submit listeners, native `form.submit()` / `requestSubmit()`, HTML
 event attributes, `onclick` assignments or manual click/change listener loops.
 Putting those loops in SDK `setup` does not make them declarative. Setup owns
@@ -101,7 +173,11 @@ Generation and the final merged-workspace Apply gate check new interaction
 wiring and decoded frontend script strings without executing them. Violations
 carry a file/line and `SDK_ACTION_BINDING_REQUIRED` diagnostic for scoped repair.
 Unchanged legacy wiring is retained during unrelated edits; newly added or
-changed wiring must use SDK actions. This static generation contract does not
+changed wiring must use SDK actions. Workspace reviews scan existing interactions
+as well. Confirmed interaction findings become scoped repair diagnostics and
+must be resolved before Apply; legacy exemptions cannot bypass that repair.
+The browser's `Blocked form submission` / missing `allow-forms` error routes to
+plugin-local investigation rather than host-permission changes. This static generation contract does not
 replace runtime permissions, behavior tests or a security audit. Verify an actual
 click dispatches to the registered handler and updates the expected state,
 including errors and cleanup/reinitialization.

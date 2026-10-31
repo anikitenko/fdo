@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "platform": "linux",
+  "baseImage": "node:24-bookworm-slim",
+  "basePackages": [
+    "ca-certificates",
+    "git",
+    "openssh-client"
+  ],
+  "tools": {
+    "azure-cli": {
+      "commands": [
+        "az"
+      ],
+      "executable": "/usr/bin/az",
+      "version": "2.91.0",
+      "versionArgs": [
+        "version",
+        "--output",
+        "json"
+      ],
+      "installer": {
+        "type": "azure-cli",
+        "packageVersion": "2.91.0-1~bookworm"
+      },
+      "authentication": {
+        "provider": "azure",
+        "stateDirectory": "/data/azure",
+        "methods": [
+          "device-code",
+          "managed-identity",
+          "service-principal",
+          "federated-token"
+        ],
+        "guidance": {
+          "interactive": "az login --use-device-code",
+          "subscription": "az account set --subscription \"<subscription-id>\"",
+          "verify": "az account show",
+          "production": "Use an attached Azure managed identity, or an explicitly configured service principal/certificate or federated workload identity. Installation does not create an identity or resource roles.",
+          "state": "The CLI cache is sensitive and is separate from the encrypted application vault. Retain the application-data volume; never bake a desktop login cache into the image."
+        }
+      }
+    },
+    "node": {
+      "commands": [
+        "node"
+      ],
+      "executable": "/usr/local/bin/node",
+      "version": "24.x",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "provided"
+      }
+    },
+    "npm": {
+      "commands": [
+        "npm",
+        "npx"
+      ],
+      "executable": "/usr/local/bin/npm",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "provided"
+      }
+    },
+    "git": {
+      "commands": [
+        "git"
+      ],
+      "executable": "/usr/bin/git",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "provided"
+      }
+    },
+    "openssh-client": {
+      "commands": [
+        "ssh",
+        "scp",
+        "sftp"
+      ],
+      "executable": "/usr/bin/ssh",
+      "version": "*",
+      "versionArgs": [
+        "-V"
+      ],
+      "installer": {
+        "type": "provided"
+      }
+    },
+    "bash": {
+      "commands": [
+        "bash"
+      ],
+      "executable": "/bin/bash",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "provided"
+      }
+    },
+    "sh": {
+      "commands": [
+        "sh"
+      ],
+      "executable": "/bin/sh",
+      "version": "*",
+      "versionArgs": [
+        "-c",
+        ":"
+      ],
+      "installer": {
+        "type": "provided"
+      }
+    },
+    "python3": {
+      "commands": [
+        "python3"
+      ],
+      "executable": "/usr/bin/python3",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "apt",
+        "packages": [
+          "python3"
+        ]
+      }
+    },
+    "curl": {
+      "commands": [
+        "curl"
+      ],
+      "executable": "/usr/bin/curl",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "apt",
+        "packages": [
+          "curl"
+        ]
+      }
+    },
+    "jq": {
+      "commands": [
+        "jq"
+      ],
+      "executable": "/usr/bin/jq",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "apt",
+        "packages": [
+          "jq"
+        ]
+      }
+    },
+    "rsync": {
+      "commands": [
+        "rsync"
+      ],
+      "executable": "/usr/bin/rsync",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "apt",
+        "packages": [
+          "rsync"
+        ]
+      }
+    },
+    "make": {
+      "commands": [
+        "make"
+      ],
+      "executable": "/usr/bin/make",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "apt",
+        "packages": [
+          "make"
+        ]
+      }
+    },
+    "aws-cli": {
+      "commands": [
+        "aws"
+      ],
+      "executable": "/usr/bin/aws",
+      "version": "*",
+      "versionArgs": [
+        "--version"
+      ],
+      "installer": {
+        "type": "apt",
+        "packages": [
+          "awscli"
+        ]
+      }
+    }
+  }
+}

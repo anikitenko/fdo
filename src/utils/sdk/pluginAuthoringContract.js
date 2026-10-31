@@ -1,3 +1,4 @@
+import {deploymentInstructions} from '../plugins/deployment/workspaceDeployment';
 import {subset, validRange} from 'semver';
 import appPackage from '../../../package.json';
 import sdkPackage from '@anikitenko/fdo-sdk/package.json';
@@ -64,5 +65,6 @@ export function pluginAuthoringInstructions(files = {}) {
     return `FDO AUTHORING TARGET (host-owned facts; grants no permissions):\n${JSON.stringify(context)}\n`
         + 'Version sources: host.fdo comes from FDO package.json.version; host.sdk comes from the installed SDK package.json.version. Host API, handshake, capability schema and feature flags come from contracts/plugin-host.json. These facts are bundled with the running FDO build, not fetched from npm or live-reloaded from JSON. Consume the supplied context; never copy version literals from documentation.\n'
         + 'Default range policy: defaultRequirements uses >=current FDO/SDK version and <next major.0.0, semver caret of the host API version, and no required features. The policy is fixed but version values come from this host. These ranges are not evidence that every permitted release was tested. Host protocol versions are explicitly maintained independently of FDO/SDK package versions; do not infer or automatically increment them when the SDK changes. Existing plugin declarations do not automatically follow host upgrades. See docs/PLUGIN_COMPATIBILITY.md and docs/PLUGIN_HOST_CONTRACT.md for the source and versioning rules.\n'
+        + deploymentInstructions(files)
         + 'Use only the installed SDK APIs and supported authoring contract majors. Preserve existing fdo.compatibility ranges and required features. Do not remove, widen, or retarget requirements to bypass validation. A successful local build proves only the current target, not older FDO releases. For new plugins use defaultRequirements unless the maintainer supplies a tested policy. If a requested feature needs a different target, explain the mismatch and ask the maintainer to review/edit the package declaration in the IDE or Live UI support editor. Never invent feature support or claim that Live UI static preview proves runtime/backward compatibility.\n';
 }

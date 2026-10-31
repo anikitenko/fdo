@@ -1,6 +1,22 @@
-import {buildEditCodePrompt, buildFixCodePrompt, buildPlanCodePrompt, buildSmartModePrompt} from "../../src/ipc/ai_coding_agent.js";
+import {buildEditCodePrompt, buildFixCodePrompt, buildPlanCodePrompt, buildSmartModePrompt, buildExplainCodePrompt, buildGenerateCodePrompt} from "../../src/ipc/ai_coding_agent.js";
 
 describe("ai coding agent prompts", () => {
+    test('explanation preserves the user question and supplied scope with a read-only response contract', () => {
+        const prompt = buildExplainCodePrompt({prompt: 'Focus on why retries duplicate clicks.', code: 'retry();', targetFilePath: '/actions.ts', context: 'SDK actions evidence'});
+        expect(prompt).toContain('Focus on why retries duplicate clicks.');
+        expect(prompt).toContain('Target workspace file: /actions.ts');
+        expect(prompt).toContain('READ-ONLY ANSWER');
+        expect(prompt).toContain('Do not return file replacements');
+        expect(buildExplainCodePrompt({prompt: 'Explain the supplied SDK docs', context: 'Installed docs'})).toContain('No specific code block was supplied');
+    });
+
+    test('generation asks for one complete deliverable rather than alternative code examples', () => {
+        const prompt = buildGenerateCodePrompt({prompt: 'Add validation', context: 'Existing target code'});
+        expect(prompt).toContain('exactly one fenced code block');
+        expect(prompt).toContain('// SOLUTION READY TO APPLY');
+        expect(prompt).toContain('If essential context is absent');
+        expect(prompt).toContain('Do not claim files were applied or tests ran');
+    });
     test("uses the shared public plugin contract for planning", () => {
         const prompt = buildPlanCodePrompt({
             prompt: "Create a production-grade plugin",

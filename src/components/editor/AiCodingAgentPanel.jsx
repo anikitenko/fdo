@@ -1,3 +1,6 @@
+import {liveUiWorkspacePayload} from '../../utils/plugins/authoring/liveUi/workspaceState';
+import AiDeploymentRequirements from './AiDeploymentRequirements';
+import {DEPLOYMENT_REVIEW_PROMPT} from '../../utils/plugins/deployment/workspaceDeployment';
 import {isInvestigationPrompt, investigationAllowsRepair, investigationBudget, runCodingInvestigation, createInvestigationActions, initialInvestigationActions} from './utils/aiCodingAgentInvestigation';
 import {pluginGuideRecoveryMetadata} from '../../utils/ai/assistant/pluginGuideRecovery';
 import {generationRecoveryReducer, initialGenerationRecovery} from './utils/aiGenerationRecoveryState';
@@ -9,6 +12,7 @@ import {hasStrictTestRepairProgress} from './utils/aiTestRepairProgress';
 import {stagePendingFiles, startPendingFiles, updatePendingFiles} from './utils/aiPendingFiles';
 import {runCandidateTests} from './utils/runCandidateTests';
 import {assertValidationRecoveryCurrent, retainValidationRecovery} from './utils/aiValidationRecovery';
+import {assertWorkspaceReviewCurrent, retainWorkspaceReview, reviewRepairDisposition, deferredReviewRepairMessage} from './utils/aiWorkspaceReviewRecovery';
 import AiUsagePopover from "../ai-chat/AiUsagePopover";
 import {repairGeneratedUnusedImports} from '../../utils/plugins/validation/generatedUnusedImports';
 import FdoAiMark from "../ai/FdoAiMark";
@@ -79,7 +83,6 @@ import {findWorkspaceStyleIssues, normalizeReservedHostBindingMarkers, validateG
 import {normalizeGeneratedModuleExports} from "../../utils/plugins/validation/generatedModuleExports";
 import {repairWorkspaceSdkDom} from '../../utils/plugins/validation/workspaceSdkDomRepair';
 import {parseAiWorkspacePlanResponse, shouldApplyAiResponseToWorkspace} from "./utils/aiCodingAgentPlanResponse.js";
-import {extractAiCodeToApply} from "./utils/aiCodingAgentSingleFileApply";
 import {buildExecutablePlanRetryPrompt, buildProblemsRepairPlanPrompt, buildValidationRepairPlanPrompt, getProblemsRepairPaths, getValidationRepairPaths, mergeValidationRepairResponse} from "./utils/aiCodingAgentPlanRepair.js";
 import {buildAiCodingProblemsContext} from "./utils/aiCodingAgentProblems.js";
 import {buildAiCodingBuildOutputContext} from "./utils/aiCodingAgentBuildOutput.js";
@@ -97,9 +100,11 @@ import {
     validateAiCodingPluginScopeResponse,
 } from "./utils/aiCodingAgentPluginScope.js";
 import {isAiCodingFastLocalEditPrompt} from "./utils/aiCodingAgentFastPath.js";
-import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT, parseWorkspaceReviewReport, formatWorkspaceReviewReport, workspaceReviewContext, includeWorkspaceAuthoringFindings} from "./utils/aiCodingAgentReview.js";
+import {isWorkspaceQualityReviewPrompt, WORKSPACE_REPAIR_PROMPT, WORKSPACE_REVIEW_PROMPT, parseWorkspaceReviewReport, formatWorkspaceReviewReport, workspaceReviewContext, includeWorkspaceAuthoringFindings, workspaceInteractionReviewContext, workspaceDeploymentReviewContext, includeWorkspaceInteractionFindings} from "./utils/aiCodingAgentReview.js";
+import {findWorkspaceInteractionIssues, interactionRepairDiagnostics, INTERACTION_DIAGNOSTIC_CODE} from '../../utils/plugins/validation/generatedInteractions';
 import {findWorkspaceHtmlIssues} from '../../utils/plugins/validation/workspaceHtmlReview';
 import runHostPluginTests from "./utils/runTests.js";
+import {AI_CODING_ACTIONS, allowsWorkspaceIntent, resolveFileActionTarget, actionOutcome, fileActionScopeError, codingResponseKind} from './utils/aiCodingAgentActions';
 
 import hljs from "../../assets/js/hljs/highlight.min"
 import "../../assets/css/hljs/xt256.min.css"
@@ -120,14 +125,13 @@ if (typeof hljs?.configure === "function") {
     hljs.configure({ ignoreUnescapedHTML: true });
 }
 
-const AI_ACTIONS = [
-    { label: "Smart Mode (Recommended)", value: "smart" },
-    { label: "Generate Code", value: "generate" },
-    { label: "Edit Code", value: "edit" },
-    { label: "Explain Code", value: "explain" },
-    { label: "Fix Code", value: "fix" },
-    { label: "Plan Code (Plugin Scaffold)", value: "plan" },
-];
+const AI_ACTIONS = AI_CODING_ACTIONS.map(({label, value}) => ({label, value}));
+
+function requireAssistantResponse(content) {
+    if (!String(content || '').trim()) {
+        throw new Error('The assistant returned an empty response. Your files are unchanged. Retry the request or choose another assistant.');
+    }
+}
 
 export function getRequestProgressStage(phase = "", hasResponse = false, attempt = 1, workspaceStage = "") {
     // The orchestrator knows whether this file is being generated, repaired or
@@ -137,6 +141,8 @@ export function getRequestProgressStage(phase = "", hasResponse = false, attempt
     let stage;
     switch (String(phase || "").trim()) {
         case "tests": stage = "Running plugin tests"; break;
+        case "explanation": stage = "Explaining code"; break;
+        case "answer": stage = "Preparing an answer"; break;
         case "routing-safety": stage = "Checking request safety"; break;
         case "retrieval":
         case "reference": stage = "Gathering workspace context"; break;
@@ -476,6 +482,7 @@ export function buildSelectionGuidance({
     effectiveAction = "",
     prompt = "",
     selectedCode = "",
+    currentFilePath = '',
     createProjectFiles = false,
     composerMode = null,
     hasResponse = false,
@@ -516,6 +523,8 @@ export function buildSelectionGuidance({
     }
 
     if (resolvedAction === "edit") {
+        if (!hasSelection && currentFilePath) return {intent: 'primary', icon: 'document', title: 'Open file is the edit target',
+            message: `The assistant will propose a patch for ${currentFilePath}. Select code to narrow the change.`};
         return hasSelection
             ? {
                 intent: "success",
@@ -532,6 +541,8 @@ export function buildSelectionGuidance({
     }
 
     if (resolvedAction === "fix" && requestedAction !== "smart") {
+        if (!hasSelection && currentFilePath) return {intent: 'primary', icon: 'document', title: 'Open file is the repair target',
+            message: `The assistant will repair ${currentFilePath} using your error and workspace diagnostics. Select code to narrow the change.`};
         return hasSelection
             ? {
                 intent: "success",
@@ -625,6 +636,16 @@ export function buildSmartModeGuidance({
     const normalizedPrompt = String(prompt || "").trim();
     const resolvedAction = String(effectiveAction || "smart").trim().toLowerCase();
     const hasSelection = !!String(selectedCode || "").trim();
+    if (isWorkspaceQualityReviewPrompt(normalizedPrompt) && /deployment requirements/i.test(normalizedPrompt)) {
+        return {
+            intent: "primary",
+            icon: "search",
+            title: "Deployment review preview",
+            predictedIntent: "Review workspace deployment requirements",
+            selectionMode: "The current selection is supporting evidence; the whole workspace is reviewed.",
+            expectedResult: "Expect a read-only report separating source findings from deployment setup.",
+        };
+    }
     const questionLike = isQuestionLikeAiCodingPrompt(normalizedPrompt) || isInformationalOnlyPrompt(normalizedPrompt);
     const followUpLike = composerMode === "refine" || (!!hasResponse && normalizedPrompt.length > 0);
     const newPluginCreation = isNewPluginCreationRequest(normalizedPrompt);
@@ -685,7 +706,7 @@ export function buildSmartModeGuidance({
     };
 }
 
-export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange, onShowTests, eventDocument = document, selectionFocusRequest = 0 }) {
+export default function AiCodingAgentPanel({ codeEditor, response, setResponse, onActivityChange, onShowTests, eventDocument = document, selectionFocusRequest = 0, deploymentReviewRequest = null }) {
     const scheduleUiFrame = callback => (eventDocument.defaultView || window).requestAnimationFrame(callback);
     const historyKey = historyStorageKey(virtualFS.sandboxName);
     const [conversation, setConversation] = useState(() => readHistory(localStorage, historyKey));
@@ -855,9 +876,10 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     const [workspaceStage, setWorkspaceStage] = useState("");
     const [repairNotice, setRepairNotice] = useState(null);
     const [validationRecovery, setValidationRecovery] = useState(null);
+    const [reviewRecovery, setReviewRecovery] = useState(null);
     const validationRecoveryRef = useRef(null);
     const updateValidationRecovery = value => {validationRecoveryRef.current = value; setValidationRecovery(value);};
-    useEffect(() => {updateValidationRecovery(null);}, [historyKey]);
+    useEffect(() => {updateValidationRecovery(null); setReviewRecovery(null);}, [historyKey]);
     const estimatorRef = useRef(null);
     const streamContentFlushTimerRef = useRef(null);
     const timeoutRef = useRef(null);
@@ -1441,6 +1463,19 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
     };
 
 
+
+    const prepareDeploymentReview = () => {
+        if(isLoading)return;
+        setAction('smart');
+        setPrompt(current=>current.includes(DEPLOYMENT_REVIEW_PROMPT)?current:DEPLOYMENT_REVIEW_PROMPT+(current.trim()?'\n\nAdditional engineer context:\n'+current:''));
+        setTimeout(()=>promptInputRef.current?.focus(),0);
+    };
+    const deploymentRequestSeen=useRef(null);
+    useEffect(()=>{
+        if(!deploymentReviewRequest || deploymentRequestSeen.current===deploymentReviewRequest.id || deploymentReviewRequest.workspaceId!==virtualFS.sandboxName || isLoading)return;
+        deploymentRequestSeen.current=deploymentReviewRequest.id;
+        prepareDeploymentReview();
+    },[deploymentReviewRequest,isLoading]);
 
     const updateMentionSuggestions = (text, cursorIndex) => {
         const skillMention = detectCodexSkillMention(text, cursorIndex);
@@ -2033,7 +2068,7 @@ export default function AiCodingAgentPanel({ codeEditor, response, setResponse, 
             preferFullFileRewrite,
             hasSelection: !!requestMeta.hasSelection,
         });
-        const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const retryRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         beginStreamingRequest(retryRequestId);
         responseRef.current = "";
         setResponse("");
@@ -2111,7 +2146,7 @@ Rules:
 - Include every changed file explicitly.
 - Do not return prose, summaries, or partial snippets.`;
 
-        const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const retryRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         beginStreamingRequest(retryRequestId);
         responseRef.current = "";
         setResponse("");
@@ -2157,7 +2192,7 @@ Rules:
             "Rejected response:",
             invalidResponse,
         ].filter(Boolean).join("\n");
-        const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const retryRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         beginStreamingRequest(retryRequestId);
         responseRef.current = "";
         setResponse("");
@@ -2304,7 +2339,7 @@ Rules:
                 || null;
 
             if (!derivedFailingFile?.content) {
-                const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
                 beginStreamingRequest(requestId);
                 currentRequestRef.current = {
                     action: "smart",
@@ -2400,7 +2435,7 @@ Rules:
                 ? `${issueScope.summary}\nThis is a preliminary ${issueScope.kind} classification, not a confirmed root cause. Verify the specific diagnostic and its relevance to the current workspace before proposing changes.\n\n`
                 : "";
             const finalEnhancedContext = `${diagnosisContext}${requestContexts.projectContext}`;
-            const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
             currentRequestRef.current = {
                 action: "fix",
@@ -2501,9 +2536,29 @@ Rules:
         return true;
     };
 
+    const assertActionResponseApplicable = content => {
+        if (currentRequestRef.current?.requestedAction === 'explain') throw new Error('Explanations do not change workspace files.');
+        if (currentRequestRef.current?.requestedAction === 'generate' && !currentRequestRef.current.targetFilePath) {
+            throw new Error('This code draft has no target file. Open a plugin file and submit again, or use Plan Code to create workspace files.');
+        }
+        if (currentRequestRef.current?.requestedAction && currentRequestRef.current.action !== 'plan'
+            && (!shouldAutoApplySingleFileResponse({action: currentRequestRef.current.action, prompt: currentRequestRef.current.userPrompt || currentRequestRef.current.prompt})
+                || codingResponseKind(content) !== 'changes')) {
+            throw new Error('This reply has no single executable proposal to apply. Ask for a concrete change or one complete implementation. Your files are unchanged.');
+        }
+        const scopeError = fileActionScopeError({...currentRequestRef.current, content});
+        if (scopeError) throw new Error(scopeError);
+        const {requestedAction, targetFilePath, targetBaseline} = currentRequestRef.current || {};
+        if (['generate', 'edit', 'fix'].includes(requestedAction) && targetFilePath && typeof targetBaseline === 'string') {
+            const latest = targetFilePath === getCurrentFilePath() ? getContext() : virtualFS.getLatestContent?.()[targetFilePath];
+            if (latest !== targetBaseline) throw new Error(`The target ${targetFilePath} changed after this request started. Submit again using the current file. Your newer edits are preserved.`);
+        }
+    };
+
     const autoInsertCodeIntoEditor = async (contentOverride = "") => {
         assertSnapshotUnchanged();
         const contentToApply = contentOverride || responseRef.current || response;
+        assertActionResponseApplicable(contentToApply);
         if (!contentToApply) {
             setError("No AI response available to apply.");
             return { success: false, error: "No AI response available to apply." };
@@ -2603,7 +2658,7 @@ Rules:
             };
         }
         const mentionedFilePaths = extractMentionedWorkspaceFiles(contentToApply, getAllProjectFiles());
-        const partialApplySummary = buildPartialApplySummary({
+        const partialApplySummary = ['generate', 'edit', 'fix'].includes(currentRequestRef.current?.requestedAction) ? null : buildPartialApplySummary({
             appliedFilePaths: insertResult.appliedFilePaths,
             mentionedFilePaths,
         });
@@ -2846,7 +2901,7 @@ Rules:
             allowInInput: true,
             preventDefault: true,
             onKeyDown: () => {
-                if (!isLoading && prompt.trim() && selectedAssistant) {
+                if (!isLoading && (prompt.trim() || ['explain', 'fix'].includes(action) && getContext().trim()) && selectedAssistant) {
                     handleSubmit();
                 }
             },
@@ -2869,7 +2924,7 @@ Rules:
             preventDefault: true,
             onKeyDown: () => {
                 if (!isLoading) {
-                    setAutoApply((value) => !value);
+                    if (action !== 'explain') setAutoApply((value) => !value);
                 }
             },
         },
@@ -3019,6 +3074,8 @@ Rules:
         return true;
     };
     const handleExecutePlan = async () => {
+        if (currentRequestRef.current?.requestedAction === 'explain') return;
+        try {assertActionResponseApplicable(response);} catch (failure) {setError(failure.message); return;}
         if (blockIncompleteGeneration) return;
         try {if (!await checkSavedGenerationBeforeApply()) return;} catch (error) {setError(error.message); return;}
         if (!response) return;
@@ -3076,6 +3133,7 @@ Rules:
             previousTestResults = null,
             allowProgressTestRetry = true,
             allowProblemsRetry = true,
+            onApplied = () => {},
         } = {},
     ) => {
         if (!planResponse) return { successCount: 0, errorCount: 0, errorDetails: ["Empty response"] };
@@ -3110,7 +3168,8 @@ Rules:
         if (repairScope && files.some(file => !repairScope.includes(file.path))) {
             throw new Error('Repair response changed files outside the requested scope. No generated files were applied.');
         }
-        const pluginValidation = validateGeneratedPluginFiles(files, {workspaceFiles: getAllProjectFiles()});
+        const requiredInteractionPaths=currentRequestRef.current?.requiredInteractionPaths||[];
+        const pluginValidation = validateGeneratedPluginFiles(files, {workspaceFiles: getAllProjectFiles(),requiredInteractionPaths});
         const correctedExportPaths = normalizedExports.filter(item => item.names.length).map(item => item.file.path);
         if (correctedExportPaths.length) {
             pushRequestStatus(`Removed redundant export wrappers in ${correctedExportPaths.join(', ')}; retained their implementations.`,
@@ -3142,6 +3201,7 @@ Rules:
             pushRequestStatus('Compiling proposed workspace changes before applying them.', {phase: 'validation'});
             pluginValidation.errors.push(...await validateAiWorkspaceCandidate({
                 files, workspaceFiles: getAllProjectFiles(), readWorkspace: getAllProjectFiles,
+                requiredInteractionPaths,
                 staticOnly: pluginValidation.errors.length > 0,
                 build: window.electron.plugin?.build,
                 typecheck: window.electron.plugin?.typecheck,
@@ -3189,7 +3249,7 @@ Rules:
                     validationErrors: pluginValidation.errors,
                     repairPaths: validationRepairPaths,
                 });
-                const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const retryRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
                 beginStreamingRequest(retryRequestId);
                 setRepairNotice({
                     message: `${progressRetry ? "Test failures decreased without new failures. One final scoped repair is available. " : ""}Validation found ${pluginValidation.errors.length} error(s). ${repairDescription} This additional AI pass uses tokens to correct the errors below.`,
@@ -3226,6 +3286,7 @@ Rules:
                         previousTestResults: candidateTestsFailed ? candidateTestResults : previousTestResults,
                         allowProgressTestRetry: progressRetry ? false : allowProgressTestRetry,
                         allowProblemsRetry,
+                        onApplied,
                     });
                 }
                 throw new Error(`Validation repair failed: ${retryResult?.error || 'The assistant returned no corrected files.'} No generated files were applied.`);
@@ -3258,6 +3319,7 @@ Rules:
         const successCount = applyAiWorkspaceFiles({files, existingFiles: getAllProjectFiles(),
             write: createVirtualFile, remove: path => virtualFS.deleteFile(path, {exact: true}),
             assertScope: assertSnapshotUnchanged});
+        if(successCount)onApplied();
         updatePendingFiles({files: [], activePath: '', status: 'applied'});
 
         if (invalidPaths.length > 0) {
@@ -3277,13 +3339,16 @@ Rules:
                 if (!repairPaths.length) {
                     throw new Error(`Automatic repair stopped: editor errors could not be mapped to specific workspace files. Generated files remain applied. No additional AI request was sent. Review these diagnostics before requesting a broader change: ${problemsContext}`);
                 }
+                if(repairScope && repairPaths.some(path=>!repairScope.includes(path))){
+                    throw new Error(`Editor diagnostics require changes outside the approved repair scope (${repairPaths.filter(path=>!repairScope.includes(path)).join(', ')}). Earlier repairs remain applied. Start a new request authorizing those files; no additional AI request was sent.`);
+                }
                 const retryPrompt = buildProblemsRepairPlanPrompt({
                     originalPrompt: currentRequestRef.current?.prompt || prompt || "",
                     previousResponse: planResponse,
                     problemsContext,
                     workspaceFiles: repairWorkspace,
                 });
-                const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const retryRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
                 beginStreamingRequest(retryRequestId);
                 setRepairNotice({
                     message: `Editor checks found errors after applying the generated files. Repairing ${repairPaths.length} workspace files; retaining all other files. This additional AI pass uses tokens to correct the errors below.`,
@@ -3322,6 +3387,7 @@ Rules:
                         previousTestResults,
                         allowProgressTestRetry,
                         allowProblemsRetry: false,
+                        onApplied,
                     });
                 }
                 throw new Error(retryResult?.error || "The Problems-panel correction request did not return workspace files.");
@@ -3393,18 +3459,29 @@ Rules:
         }
     };
 
-    const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride, migrateGuide = false} = {}) => {
+    const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride, migrateGuide = false,
+        retainedReview = null, reviewRecoveryMode = null} = {}) => {
         if (submitInFlightRef.current) return;
-        const requestPrompt = String(promptOverride ?? prompt).trim();
-        const investigationRequest = !isNewPluginCreationRequest(requestPrompt) && (isInvestigationPrompt(requestPrompt)
+        if (retainedReview) {
+            try {assertWorkspaceReviewCurrent(retainedReview, {files: getAllProjectFiles(), workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0});}
+            catch (failure) {setError(failure.message); return;}
+        }
+        const explicitAction = actionOverride ?? action;
+        const fileTarget = resolveFileActionTarget({action: explicitAction, selectedCode: getSelectedCode(),
+            currentFilePath: getCurrentFilePath(), currentFileContent: getContext()});
+        const originalSelection = fileTarget.hasSelection ? codeEditor?.getSelection?.() : null;
+        if (fileTarget.error && !retainedReview) {setError(fileTarget.error); return;}
+        const requestPrompt = String(promptOverride ?? prompt).trim() || (fileTarget.code && explicitAction === 'explain'
+            ? 'Explain this code.' : fileTarget.code && explicitAction === 'fix' ? 'Fix confirmed errors in this code. Preserve unrelated behavior.' : '');
+        const investigationRequest = explicitAction === 'smart' && !isNewPluginCreationRequest(requestPrompt) && (isInvestigationPrompt(requestPrompt)
             || /^(?:please )?(?:continue|keep going|go on)[.!]?$/i.test(requestPrompt) && responseRef.current.includes('Investigation actions:'));
-        const reviewRequest = isWorkspaceQualityReviewPrompt(requestPrompt) || investigationRequest;
-        const requestAction = reviewRequest ? "smart" : (actionOverride ?? action);
-        let reviewTests = null;
+        const reviewRequest = !!retainedReview || explicitAction === 'smart' && isWorkspaceQualityReviewPrompt(requestPrompt) || investigationRequest;
+        const requestAction = reviewRequest ? "smart" : explicitAction;
+        let reviewTests = retainedReview?.tests || null;
         let reviewChangesApplied = false;
         let reviewReport = null;
         let requestSucceeded = false;
-        const requestAutoApply = (!investigationRequest || isWorkspaceQualityReviewPrompt(requestPrompt) || investigationAllowsRepair(requestPrompt))
+        const requestAutoApply = requestAction !== 'explain' && (requestAction !== 'generate' || !!fileTarget.path) && (reviewRecoveryMode === 'repair' || !investigationRequest || isWorkspaceQualityReviewPrompt(requestPrompt) || investigationAllowsRepair(requestPrompt))
             && (typeof autoApplyOverride === "boolean" ? autoApplyOverride : autoApplyRef.current);
         if (!requestPrompt) return;
         
@@ -3426,12 +3503,12 @@ Rules:
             previousResponse: preparedRecoveryRef.current ? '' : previousResponse,
             forceFollowUp: !preparedRecoveryRef.current && composerMode === "refine",
         });
-        const createProjectFilesCandidate = shouldCreateProjectFiles({
+        const createProjectFilesCandidate = allowsWorkspaceIntent(requestAction) && shouldCreateProjectFiles({
             prompt: requestPrompt,
             previousResponse,
             workspaceFiles: projectFiles,
         });
-        const executeWorkspacePlanCandidate = shouldExecuteWorkspacePlan({
+        const executeWorkspacePlanCandidate = allowsWorkspaceIntent(requestAction) && shouldExecuteWorkspacePlan({
             prompt: requestPrompt,
             previousResponse,
             workspaceFiles: projectFiles,
@@ -3472,7 +3549,7 @@ Rules:
 
         // Validation failures intentionally share this boundary with operation failures.
         try {
-            const selectedCode = getSelectedCode();
+            const selectedCode = ['generate', 'edit', 'fix', 'explain'].includes(requestAction) ? fileTarget.code : getSelectedCode();
             const refreshedProjectFiles = getAllProjectFiles();
             const requestedRepairPaths = readWorkspaceRepairScope(requestPrompt, refreshedProjectFiles);
             const requestWantsFailureDiagnosis = requestAction === 'fix' || shouldRunTestsBeforeAiRequest(requestPrompt)
@@ -3597,7 +3674,7 @@ Rules:
 
             const runtimeIntentForAction = detectAiPluginRuntimeIntent(finalPrompt);
             const workspaceQualityReview = isWorkspaceQualityReviewPrompt(finalPrompt);
-            const effectiveAction = isInformationalOnlyPrompt(finalPrompt) && routingDecision.action !== "plan"
+            const effectiveAction = requestAction === 'smart' && isInformationalOnlyPrompt(finalPrompt) && routingDecision.action !== "plan"
                 ? "smart"
                 : routingDecision.action;
             pendingAutoFileCreateRef.current = !reviewRequest && requestAutoApply && (createProjectFiles || executeWorkspacePlan || effectiveAction === "plan");
@@ -3612,7 +3689,7 @@ Rules:
                 );
             }
 
-            if (!reviewRequest && !requestedRepairPaths && shouldRunTestsBeforeAiRequest(finalPrompt) && requestAutoApply && !createProjectFiles && !executeWorkspacePlan) {
+            if (requestAction === 'smart' && !reviewRequest && !requestedRepairPaths && shouldRunTestsBeforeAiRequest(finalPrompt) && requestAutoApply && !createProjectFiles && !executeWorkspacePlan) {
                 pushRequestStatus("Running plugin tests before diagnosing errors.", { phase: "tests" });
                 const testRepairComplete = await runIterativeTestRepairFlow({
                     basePrompt: finalPrompt,
@@ -3652,8 +3729,8 @@ Rules:
             });
 
             const language = getLanguage();
-            const currentFileContext = getContext();
-            const currentFilePath = getCurrentFilePath();
+            const currentFileContext = ['generate', 'edit', 'fix', 'explain'].includes(requestAction) ? fileTarget.content : getContext();
+            const currentFilePath = ['generate', 'edit', 'fix', 'explain'].includes(requestAction) ? fileTarget.path : getCurrentFilePath();
             const problemsContext = getProblemsContext();
             const buildOutputContext = getBuildOutputContext(refreshedProjectFiles);
             const runtimeIntent = runtimeIntentForAction;
@@ -3704,7 +3781,7 @@ Rules:
                 prompt: finalPrompt,
                 action: effectiveAction,
             });
-            pushRequestStatus(buildAiCodingAgentStatusMessage({
+            pushRequestStatus(effectiveAction === 'explain' ? 'Preparing an explanation from the supplied source and evidence. Files stay unchanged.' : buildAiCodingAgentStatusMessage({
                 phase: externalReferenceEnabled ? "reference" : "retrieval",
                 externalReferenceEnabled,
                 sdkKnowledgeEnabled,
@@ -3779,12 +3856,16 @@ Rules:
                     mainPluginFilePath,
                 })
                 : "";
-            const resolvedTargetFilePath = derivedFailingFilePath || defaultPluginTargetFile;
+            const resolvedTargetFilePath = ['generate', 'edit', 'fix', 'explain'].includes(requestAction)
+                ? fileTarget.path : derivedFailingFilePath || (selectedCode ? currentFilePath : '') || defaultPluginTargetFile;
             currentRequestRef.current = {
                 action: effectiveAction,
+                requestedAction: requestAction,
+                targetBaseline: ['generate', 'edit', 'fix'].includes(requestAction) ? fileTarget.content : undefined,
+                originalSelection,
                 userPrompt: requestPrompt,
                 prompt: finalPrompt,
-                repairPaths: requestedRepairPaths,
+                repairPaths: requestedRepairPaths || (['generate', 'edit', 'fix'].includes(requestAction) && fileTarget.path ? [fileTarget.path] : undefined),
                 code: effectiveSelectedCode,
                 language,
                 context: requestContexts.referenceContext,
@@ -3792,7 +3873,7 @@ Rules:
                 assistantId: selectedAssistant.id,
                 targetFilePath: resolvedTargetFilePath,
                 diagnosticFallback: false,
-                hasSelection: !!effectiveSelectedCode,
+                hasSelection: ['generate', 'edit', 'fix', 'explain'].includes(requestAction) ? fileTarget.hasSelection : !!effectiveSelectedCode,
             };
 
             console.log('[AI Coding Agent] Preparing request', { 
@@ -3807,7 +3888,7 @@ Rules:
             });
 
             // Generate requestId upfront so we can track streaming events
-            const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
             currentRequestRef.current = {...currentRequestRef.current, requestId, generationBaseline: JSON.stringify(getAllProjectFiles().slice().sort((a, b) => a.path.localeCompare(b.path)))};
             beginStreamingRequest(requestId);
             console.log('[AI Coding Agent] Request ID set', requestId);
@@ -3821,10 +3902,12 @@ Rules:
                 issueDiagnosis: includeIssueDiagnosis ? issueScope.summary : "",
             }) + (effectiveAction !== requestAction
                 ? `\nMode: ${effectiveAction === "plan" ? "Plan Code" : effectiveAction}.`
-                : ""), { phase: "generation" });
+                : ""), { phase: effectiveAction === 'explain' ? 'explanation' : shouldAutoApplySingleFileResponse({action: effectiveAction, prompt: requestPrompt}) ? 'generation' : 'answer' });
 
             let result;
-            if (reviewRequest) {
+            if (retainedReview && reviewRecoveryMode === 'repair') {
+                result = {success: true, requestId, content: JSON.stringify(retainedReview.report)};
+            } else if (reviewRequest) {
                 const controller = new AbortController(); investigationAbortRef.current = controller;
                 const baseline=JSON.stringify(getAllProjectFiles());
                 const assertCurrent=()=>{assertSnapshotUnchanged();if(baseline!==JSON.stringify(getAllProjectFiles()))throw new Error('The workspace changed during investigation. Start again with the current files.');};
@@ -3835,7 +3918,8 @@ Rules:
                     context:`${sdkKnowledgeContext}${getProblemsContext()}${getBuildOutputContext(refreshedProjectFiles)}\n${conversationContext}`,
                     budget:investigationBudget(refreshedProjectFiles,requestPrompt,selectedAssistant.firstResponseTimeoutMs),
                     signal:controller.signal,assertCurrent,cancel,
-                    initialActions:initialInvestigationActions(refreshedProjectFiles,requestPrompt),
+                    resume: retainedReview?.report,
+                    initialActions:retainedReview?.report.observations?.length ? [] : initialInvestigationActions(refreshedProjectFiles,requestPrompt),
                     onProgress:({message,phase,budget})=>{
                         setWorkspaceStage('Investigating plugin');
                         pushRequestStatus(`${message} About ${Math.round(budget.tokens).toLocaleString()} estimated tokens and ${Math.ceil(budget.milliseconds/1000)}s remain.`,{phase});
@@ -3847,7 +3931,7 @@ Rules:
                             investigation:true,maxOutputTokens,language});
                     },
                     perform:createInvestigationActions(refreshedProjectFiles,{
-                        sourceChecks:()=>isWorkspaceQualityReviewPrompt(requestPrompt)?workspaceReviewContext(refreshedProjectFiles):{styles:findWorkspaceStyleIssues(refreshedProjectFiles),note:'Source diagnostics only; this does not verify rendering, runtime health or current tests.'},
+                        sourceChecks:()=>isWorkspaceQualityReviewPrompt(requestPrompt)?workspaceReviewContext(refreshedProjectFiles):{deployment:workspaceDeploymentReviewContext(refreshedProjectFiles),styles:findWorkspaceStyleIssues(refreshedProjectFiles),interactions:workspaceInteractionReviewContext(refreshedProjectFiles),note:'Source diagnostics only; this does not verify rendering, runtime health or current tests.'},
                         typecheck:()=>window.electron.plugin?.typecheck?.({latestContent})??{success:false,error:'Typechecker unavailable.'},
                         build:async()=>{const result=await window.electron.plugin?.build?.({latestContent});return result?{success:result.success,error:result.error,errors:result.errors,warnings:result.warnings}:{success:false,error:'Builder unavailable.'};},
                         tests:async()=>{reviewTests=await runPluginTests();return reviewTests;},
@@ -3877,6 +3961,7 @@ Rules:
                         language,
                         context: finalEnhancedContext,
                         assistantId: selectedAssistant.id,
+                        targetFilePath: resolvedTargetFilePath,
                     });
                     break;
                 case "edit":
@@ -3903,22 +3988,18 @@ Rules:
                         language,
                         context: requestContexts.referenceContext,
                         assistantId: selectedAssistant.id,
-                        targetFilePath: derivedFailingFilePath || "",
+                        targetFilePath: resolvedTargetFilePath,
                     });
                     break;
                 case "explain":
-                    if (!effectiveSelectedCode) {
-                        setError("Please select code to explain");
-                        setIsLoading(false);
-                        clearRequestTimeout();
-                        return;
-                    }
                     result = await window.electron.aiCodingAgent.explainCode({
                         requestId,
+                        prompt: finalPrompt,
                         code: effectiveSelectedCode,
                         language,
-                        context: requestContexts.referenceContext,
+                        context: finalEnhancedContext,
                         assistantId: selectedAssistant.id,
+                        targetFilePath: resolvedTargetFilePath,
                     });
                     break;
                 case "fix":
@@ -3945,7 +4026,7 @@ Rules:
                         language,
                         context: requestContexts.referenceContext,
                         assistantId: selectedAssistant.id,
-                        targetFilePath: derivedFailingFilePath || "",
+                        targetFilePath: resolvedTargetFilePath,
                     });
                     break;
                 case "plan":
@@ -3971,7 +4052,7 @@ Rules:
                     originalPrompt: finalPrompt,
                     invalidResponse: priorContent,
                 });
-                const retryRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const retryRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
                 beginStreamingRequest(retryRequestId);
                 responseRef.current = "";
                 setResponse("");
@@ -4018,6 +4099,7 @@ Rules:
                     {code: 'AI_PROVIDER_CLASSIFICATION_ONLY'});
             }
             if (result && result.success && result.requestId) {
+                requireAssistantResponse(result.content || responseRef.current);
                 requestSucceeded = true;
                 if (effectiveAction === 'plan' && currentRequestRef.current?.generationBaseline !== JSON.stringify(getAllProjectFiles().slice().sort((a, b) => a.path.localeCompare(b.path)))) {
                     //noinspection ExceptionCaughtLocallyJS
@@ -4034,13 +4116,17 @@ Rules:
                 if (reviewRequest) {
                     assertSnapshotUnchanged();
                     const parsedReport=parseWorkspaceReviewReport(result.content || responseRef.current,getAllProjectFiles());
-                    const report=isWorkspaceQualityReviewPrompt(requestPrompt)?includeWorkspaceAuthoringFindings(parsedReport,getAllProjectFiles()):parsedReport;
+                    const report=isWorkspaceQualityReviewPrompt(requestPrompt)?includeWorkspaceAuthoringFindings(parsedReport,getAllProjectFiles()):includeWorkspaceInteractionFindings(parsedReport,getAllProjectFiles());
                     reviewReport = report;
+                    const reviewedBaseline = retainWorkspaceReview({report, files: getAllProjectFiles(), workspace: virtualFS.sandboxName,
+                        revision: virtualFS.fs.snapshotSwitchRevision || 0, prompt: retainedReview?.prompt || requestPrompt, tests: reviewTests});
                     if (report.status === "completed" && (!reviewTests?.success || reviewTests?.skipped)) {
                         report.status = "partial";
                         report.limitations.push(!reviewTests ? "Plugin tests were not run during this investigation." : reviewTests?.skipped ? "No plugin tests were available to verify behavior."
                             : "Host plugin tests did not pass or could not complete.");
                     }
+                    setReviewRecovery(report.status !== 'completed' || report.findings.length
+                        ? {...reviewedBaseline, report: JSON.parse(JSON.stringify(report))} : null);
                     let repairSummary = "";
                     const testSummary = value => !value ? "Tests: not run during this investigation." : value?.skipped ? "Tests: no plugin tests were found."
                         : value?.success ? "Tests: the host ran plugin tests successfully."
@@ -4052,10 +4138,13 @@ Rules:
                         setResponse(responseRef.current);
                     };
                     publishReport();
-                    if (requestAutoApply && report.status !== "blocked" && (!report.budget || report.budget.tokens >= 4000 && report.budget.milliseconds > 0) && (report.findings.length || migrateGuide)) {
+                    const disposition = reviewRepairDisposition(report, {freshRequest: reviewRecoveryMode === 'repair', migrateGuide});
+                    if (requestAutoApply && disposition === 'repair') {
                         const repairPaths = [...new Set([...(migrateGuide ? ["/SKILL.md"] : []), ...report.findings.map(finding => finding.file)])];
+                        currentRequestRef.current={...currentRequestRef.current,repairPaths,
+                            requiredInteractionPaths:report.findings.filter(finding=>finding.code===INTERACTION_DIAGNOSTIC_CODE).map(finding=>finding.file)};
                         assertSnapshotUnchanged();
-                        const repairRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                        const repairRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
                         beginStreamingRequest(repairRequestId);
                         scheduleRequestTimeout(selectedAssistant?.provider || "");
                         pushRequestStatus(`Repairing confirmed issues in ${repairPaths.length} workspace files.`, {phase: "review-repair"});
@@ -4064,18 +4153,22 @@ Rules:
                             assistantId: selectedAssistant.id,
                             workspaceFiles: getAllProjectFiles(),
                             repairPaths,
-                            prompt: `${migrateGuide ? "First migrate /SKILL.md to the installed SDK, preserving the product requirements and acceptance behavior. Pause for human guide approval before repairing implementation files. " : ""}Repair only these confirmed plugin-local findings. Preserve working behavior and public SDK contracts. Return complete changed files for the approved paths.\n${JSON.stringify(report.findings)}`,
+                            prompt: `${migrateGuide ? "First migrate /SKILL.md to the installed SDK, preserving the product requirements and acceptance behavior. Pause for human guide approval before repairing implementation files. " : ""}Repair only these confirmed plugin-local findings. Preserve working behavior and public SDK contracts. Return complete changed files for the approved paths.\n${JSON.stringify(report.findings)}\n${interactionRepairDiagnostics(report.findings)}`,
                             context: requestContexts.referenceContext,
                             image: null,
                         });
+                        if (cancelledRequestIdsRef.current.has(repairRequestId) || repaired?.cancelled) return;
+                        assertSnapshotUnchanged();
+                        assertWorkspaceReviewCurrent(reviewedBaseline, {files: getAllProjectFiles(), workspace: virtualFS.sandboxName,
+                            revision: virtualFS.fs.snapshotSwitchRevision || 0});
                         if (!repaired?.success) {
                             //noinspection ExceptionCaughtLocallyJS
                             throw Object.assign(new Error(repaired?.error || "The workspace repair could not complete."), {guideRecovery: pluginGuideRecoveryMetadata(repaired)});
                         }
                         const scopedRepair = mergeValidationRepairResponse(
                             getAllProjectFiles().filter(file => repairPaths.includes(file.path)), repaired.content, repairPaths);
-                        const execution = await executePlanResponse(scopedRepair, {allowProblemsRetry: true});
-                        reviewChangesApplied = execution.successCount > 0;
+                        const execution = await executePlanResponse(scopedRepair, {allowProblemsRetry: true,onApplied:()=>{reviewChangesApplied=true;}});
+                        reviewChangesApplied = reviewChangesApplied || execution.successCount > 0;
                         if (reviewChangesApplied) {
                             const persisted = persistSnapshotAfterApply(virtualFS.fs.version()?.version || "");
                             if (!persisted || persisted.error) {
@@ -4094,15 +4187,28 @@ Rules:
                             report.status = 'partial';
                             report.limitations.push('SDK-helper migration still needs attention after repair.', ...remainingHtmlIssues.map(issue => `${issue.file}: ${issue.evidence}`));
                         }
+                        const remainingInteractionIssues=findWorkspaceInteractionIssues(getAllProjectFiles());
+                        if(remainingInteractionIssues.length){
+                            report.status='partial';
+                            report.limitations.push('SDK interaction repair still needs attention after repair.',...remainingInteractionIssues.map(issue=>`${issue.file}: ${issue.evidence}`));
+                        }
                         repairSummary = `Repair: ${execution.successCount} file(s) updated.`;
                         if (execution.errorCount || !reviewTests?.success) {
                             report.status = "partial";
                             report.limitations.push(...execution.errorDetails);
                             if (!reviewTests?.success) report.limitations.push("Repairs are not verified by passing plugin tests.");
                         }
+                        if (reviewChangesApplied) {
+                            const remainingFindings = [...remainingStyleIssues, ...remainingHtmlIssues, ...remainingInteractionIssues];
+                            setReviewRecovery(report.status !== 'completed' || remainingFindings.length || execution.errorCount || !reviewTests?.success
+                                ? retainWorkspaceReview({report: {...report, findings: remainingFindings, observations: [], budget: undefined,
+                                    summary: 'Repairs were applied. Continue reviewing the current files to resolve remaining checks and findings.'}, files: getAllProjectFiles(),
+                                    workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0,
+                                    prompt: reviewedBaseline.prompt, tests: reviewTests}) : null);
+                        }
                         publishReport();
                     } else if (requestAutoApply) {
-                        repairSummary = report.status === "blocked" ? "No repairs were attempted because the review was blocked." : "No confirmed issues were identified for automatic repair.";
+                        repairSummary = deferredReviewRepairMessage(report, disposition);
                         publishReport();
                     }
                     setOperationSummary({intent: report.status === "completed" ? "success" : "warning",
@@ -4207,6 +4313,14 @@ Rules:
                     return;
                 }
 
+                // The returned result is authoritative even if stream-done was
+                // delayed or lost. Do not leave a partial streamed draft visible.
+                flushStreamContent();
+                if (typeof result.content === 'string' && result.content.trim()) {
+                    responseRef.current = result.content;
+                    setResponse(result.content);
+                }
+
                 if (
                     requestAutoApply &&
                     !pendingAutoFileCreateRef.current &&
@@ -4219,16 +4333,20 @@ Rules:
                         selectedCode: currentRequestRef.current?.code || "",
                         targetFilePath: currentRequestRef.current?.targetFilePath || "",
                     });
-                    if (allowSingleFileAutoApply) {
+                    const responseKind = codingResponseKind(result.content || responseRef.current);
+                    if (allowSingleFileAutoApply && responseKind === 'changes') {
                         const autoApplyResult = await autoInsertCodeIntoEditor(result.content || responseRef.current);
                         if (autoApplyResult?.success && autoApplyResult?.requestId) {
                             result = autoApplyResult;
                         }
+                    } else if (allowSingleFileAutoApply && responseKind === 'ambiguous') {
+                        setError('The response contains multiple code proposals without one clear implementation. Ask for one complete patch or use Plan Code for a workspace change. Your files are unchanged.');
+                        setOperationSummary({intent: 'warning', title: 'Clarify the Proposal', message: 'The draft is retained. No code was selected automatically.'});
                     } else {
                         setOperationSummary({
                             intent: "primary",
-                            title: "Response Ready",
-                            message: "Auto-apply skipped because this looks like an informational request, not a code-change request.",
+                            title: allowSingleFileAutoApply ? 'No Changes Proposed' : "Answer Ready",
+                            message: "Your files are unchanged. Continue with a question or describe a change to implement.",
                         });
                     }
                 }
@@ -4272,6 +4390,19 @@ Rules:
                     }
                 }
 
+                if (effectiveAction === 'explain') {
+                    setOperationSummary({intent: 'primary', title: 'Explanation Ready', message: 'Your files are unchanged. Ask a follow-up or select Edit Code to request changes.'});
+                } else if (requestAction === 'generate' && !fileTarget.path) {
+                    setOperationSummary({intent: 'primary', title: 'Code Draft Ready', message: 'Your files are unchanged. Copy the draft, or open a plugin file and submit again to apply it. Use Plan Code to create workspace files.'});
+                } else if (!requestAutoApply) {
+                    const kind = codingResponseKind(result.content || responseRef.current);
+                    const hasProposal = shouldAutoApplySingleFileResponse({action: effectiveAction, prompt: requestPrompt}) && kind === 'changes';
+                    setOperationSummary({intent: kind === 'ambiguous' ? 'warning' : 'primary',
+                        title: kind === 'ambiguous' ? 'Clarify the Proposal' : hasProposal ? 'Changes Ready for Review' : 'Answer Ready',
+                        message: kind === 'ambiguous' ? 'Your files are unchanged. Ask for one complete implementation or use Plan Code for a workspace change.'
+                            : hasProposal ? 'Your files are unchanged. Review the proposed code, then apply it or ask for a revision.' : 'Your files are unchanged. The assistant did not propose an executable change.'});
+                }
+
                 // Clear streamingRequestId now that IPC is complete
                 // This prevents any late/duplicate done events from matching
                 streamingRequestIdRef.current = null;
@@ -4301,6 +4432,12 @@ Rules:
                     limitations: [...reviewReport.limitations, err.message || 'Repairs could not complete.']}
                     : {status: 'blocked', summary: 'Workspace quality remains unverified.', findings: [],
                         limitations: [err.message || 'The review could not complete.']};
+                if(reviewChangesApplied && requestSnapshotRef.current?.workspace===virtualFS.sandboxName
+                    && requestSnapshotRef.current?.revision===(virtualFS.fs.snapshotSwitchRevision||0)){
+                    const current=includeWorkspaceInteractionFindings({status:'partial',summary:'Earlier repairs were applied, but verification stopped. Continue reviewing the current files.',findings:[],limitations:[err.message]},getAllProjectFiles());
+                    setReviewRecovery(retainWorkspaceReview({report:current,files:getAllProjectFiles(),workspace:virtualFS.sandboxName,
+                        revision:virtualFS.fs.snapshotSwitchRevision||0,prompt:retainedReview?.prompt||requestPrompt,tests:null}));
+                }
                 responseRef.current = formatWorkspaceReviewReport(failedReport, {changed: reviewChangesApplied});
                 setResponse(responseRef.current);
                 setOperationSummary({intent: 'warning', title: reviewReport ? 'Workspace Repair Could Not Complete' : 'Workspace Review Could Not Complete', message: err.message});
@@ -4365,6 +4502,7 @@ Rules:
     };
 
     const handleApplyResponse = async () => {
+        if (currentRequestRef.current?.requestedAction === 'explain') return;
         if (blockIncompleteGeneration) return;
         try {if (!await checkSavedGenerationBeforeApply()) return;} catch (error) {setError(error.message); return;}
         setIsOperationActive(true);
@@ -4382,7 +4520,8 @@ Rules:
             return { success: false, error: "No editor or AI response available to apply." };
         }
 
-        const selection = codeEditor.getSelection();
+        const selection = ['generate', 'edit', 'fix'].includes(currentRequestRef.current?.requestedAction)
+            ? currentRequestRef.current.originalSelection : codeEditor.getSelection();
         const model = codeEditor.getModel();
         if (!model) {
             console.log('[AI Coding Agent] Cannot insert - no model');
@@ -4589,7 +4728,7 @@ Rules:
 
     const clearResponse = ({preserveRecovery = false} = {}) => {
         preservePendingFilesOnRetryRef.current = false;
-        if (!preserveRecovery) {dispatchGenerationRecovery({type: 'reset'}); preparedRecoveryRef.current = null; updateValidationRecovery(null);}
+        if (!preserveRecovery) {dispatchGenerationRecovery({type: 'reset'}); preparedRecoveryRef.current = null; updateValidationRecovery(null); setReviewRecovery(null);}
         setRepairNotice(null);
         setResponse("");
         setRequestStatusEntries([]);
@@ -4617,8 +4756,12 @@ Rules:
         previousResponse: response,
         workspaceFiles: getAllProjectFiles(),
     });
-    const liveCreateProjectFiles = liveFileTargets.length > 0;
+    const liveCreateProjectFiles = allowsWorkspaceIntent(action) && liveFileTargets.length > 0;
     const liveSelectedCode = getSelectedCode();
+    const liveFileTarget = resolveFileActionTarget({action, selectedCode: liveSelectedCode,
+        currentFilePath: getCurrentFilePath(), currentFileContent: getContext()});
+    const liveActionContract = AI_CODING_ACTIONS.find(item => item.value === action);
+    const canSubmitPrompt = !!prompt.trim() || ['explain', 'fix'].includes(action) && !!liveFileTarget.code.trim();
     const liveProblemsContext = getProblemsContext();
     const liveEffectiveAction = resolveAiCodingAgentAction({
         requestedAction: liveCreateProjectFiles ? "plan" : action,
@@ -4683,6 +4826,7 @@ Rules:
         effectiveAction: liveEffectiveAction,
         prompt,
         selectedCode: liveSelectedCode,
+        currentFilePath: liveFileTarget.content ? liveFileTarget.path : '',
         createProjectFiles: liveCreateProjectFiles,
         composerMode,
         hasResponse: !!response,
@@ -4704,9 +4848,11 @@ Rules:
         action: currentRequestRef.current?.action,
         prompt: currentRequestRef.current?.userPrompt || currentRequestRef.current?.prompt || '',
     });
+    const responseIsReadOnly = currentRequestRef.current?.requestedAction === 'explain'
+        || currentRequestRef.current?.requestedAction === 'generate' && !currentRequestRef.current?.targetFilePath
+        || currentRequestRef.current?.action !== 'plan' && !responseRequestsChanges;
     const responseHasUnappliedCode = !responseApplied && (responseHasWorkspaceFiles
-        || (responseRequestsChanges && (parseAiSearchReplaceResponse(response || '').blocks.length > 0
-            || extractAiCodeToApply(response || '').blocksFound > 0)));
+        || (responseRequestsChanges && codingResponseKind(response || '') === 'changes'));
 
     // Show loading state while fetching assistants
     if (loadingAssistants) {
@@ -4823,6 +4969,7 @@ Rules:
                     <div style={{flex: 1, minWidth: 0}}>
                     <HTMLSelect
                         id="assistant-select"
+                        disabled={isLoading}
                         value={selectedAssistant?.id || ""}
                         onChange={(e) => {
                             const assistant = assistants.find(a => a.id === e.target.value);
@@ -4852,14 +4999,23 @@ Rules:
                 <FormGroup label="Action" labelFor="action-select">
                     <HTMLSelect
                         id="action-select"
+                        disabled={isLoading}
                         value={action}
                         onChange={(e) => {setAction(e.target.value); if (preparedRecoveryRef.current) {preparedRecoveryRef.current = null; dispatchGenerationRecovery({type: 'reset'}); setOperationSummary(null);}}}
                         options={AI_ACTIONS}
                         fill
                     />
+                    <div className={styles['action-contract']} data-testid="ai-action-contract">
+                        <p>{liveActionContract?.description}</p>
+                        <p>{action === 'smart' ? 'Questions return an answer. Explicit change requests use the Changes setting.'
+                            : actionOutcome({action, target: liveFileTarget, autoApply})}</p>
+                    </div>
                 </FormGroup>
 
                 <PluginAuthoringContract context={authoringContractForEditor()}/>
+                <AiDeploymentRequirements workspaceId={virtualFS.sandboxName} readFiles={()=>liveUiWorkspacePayload(virtualFS).files} disabled={isLoading}
+                    onAsk={prepareDeploymentReview} onManage={()=>virtualFS.notifications.addToQueue('openLiveUiDeployment',{workspaceId:virtualFS.sandboxName})} onOpenSource={()=>{const file=virtualFS.getTreeObjectItemById('/package.json');if(file){virtualFS.setTreeObjectItemSelectedSilent('/package.json');virtualFS.tabs.add(file);virtualFS.notifications.addToQueue('fileSelected',file);}}}/>
+
                 {smartModeGuidance && !mentionMenuVisible && (
                     <details className={styles['request-help']} open={eventDocument === document || ['warning', 'danger'].includes(smartModeGuidance.intent)}>
                     <summary>Smart Mode guidance</summary>
@@ -5050,14 +5206,14 @@ Rules:
                 )}
 
                 <FormGroup label="Changes" labelFor="ai-change-mode">
-                    <HTMLSelect id="ai-change-mode" value={autoApply ? "apply" : "review"}
-                        onChange={(event) => setAutoApply(event.target.value === "apply")} disabled={isLoading}
+                    <HTMLSelect id="ai-change-mode" value={action === 'explain' ? 'review' : autoApply ? "apply" : "review"}
+                        onChange={(event) => setAutoApply(event.target.value === "apply")} disabled={isLoading || action === 'explain'}
                         options={[
                             {label: "Make changes", value: "apply"},
                             {label: "Review first", value: "review"},
                         ]}/>
                     {!mentionMenuVisible && <div style={{marginTop: "8px", fontSize: "12px"}}>
-                        {autoApply
+                        {action === 'explain' ? 'Explain Code only returns an answer. Your Changes preference is retained for other actions.' : autoApply
                             ? "Requested edits are applied and saved with a restore point. Questions leave your files unchanged."
                             : "Review proposed edits before applying them. Your workspace stays unchanged until you apply."}
                     </div>}
@@ -5133,7 +5289,7 @@ Rules:
                         text={isLoading ? "Processing..." : composerMode === "refine" ? "Continue Thread" : "Submit"}
                         icon={isLoading ? <Spinner size={16} /> : "send-message"}
                         onClick={handleSubmit}
-                        disabled={isLoading || !prompt.trim() || !selectedAssistant}
+                        disabled={isLoading || !canSubmitPrompt || !!liveFileTarget.error || !selectedAssistant}
                         fill
                         title={shortcutCombos.submit}
                     />
@@ -5146,7 +5302,7 @@ Rules:
                             title={shortcutCombos.stop}
                         />
                     )}
-                    {response && !blockIncompleteGeneration && !responseIsReviewReport && !responseApplied && (action === "plan" || expectWorkspaceApplyRef.current || responseHasWorkspaceFiles) && (
+                    {response && !responseIsReadOnly && !blockIncompleteGeneration && !responseIsReviewReport && !responseApplied && (currentRequestRef.current?.action === "plan" || expectWorkspaceApplyRef.current || responseHasWorkspaceFiles) && (
                         <>
                             <Button
                                 text="Copy Plan"
@@ -5163,8 +5319,8 @@ Rules:
                             />
                         </>
                     )}
-                    {response && !blockIncompleteGeneration && !responseIsReviewReport && action !== "plan" && !expectWorkspaceApplyRef.current && !responseHasWorkspaceFiles
-                        && ((!autoApply && !responseApplied) || responseHasUnappliedCode) && (
+                    {response && !responseIsReadOnly && !blockIncompleteGeneration && !responseIsReviewReport && currentRequestRef.current?.action !== "plan" && !expectWorkspaceApplyRef.current && !responseHasWorkspaceFiles
+                        && !responseApplied && responseHasUnappliedCode && (
                         <Button
                             text="Apply proposed changes"
                             icon="insert"
@@ -5197,6 +5353,19 @@ Rules:
                     )}
                 </div>
 
+                {reviewRecovery && !validationRecovery && <Callout intent="primary" title="Saved workspace review" data-testid="workspace-review-recovery">
+                    <p>{reviewRecovery.report.findings.length} confirmed finding(s) and the investigation evidence are kept in this session. Continue from this review using the selected assistant.</p>
+                    {reviewRecovery.report.findings.length > 0 && <p>{[...new Set(reviewRecovery.report.findings.map(finding => finding.file))].join(', ')}</p>}
+                    {reviewRecovery.report.findings.length > 0 && reviewRecovery.report.status !== 'blocked' && <Button
+                        text="Repair confirmed findings" icon="wrench" disabled={isLoading || !selectedAssistant}
+                        onClick={() => handleSubmit({prompt: 'Repair the confirmed findings from the saved workspace review.', action: 'smart', autoApply: true,
+                            retainedReview: reviewRecovery, reviewRecoveryMode: 'repair'})}/>}
+                    <Button text="Continue review" icon="search" disabled={isLoading || !selectedAssistant}
+                        onClick={() => handleSubmit({prompt: `Continue the saved investigation without changing files.\n${reviewRecovery.prompt}`, action: 'smart', autoApply: false,
+                            retainedReview: reviewRecovery, reviewRecoveryMode: 'continue'})}/>
+                    <Button text="Discard saved review" variant="minimal" disabled={isLoading} onClick={() => setReviewRecovery(null)}/>
+                    <p><small>Each action starts a new bounded request. Repair validates proposed files before applying them; Continue review gathers evidence without changing files. Workspace changes require a new review.</small></p>
+                </Callout>}
                 {validationRecovery && <Callout intent="warning" title="Unapplied proposal needs repair" data-testid="validation-recovery">
                     <p>The latest candidate and validation diagnostics are kept in this session. Each click requests one focused repair, then validates it before applying changes. You can repeat after a failure or select another assistant.</p>
                     <Button text="Repair failed validation" icon="wrench" loading={isLoading} disabled={isLoading || !selectedAssistant}

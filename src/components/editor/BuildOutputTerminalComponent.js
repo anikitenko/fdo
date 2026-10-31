@@ -156,13 +156,15 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
     const [codingAiResponse, setCodingAiResponse] = useState("");
     const [activityOpenRequest, setActivityOpenRequest] = useState(0);
     const [selectionFocusRequest, setSelectionFocusRequest] = useState(0);
+    const [deploymentReviewRequest,setDeploymentReviewRequest]=useState(null);
     useEffect(() => window.electron?.aiCodingAgent?.onOpenActivity?.(() => {
         setSelectedTabId('ai-agent');
         setActivityOpenRequest(value => value + 1);
     }), [setSelectedTabId]);
     useEffect(() => {
-        const unsubscribe = virtualFS.notifications.subscribe('liveUiAiSelection', ({workspaceId}) => {
+        const unsubscribe = virtualFS.notifications.subscribe('liveUiAiSelection', ({workspaceId,intent,prompt}) => {
         if (workspaceId !== virtualFS.sandboxName) return;
+        if(intent==='deployment')setDeploymentReviewRequest({id:Date.now(),workspaceId,prompt});
         setSelectedTabId('ai-agent');
         setSelectionFocusRequest(value => value + 1);
         });
@@ -303,7 +305,7 @@ const BuildOutputTerminalComponent = ({selectedTabId, setSelectedTabId, codeEdit
             {selectedTabId === "tests" && (<OutputPanel intent={testOutputIntent} entries={testOutput} revealOnMount emptyMessage="Test output will be here..." />)}
             <AiAssistantWindow visible={selectedTabId === 'ai-agent'} focusRequest={activityOpenRequest + selectionFocusRequest} onReturnToTab={() => setSelectedTabId('ai-agent')}>
                 {({eventDocument}) => <AiCodingAgentPanel codeEditor={codeEditor} response={codingAiResponse}
-                                    selectionFocusRequest={selectionFocusRequest}
+                                    selectionFocusRequest={selectionFocusRequest} deploymentReviewRequest={deploymentReviewRequest}
                                     setResponse={setCodingAiResponse}
                                     onActivityChange={setAiActivity}
                                     eventDocument={eventDocument}

@@ -1,3 +1,4 @@
+import {validateAiDeploymentChanges,workspaceDeployment} from '../../../utils/plugins/deployment/workspaceDeployment';
 import {parse} from '@babel/parser';
 import traverseModule from '@babel/traverse';
 import {IconNames} from "@blueprintjs/icons";
@@ -357,7 +358,7 @@ export function normalizeReservedHostBindingMarkers(files = []) {
     return {files: normalizedFiles, normalizedPaths};
 }
 
-export function validateGeneratedPluginFiles(files = [], {partial = false, workspaceFiles = [], interactionBaseline = workspaceFiles} = {}) {
+export function validateGeneratedPluginFiles(files = [], {partial = false, workspaceFiles = [], interactionBaseline = workspaceFiles, requiredInteractionPaths = []} = {}) {
     const warnings = [];
     const errors = validateGeneratedWorkspaceImports(files, {sources: [], paths: files.map(file => file.path), checkMissing: false});
     const pluginEntry = findPluginEntryFile(files);
@@ -414,8 +415,10 @@ export function validateGeneratedPluginFiles(files = [], {partial = false, works
     // generation, before the remaining workspace consumes more requests.
     const candidateFiles = partial ? files
         : [...new Map([...workspaceFiles, ...files].map(file => [file.path, file])).values()];
+    if(!partial)errors.push(...validateAiDeploymentChanges(workspaceFiles,candidateFiles));
+    else if(files.some(file=>file.path==='/package.json'))errors.push(...workspaceDeployment([...new Map([...workspaceFiles,...files].map(file=>[file.path,file])).values()]).errors.map(message=>'/package.json: '+message));
     validateBackendRequestEnvelopes(candidateFiles, errors);
-    errors.push(...validateGeneratedInteractions(candidateFiles,{baseline:interactionBaseline}));
+    errors.push(...validateGeneratedInteractions(candidateFiles,{baseline:interactionBaseline,requiredPaths:requiredInteractionPaths,checkKeyboard:!partial}));
     // A leaf module can rely on wrappers, actions and handlers in pending files.
     // Cross-file rules run only on a complete workspace in the editor.
     if (!partial) {

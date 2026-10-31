@@ -136,7 +136,7 @@ test('verification report separates passed checks from checks that never ran', a
     const last = reports.at(-1);
     expect(last.changedPaths).toEqual(['/logic.ts']);
     expect(Object.fromEntries(last.checks.map(check => [check.id, check.status]))).toEqual({
-        contracts: 'passed', build: 'passed', tests: 'not-run', types: 'passed', acceptance: 'not-run', security: 'not-run',
+        contracts: 'passed', build: 'passed', tests: 'not-run', types: 'passed', acceptance: 'not-run', security: 'not-run',deployment:'not-run',
     });
     expect(reports[0].checks[0].status).toBe('pending');
 });

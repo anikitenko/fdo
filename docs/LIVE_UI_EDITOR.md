@@ -1,5 +1,7 @@
 # Live UI Editor: direction and implementation roadmap
 
+Deployment tooling is shared with AI Coding and Live UI: see [Deployment authoring workflow](DEPLOYMENT_AUTHORING.md) for source review, tool editing, authentication and recovery.
+
 Status: workspace preview and the first focused visual-to-code editing slice are
 implemented, together with component building, batched drafts, draft Undo/Redo,
 named CSS class creation/assignment, isolated/shared CSS editing, searchable
@@ -20,8 +22,18 @@ Statically resolvable `if`/`else` branches and early returns are supported,
 including stylesheet guards such as `if (!styles.shell) return ...`. Only the
 selected branch is interpreted. Block-scoped declarations, local helper defaults
 and array tuple parameters such as `tabs.map(([id, label]) => ...)` are supported.
-Dynamic conditions, loops and arbitrary side effects remain diagnostic; no
-backend, constructor or frontend lifecycle code from the plugin is executed.
+Dynamic conditions and arbitrary side effects remain diagnostic; no backend,
+plugin constructor or frontend lifecycle code is executed.
+Direct, unshadowed `Boolean(...)` calls use JavaScript truthiness without object
+coercion hooks. Optional property access short-circuits; rest parameters and
+array/call spreads accept bounded arrays. Local return-oriented switches and
+`for (const value of array)` loops remain inside the expression/statement budgets;
+assignment and arbitrary iterators remain unsupported.
+Array `filter` callbacks are interpreted, not executed as native plugin code.
+`Array.from(new Set(array))` supports static choice lists, with primitive-only
+default sorting. Custom sort callbacks and object coercion remain unsupported.
+Primitive string trim/case normalization and numeric comparisons/division are
+available to these render helpers.
 String and array `includes` are supported for read-only membership checks,
 including an optional numeric start position. String searches accept primitive
 values, and both forms count toward preview processing budgets.
@@ -35,6 +47,50 @@ The Live UI heading and window title use the plugin's literal source metadata
 name, falling back to its package name and workspace name. GitOps IDs remain the
 workspace identity for synchronization and draft recovery.
 
+## Reviewing and managing existing SDK bindings
+
+Select a wired control to open **Action bindings**. The Inspector shows the
+selector, event, handler, listener options, handler usage count, and source
+excerpts for the binding, handler and setup. **Show … in code** navigates to the
+host-resolved source in the owning IDE; navigation waits until a draft is applied
+or discarded. Preview clicks continue to select controls without running code.
+
+This supports direct SDK lifecycle definitions and imported zero-argument action
+factories with literal handlers/bindings, including typed constant options and
+`Object.assign(defineRenderOnLoadActions(actions), actions)`. Analysis follows
+declarations only. It never invokes the factory, setup or handlers.
+
+Use **Preview binding change** to rewire an existing handler or update the event
+and listener flags. **Disconnect binding** removes just that listener definition;
+**Connect an existing handler** adds a binding to the selected unique element ID.
+IDs, custom attributes, dynamic disabled state, handler implementations, setup,
+and other bindings are retained. Duplicate event connections and conflicting
+passive/preventDefault options are rejected. Draft Undo/Redo and the normal
+validated Apply flow cover these changes.
+
+**Manage handler** opens **Click handlers** for the selected binding. Its compact
+sections separate listener options, source excerpts and handler implementation.
+Engineers can edit a complete SDK callback, create or duplicate a handler, rename
+it together with its declared binding references, and remove an unused handler.
+New and duplicated handlers start disconnected; choose them in a binding when
+ready. Shared handler changes require acknowledgement of their scope. Removal
+requires no remaining bindings and retains at least one SDK handler.
+
+Handler code is parsed without executing it. Callbacks are serialized by the SDK,
+so use its callback context and frontend globals, rather than module imports or
+closures. Syntax errors stay in the dialog with the entered code retained.
+Each operation is a draft with Undo/Redo; Apply runs the normal workspace checks
+and creates a restore point. Dynamic references and direct named handler consumers
+protect renames/removal when the editor cannot update them safely. Use **Show
+handler in code** for those cases.
+
+Supported identity, attribute, class and tag selectors are matched against the
+static preview. Shared selectors show their scope and require acknowledgement
+before changing all matching controls. Complex selectors remain visible for
+source review; they are not guessed to match a control, and prevent additional
+connections whose overlap cannot be established. Dynamic factories, escaped
+options objects and circular definitions remain protected with a specific reason.
+
 String `replace` and `replaceAll` now support literal searches, bounded literal
 regular expressions and source-mapped render callbacks. This covers chained HTML
 escaping (for example `.replace(/&/g, "&amp;")`) and replacing a placeholder with
@@ -46,6 +102,13 @@ Quoted attribute removal such as `.replace(/class="[^"]*"/g, '')` is supported,
 as are single-quoted attributes and other literal attribute names. This audited
 form requires the repeated character class to exclude the closing quote and
 does not allow suffixes or alternatives. General `.*` patterns remain unsupported.
+
+The exact script-removal idiom
+`/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi` has a dedicated forward-scanning
+adapter. It preserves replacement/source-copy mapping without executing that
+pattern's general repetition through the native regex engine. This supports
+renderers that remove SDK-emitted scripts while retaining inspectable markup;
+it does not enable arbitrary HTML regexes or script execution.
 
 Supported regexes have at most 128 characters, g/i/u flags, no captures,
 backreferences, alternation or general repetition. Fixed-width patterns and

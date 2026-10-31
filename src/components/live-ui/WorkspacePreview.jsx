@@ -1,5 +1,7 @@
+import DeploymentRequirements from '../plugin/DeploymentRequirements';
 import {sdkComponentContextKey} from './utils/sdkComponentContext';
 import {ActionManager} from './ActionManager';
+import {ExistingBindingEditor} from './ExistingBindingEditor';
 import PluginAuthoringContract from '../plugin/PluginAuthoringContract';
 import {PluginSupportEditor} from './PluginSupportEditor';
 import {BackendResultEditor} from './BackendResultEditor';
@@ -106,8 +108,10 @@ export function WorkspacePreview({sessionId}) {
     const recovery = !draft && workspace?.recovery;
     const sourceConflicted = !!recovery || !!draft && (draft.revision !== workspace?.revision || workspace?.disconnected);
     const targetBlocked = workspace?.authoringContract?.compatibility.status === 'incompatible';
-    const conflicted = sourceConflicted || targetBlocked || !!draft?.supportOnly;
-    const draftConflicted = sourceConflicted || targetBlocked && !draft?.supportOnly;
+    useEffect(()=>{if(workspace?.focus==='deployment'){const section=document.querySelector('[aria-label="Plugin deployment requirements"]');const disclosure=section?.querySelector('details');if(disclosure)disclosure.open=true;const inspector=section?.closest('aside');if(inspector)inspector.scrollTop=0;}},[workspace?.focusRequest]);
+    const metadataDraft=!!(draft?.supportOnly || draft?.deploymentOnly);
+    const conflicted = sourceConflicted || targetBlocked || metadataDraft;
+    const draftConflicted = sourceConflicted || targetBlocked && !metadataDraft;
 
     useEffect(() => {
         let alive = true, received = false;
@@ -217,15 +221,20 @@ export function WorkspacePreview({sessionId}) {
         try {await window.electron.liveUi.reveal(sessionId, preview.revision, selectedId);}
         catch (error) {setEditError(error.message);}
     };
+    const revealBinding = async target => {
+        try {await window.electron.liveUi.reveal(sessionId,preview.revision,selectedId,target);}
+        catch(error){setEditError(error.message);}
+    };
     const editWithAi = async () => {
         try {await window.electron.liveUi.editWithAi(sessionId, preview.revision, selectedId);}
         catch (error) {setEditError(error.message);}
     };
     const propose = async (operation = {}) => {
-        const supportRequest = operation.kind === 'compatibility';
-        const policyOperation = operation.kind === 'compatibility' || draft?.supportOnly && ['undo', 'redo'].includes(operation.kind);
-        if (proposalBusy.current || working || sourceConflicted || (targetBlocked || draft?.supportOnly) && !policyOperation || workspace?.disconnected) {
-            return supportRequest ? {status: 'busy', message: workspace?.disconnected ? 'Reconnect to the IDE to change support settings.'
+        const supportRequest = ['compatibility','deployment'].includes(operation.kind);
+        const detailedRequest = supportRequest || operation.kind === 'sdk-handler';
+        const policyOperation = ['compatibility','deployment'].includes(operation.kind) || metadataDraft && ['undo', 'redo'].includes(operation.kind);
+        if (proposalBusy.current || working || sourceConflicted || (targetBlocked || metadataDraft) && !policyOperation || workspace?.disconnected) {
+            return detailedRequest ? {status: 'busy', message: workspace?.disconnected ? 'Reconnect to the IDE to change workspace source.'
                 : sourceConflicted ? 'The workspace changed. Resolve or discard the existing draft before trying again.' : 'Wait for the current operation to finish, then try again.'} : false;
         }
         proposalBusy.current = true;
@@ -245,7 +254,7 @@ export function WorkspacePreview({sessionId}) {
             const result = await window.electron.liveUi.propose(sessionId, {revision: workspace.revision, elementId: selectedId, draftId: draft?.id, kind: mode, value, component,
                 styleFile: selectedStyle?.file, styleKey: selectedStyle?.key, property, scope: cssScope, state: cssState, breakpoint: cssBreakpoint, ...operation});
             if (generation !== draftGeneration.current) return;
-            if (supportRequest && result.status !== 'ready') return result;
+            if (detailedRequest && result.status !== 'ready') return result;
             if (result.status !== 'ready') {
                 //noinspection ExceptionCaughtLocallyJS
                 throw new Error(result.message || 'Could not prepare this edit.');
@@ -264,9 +273,9 @@ export function WorkspacePreview({sessionId}) {
                 cssEditIntent.current = true;
                 setCssScope('element'); setCssState('base'); setCssBreakpoint(null); setStyleIndex(0); setProperty(''); setValue(''); setMode('css'); focusNewStyle.current = true;
             }
-            return supportRequest ? {status: 'ready'} : true;
+            return detailedRequest ? {status: 'ready'} : true;
         } catch (error) {
-            if (supportRequest) return {status: 'error', message: error.message};
+            if (detailedRequest) return {status: 'error', message: error.message};
             if (generation === draftGeneration.current) setEditError(error.message);
             return false;
         }
@@ -304,7 +313,7 @@ export function WorkspacePreview({sessionId}) {
                 throw new Error(result.message || 'The edit was not applied.');
             }
             setDraft(null); setSelectedId('');
-            setFeedback((draft.supportOnly ? 'Support declaration applied to the workspace. Rebuild and redeploy to update the installed plugin. ' : 'Applied. ')
+            setFeedback((draft.deploymentOnly?'Deployment declaration applied. Rebuild and redeploy the plugin before exporting. ':draft.supportOnly ? 'Support declaration applied to the workspace. Rebuild and redeploy to update the installed plugin. ' : 'Applied. ')
                 + 'Restore point: ' + result.restorePoint + '. Current snapshot: ' + result.snapshot + (result.changes ? '. ' + result.changes + ' design changes grouped' + (result.checkpointKept ? '; checkpoint kept' : '; working snapshot saved') : '') + (result.warning ? '. ' + result.warning : ''));
         } catch (error) {setEditError(error.message);}
         finally {setWorking('');}
@@ -344,11 +353,11 @@ export function WorkspacePreview({sessionId}) {
             <div><h1>Live UI · {workspace.name}</h1><p>Snapshot {workspace.snapshot || 'unsaved'} · Revision {workspace.revision.slice(0, 8)}</p></div>
             <Button icon="application" onClick={focus}>Show IDE</Button>
         </header>
-        <PluginAuthoringContract context={workspace.authoringContract} disclosureComponent={EditorSection}>
+        <div className={styles.workspaceRequirements}><PluginAuthoringContract context={workspace.authoringContract} disclosureComponent={EditorSection}>
             {workspace.authoringContract && <PluginSupportEditor context={draft?.supportOnly && draft.patches?.length
                 ? {...workspace.authoringContract, declaredRequirements: draft.supportPolicy.requirements} : workspace.authoringContract}
                 disabled={!!working || sourceConflicted || workspace.disconnected || !!draft && !draft.supportOnly} onReview={propose}/>}
-        </PluginAuthoringContract>
+        </PluginAuthoringContract></div>
         {workspace.disconnected && <Callout intent="warning" title="IDE disconnected">The last preview is retained. Reopen Live UI from the IDE to reconnect.</Callout>}
         {recovery && <Callout intent={recovery.status === 'available' ? 'primary' : 'warning'} title={recovery.status === 'available' ? 'Saved visual draft found' : 'Saved draft needs attention'}>
             <p>{recovery.message}</p>
@@ -416,6 +425,9 @@ export function WorkspacePreview({sessionId}) {
             </section>
             <aside className={styles.inspector} aria-label="Element inspector">
                 <h2>Inspector</h2>
+                <div className={styles.deploymentRequirements}><DeploymentRequirements context={draft?.deploymentOnly?draft.deploymentPolicy.assessment:workspace.deployment} disclosureComponent={EditorSection}
+                    disabled={!!working || sourceConflicted || workspace.disconnected || !!draft && !draft.deploymentOnly} onReview={propose}
+                    onAsk={!draft && !recovery?()=>window.electron.liveUi.editWithAi(sessionId,workspace.revision,'__deployment__'):undefined}/></div>
                 <ActionManager actions={display.actions || []} disabled={!!working || conflicted || workspace?.disconnected} onPropose={propose}/>
                 {editError && <Callout intent="danger" role="alert">{editError}</Callout>}
                 {draft && <section className={styles.draft} aria-label="Draft changes">
@@ -423,7 +435,8 @@ export function WorkspacePreview({sessionId}) {
                         : draft.durability?.saved && <p className="bp6-text-muted">Draft and Undo/Redo history saved locally. Reopen this workspace to recover unapplied changes.</p>}
                     {sourceConflicted && <Callout intent="warning" title="Source changed">This draft is based on an older revision. Discard it and select the element again.</Callout>}
                     <strong>{draft.patches?.length === 0 ? 'No unapplied changes' : `${draft.changedFileCount ?? draft.patches?.length ?? 1} changed ${(draft.changedFileCount ?? draft.patches?.length ?? 1) === 1 ? 'file' : 'files'}`}</strong>
-                    <p>{draft.supportOnly ? 'Only the support declaration will change. Apply or discard this draft before making visual edits.' : 'Only source differences count here. Continue arranging or editing elements, then apply once.'}</p>
+                    <p>{draft.deploymentOnly?'Only deployment metadata will change. Review the package diff; no installer, login or cloud operation runs here.':draft.supportOnly ? 'Only the support declaration will change. Apply or discard this draft before making visual edits.' : 'Only source differences count here. Continue arranging or editing elements, then apply once.'}</p>
+                    {draft.deploymentOnly && <Callout intent="primary" title="Review deployment declaration"><ul>{draft.deploymentPolicy.warnings.map(warning=><li key={warning}>{warning}</li>)}</ul></Callout>}
                     {draft.supportOnly && <Callout intent={draft.supportPolicy.compatibility.status === 'incompatible' ? 'warning' : 'primary'} title="Review support policy">
                         <ul>{draft.supportPolicy.warnings.map(warning => <li key={String(warning)}>{String(warning)}</li>)}</ul>
                         <Checkbox checked={supportAcknowledged} disabled={!!working || draftConflicted}
@@ -469,7 +482,11 @@ export function WorkspacePreview({sessionId}) {
                     {selected.tag === 'button' && <BackendActionEditor key={'backend-action-'+selectedId} element={selected} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>}
                     {selected.tag === 'button' && <LocalActionEditor key={'local-action-'+selectedId} element={selected} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>}
                     {selected.asyncAction && <SdkAsyncActionEditor key={'async-action-'+selectedId} element={selected} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>}
-                    {selected.tag === 'button' && selected.overlayOpener?.status !== 'connected' && selected.toastAction?.status !== 'connected' && <EditorSection defaultOpen title="Click action" icon="link" description="Reuse existing frontend behavior">
+                    {selected.sdkBindings && !['connected','available'].includes(selected.actionConnection?.status)
+                        && selected.overlayOpener?.status !== 'connected' && selected.toastAction?.status !== 'connected' && !selected.asyncAction &&
+                        <ExistingBindingEditor key={'bindings-'+selectedId} element={selected} disabled={!!working || conflicted || workspace.disconnected}
+                            sourceDisabled={!!working || sourceConflicted || workspace.disconnected || !!draft} onPropose={propose} onReveal={revealBinding}/>}
+                    {selected.tag === 'button' && ['connected','available'].includes(selected.actionConnection?.status) && selected.overlayOpener?.status !== 'connected' && selected.toastAction?.status !== 'connected' && <EditorSection defaultOpen title="Click action" icon="link" description="Reuse existing frontend behavior">
                         {selected.actionConnection?.status === 'connected' ? <>
                             <Callout intent="success" title={'Connected to ' + selected.actionConnection.handler}>Preview clicks select elements. Changes and disconnection can be undone before Apply.</Callout>
                             {selected.actionConnection.editable ? <>
@@ -484,7 +501,7 @@ export function WorkspacePreview({sessionId}) {
                                 onChange={event => {if (event.target.value) propose({kind: 'connect-action', handler: event.target.value});}}
                                 options={[{value: '', label: 'Choose an action…'}, ...selected.actionConnection.handlers.map(handler => ({value: handler.name, label: handler.name + ' · click'}))]}/></FormGroup>
                             <p className="bp6-text-muted">Selecting an action connects and enables this button in the draft. Reuses the action’s existing inputs and result targets. Preview clicks only select elements.</p>
-                        </> : <p className="bp6-text-muted">{selected.actionConnection?.reason || 'This button is already wired or uses custom attributes. Review its bindings in the IDE.'}</p>}
+                        </> : null}
                     </EditorSection>}
                     <BackendResultEditor key={'result-mapping-'+surface?.token+selectedId} element={selected} disabled={!!working || conflicted || workspace.disconnected} onPropose={propose}/>
                     {selected.localActionSimulation && <ActionSimulationEditor key={surface?.token+selectedId} backend={selected.localActionSimulation.kind === 'backend-request' ? selected.localActionSimulation : null} disabled={!!working || conflicted || workspace.disconnected || !previewReady}

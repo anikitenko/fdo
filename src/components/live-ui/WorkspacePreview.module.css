@@ -1,5 +1,5 @@
 /* Blueprint emits these exact class tokens at runtime. */
-.page { height: 100vh; display: flex; flex-direction: column; padding: 16px; gap: 12px; background: #18212b; color: #e6edf3; }
+.page { height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; padding: 16px; gap: 12px; background: #18212b; color: #e6edf3; }
 .header, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .header h1 { font-size: 20px; margin: 0 0 6px; }
 .header p { margin: 0; opacity: .75; }
@@ -56,6 +56,17 @@
 .sectionBody :global([class~="bp6-form-group"]), .sectionBody :global([class~="bp6-form-content"]), .sectionBody :global([class~="bp6-input-group"]), .sectionBody :global([class~="bp6-html-select"]) { min-width: 0; max-width: 100%; }
 .sectionBody input, .sectionBody select, .sectionBody textarea { min-width: 0; max-width: 100%; }
 .sectionBody > :last-child { margin-bottom: 0; }
+.compactSection { margin: 9px 0; border-radius: 6px; }
+.compactSection > .sectionHeader { padding: 9px; gap: 7px; font-size: 12px; }
+.compactSection > .sectionBody { padding: 10px; }
+.bindingFields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.bindingFields :global([class~="bp6-form-group"]) { margin-bottom: 4px; }
+.bindingButtons { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+.bindingButtons :global([class~="bp6-button"]) { flex: 1 1 115px; white-space: normal; margin-bottom: 0; }
+.bindingHelp { font-size: 12px; line-height: 1.5; color: #b3c2cf; margin: 7px 0; }
+.handlerCode { width: 100%; box-sizing: border-box; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; min-height: 190px; }
+.handlerSource { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 230px; overflow: auto; background: #101820; padding: 10px; border-radius: 5px; font-size: 11px; }
+.handlerDialog :global([class~="bp6-dialog-body"]) { min-width: 0; }
 .section .section { background: #182630; border-color: #405b70; }
 .fieldError { display: block; color: #ff9a9a; font-size: 12px; line-height: 1.5; margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { .sectionHeader, .sectionChevron { transition: none; } }
@@ -85,3 +96,9 @@
 .dialogControls :global([class~="bp6-form-group"]) { margin: 0; min-width: 0; flex: 1 1 180px; }
 .dialogControls :global([class~="bp6-html-select"]), .dialogControls select { width: 100%; max-width: 100%; }
 .dialogControls > small { flex: 1 1 100%; opacity: .75; line-height: 1.5; }
+
+.workspaceRequirements { flex: 0 0 auto; max-height: 35vh; overflow: auto; min-width: 0; padding-right: 5px; scrollbar-gutter: stable; }
+.workspaceRequirements pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.deploymentRequirements { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.deploymentRequirements pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.deploymentRequirements :global([class~="bp6-button"]) { max-width: 100%; white-space: normal; }

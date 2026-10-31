@@ -12,8 +12,10 @@ import {isNewPluginCreationRequest, resolveAiCodingAgentAction} from "../../../s
 import {selectPluginAuthoringScenario} from "../../../src/utils/plugins/authoring/pluginAuthoringScenarioCatalog.js";
 import virtualFS from "../../../src/components/editor/utils/VirtualFS";
 import runPluginTests from "../../../src/components/editor/utils/runTests.js";
+import * as monaco from 'monaco-editor';
 import {getPendingFiles, stagePendingFiles} from "../../../src/components/editor/utils/aiPendingFiles";
 import AiPendingFiles from "../../../src/components/editor/AiPendingFiles";
+import {DEPLOYMENT_REVIEW_PROMPT} from '../../../src/utils/plugins/deployment/workspaceDeployment';
 
 const mockAppToasterShow = jest.fn();
 
@@ -747,7 +749,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(screen.getByText(/Saved a restore point and persisted this result as the current workspace state/i)).toBeTruthy();
     });
 
-    test("falls back to diagnostic smart mode when fix has no selected code or derived workspace target", async () => {
+    test("Smart Mode diagnoses when no failing workspace target is identified", async () => {
         const model = {
             getLanguageId: jest.fn(() => "typescript"),
             getValue: jest.fn(() => "export default class Plugin {}"),
@@ -798,8 +800,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
-        fireEvent.change(screen.getByLabelText(/Describe the error/i), {
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "I need you to run tests and fix them.. I also see blank screen when open plugin's page" },
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
@@ -869,8 +871,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
-        fireEvent.change(screen.getByLabelText(/Describe the error/i), {
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "I need you to run tests and fix them.. I also see blank screen when open plugin's page" },
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
@@ -942,8 +944,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
-        fireEvent.change(screen.getByLabelText(/Describe the error/i), {
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "tests are still failing" },
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
@@ -1649,7 +1651,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(screen.queryByText(/Applied the generated single-file change/i)).toBeNull();
     });
 
-    test("uses the failing test file as the fix target when no code is selected", async () => {
+    test("Smart Mode uses the failing test file when no code is selected", async () => {
         const failingTestFile = "/tests/unit/plugin.test.ts";
         const failingTestSource = [
             'describe("plugin", () => {',
@@ -1709,8 +1711,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
-        fireEvent.change(screen.getByLabelText(/Describe the error/i), {
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please fix tests issue" },
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
@@ -2114,8 +2116,8 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
-        fireEvent.change(screen.getByLabelText(/Describe the error/i), {
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
+        fireEvent.change(screen.getByLabelText(/Describe what you want to do/i), {
             target: { value: "please fix tests issue" },
         });
         fireEvent.click(screen.getByRole("button", { name: /Submit/i }));
@@ -3003,7 +3005,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         expect(model.pushEditOperations).not.toHaveBeenCalled();
     });
 
-    test("routes informational log-check prompts to smart mode instead of fix mode", async () => {
+    test("Smart Mode keeps informational log-check requests read-only", async () => {
         const model = {
             getLanguageId: jest.fn(() => "typescript"),
             getValue: jest.fn(() => "export const keep = true;"),
@@ -3043,7 +3045,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
 
         fireEvent.change(screen.getByLabelText("Changes"), {target: {value: "apply"}});
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe the error|Describe what you want to do/i), {
             target: { value: "but can you please checkout plugin logs to confirm?" },
         });
@@ -3053,7 +3055,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         await waitFor(() => {
             expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
         });
-        expect(window.electron.aiCodingAgent.routeJudge).not.toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.routeJudge).toHaveBeenCalled();
         expect(window.electron.aiCodingAgent.fixCode).not.toHaveBeenCalled();
         expect(virtualFS.setFileContent.mock.calls.length).toBe(setFileCallsBeforeSubmit);
     });
@@ -3173,7 +3175,7 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
             expect(window.electron.settings.ai.getAssistants).toHaveBeenCalled();
         });
 
-        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "fix" } });
+        fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "smart" } });
         fireEvent.change(screen.getByLabelText(/Describe the error|Describe what you want to do/i), {
             target: { value: "run plugin and verify logs before answering" },
         });
@@ -3191,6 +3193,184 @@ describe("AiCodingAgentPanel auto-apply patch flow", () => {
         });
         expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalled();
         expect(window.electron.aiCodingAgent.fixCode).not.toHaveBeenCalled();
+    });
+});
+
+describe('explicit coding action contracts', () => {
+    function editorFor(source = 'export const value = 1;') {
+        let value = source;
+        const range = {startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: source.length + 1};
+        const model = {getLanguageId: () => 'typescript', getValue: () => value, getValueInRange: () => '',
+            getFullModelRange: () => range, pushEditOperations: jest.fn((_, edits) => {value = edits[0].text;})};
+        const editor = {getModel: () => model, getSelection: () => null, focus: jest.fn()};
+        virtualFS.getLatestContent.mockImplementation(() => ({'/index.ts': value}));
+        return {editor, model, setValue: text => {value = text;}};
+    }
+
+    function replyWith(content) {
+        return async ({requestId}) => {
+            streamHandlers.done?.({requestId, fullContent: content});
+            return {success: true, requestId, content};
+        };
+    }
+
+    test('Explain uses the open file and forwards the user question without a selection', async () => {
+        const {editor, model} = editorFor();
+        window.electron.aiCodingAgent.explainCode.mockImplementation(replyWith('The value is initialized once.'));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'explain'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Focus on initialization order.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await waitFor(() => expect(window.electron.aiCodingAgent.explainCode).toHaveBeenCalledWith(expect.objectContaining({
+            prompt: expect.stringContaining('Focus on initialization order.'), code: 'export const value = 1;', targetFilePath: '/index.ts',
+        })));
+        expect(await screen.findByText('Explanation Ready')).toBeVisible();
+        expect(model.pushEditOperations).not.toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    });
+
+    test('Explain allows an empty optional question and retains the Changes preference', async () => {
+        const {editor} = editorFor();
+        window.electron.aiCodingAgent.explainCode.mockImplementation(replyWith('This exports a constant.'));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'explain'}});
+        expect(screen.getByLabelText('Changes')).toBeDisabled();
+        expect(screen.getByRole('button', {name: 'Submit'})).toBeEnabled();
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await screen.findByText('Explanation Ready');
+        fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'generate'}});
+        expect(screen.getByLabelText('Changes')).toHaveValue('apply');
+        expect(screen.queryByRole('button', {name: 'Apply proposed changes'})).toBeNull();
+    });
+
+    test('Explain can answer a workspace question without an open editor and cannot become file creation', async () => {
+        window.electron.aiCodingAgent.explainCode.mockImplementation(replyWith('Use the documented SDK lifecycle.'));
+        render(<TestHarness/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'explain'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Explain how to create /README.md for this plugin.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await screen.findByText('Explanation Ready');
+        expect(window.electron.aiCodingAgent.explainCode).toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    });
+
+    test('an unexpected file section in an Explain reply stays read-only after changing the next action', async () => {
+        const {editor, model} = editorFor();
+        window.electron.aiCodingAgent.explainCode.mockImplementation(replyWith('### File: /index.ts\n```ts\nexport const value = 2;\n```'));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'explain'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Explain this export.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await screen.findByText('Explanation Ready');
+        fireEvent.change(screen.getByLabelText('Action'), {target: {value: 'plan'}});
+        expect(screen.queryByRole('button', {name: 'Apply proposed changes'})).toBeNull();
+        expect(model.pushEditOperations).not.toHaveBeenCalled();
+        expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+    });
+
+    test('Edit uses the full open file without silently switching to diagnosis', async () => {
+        const {editor, model} = editorFor();
+        window.electron.aiCodingAgent.editCode.mockImplementation(replyWith('No changes proposed: the supplied source already meets the request.'));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'edit'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Preserve the current value.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await screen.findByText('No Changes Proposed');
+        expect(window.electron.aiCodingAgent.editCode).toHaveBeenCalledWith(expect.objectContaining({code: 'export const value = 1;', targetFilePath: '/index.ts'}));
+        expect(window.electron.aiCodingAgent.smartMode).not.toHaveBeenCalled();
+        expect(model.pushEditOperations).not.toHaveBeenCalled();
+        expect(screen.queryByRole('button', {name: 'Apply proposed changes'})).toBeNull();
+    });
+
+    test('Edit without an open file explains the missing target before spending a provider request', async () => {
+        render(<TestHarness/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'edit'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Add validation.'}});
+        expect(screen.getByTestId('ai-action-contract')).toHaveTextContent('Open a nonempty plugin file');
+        expect(screen.getByRole('button', {name: 'Submit'})).toBeDisabled();
+        expect(window.electron.aiCodingAgent.editCode).not.toHaveBeenCalled();
+    });
+
+    test('a patch cannot broaden an explicit Edit request into another file', async () => {
+        const {editor, model} = editorFor();
+        const patch = path => `\`\`\`patch\nFile: ${path}\n<<<<<<< SEARCH\nexport const value = 1;\n=======\nexport const value = 2;\n>>>>>>> REPLACE\n\`\`\``;
+        window.electron.aiCodingAgent.editCode.mockImplementation(replyWith(patch('/index.ts') + '\n' + patch('/other.ts')));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'edit'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Set the value to two.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        expect(await screen.findByText(/This response changes files outside \/index.ts/)).toBeVisible();
+        expect(model.pushEditOperations).not.toHaveBeenCalled();
+        expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+    });
+
+    test('a completed IPC answer replaces partial streamed text when stream-done is missing', async () => {
+        window.electron.aiCodingAgent.explainCode.mockImplementation(async ({requestId}) => {
+            streamHandlers.delta?.({requestId, content: 'Partial draft'});
+            return {success: true, requestId, content: 'The complete explanation.'};
+        });
+        render(<TestHarness/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'explain'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Explain the SDK lifecycle.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        expect(await screen.findByTestId('ai-coding-response')).toHaveTextContent('The complete explanation.');
+        expect(screen.getByTestId('ai-coding-response')).not.toHaveTextContent('Partial draft');
+    });
+
+    test('Generate without an open target keeps its code as a draft even when the workspace contains files', async () => {
+        virtualFS.getLatestContent.mockReturnValue({'/index.ts': 'export const keep = true;'});
+        window.electron.aiCodingAgent.generateCode.mockImplementation(replyWith('```ts\n// SOLUTION READY TO APPLY\nexport const value = 1;\n```'));
+        render(<TestHarness/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'generate'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Generate an exported constant.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await screen.findByText('Code Draft Ready');
+        expect(screen.queryByRole('button', {name: 'Apply proposed changes'})).toBeNull();
+        expect(virtualFS.setFileContent).not.toHaveBeenCalled();
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    });
+
+    test('Generate stays pinned to its original file when the active tab changes', async () => {
+        const original = 'export const value = 1;', other = 'export const other = true;';
+        const model = text => ({getLanguageId: () => 'typescript', getValue: () => text, getValueInRange: () => '',
+            getFullModelRange: () => ({startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: text.length + 1}), pushEditOperations: jest.fn()});
+        const first = model(original), second = model(other);
+        let active = first, finish;
+        const editor = {getModel: () => active, getSelection: () => null, focus: jest.fn()};
+        virtualFS.getFileName.mockImplementation(current => current === first ? '/index.ts' : '/other.ts');
+        virtualFS.getLatestContent.mockReturnValue({'/index.ts': original, '/other.ts': other});
+        window.electron.aiCodingAgent.generateCode.mockImplementation(({requestId}) => new Promise(resolve => {
+            finish = () => resolve(replyWith('```ts\n// SOLUTION READY TO APPLY\nexport const value = 2;\n```')({requestId}));
+        }));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'generate'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Set value to two.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await waitFor(() => expect(finish).toBeDefined());
+        active = second;
+        await act(async () => finish());
+        await waitFor(() => expect(virtualFS.setFileContent).toHaveBeenCalledWith('/index.ts', 'export const value = 2;'));
+        expect(second.pushEditOperations).not.toHaveBeenCalled();
+        expect(window.electron.aiCodingAgent.generateCode).toHaveBeenCalledWith(expect.objectContaining({targetFilePath: '/index.ts'}));
+    });
+
+    test('a delayed patch preserves edits made to its target while the request runs', async () => {
+        const {editor, model, setValue} = editorFor();
+        let finish;
+        window.electron.aiCodingAgent.editCode.mockImplementation(({requestId}) => new Promise(resolve => {
+            finish = () => resolve(replyWith('```patch\nFile: /index.ts\n<<<<<<< SEARCH\nexport const value = 1;\n=======\nexport const value = 2;\n>>>>>>> REPLACE\n```')({requestId}));
+        }));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'), {target: {value: 'edit'}});
+        fireEvent.change(screen.getByRole('textbox'), {target: {value: 'Set value to two.'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Submit'}));
+        await waitFor(() => expect(finish).toBeDefined());
+        setValue('export const value = 3;');
+        await act(async () => finish());
+        expect(await screen.findByText(/The target \/index.ts changed after this request started/)).toBeVisible();
+        expect(model.getValue()).toBe('export const value = 3;');
+        expect(model.pushEditOperations).not.toHaveBeenCalled();
     });
 });
 
@@ -3298,8 +3478,8 @@ describe("AiCodingAgentPanel selection guidance", () => {
 
         fireEvent.change(screen.getByLabelText(/Action/i), { target: { value: "edit" } });
 
-        expect(screen.getByText("Select code before editing")).toBeTruthy();
-        expect(screen.getByText(/Edit Code works best with an explicit selection/i)).toBeTruthy();
+        expect(screen.getByText("Open file is the edit target")).toBeTruthy();
+        expect(screen.getByText(/The assistant will propose a patch for \/index\.ts/i)).toBeTruthy();
     });
 });
 
@@ -3347,6 +3527,15 @@ describe("AiCodingAgentPanel smart mode guidance", () => {
         })).toMatchObject({
             title: "Smart Mode preview",
             predictedIntent: "Answer or explain",
+        });
+    });
+
+    test("previews a prepared deployment review as a workspace report despite the package selection", () => {
+        expect(buildSmartModeGuidance({prompt: DEPLOYMENT_REVIEW_PROMPT, effectiveAction: 'edit', selectedCode: '{"name":"cloud"}'})).toMatchObject({
+            title: 'Deployment review preview',
+            predictedIntent: 'Review workspace deployment requirements',
+            selectionMode: 'The current selection is supporting evidence; the whole workspace is reviewed.',
+            expectedResult: 'Expect a read-only report separating source findings from deployment setup.',
         });
     });
 
@@ -4804,6 +4993,7 @@ test('investigation continues after an announcement, analyzes host diagnostics a
     let calls=0;
     window.electron.aiCodingAgent.smartMode.mockImplementation(async({requestId,context,investigation})=>{
         expect(investigation).toBe(true);calls++;
+        expect(context).toContain('DEPLOYMENT REVIEW (source evidence only)');
         const content=calls===1?'I will investigate.':calls===2?JSON.stringify({status:'continue',summary:'Read source; verify the failure.',actions:[{tool:'typecheck'}],findings:[],limitations:[]})
             :JSON.stringify({status:'partial',summary:'Confirmed missing render registration.',actions:[],findings:[{severity:'error',file:'/index.ts',issue:'Render is not registered.',evidence:'Host typecheck: Missing render registration',repair:'Register the render handler.'}],limitations:['Live UI was not inspected.']});
         if(calls===3)expect(context).toContain('Missing render registration');
@@ -4817,4 +5007,91 @@ test('investigation continues after an announcement, analyzes host diagnostics a
     expect(calls).toBe(3);expect(window.electron.plugin.typecheck).toHaveBeenCalledTimes(1);
     expect(virtualFS.setFileContent).not.toHaveBeenCalled();expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
     expect(screen.getByText(/Investigation actions:/)).toHaveTextContent('typecheck');
+});
+
+test.each(['repair','continue','stale','late-stale','failed'])('an exhausted review keeps a usable recovery action: %s',async mode=>{
+    let sources={'/view.ts':`export const render = () => '<p id="summary">Ready</p>';`};
+    virtualFS.getLatestContent.mockImplementation(()=>sources);
+    virtualFS.createFile.mockImplementation((path,model)=>{sources={...sources,[path]:model.getValue()};});
+    runPluginTests.mockResolvedValue({success:true,skipped:false});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async({requestId})=>({success:true,requestId,
+        content:JSON.stringify({status:'partial',summary:'The investigation reached its budget.',findings:[],limitations:['Runtime not inspected.']}),
+        usage:{input_tokens:200000,output_tokens:100}}));
+    const candidate=`import {DOM} from '@anikitenko/fdo-sdk'; export function render(){const dom=new DOM();return dom.renderHTML(dom.createElement('p',{id:'summary'},'Ready'));}`;
+    window.electron.aiCodingAgent.planCode.mockImplementation(async({requestId})=>({success:true,requestId,content:'### File: /view.ts\n```typescript\n'+candidate+'\n```'}));
+    let finish;
+    if(mode==='late-stale')window.electron.aiCodingAgent.planCode.mockImplementationOnce(({requestId})=>new Promise(resolve=>{
+        finish=()=>resolve({success:true,requestId,content:'### File: /view.ts\n```typescript\n'+candidate+'\n```'});
+    }));
+    if(mode==='failed')window.electron.aiCodingAgent.planCode.mockResolvedValueOnce({success:false,error:'Fixture provider could not finish.'});
+    render(<TestHarness/>);
+    const review=await screen.findByRole('button',{name:'Review & repair'});
+    await waitFor(()=>expect(review).toBeEnabled());fireEvent.click(review);
+    const recover=await screen.findByRole('button',{name:'Repair confirmed findings'});
+    await waitFor(()=>expect(recover).toBeEnabled());
+    expect(screen.getByTestId('ai-coding-response')).toHaveTextContent('1 confirmed finding(s) are saved');
+    expect(screen.getByTestId('ai-coding-response')).not.toHaveTextContent('No confirmed issues were identified');
+    expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    if(mode==='repair'){
+        fireEvent.click(recover);
+        await waitFor(()=>expect(sources['/view.ts']).toBe(candidate));
+        expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(1);
+        expect(window.electron.aiCodingAgent.planCode.mock.lastCall[0].repairPaths).toEqual(['/view.ts']);
+        await waitFor(()=>expect(screen.queryByRole('button',{name:'Repair confirmed findings'})).toBeNull());
+        expect(screen.getByRole('button',{name:'Continue review'})).toBeVisible();
+    }else if(mode==='continue'){
+        fireEvent.click(screen.getByRole('button',{name:'Continue review'}));
+        await waitFor(()=>expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(2));
+        await waitFor(()=>expect(screen.getByRole('button',{name:'Continue review'})).toBeEnabled());
+        expect(window.electron.aiCodingAgent.smartMode.mock.lastCall[0].context).toContain('Continue the saved review');
+        expect(runPluginTests).toHaveBeenCalledTimes(1);
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    }else if(mode==='late-stale'){
+        fireEvent.click(recover);
+        await waitFor(()=>expect(finish).toBeDefined());
+        sources={...sources,'/view.ts':'export const newer=true;'};
+        await act(async()=>finish());
+        await screen.findAllByText(/workspace changed since this review/);
+        expect(sources['/view.ts']).toBe('export const newer=true;');
+        expect(virtualFS.createFile).not.toHaveBeenCalled();
+    }else if(mode==='failed'){
+        fireEvent.click(recover);
+        await screen.findAllByText('Fixture provider could not finish.');
+        await waitFor(()=>expect(recover).toBeEnabled());fireEvent.click(recover);
+        await waitFor(()=>expect(sources['/view.ts']).toBe(candidate));
+        expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(1);
+        expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(2);
+    }else{
+        sources={...sources,'/view.ts':'export const newer=true;'};
+        fireEvent.click(recover);
+        expect(await screen.findByText(/workspace changed since this review/)).toBeVisible();
+        expect(window.electron.aiCodingAgent.smartMode).toHaveBeenCalledTimes(1);
+        expect(window.electron.aiCodingAgent.planCode).not.toHaveBeenCalled();
+    }
+});
+
+test('a late editor failure reports applied review repairs and does not expand their scope',async()=>{
+    let sources={'/index.ts':'export const existing=true;','/view.ts':`export const render=()=>'<p>Ready</p>';`};
+    const candidate=`import {DOM} from '@anikitenko/fdo-sdk';export const render=()=>new DOM().renderHTML(new DOM().createElement('p',{},'Ready'));`;
+    virtualFS.getLatestContent.mockImplementation(()=>sources);
+    virtualFS.createFile.mockImplementation((path,model)=>{sources={...sources,[path]:model.getValue()};});
+    virtualFS.listModels.mockReturnValue([{uri:monaco.Uri.file('/index.ts')}]);
+    const markers=jest.spyOn(monaco.editor,'getModelMarkers').mockImplementation(()=>sources['/view.ts']===candidate
+        ?[{severity:8,startLineNumber:1,startColumn:1,message:'Fixture entry diagnostic'}]:[]);
+    runPluginTests.mockResolvedValue({success:true,skipped:false});
+    window.electron.aiCodingAgent.smartMode.mockImplementation(async({requestId})=>({success:true,requestId,
+        content:JSON.stringify({status:'completed',summary:'Tests passed.',findings:[],limitations:[]})}));
+    window.electron.aiCodingAgent.planCode.mockImplementation(async({requestId})=>({success:true,requestId,content:'### File: /view.ts\n```typescript\n'+candidate+'\n```'}));
+    try{
+        render(<TestHarness/>);
+        const review=await screen.findByRole('button',{name:'Review & repair'});
+        await waitFor(()=>expect(review).toBeEnabled());fireEvent.click(review);
+        await screen.findAllByText(/outside the approved repair scope/);
+        expect(screen.getByTestId('ai-coding-response')).toHaveTextContent('Workspace changes were applied.');
+        expect(screen.getByTestId('ai-coding-response')).not.toHaveTextContent('Workspace files were unchanged.');
+        expect(sources['/view.ts']).toBe(candidate);
+        expect(sources['/index.ts']).toBe('export const existing=true;');
+        expect(window.electron.aiCodingAgent.planCode).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('button',{name:'Continue review'})).toBeVisible();
+    }finally{markers.mockRestore();}
 });

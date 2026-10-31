@@ -46,7 +46,7 @@ test.each([
     `import {createDialog} from '@anikitenko/fdo-sdk';createDialog(dom,{onConfirm:()=>{document.querySelector('output').textContent='Confirmed';}});`,
     `window.addEventListener('resize',resize);window.addEventListener('pagehide',cleanup);`,
     `button.onclick=null;button.onchange=undefined;button.removeEventListener('click',oldListener);`,
-    `export const form='<form><input name="name"><button type="button">Save</button></form>';`,
+    `export const form='<section class="pure-form"><input name="name"><button type="button">Save</button></section>';`,
     `client.submit({job:'build'});`,
     `// button.addEventListener('click',()=>{});\nexport const help='Use SDK actions for buttons.';`,
 ])('permits SDK handlers, component callbacks, grouping and lifecycle work: %s',content=>{

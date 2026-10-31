@@ -1,4 +1,5 @@
 import {inspectPluginFolder, installPluginFolder} from '../utils/plugins/importing/pluginFolderImport';
+import {registerPluginExportHandlers} from './pluginExport';
 import {pluginCompatibilityBanner, assertPluginCompatibility} from '../utils/sdk/pluginCompatibility';
 import {pluginCompatibilityHost, installedPluginCompatibility, inspectPluginCompatibility} from '../utils/sdk/pluginCompatibilityHost';
 import {validateNewPluginName} from '../utils/plugins/authoring/pluginNameValidation';
@@ -869,6 +870,7 @@ async function getPluginLogTrace(pluginId, options = {}) {
 }
 
 export function registerPluginHandlers() {
+    registerPluginExportHandlers({getPlugin:id=>new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(id)});
     const folderPreviews = new Map();
     const importingIds = new Set();
     const inspectingFolders = new Set();

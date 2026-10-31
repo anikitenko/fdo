@@ -1,4 +1,6 @@
-import {HOST_SERVICES_AUTHORING_GUIDE} from '../plugins/authoring/hostServicesAuthoringGuide';
+import deploymentTools from '../../../contracts/web-export-tools.json';
+import {HOST_SERVICES_AUTHORING_GUIDE, NETWORK_CREDENTIALS_AUTHORING_GUIDE, DEPLOYMENT_TOOLS_AUTHORING_GUIDE} from '../plugins/authoring/hostServicesAuthoringGuide';
+import {getAllHostNetworkScopePolicies} from '../plugins/security/networkScopeRegistry';
 import {app} from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -72,6 +74,10 @@ export function getCachedFdoSdkKnowledgeIndex() {
 
     const topLevelDocsFilter = (file) => /README|CHANGELOG|package\.json/i.test(file.path);
     const files = [
+        {path: 'fdo-host/deployment-tools.json', content: JSON.stringify(deploymentTools)},
+        {path: 'fdo-host/DEPLOYMENT_TOOLS.md', content: DEPLOYMENT_TOOLS_AUTHORING_GUIDE},
+        {path: 'fdo-host/NETWORK_CREDENTIALS.md', content: NETWORK_CREDENTIALS_AUTHORING_GUIDE},
+        {path: 'fdo-host/network-scopes.json', content: JSON.stringify(getAllHostNetworkScopePolicies())},
         {path: 'fdo-host/SECRETS_SSH_GIT.md', content: HOST_SERVICES_AUTHORING_GUIDE},
         ...getFilesTreeSafe(distPath, '@types'),
         ...getFilesTreeSafe(packagePath, '.', topLevelDocsFilter),

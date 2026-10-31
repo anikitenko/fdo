@@ -2,7 +2,7 @@ import {HOST_SERVICES_AUTHORING_SUMMARY} from './hostServicesAuthoringGuide';
 import {PLUGIN_ACTION_GUIDANCE} from './pluginActionGuidance';
 // Public plugin-facing authoring context. Keep this independent of FDO host
 // implementation details so every coding provider receives the same contract.
-export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.28";
+export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.30";
 
 export const PLUGIN_STYLE_RENDERING_GUIDANCE = "CSS entries are objects, not strings: never test typeof css.panel === 'string', stringify an entry, or fall back to literal selector names. Share one DOM across child renderers, register styles there and finish with dom.renderHTML(html). In SDK 1.6, collectStylesFrom() starts an isolated retained collector; attach helpers before styling. Legacy collection is shared and drained. DOMStyleMap supports nested rules and numbers without automatic units. Plugin render() must call this composition entry; an unused renderShell does not style the deployed UI. Register palette/custom-property styles on an ancestor of every styled region. For repairs, inspect the actual entry-to-render call chain, replace string-only style lookups, preserve state and handlers, and test the deployed render path and emitted CSS, not only class attributes or stylesheet text.";
 
@@ -96,7 +96,7 @@ WORKING METHOD
 ${HOST_SERVICES_AUTHORING_SUMMARY}
 
 PLUGIN CONTRACT
-- Stay within the plugin workspace and public @anikitenko/fdo-sdk API. Host implementation, settings, credentials and arbitrary host paths are outside the task. Preserve the SDK lifecycle and registration contracts shown in the supplied declarations.
+- Use the plugin workspace and public SDK APIs, including backend secret storage. Host internals and arbitrary host paths are outside the task. Preserve declared lifecycle and registration contracts.
 - Keep backend and iframe responsibilities separate. Serialized browser handlers cannot access module closures automatically. Use supported SDK lifecycle bindings; data-bound and element.dataset.bound are reserved for host bindings.
 - The UI_MESSAGE bridge passes the content payload directly to the handler. Expected input-validation failures belong in application result data, not transport failure flags.
 - Plugin UI renders HTML strings. Do not use React, JSX, className, htmlFor, or react/jsx-runtime. Use documented SDK imports and instance APIs as declared.

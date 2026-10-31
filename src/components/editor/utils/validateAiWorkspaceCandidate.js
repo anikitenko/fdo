@@ -1,3 +1,4 @@
+import {validateAiDeploymentChanges,workspaceDeployment} from '../../../utils/plugins/deployment/workspaceDeployment';
 import {validatePluginAcceptanceCriteria, readPluginAcceptanceCriteria} from '../../../utils/plugins/authoring/pluginAcceptanceCriteria';
 import {validateGeneratedCssCycles} from '../../../utils/plugins/validation/generatedCssCycles';
 import {isGeneratedTestFile, generatedWorkspaceTestDiagnostics} from '../../../utils/plugins/validation/generatedWorkspaceTestDiagnostics';
@@ -11,7 +12,7 @@ const fingerprint = files => JSON.stringify(files.map(({path, content}) => [path
 
 // Compile a detached candidate, including retained dependencies. Never mutate
 // editor models while awaiting a build, and never apply over concurrent edits.
-export async function validateAiWorkspaceCandidate({files, workspaceFiles, readWorkspace, build, typecheck, runTests, staticOnly = false, onTestStart, onTestFailure, assertActive, onVerification = () => {}}) {
+export async function validateAiWorkspaceCandidate({files, workspaceFiles, readWorkspace, build, typecheck, runTests, staticOnly = false, requiredInteractionPaths = [], onTestStart, onTestFailure, assertActive, onVerification = () => {}}) {
     const report = {
         changedPaths: files.map(file => file.path),
         checks: [
@@ -20,6 +21,7 @@ export async function validateAiWorkspaceCandidate({files, workspaceFiles, readW
             {id: 'tests', label: 'Candidate tests', status: 'pending'},
             {id: 'types', label: 'TypeScript check before application', status: 'pending'},
             {id: 'acceptance', label: 'Approved acceptance tests', status: 'pending'},
+            {id:'deployment',label:'Deployment declaration (installation and login not executed)',status:'pending'},
             {id: 'security', label: 'Dedicated security audit', status: 'not-run', detail: 'Runtime restrictions do not constitute a completed security audit.'},
         ],
     };
@@ -58,7 +60,11 @@ export async function validateAiWorkspaceCandidate({files, workspaceFiles, readW
         errors.push(...validateGeneratedCssCycles(candidate));
         errors.push(...validateGeneratedWorkspaceCalls(candidate));
         errors.push(...validateGeneratedWorkspaceOptions(candidate));
-        errors.push(...validateGeneratedInteractions(candidate,{baseline:workspaceFiles}));
+        errors.push(...validateGeneratedInteractions(candidate,{baseline:workspaceFiles,requiredPaths:requiredInteractionPaths}));
+        const deploymentErrors=validateAiDeploymentChanges(workspaceFiles,candidate);
+        errors.push(...deploymentErrors);
+        const deployment=workspaceDeployment(candidate);
+        update('deployment',deploymentErrors.length?'failed':deployment.status==='declared'?'passed':'not-run',deploymentErrors.length?deploymentErrors.join('\n'):'Declaration checked against the host catalog. CLI installation, authentication and cloud authorization were not run. '+deployment.nextStep);
         update('contracts', errors.length ? 'failed' : 'passed', errors.join('\n'));
         update('acceptance', 'running');
         const acceptanceErrors = validatePluginAcceptanceCriteria(candidate);

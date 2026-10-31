@@ -1,7 +1,28 @@
 // Native regex execution is restricted to fixed-width patterns plus audited
-// linear whitespace and quoted-attribute patterns. Never run arbitrary regexes.
+// linear whitespace and quoted-attribute patterns. Script-block removal uses
+// its own forward scanner. Never run arbitrary regexes.
 const whitespacePatterns = new Set(['\\s+', '^\\s+', '[\\r\\n]+', '\\r?\\n']);
 const escapedAtoms = new Set([...'dDsSwWbBtnrvf0\\^$.*+?()[]{}|/']);
+const scriptBlockPattern = String.raw`<script\b[^>]*>[\s\S]*?<\/script\s*>`;
+const isScriptBlockPattern = (pattern, flags) => pattern === scriptBlockPattern && /^[gi]*$/.test(flags);
+
+// Match the common renderHTML script-removal idiom in a forward scan. Running
+// its general repetition as a native regex can repeatedly rescan failed opens.
+function scriptBlockMatcher(input, ignoreCase) {
+    const flags = ignoreCase ? 'gi' : 'g';
+    const opening = new RegExp(String.raw`<script\b`, flags);
+    const closing = new RegExp(String.raw`<\/script\s*>`, flags);
+    return position => {
+        opening.lastIndex = position;
+        const start = opening.exec(input);
+        if (!start) return null;
+        const openEnd = input.indexOf('>', opening.lastIndex);
+        if (openEnd < 0) return null;
+        closing.lastIndex = openEnd + 1;
+        const end = closing.exec(input);
+        return end ? {0: input.slice(start.index, closing.lastIndex), index: start.index} : null;
+    };
+}
 function quotedAttributePattern(pattern) {
     const prefix = /^([A-Za-z_:][A-Za-z0-9_:-]{0,63})=(["'])/.exec(pattern);
     if (!prefix) return false;
@@ -13,7 +34,7 @@ function quotedAttributePattern(pattern) {
 }
 export function previewRegExp(pattern, flags, reject) {
     if (pattern.length > 128 || !/^[giu]*$/.test(flags)) reject('Preview replacement patterns support up to 128 characters and only g/i/u flags.');
-    if (!whitespacePatterns.has(pattern) && !quotedAttributePattern(pattern)) {
+    if (!whitespacePatterns.has(pattern) && !quotedAttributePattern(pattern) && !isScriptBlockPattern(pattern, flags)) {
         let inClass = false;
         for (let index = 0; index < pattern.length; index++) {
             const char = pattern[index];
@@ -37,6 +58,7 @@ export function replacePreviewString(input, search, replacement, {all, reject, i
     if (!callback && typeof replacement !== 'string') reject('Preview replace requires a string replacement or source-mapped render callback.');
     if (all && search instanceof RegExp && !search.global) reject('replaceAll requires a global regular expression (g flag).');
     const regex = search instanceof RegExp ? new RegExp(search.source, search.flags) : null;
+    const scriptMatch = regex && isScriptBlockPattern(regex.source, regex.flags) ? scriptBlockMatcher(input, regex.ignoreCase) : null;
     const global = all || !!regex?.global;
     const chunks = [];
     let length = 0, cursor = 0, position = 0;
@@ -71,7 +93,7 @@ export function replacePreviewString(input, search, replacement, {all, reject, i
         let matched, offset;
         if (regex) {
             regex.lastIndex = position;
-            const result = regex.exec(input);
+            const result = scriptMatch ? scriptMatch(position) : regex.exec(input);
             if (!result) break;
             matched = result[0]; offset = result.index;
         } else {
