@@ -197,6 +197,8 @@ test('an incompatible host contract cannot become compatible by choosing a web e
     expect(result.report.blockers).toContain('Requires host API >=2.0.0.');expect(result.files).toBeUndefined();
 });
 
+// Bundling the full SDK, converting it and starting the exported backend need
+// an integration-test budget, especially with concurrent CI workers.
 test.each([false,true])('a compiled plugin embedding the public SDK is rebound to standalone services (minified=%s)',async minify=>{
     const original=fixture();
     const built=await esbuild.build({stdin:{contents:original['/index.ts'],loader:'ts',resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',write:false,minify,external:['electron']});
@@ -208,10 +210,10 @@ test.each([false,true])('a compiled plugin embedding the public SDK is rebound t
     try{
         for(const [file,content] of Object.entries(result.files)){const target=path.join(directory,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,content);}
         const script="(async()=>{const runtime=require('./runtime/application.cjs');require('./backend/app.cjs');await runtime.initialize();const result=await runtime.invoke('counter.increment',{});await runtime.shutdown();console.log(JSON.stringify(result));})().catch(error=>{console.error(error);process.exitCode=1;});";
-        const output=execFileSync(process.execPath,['-e',script],{cwd:directory,encoding:'utf8',env:{...process.env,NODE_PATH:path.resolve('node_modules'),WEB_APP_DATA_DIR:path.join(directory,'data'),WEB_APP_SECRET_KEY:Buffer.alloc(32,7).toString('base64')}});
+        const output=execFileSync(process.execPath,['-e',script],{cwd:directory,encoding:'utf8',timeout:15000,env:{...process.env,NODE_PATH:path.resolve('node_modules'),WEB_APP_DATA_DIR:path.join(directory,'data'),WEB_APP_SECRET_KEY:Buffer.alloc(32,7).toString('base64')}});
         expect(JSON.parse(output.trim().split('\n').at(-1))).toEqual({value:1});
     }finally{fs.rmSync(directory,{recursive:true,force:true});}
-});
+},30000);
 
 test('incomplete build assets fail review before an invalid ZIP can be offered',async()=>{
     await expect(prepareWebApplicationExport({snapshot:{virtual:fixture(),sourceEntry:'index.ts'},plugin,esbuild,sdkSource,viewLibrary,runtimeSources:{}})).rejects.toThrow('standalone runtime assets are incomplete');
