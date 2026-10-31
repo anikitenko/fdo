@@ -1,5 +1,5 @@
 /** @jest-environment node */
-const {test,expect}=require('@jest/globals');
+const {test,expect,jest:jestApi}=require('@jest/globals');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {execFileSync}=require('node:child_process');
 const webpack=require('../../webpack.main.config');
@@ -13,7 +13,10 @@ test('main build repairs copied Git, HTTPS transport and LFS executables before 
         for(const relative of files){const file=path.join(output,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'#!/bin/sh\nprintf "runtime-ready"\n',{mode:0o644});}
         expect(()=>execFileSync(path.join(output,files[0]))).toThrow();
         const callbacks=[];
-        const compiler={options:{output:{path:output}},hooks:{afterEmit:{tap:(name,callback)=>{if(name==='BundledExecutablePermissions')callbacks.push(callback);}}}};
+        const compiler={options:{output:{path:output}},hooks:{
+            thisCompilation:{tap:jestApi.fn()},
+            afterEmit:{tap:(name,callback)=>{if(name==='BundledExecutablePermissions')callbacks.push(callback);}},
+        }};
         // Exercise the actual configured build hook, not just its chmod helper.
         for(const plugin of webpack.plugins)if(plugin.apply&&plugin.constructor===Object)plugin.apply(compiler);
         expect(callbacks).toHaveLength(1);callbacks[0]();
