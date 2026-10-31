@@ -1,0 +1,18 @@
+{
+  "name": "@fdo/minimatch-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Legacy callable minimatch API backed by the patched upstream matcher",
+  "main": "index.cjs",
+  "exports": {
+    ".": "./index.cjs",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "minimatch-patched": "npm:minimatch@11.0.3"
+  },
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "license": "MIT"
+}

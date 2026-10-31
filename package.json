@@ -90,7 +90,7 @@
     "concurrently": "^10.0.6",
     "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^7.1.5",
-    "electron": "45.1.0",
+    "electron": "45.2.1",
     "electron-builder": "26.18.0",
     "html-webpack-plugin": "^5.6.8",
     "identity-obj-proxy": "^3.0.0",
@@ -151,6 +151,7 @@
     "@cursor/sdk": "1.0.40",
     "@dnd-kit/core": "^6.3.1",
     "@expo/sudo-prompt": "^9.3.2",
+    "@fdo/minimatch-compat": "file:packages/minimatch-compat",
     "@google/genai": "2.30.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@monaco-editor/react": "^4.7.0",
@@ -216,7 +217,7 @@
   },
   "overrides": {
     "deepmerge": "$@fdo/jest-deepmerge",
-    "glob": "^13.0.6",
+    "glob": "^14.0.3",
     "rimraf": "^6.0.0",
     "sourcemap-codec": "npm:@jridgewell/sourcemap-codec@^1.5.0",
     "@npmcli/move-file": "npm:@npmcli/fs@^3.1.0",
@@ -243,7 +244,9 @@
     "serialize-javascript": "^7.1.4",
     "undici": "^7.30.1",
     "zod": "^4.6.7",
-    "lodash.isequal": "$lodash.isequal"
+    "lodash.isequal": "$lodash.isequal",
+    "minimatch": "$@fdo/minimatch-compat",
+    "@electron/asar": "$@electron/asar"
   },
   "build": {
     "appId": "me.alexvwan.fdo",
