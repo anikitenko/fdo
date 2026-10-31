@@ -53,6 +53,20 @@ module.exports = {
     plugins: [
         {
             apply(compiler) {
+                compiler.hooks.thisCompilation.tap('StandaloneWebExport', compilation => {
+                    compilation.hooks.processAssets.tapPromise({name:'StandaloneWebExport',stage:compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL},async()=>{
+                        const builderPath=require.resolve('./scripts/build-web-export-assets.cjs');
+                        delete require.cache[builderPath];
+                        const builder=require(builderPath);
+                        const source=await builder.buildWebExportAssets(__dirname);
+                        compilation.emitAsset('export-runtime/view.js',new compiler.webpack.sources.RawSource(Buffer.from(source)));
+                        compilation.emitAsset('export-runtime/runtime-sources.json',new compiler.webpack.sources.RawSource(JSON.stringify(builder.webExportRuntimeSources(__dirname))));
+                    });
+                });
+            },
+        },
+        {
+            apply(compiler) {
                 compiler.hooks.afterEmit.tap('BundledExecutablePermissions', () => {
                     const output = compiler.options.output.path;
                     const binary = path.join(output, 'node_modules/@typescript', `typescript-${process.platform}-${process.arch}`, 'lib/tsc');

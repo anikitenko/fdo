@@ -53,7 +53,16 @@ export function installedSdkCapabilities(requireSdk, sdk, {methodSignatures = ne
                         signatures.set(node.name.text, node.members.filter(member => ts.isMethodDeclaration(member)
                             && !(member.modifiers || []).some(modifier => [ts.SyntaxKind.PrivateKeyword, ts.SyntaxKind.ProtectedKeyword].includes(modifier.kind)))
                             .map(member => member.getText(ast).replace(/\s+/g, ' ')));
-                        classes.set(node.name.text, {methods: node.members.filter(member => ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name) && !(member.modifiers || []).some(modifier => [ts.SyntaxKind.PrivateKeyword, ts.SyntaxKind.ProtectedKeyword].includes(modifier.kind))).map(member => member.name.text),
+                        const properties = node.members.filter(member => (ts.isPropertyDeclaration(member) || ts.isGetAccessorDeclaration(member))
+                            && member.name && ts.isIdentifier(member.name)
+                            && !(member.modifiers || []).some(modifier => [ts.SyntaxKind.PrivateKeyword, ts.SyntaxKind.ProtectedKeyword].includes(modifier.kind)))
+                            .map(member => {
+                                /** @type {import('typescript/unstable/ast').Node | undefined} */
+                                const propertyType = member.type;
+                                return {name: member.name.text, type: propertyType?.getText(ast) || 'unknown',
+                                    static: (member.modifiers || []).some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)};
+                            });
+                        classes.set(node.name.text, {properties, methods: node.members.filter(member => ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name) && !(member.modifiers || []).some(modifier => [ts.SyntaxKind.PrivateKeyword, ts.SyntaxKind.ProtectedKeyword].includes(modifier.kind))).map(member => member.name.text),
                             bases: (node.heritageClauses || []).flatMap(clause => clause.types.map(type => type.expression.getText(ast)))});
                     });
                 }
@@ -66,12 +75,21 @@ export function installedSdkCapabilities(requireSdk, sdk, {methodSignatures = ne
             const entry = classes.get(name);
             return entry ? [...entry.methods, ...entry.bases.flatMap(base => declaredMethods(base, seen))] : [];
         };
+        const declaredProperties = (name, seen = new Set()) => {
+            if (seen.has(name)) return [];
+            seen.add(name);
+            const entry = classes.get(name);
+            return entry ? [...entry.properties, ...entry.bases.flatMap(base => declaredProperties(base, seen))] : [];
+        };
         const api = Object.getOwnPropertyNames(sdk).sort().map(name => {
             const value = Object.getOwnPropertyDescriptor(sdk, name)?.value;
             const prototype = typeof value === 'function' ? Object.getOwnPropertyDescriptor(value, 'prototype')?.value : null;
             const methods = prototype ? Object.getOwnPropertyNames(prototype).filter(key => key !== 'constructor'
                 && typeof Object.getOwnPropertyDescriptor(prototype, key)?.value === 'function').sort() : [];
-            return {name, methods: [...new Set(classes.has(name) ? declaredMethods(name) : methods)].sort()};
+            // Describe services from declarations without invoking runtime getters.
+            const properties = [...new Map(declaredProperties(name).reverse().map(item => [`${item.static}:${item.name}`, item])).values()]
+                .sort((a, b) => a.name.localeCompare(b.name));
+            return {name, methods: [...new Set(classes.has(name) ? declaredMethods(name) : methods)].sort(), properties};
         });
         const typesEntry = path.join(root, manifest.types || 'dist/@types/index.d.ts');
         const checker = project.checker;

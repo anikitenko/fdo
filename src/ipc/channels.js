@@ -208,6 +208,8 @@ export const PluginChannels = withPrefix('plugin', {
     SIGN: 'sign',
     EXPORT: 'export',
     SET_CAPABILITIES: 'set-capabilities',
+    EXPORT_PREVIEW: 'export-preview',
+    EXPORT_AS: 'export-as',
     GET_PRIVILEGED_AUDIT: 'get-privileged-audit',
     GET_LOG_TAIL: 'get-log-tail',
     GET_LOG_TRACE: 'get-log-trace',

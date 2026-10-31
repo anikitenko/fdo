@@ -63,3 +63,13 @@ test('host findings survive an empty model report, are idempotent and disappear 
     const clean = includeWorkspaceAuthoringFindings({status:'completed',summary:'Migrated',findings:[],limitations:[]},[source('/view.ts',`export const render = () => dom.createElement('p',{},'Ready');`)]);
     expect(clean.findings).toEqual([]);
 });
+
+test('template expressions do not invent custom element names in data or UI findings',()=>{
+    const findings=findWorkspaceHtmlIssues([
+        source('/logic.ts','export const describe = value => `<${value}>`;'),
+        source('/render.ts','export const render = href => `<a${href}>Open</a>`;'),
+    ]);
+    expect(findings.map(finding=>finding.file)).toEqual(['/render.ts']);
+    expect(findings[0].evidence).toContain('tags: a.');
+    expect(JSON.stringify(findings)).not.toContain('fdo-expression');
+});

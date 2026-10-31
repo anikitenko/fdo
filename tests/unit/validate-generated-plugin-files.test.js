@@ -1,3 +1,4 @@
+import {describe, expect, test} from '@jest/globals';
 import {normalizeReservedHostBindingMarkers, validateGeneratedPluginFiles} from "../../src/components/editor/utils/validateGeneratedPluginFiles.js";
 
 describe("validateGeneratedPluginFiles", () => {
@@ -31,7 +32,7 @@ describe("validateGeneratedPluginFiles", () => {
             {path: '/render.tsx', content: 'export const render = "old";'},
             {path: '/features/json/render.ts', content: 'export const form = `<form class="pure-form pure-form-stacked"><input><button class="pure-button pure-button-primary">Format</button></form>`;'},
         ];
-        const files = [{path: '/render.tsx', content: 'export const render = `<input type="search"><button>Search</button>`;'}];
+        const files = [{path: '/render.tsx', content: 'export const render = `<input type="search"><button type="button">Search</button>`;'}];
         expect(validateGeneratedPluginFiles(files).errors.length).toBeGreaterThan(0);
         expect(validateGeneratedPluginFiles(files, {workspaceFiles}).errors).toEqual([]);
     });
@@ -47,7 +48,8 @@ describe("validateGeneratedPluginFiles", () => {
         const result = validateGeneratedPluginFiles([
             {
                 path: "/index.ts",
-                content: `
+                // Plugin TypeScript is test data for the validator, not embedded JavaScript.
+                content: /* language=TEXT */ `
 import {FDO_SDK, FDOInterface, PluginMetadata} from "@anikitenko/fdo-sdk";
 
 class HostsPlugin extends FDO_SDK implements FDOInterface {
@@ -383,7 +385,8 @@ new InspectorPlugin();`,
             },
             {
                 path: "/render.tsx",
-                content: `const dom = new DOM();
+                // Deliberately unsupported JSX is test data, not an HTML template.
+                content: /* language=TEXT */ `const dom = new DOM();
 dom.renderHTML(<main className="panel"><label htmlFor="json-input">JSON</label></main>);`,
             },
         ]);

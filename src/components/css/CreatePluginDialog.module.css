@@ -13,3 +13,11 @@
 
 .nameFeedback { overflow-wrap: anywhere; }
 .nameFeedback code { white-space: normal; }
+.nameInput :global(.bp6-input-action) {
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    padding-inline: 8px;
+    pointer-events: none;
+}
+.nameStatus { display: flex; align-items: center; justify-content: center; width: 16px; }

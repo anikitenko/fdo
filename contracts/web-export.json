@@ -1,0 +1,115 @@
+{
+  "contractVersion": "2.1.0",
+  "applicationApiVersion": "1.1.0",
+  "capabilities": {
+    "storage": "persistent-storage",
+    "storage.json": "persistent-storage",
+    "secrets.use": "encrypted-secrets",
+    "secrets.set": "encrypted-secrets",
+    "secrets.get": "encrypted-secrets",
+    "secrets.delete": "encrypted-secrets",
+    "secrets.list": "encrypted-secrets",
+    "secrets.consume": "ssh",
+    "ssh.use": "ssh",
+    "ssh.exec": "ssh",
+    "ssh.profiles.list": "ssh",
+    "ssh.status.watch": "ssh-streaming",
+    "ssh.terminal.open": "ssh-terminal",
+    "ssh.x11.forward": "x11",
+    "system.network": "network",
+    "system.network.https": "network",
+    "system.network.http": "network",
+    "system.network.websocket": "network",
+    "system.network.tcp": "raw-network",
+    "system.network.udp": "raw-network",
+    "system.network.dns": "raw-network",
+    "system.host.write": "privileged-base",
+    "system.process.exec": "process",
+    "system.clipboard.read": "clipboard",
+    "system.clipboard.write": "clipboard",
+    "system.ai": "ai",
+    "system.ai.assistants.list": "ai",
+    "system.ai.request": "ai",
+    "system.tray": "tray",
+    "sudo.prompt": "elevation"
+  },
+  "scopeFamilies": {
+    "system.network.scope.": "network",
+    "system.fs.scope.": "filesystem",
+    "system.process.scope.": "process"
+  },
+  "adapters": {
+    "charts": {
+      "status": "supported",
+      "description": "The data-only chart API is compiled into the standalone browser bundle; charts do not require the desktop host."
+    },
+    "privileged-base": {
+      "status": "supported",
+      "description": "Prerequisite for privileged operations. Each concrete operation still needs its own grant and implemented web adapter; this grants no container filesystem access."
+    },
+    "persistent-storage": {
+      "status": "configuration",
+      "description": "Original contract memory, JSON and custom store lifecycle. Mount /data for persistence; one replica owns each store."
+    },
+    "encrypted-secrets": {
+      "status": "configuration",
+      "description": "AES-256-GCM credential vault. Inject WEB_APP_SECRET_KEY and mount /data; desktop credentials are never copied."
+    },
+    "network": {
+      "status": "supported",
+      "description": "Backend network operations retain transport and destination grants. Configure cloud egress for private destinations."
+    },
+    "raw-network": {
+      "status": "configuration",
+      "description": "Backend TCP, UDP and DNS use the exported transport and destination policy. Configure deployment egress for remote networks."
+    },
+    "clipboard": {
+      "status": "supported",
+      "description": "Browser Clipboard API; HTTPS, browser permission and a user gesture are required."
+    },
+    "ssh": {
+      "status": "configuration",
+      "description": "Standalone SSH service with encrypted credentials, enrolled profiles and pinned host fingerprints. Configure deployment/services.json; no desktop sessions are copied."
+    },
+    "ssh-streaming": {
+      "status": "configuration",
+      "description": "Standalone SSH status and execution streams retain cancellation and output limits."
+    },
+    "ssh-terminal": {
+      "status": "configuration",
+      "description": "Standalone terminal service retains quotas and browser view leases. Remote profiles and credentials require deployment configuration."
+    },
+    "x11": {
+      "status": "configuration",
+      "description": "Configure a display gateway with explicit X11 authorization. Containers do not create a desktop display automatically."
+    },
+    "filesystem": {
+      "status": "configuration",
+      "description": "Scoped filesystem operations run against deployment volumes. Configure pathMappings for desktop roots; mutations retain confirmation and scope checks."
+    },
+    "process": {
+      "status": "configuration",
+      "description": "Scoped commands execute in the container with original executable/argument policies and confirmation. Azure CLI and Git tooling are included when required; install other tools in Dockerfile and map their paths."
+    },
+    "ai": {
+      "status": "configuration",
+      "description": "Configure a standalone service gateway for the AI protocol. Requests retain AI capability checks; desktop provider credentials are not copied."
+    },
+    "tray": {
+      "status": "configuration",
+      "description": "Tray actions are exposed as a browser action menu. Background execution belongs to the backend service."
+    },
+    "elevation": {
+      "status": "configuration",
+      "description": "Configure an HTTPS service gateway for approved elevated operations. The container remains unprivileged and browser approval is required."
+    },
+    "authentication": {
+      "status": "configuration",
+      "description": "Configure an independent authentication/session service gateway with deployment callback URLs. Desktop login sessions are not reused."
+    },
+    "browser": {
+      "status": "supported",
+      "description": "Open validated HTTP/HTTPS links in the user's browser."
+    }
+  }
+}

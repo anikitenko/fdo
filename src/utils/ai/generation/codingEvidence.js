@@ -1,4 +1,4 @@
-import {buildFdoSdkKnowledgeIndex, searchFdoSdkKnowledge} from '../../sdk/fdoSdkKnowledge';
+import {buildFdoSdkKnowledgeIndex, searchFdoSdkKnowledge, hostServiceEvidenceNeeds} from '../../sdk/fdoSdkKnowledge';
 import {parse} from '@babel/parser';
 import {PLUGIN_STYLE_RENDERING_GUIDANCE} from '../../plugins/authoring/pluginAuthoringGuide';
 
@@ -64,6 +64,15 @@ export function buildCodingEvidence(index, {prompt = '', files = [], targetPath 
     const symbols = sdkSymbols(current || files.map(file => file.content).join('\n'));
     const query = [symbols.join(' '), diagnostics.slice(0, 1800), targetPath, prompt.slice(0, 1800)].filter(Boolean).join('\n');
     const declarations = declarationEvidence(index);
+    const serviceNeeds = hostServiceEvidenceNeeds([prompt, diagnostics, current,
+        ...files.filter(file => /\.[cm]?[jt]sx?$/.test(file.path)).map(file => file.content)].join('\n'));
+    // Required services can live in another file or be missing from the rejected
+    // stub entirely. Retrieve their contracts before generic imported UI types.
+    const serviceContracts = serviceNeeds.network || serviceNeeds.secrets ? [
+        ...searchFdoSdkKnowledge(index.filter(item => item.path === 'fdo-host/NETWORK_CREDENTIALS.md'), 'network credentials', {limit: 2}),
+        ...(serviceNeeds.secrets ? declarations.filter(item => item.typeName === 'SecretStore' || item.typeName === 'FDO_SDK') : []),
+        ...(serviceNeeds.network ? searchFdoSdkKnowledge(index.filter(item => item.path === 'fdo-host/network-scopes.json'), 'fetch https', {limit: 1}) : []),
+    ] : [];
     const missingMembers = [...diagnostics.matchAll(/Property '([^']+)' does not exist on type '([^']+)'/g)];
     const receivers = new Set(missingMembers.map(match => match[2]));
     const missingNames = [...diagnostics.matchAll(/Cannot find name '([^']+)'/g)].map(match => match[1]);
@@ -91,7 +100,7 @@ export function buildCodingEvidence(index, {prompt = '', files = [], targetPath 
     }
     const receiverContracts = declarations.filter(item => receivers.has(item.typeName));
     const sdkMessagingRepair = receivers.has('FDO_SDK') && missingMembers.some(match => ['postMessage', 'requestClipboardRead'].includes(match[1]));
-    const matches = [...receiverContracts, ...methodOwners,
+    const matches = [...receiverContracts, ...methodOwners, ...serviceContracts,
         ...(sdkMessagingRepair ? searchFdoSdkKnowledge(declarations.filter(item => /clipboardTooling\.d\.ts$/i.test(item.path)), 'requestClipboardRead', {limit: 1}) : []),
         ...(diagnostics ? searchFdoSdkKnowledge(declarations, diagnostics, {limit: 2}) : []),
         ...searchFdoSdkKnowledge(declarations, symbols.length ? symbols.join(' ') : query, {limit: 3}),

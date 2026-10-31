@@ -1,5 +1,6 @@
 import {pluginDisplayName, operationError} from '../utils/desktop/notificationContent';
 import PluginLocation from './plugin/PluginLocation';
+import PluginExportDialog from './plugin/PluginExportDialog';
 import {
     Alert,
     Button,
@@ -899,6 +900,7 @@ const SelectPluginPanel = ({
     const [scopeSetupSuggestion, setScopeSetupSuggestion] = useState(null);
     const [suppressSuggestedScopeAutoOpen, setSuppressSuggestedScopeAutoOpen] = useState(false);
     const pluginScopesCardRef = useRef(null);
+    const capabilitiesCardRef = useRef(null);
     const [customFilesystemScopes, setCustomFilesystemScopes] = useState([]);
     const [customFilesystemScopesLoaded, setCustomFilesystemScopesLoaded] = useState(false);
     const [showCustomFilesystemScopeEditor, setShowCustomFilesystemScopeEditor] = useState(false);
@@ -927,7 +929,7 @@ const SelectPluginPanel = ({
     const capabilityFilterExpandedRef = useRef(false);
     const capabilityPanelBeforeFilterRef = useRef(false);
 
-    const [exportProgress, setExportProgress] = useState(false)
+    const [showExportDialog, setShowExportDialog] = useState(false)
 
     useEffect(() => {setMissingCapabilitiesOnly(false);}, [plugin?.id]);
 
@@ -2595,28 +2597,15 @@ const SelectPluginPanel = ({
                     />
                 <Button
                     icon="archive"
-                    text={"Export"}
+                    text={"Export As…"}
                     intent="success"
-                    loading={exportProgress}
                     style={{marginLeft: "auto"}}
-                    onClick={async () => {
-                        setExportProgress(true)
-                        const data = await window.electron.plugin.export(plugin.id)
-                        console.log(data)
-                        if (data) {
-                            const blob = new Blob([data], {type: 'application/zip'});
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `${plugin.name}.zip`;
-                            document.body.appendChild(a);
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            document.body.removeChild(a);
-                        }
-                        setExportProgress(false)
-                    }}
+                    onClick={() => setShowExportDialog(true)}
                 />
+                {showExportDialog && <PluginExportDialog key={plugin.id} plugin={plugin} onClose={()=>setShowExportDialog(false)} onReviewCapabilities={()=>{
+                    setShowExportDialog(false);setShowCapabilitiesPanel(true);
+                    requestAnimationFrame(()=>capabilitiesCardRef.current?.scrollIntoView({block:'start',behavior:'smooth'}));
+                }}/>}
                 </div>
             </div>
             <Divider/>
@@ -3646,7 +3635,7 @@ const SelectPluginPanel = ({
                     </div>
                 </div>
             </Dialog>
-            <Card style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
+            <Card ref={capabilitiesCardRef} style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
                 <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
                     <div>
                         <div className={"bp6-heading"} style={{fontSize: "0.95rem"}}>Capabilities & Privileged Access</div>

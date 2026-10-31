@@ -1,5 +1,6 @@
 import {SDK_COMPONENT_ADAPTERS} from './sdkComponentCatalog';
 import {describeActionCatalog} from './actionLifecycle';
+import {describeExistingBindings} from './existingActionBindings';
 import {createHtmlLiteralMapper} from './htmlLiteralPreview';
 import {previewRegExp, replacePreviewString} from './stringPreview';
 import {describeSdkSlots} from './sdkSlotEdits';
@@ -44,7 +45,7 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
     let operations = 0;
     let processedCharacters = 0;
     let depth = 0;
-    const modules = new Map(), instances = new WeakMap(), css = new Map();
+    const modules = new Map(), instances = new WeakMap(), css = new Map(), previewSets = new WeakSet();
     let previewCollector;
     const sdkEntries = new WeakMap();
     const styleSources = new WeakMap(), classSources = new Map(), styleCalls = new WeakMap(), elements = [];
@@ -102,7 +103,8 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
         currentFile = fn.file;
         try {
             const scope = new Map(fn.scope);
-            fn.node.params.forEach((param, index) => bind(param, args[index], scope));
+            fn.node.params.forEach((param, index) => param.type === 'RestElement'
+                ? bind(param.argument, args.slice(index), scope) : bind(param, args[index], scope));
             if (fn.node.body.type !== 'BlockStatement') return evaluate(fn.node.body, scope);
             const run = (statement, blockScope, nesting = 0) => {
                 if (++operations > 20000 || nesting > 40) fail(statement, 'Preview statement budget exceeded.');
@@ -117,6 +119,30 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
                     const local = new Map(blockScope);
                     for (const child of statement.body) {
                         const result = run(child, local, nesting + 1);
+                        if (result) return result;
+                    }
+                }
+                else if (statement.type === 'SwitchStatement') {
+                    const value = evaluate(statement.discriminant, blockScope);
+                    let start = statement.cases.findIndex(branch => branch.test && evaluate(branch.test, blockScope) === value);
+                    if (start < 0) start = statement.cases.findIndex(branch => !branch.test);
+                    const local = new Map(blockScope);
+                    for (const branch of statement.cases.slice(start < 0 ? statement.cases.length : start)) {
+                        for (const child of branch.consequent) {
+                            if (child.type === 'BreakStatement' && !child.label) return;
+                            const result = run(child, local, nesting + 1);
+                            if (result) return result;
+                        }
+                    }
+                }
+                else if (statement.type === 'ForOfStatement') {
+                    const values = evaluate(statement.right, blockScope);
+                    if (statement.await || !Array.isArray(values) || statement.left.type !== 'VariableDeclaration'
+                        || statement.left.kind !== 'const' || statement.left.declarations.length !== 1) fail(statement, 'Preview loops require a const binding over a bounded array.');
+                    for (const value of values) {
+                        const local = new Map(blockScope);
+                        bind(statement.left.declarations[0].id, value, local);
+                        const result = run(statement.body, local, nesting + 1);
                         if (result) return result;
                     }
                 }
@@ -167,7 +193,7 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
             case 'ThisExpression': return lookup('this', scope, node);
             case 'TSAsExpression': case 'TSNonNullExpression': case 'ParenthesizedExpression': return evaluate(node.expression, scope);
             case 'TemplateLiteral': return check(literalHtml.template(node,currentFile,node.expressions.map(expression=>evaluate(expression,scope))),node);
-            case 'ArrayExpression': return check(node.elements.map(item => evaluate(item, scope)), node);
+            case 'ArrayExpression': return expandedArguments(node.elements, scope, node);
             case 'ObjectExpression': {
                 value = Object.create(null);
                 for (const prop of node.properties) {
@@ -197,18 +223,35 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
                 if (node.operator === '+') return check(typeof left === 'string' || typeof right === 'string' ? literalHtml.concatenate([left,right]) : left + right, node);
                 if (node.operator === '===') return left === right;
                 if (node.operator === '!==') return left !== right;
+                if (typeof left === 'number' && typeof right === 'number') {
+                    if (node.operator === '>') return left > right;
+                    if (node.operator === '<') return left < right;
+                    if (node.operator === '>=') return left >= right;
+                    if (node.operator === '<=') return left <= right;
+                    if (node.operator === '/') return left / right;
+                }
                 break;
             }
-            case 'MemberExpression': {
-                const object = evaluate(node.object, scope), name = key(node.computed ? evaluate(node.property, scope) : node.property.name, node);
+            case 'OptionalMemberExpression': case 'MemberExpression': {
+                const object = evaluate(node.object, scope);
+                if (node.optional && object == null) return undefined;
+                const name = key(node.computed ? evaluate(node.property, scope) : node.property.name, node);
                 if (object && Object.hasOwn(object, name)) return object[name];
                 if (name === 'length' && (typeof object === 'string' || Array.isArray(object))) return object.length;
                 return undefined;
             }
             case 'NewExpression': {
+                if (node.callee.type === 'Identifier' && node.callee.name === 'Set' && !scope.has('Set')) {
+                    const args = expandedArguments(node.arguments, scope, node);
+                    if (args.length > 1 || args[0] !== undefined && !Array.isArray(args[0])) fail(node, 'Preview Set construction requires a bounded array.');
+                    if ((operations += args[0]?.length || 0) > 20000) fail(node, 'Preview expression budget exceeded.');
+                    const value = new Set(args[0]);
+                    previewSets.add(value);
+                    return value;
+                }
                 const ctor = evaluate(node.callee, scope);
                 if (ctor?.kind !== 'sdk' || !Object.hasOwn(methods, ctor.name)) fail(node, 'Only supported SDK DOM helpers can be constructed.');
-                const args = node.arguments.map(arg => evaluate(arg, scope));
+                const args = expandedArguments(node.arguments, scope, node);
                 args.forEach(arg => inspectSdkInput(arg, node));
                 const instance = new sdk[ctor.name](...args);
                 instances.set(instance, ctor.name);
@@ -223,13 +266,25 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
                 return instance;
             }
             case 'CallExpression': {
-                const args = node.arguments.map(arg => evaluate(arg, scope));
+                const args = expandedArguments(node.arguments, scope, node);
+                if (node.callee.type === 'Identifier' && node.callee.name === 'Boolean' && !scope.has('Boolean')) {
+                    // ToBoolean never calls valueOf/toString or plugin code.
+                    // Keep this intrinsic local to direct calls; constructors
+                    // and arbitrary global functions remain unavailable.
+                    return Boolean(args[0]);
+                }
                 if (node.callee.type === 'Identifier' && node.callee.name === 'String') {
                     const input = args[0];
                     if (input !== null && typeof input === 'object') fail(node, 'Object coercion is not supported.');
                     return String(input);
                 }
                 if (node.callee.type === 'MemberExpression') {
+                    if (node.callee.object.type === 'Identifier' && node.callee.object.name === 'Array' && !scope.has('Array')
+                        && !node.callee.computed && node.callee.property.name === 'from') {
+                        if (args.length !== 1 || !(Array.isArray(args[0]) || previewSets.has(Object(args[0])))) fail(node, 'Preview Array.from accepts only bounded arrays or preview-owned sets.');
+                        if ((operations += Array.isArray(args[0]) ? args[0].length : args[0].size) > 20000) fail(node, 'Preview expression budget exceeded.');
+                        return check(Array.from(args[0]), node);
+                    }
                     const object = evaluate(node.callee.object, scope);
                     const name = key(node.callee.computed ? evaluate(node.callee.property, scope) : node.callee.property.name, node);
                     const sdkClass = instances.get(Object(object));
@@ -309,6 +364,16 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
                         return check(literalHtml.concatenate(parts), node);
                     }
                     if (Array.isArray(object) && name === 'map') return object.map((item, i) => invoke(args[0], [item, i], node));
+                    if (Array.isArray(object) && name === 'filter') return object.filter((item, i) => invoke(args[0], [item, i], node));
+                    if (Array.isArray(object) && name === 'sort') {
+                        if (args.length || object.some(value => value !== null && ['object', 'function'].includes(typeof value))) fail(node, 'Preview sort accepts primitive arrays without a comparator.');
+                        if ((operations += object.length * Math.ceil(Math.log2(object.length + 1))) > 20000) fail(node, 'Preview expression budget exceeded.');
+                        return object.sort();
+                    }
+                    if (typeof object === 'string' && ['trim', 'toLowerCase', 'toUpperCase'].includes(name)) {
+                        if (args.length) fail(node, 'Preview text normalization does not accept arguments.');
+                        return check(object[name](), node);
+                    }
                     if (typeof object === 'string' && ['replace', 'replaceAll'].includes(name)) {
                         if (args.length !== 2) fail(node, 'Preview replacement requires a search and replacement.');
                         const copies = [];
@@ -342,6 +407,19 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
             default: break;
         }
         fail(node, `Unsupported preview expression: ${node.type}. Use the IDE to inspect this code.`);
+    };
+    const expandedArguments = (nodes, scope, node) => {
+        const values = [];
+        for (const item of nodes) {
+            if (item?.type === 'SpreadElement') {
+                const spread = evaluate(item.argument, scope);
+                if (!Array.isArray(spread)) fail(item, 'Preview spread requires a bounded array.');
+                if (values.length + spread.length > 1000) fail(node, 'Preview arrays are limited to 1,000 items.');
+                values.push(...spread);
+            } else values.push(evaluate(item, scope));
+            check(values, node);
+        }
+        return values;
     };
     const load = file => {
         if (modules.has(file)) return modules.get(file);
@@ -382,6 +460,11 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
                         scope.set(variable.id.name, defer(() => evaluate(variable.init, scope)));
                         if (statement.type === 'ExportNamedDeclaration') exports.set(variable.id.name, variable.id.name);
                     }
+                }
+                else if (declaration?.type === 'ClassDeclaration' && declaration.id) {
+                    // A local class also shadows globals; it is never a native
+                    // constructor or a callable preview render helper.
+                    scope.set(declaration.id.name, {kind: 'unsupported-class'});
                 }
                 // Module initialization and class constructors are never executed.
             }
@@ -436,6 +519,7 @@ export async function createStaticUiPreview(files, sdk, componentContract, domCo
         for (const element of elements) element.styles = element.styles.map(style => ({...style, isolationReason: isolationReason(element, style)}));
         const literal = literalHtml.describe(html,elements);
         elements.push(...literal.elements);
+        describeExistingBindings(files,elements,literal.html,main.ast,plugin);
         return {status: 'ready', html:literal.html, elements, actions:[...describeActionCatalog(files,elements,actions,main.ast,plugin),...sdkAsyncActionCatalog(elements)], message: 'Select an element to inspect its source. Backend actions are disabled.'};
     } catch (error) {
         return {status: 'unsupported', html: '', message: error.message, location: error.location || {path: currentFile, line: error.loc?.line || 1, column: (error.loc?.column || 0) + 1}};

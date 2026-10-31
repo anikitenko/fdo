@@ -18,6 +18,8 @@ import {planSdkComponentEdit} from './sdkComponentEdits';
 import {planSdkAsyncAction} from './sdkAsyncActions';
 import {planAttributeEdit} from './attributeEdits';
 import {planButtonAction} from './actionBindings';
+import {planExistingBinding} from './existingActionBindings';
+import {planHandlerEdit} from './handlerEdits';
 import {planLocalAction} from './localActions';
 import {planStructuralEdit, planSdkElementDuplicate} from './structuralEdits';
 import {planStyleAssignment} from './styleAssignments';
@@ -71,6 +73,8 @@ export function planVisualSourceEdit(files, elements, request, catalog=[]) {
     if(request.kind === 'remove-action') return planRemoveAction(files,elements,catalog,request);
     const element = elements.find(item => item.id === request.elementId);
     if (!element) throw new Error('Select a current source-mapped element.');
+    if (request.kind === 'sdk-binding') return planExistingBinding(files,element,request);
+    if (request.kind === 'sdk-handler') return planHandlerEdit(files,element,request);
     if (['create-sdk-async-action','disconnect-sdk-async-action'].includes(request.kind)) return planSdkAsyncAction(files,element,request);
     if (request.kind === 'backend-result') return planBackendResult(files,element,request);
     if (request.kind === 'input-kind') return planInputKind(files,element,request);

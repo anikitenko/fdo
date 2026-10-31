@@ -76,3 +76,28 @@ test('runtime observations can refresh as external state changes without rerunni
         ask:async input=>{calls++;time+=6000;if(calls<=2)return success(report([{tool:'runtime'}]));expect(input.prompt).toContain('true');return success(report());}});
     expect(result.status).toBe('completed');expect(runtimeReads).toBe(2);
 });
+
+test('continuation reuses saved source and test evidence with a fresh bounded analysis budget',async()=>{
+    const finding={severity:'warning',file:'/index.ts',issue:'Missing style registration.',evidence:'Host source check.',repair:'Register styles.'};
+    const resume={summary:'Review stopped after tests.',findings:[finding],limitations:['Budget reached.'],
+        observations:[{id:'evidence-1',action:{tool:'tests'},result:'{"success":true,"tests":12}'}]};
+    const perform=jest.fn(),ask=jest.fn().mockResolvedValueOnce(success(report([{tool:'tests'}])))
+        .mockImplementationOnce(async input=>{
+            expect(input.prompt).toContain('Missing style registration.');
+            expect(input.prompt).toContain('"tests":12');
+            return success(report([],{status:'partial',findings:[finding],limitations:['Runtime not inspected.']}));
+        });
+    const result=await runCodingInvestigation({prompt:'Continue review',files,perform,ask,budget,resume,initialActions:[]});
+    expect(perform).not.toHaveBeenCalled();expect(ask).toHaveBeenCalledTimes(2);
+    expect(result.budget.carriedObservations).toBe(1);expect(result.budget.tokens).toBeGreaterThan(0);
+    expect(result.findings).toEqual([finding]);
+});
+
+test('a large multibyte observation cannot consume the final-report reserve or overshoot its allowance',async()=>{
+    const ask=jest.fn(async()=>success(report()));
+    const result=await runCodingInvestigation({prompt:'Review',files,perform:()=>({source:'界'.repeat(100000)}),ask,
+        budget:{tokenLimit:6000,durationMs:10000}});
+    expect(result.budget.spentTokens).toBeLessThanOrEqual(6000);
+    expect(result.observations[0].result).toContain('truncated');
+    expect(result.budget.tokens).toBeGreaterThanOrEqual(4000);
+});

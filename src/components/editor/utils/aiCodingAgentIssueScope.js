@@ -1,3 +1,5 @@
+import {isSandboxedFormSubmissionError} from '../../../utils/plugins/authoring/pluginActionGuidance';
+
 function normalizeText(value = "") {
     return String(value || "").toLowerCase();
 }
@@ -8,6 +10,7 @@ export function shouldIncludeIssueDiagnosis({
 } = {}) {
     const normalizedPrompt = normalizeText(prompt);
     const normalizedAction = normalizeText(action);
+    if(isSandboxedFormSubmissionError(normalizedPrompt))return true;
     const looksLikeScaffoldIntent = /\b(create|build|generate|scaffold|implement|make)\b/.test(normalizedPrompt)
         || /plugin\s+like\b/.test(normalizedPrompt)
         || /\blike\s+https?:\/\//.test(normalizedPrompt);
@@ -35,6 +38,10 @@ export function classifyAiCodingIssueScope({
         problemsContext,
     ].filter(Boolean).join("\n");
     const normalized = normalizeText(text);
+    if(isSandboxedFormSubmissionError(normalized))return {
+        kind:'plugin',
+        summary:'Native form submission was blocked by the plugin iframe sandbox. Inspect plugin command types and Enter handling; repair them with SDK actions. Keep the host sandbox permissions unchanged.',
+    };
 
     // A workspace-creation request can inherit stale compiler markers from a
     // prior plugin. Do not present those as a diagnosis of a plugin that has
@@ -49,7 +56,7 @@ export function classifyAiCodingIssueScope({
         };
     }
 
-    const hasReportedError = /(?:\b(?:[a-z]+)?error:|typeerror|referenceerror|unhandledpromiserejectionwarning|\bexception\b|\bcrash(?:ed|ing)?\b|plugin process stopped unexpectedly|\bstack trace\b|backend:\s*(?:error|failed))/.test(normalized);
+    const hasReportedError = /\b(?:[a-z]+)?error:|typeerror|referenceerror|unhandledpromiserejectionwarning|\bexception\b|\bcrash(?:ed|ing)?\b|plugin process stopped unexpectedly|\bstack trace\b|backend:\s*(?:error|failed)/.test(normalized);
     const hasSdkContractFailure = /(?:@anikitenko\/fdo-sdk|fdo_sdk|fdointerface|pluginmetadata|domtable|dominput|dombutton|goober)\b[^\n]{0,180}\b(?:does not provide|not exported|undefined|unavailable|missing|is not a function|cannot read)|\b(?:baseplugin|fdoplugin)\b[^\n]{0,120}\b(?:undefined|not exported|unavailable|missing)|\bgoober\b[^\n]{0,120}\b(?:unavailable|missing|failed)/.test(normalized);
     const hasHostContractFailure = /(?:plugin host environment|plugin host|host runtime|createbackendreq|executeinjectedscript)[^\n]{0,180}\b(?:error|failed|unavailable|missing|undefined|is not a function|cannot read)|\b(?:error|failed|unavailable|missing|undefined|is not a function|cannot read)[^\n]{0,180}(?:plugin host environment|plugin host|host runtime|createbackendreq|executeinjectedscript)|\biframe\b[^\n]{0,180}\b(?:error|failed|unavailable|missing|undefined|is not a function|cannot read)/.test(normalized);
 

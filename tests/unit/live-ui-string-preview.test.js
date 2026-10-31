@@ -1,9 +1,32 @@
 /** @jest-environment node */
+import {expect, jest, test} from '@jest/globals';
 import * as sdk from '@anikitenko/fdo-sdk';
 import {previewRegExp, replacePreviewString} from '../../src/utils/plugins/authoring/liveUi/stringPreview';
 import {createStaticUiPreview} from '../../src/utils/plugins/authoring/liveUi/staticPreview';
 const reject = message => {throw new Error(message);};
 const replace = (input, search, replacement, all = false) => replacePreviewString(input,search,replacement,{all,reject,invoke:jest.fn(),tick:jest.fn()});
+const expectNativeReplacement = (input, pattern, flags) => {
+    const regex = previewRegExp(pattern, flags, reject);
+    expect(replace(input, regex, '')).toBe(input.replace(new RegExp(pattern, flags), ''));
+    expect(replace(input, regex, '$&/$$')).toBe(input.replace(new RegExp(pattern, flags), '$&/$$'));
+};
+
+test.each([
+    [/* language=TEXT */ 'before<script>one</script>middle<script src="x">two</script>after', 'gi'],
+    [/* language=TEXT */ '<SCRIPT>one</SCRIPT><script>two</script>', 'g'],
+    [/* language=TEXT */ '<SCRIPT>one</SCRIPT><script>two</script>', 'i'],
+    [/* language=TEXT */ 'İ<Script data-x="one">body\n</script  >after', 'gi'],
+    [/* language=TEXT */ '<script>unterminated<script>also unterminated', 'gi'],
+    [/* language=TEXT */ '<scriptlet>keep</scriptlet><script>remove</script>', 'gi'],
+])('script-block adapter preserves replacement and source-copy semantics: %s', (input, flags) => {
+    const pattern = String.raw`<script\b[^>]*>[\s\S]*?<\/script\s*>`;
+    expectNativeReplacement(input, pattern, flags);
+});
+
+test('many incomplete script opens use a forward scan rather than regex backtracking', () => {
+    const input = (/* language=TEXT */ '<script>').repeat(20000);
+    expect(replace(input, previewRegExp(String.raw`<script\b[^>]*>[\s\S]*?<\/script\s*>`, 'gi', reject), '')).toBe(input);
+});
 
 test.each([
     ['aaa','a','x',false], ['aaa','a','x',true], ['abc','','-',false], ['abc','','-',true],
@@ -43,9 +66,7 @@ test.each([
     ['class="unterminated', 'class="[^"]*"', 'g'],
     ['class="one" class="two"', 'class="[^"]*"', ''],
 ])('quoted attribute replacement matches native semantics: %s', (input, pattern, flags) => {
-    const regex = previewRegExp(pattern, flags, reject);
-    expect(replace(input, regex, '')).toBe(input.replace(new RegExp(pattern, flags), ''));
-    expect(replace(input, regex, '$&/$$')).toBe(input.replace(new RegExp(pattern, flags), '$&/$$'));
+    expectNativeReplacement(input, pattern, flags);
 });
 
 test.each(['class=".*"', 'class="[^"]*.*"', 'class="[^x]*"', '(class="[^"]*")', 'class="[^"]*"|other', 'class="[^"]*".*', 'class="[^"]*?"'])('quoted attribute support does not admit broader backtracking patterns: %s', pattern => {

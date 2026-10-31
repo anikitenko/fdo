@@ -1,3 +1,4 @@
+import {planDeploymentEdit,reviewDeploymentChange} from '../../deployment/deploymentEditing';
 import {randomUUID} from 'node:crypto';
 import {planVisualSourceEdit} from './sourceEdits';
 import {planPluginSupportEdit, reviewPluginSupportChange} from '../../../sdk/pluginSupportEditing';
@@ -60,8 +61,8 @@ export async function prepareVisualDraft({base, previous, preview, request, rend
     } else {
         const element = preview.elements?.find(item => item.id === request.elementId);
         const patch = request.kind === 'compatibility' ? planPluginSupportEdit(files, request)
-            : planVisualSourceEdit(files, preview.elements || [], request,preview.actions || []);
-        if (!patch) return {status: 'unchanged', message: 'These support settings already match. No changes were added.'};
+            : request.kind === 'deployment' ? planDeploymentEdit(files,request) : planVisualSourceEdit(files, preview.elements || [], request,preview.actions || []);
+        if (!patch) return {status: 'unchanged', message: request.kind==='deployment'?'These deployment requirements already match. No changes were added.':'These support settings already match. No changes were added.'};
         const patches = patch.patches || [patch];
         selection = locate(element);
         files = {...files};
@@ -71,7 +72,7 @@ export async function prepareVisualDraft({base, previous, preview, request, rend
             files[item.file] = item.after;
         }
         steps = steps.slice(0, cursor);
-        steps.push({...(request.kind === 'compatibility' ? {kind: 'compatibility'} : {}), file: patch.file, start: patch.start, removed: patch.removed, added: patch.added,
+        steps.push({...(['compatibility','deployment'].includes(request.kind) ? {kind: request.kind} : {}), file: patch.file, start: patch.start, removed: patch.removed, added: patch.added,
             patches: patches.map(({file, start, removed, added}) => ({file, start, removed, added})), isolatedStyle: patch.isolatedStyle,
             description: patch.description, affected: patch.affected, selectedSource: patch.selectedSource, insertedComponentId: patch.insertedComponentId, selectionBefore: locate(element), selectionAfter: selection});
         cursor++;
@@ -100,8 +101,10 @@ export async function rebuildVisualDraft({base, files, steps, cursor, retainedLo
     files = acceptFiles(files);
     const candidate = await render(files);
     const supportOnly = steps.length > 0 && steps.every(step => step.kind === 'compatibility');
+    const deploymentOnly=steps.length>0 && steps.every(step=>step.kind==='deployment');
+    const deploymentPolicy=deploymentOnly?reviewDeploymentChange(base.files,files):null;
     const supportPolicy = supportOnly ? reviewPluginSupportChange(base.files, files) : null;
-    if (candidate.status !== 'ready' && !supportOnly) return {status: 'error', message: candidate.message};
+    if (candidate.status !== 'ready' && !supportOnly && !deploymentOnly) return {status: 'error', message: candidate.message};
     const activeSteps = steps.slice(0, cursor);
     const localStyles = [...retainedLocalStyles, ...activeSteps.flatMap(step => step.isolatedStyle ? [step.isolatedStyle] : [])];
     for (const element of candidate.elements || []) element.styles = element.styles.map(style => ({...style,
@@ -113,13 +116,16 @@ export async function rebuildVisualDraft({base, files, steps, cursor, retainedLo
     });
     if(!['undo','redo'].includes(request.kind) && steps[cursor-1]?.selectedSource) {selection=steps[cursor-1].selectedSource;steps[cursor-1].selectionAfter=selection;}
     let selected = find(candidate, selection);
+    if(request.kind==='sdk-handler' && (!selected?.sdkBindings?.handlerContainer || selected.sdkBindings.reason)) {
+        return {status:'error',message:selected?.sdkBindings?.reason || 'The handler change no longer has a static SDK action definition. Your workspace is unchanged.'};
+    }
     const insertedId = !['undo','redo'].includes(request.kind) && steps[cursor - 1]?.insertedComponentId;
     if (insertedId) {
         const matches = candidate.elements.filter(element=>element.sdkComponent?.instanceId === insertedId);
         if(matches.length === 1) {selected=matches[0];steps[cursor-1].selectionAfter=locate(selected);}
     }
     return {id: randomUUID(), revision: base.revision, files, steps, cursor, retainedLocalStyles, preview: candidate, patches, patch: patches[0],
-        ...(supportOnly ? {supportOnly, supportPolicy} : {}),
+        ...(supportOnly ? {supportOnly, supportPolicy} : {}),...(deploymentOnly?{deploymentOnly,deploymentPolicy}:{}),
         selectedId: selected?.id || '', canUndo: cursor > 0, canRedo: cursor < steps.length, changedFileCount: patches.length, historyTruncated};
 }
 

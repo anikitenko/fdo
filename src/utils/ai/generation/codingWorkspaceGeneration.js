@@ -1167,8 +1167,9 @@ Do not repeat other files or add prose. Preserve all requested functionality ass
                 onStage({label: `Removed unused import bindings in ${file.path}`,
                     index: completed.length + 1, total: completed.length + pending.length, content: files.join('\n\n')});
             }
-            const interactionBaseline = interactionRepair ? existingFiles.filter(item=>item.path!==file.path) : existingFiles;
-            const {errors} = validateGeneratedPluginFiles([{path: file.path, content}], {partial: true, workspaceFiles:existingFiles, interactionBaseline});
+            const interactionBaseline = existingFiles;
+            const requiredInteractionPaths = interactionRepair ? [file.path] : [];
+            const {errors} = validateGeneratedPluginFiles([{path: file.path, content}], {partial: true, workspaceFiles:existingFiles, interactionBaseline,requiredInteractionPaths});
             // Runtime SDK validation is injected by the main process, where
             // the installed plugin dependency is available. Reject before this
             // source becomes immutable context for subsequent files.
@@ -1193,7 +1194,7 @@ Do not repeat other files or add prose. Preserve all requested functionality ass
                 const repairedCandidate = [...candidate.values()];
                 errors.push(...await validateRepairFile({path: file.path, content}, repairedCandidate));
                 assertActive();
-                const workspaceErrors = validateGeneratedPluginFiles(repairedCandidate,{workspaceFiles:existingFiles,interactionBaseline}).errors;
+                const workspaceErrors = validateGeneratedPluginFiles(repairedCandidate,{workspaceFiles:existingFiles,interactionBaseline,requiredInteractionPaths}).errors;
                 errors.push(...workspaceErrors.filter(error => error.startsWith(`${file.path}:`) && !errors.includes(error)));
             }
             const subjects = [...immutableRepairSources.filter(item => inboundImports.some(inbound => inbound.path === item.path)),

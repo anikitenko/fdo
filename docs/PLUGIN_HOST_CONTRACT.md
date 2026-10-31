@@ -1,5 +1,12 @@
 # Plugin host contract and backward compatibility
 
+Standalone web application conversion has an independent contract in
+[`contracts/web-export.json`](../contracts/web-export.json), described in
+[Web Application Export](WEB_APPLICATION_EXPORT.md). Its generated HTTP API and
+capability adapters are versioned separately from this desktop protocol. CLI dependencies
+and installer declarations use [Plugin deployment tools](PLUGIN_DEPLOYMENT_TOOLS.md);
+process capability allowlists do not imply that every permitted CLI must be installed.
+
 `contracts/plugin-host.json` is the host's machine-readable contract definition.
 `src/utils/sdk/pluginHostContract.js` exports its runtime values. A version is a
 promise about a particular surface, not a copy of the FDO or SDK package version.

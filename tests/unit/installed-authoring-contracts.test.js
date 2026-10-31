@@ -6,11 +6,13 @@ import {readInstalledAuthoringContracts, installedSdkKnowledgeIdentity} from '..
 import {getCachedFdoSdkKnowledgeIndex} from '../../src/utils/sdk/installedSdkKnowledge';
 import {searchFdoSdkKnowledge, shouldUseFdoSdkKnowledge} from '../../src/utils/sdk/fdoSdkKnowledge';
 import {HOST_SERVICES_AUTHORING_GUIDE} from '../../src/utils/plugins/authoring/hostServicesAuthoringGuide';
+import {buildCodingEvidence} from '../../src/utils/ai/generation/codingEvidence';
+import {getAllHostNetworkScopePolicies} from '../../src/utils/plugins/security/networkScopeRegistry';
 jest.mock('electron', () => ({app: {isPackaged: false}}));
 
 test('SSH metadata and advanced Git requests retrieve current installed contracts and shared host guidance', () => {
     const index = getCachedFdoSdkKnowledgeIndex();
-    for (const prompt of ['Show SSH profile host port username and fingerprint', 'List credentials securely', 'Use named Git remotes with pull submodules and LFS']) {
+    for (const prompt of ['Show SSH profile host port username and fingerprint', 'Use named Git remotes with pull submodules and LFS']) {
         expect(shouldUseFdoSdkKnowledge({action:'smart',prompt})).toBe(true);
         const results = searchFdoSdkKnowledge(index,prompt,{limit:6});
         expect(results.some(item=>item.path==='fdo-host/SECRETS_SSH_GIT.md')).toBe(true);
@@ -25,6 +27,29 @@ test('SSH metadata and advanced Git requests retrieve current installed contract
     expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('ssh.status.watch');
     expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('store.flush()');
     expect(HOST_SERVICES_AUTHORING_GUIDE).toContain('remoteProcessStopped:null');
+});
+
+test('network and credential requests retrieve real backend APIs and current host scope policies', () => {
+    const index = getCachedFdoSdkKnowledgeIndex();
+    const results = searchFdoSdkKnowledge(index, 'Save API credentials securely and check an HTTPS endpoint');
+    expect(results[0].path).toBe('fdo-host/NETWORK_CREDENTIALS.md');
+    expect(results.some(item => /\.d\.ts$/.test(item.path) && item.content.includes('class SecretStore'))).toBe(true);
+    expect(results.some(item => item.path === 'fdo-host/network-scopes.json')).toBe(true);
+    expect(results.some(item => item.path === 'fdo-host/SECRETS_SSH_GIT.md')).toBe(false);
+    const policies = index.filter(item => item.path === 'fdo-host/network-scopes.json')
+        .sort((a, b) => a.chunkIndex - b.chunkIndex).map(item => item.content).join('\n');
+    expect(JSON.parse(policies)).toEqual(getAllHostNetworkScopePolicies());
+    const evidence = buildCodingEvidence(index, {prompt: 'Implement endpoint checks with saved API credentials',
+        source: 'import {DOM, DOMText, DOMInput, DOMButton, FDO_SDK} from "@anikitenko/fdo-sdk";'});
+    expect(evidence).toContain('Backend fetch(url, options)');
+    expect(evidence).toContain('readonly secrets: SecretStore');
+    expect(evidence).toContain('get(key: string): Promise<string | null>');
+    expect(evidence).toContain('set(key: string, value: string): Promise<void>');
+    expect(evidence).toContain('no SDK network adapter is needed');
+    expect(evidence).toContain('Do not invent adapters or permanently disable');
+    expect(evidence).toContain('"loopback-dev"');
+    expect(evidence).toContain('"public-web-secure"');
+    expect(evidence.length).toBeLessThanOrEqual(7000);
 });
 
 test('reads and schema-validates the installed SDK public contracts and indexes them for coding evidence', () => {
@@ -68,4 +93,11 @@ test('rejects unsupported majors, malformed contracts and version mismatches; le
         write('package.json', {name: '@anikitenko/fdo-sdk', version: '1.5.2'});
         expect(readInstalledAuthoringContracts(root).contracts).toEqual({dom: {status: 'absent'}, components: {status: 'absent'}, previews:{status:'absent'}});
     } finally {fs.rmSync(root, {recursive: true, force: true});}
+});
+
+test('container CLI dependencies retrieve the host-owned deployment contract and current tool catalog',()=>{
+    const index=getCachedFdoSdkKnowledgeIndex();
+    const results=searchFdoSdkKnowledge(index,'Declare CLI tool dependencies for a Docker container export',{limit:6});
+    expect(results.some(item=>item.path==='fdo-host/DEPLOYMENT_TOOLS.md' && item.content.includes('fdo.deployment'))).toBe(true);
+    expect(results.some(item=>item.path==='fdo-host/deployment-tools.json' && item.content.includes('azure-cli'))).toBe(true);
 });

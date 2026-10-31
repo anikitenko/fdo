@@ -15,16 +15,21 @@ export default class Plugin {
  get metadata(){return {name:'Azure FinOps & Resource Manager',version:'1.0.0',author:'Team',description:'FinOps',icon:'cloud'};}
  render(){return render();}
 }`);
-            window.__editorTestApi.createFile('/render.ts', `import {DOM,DOMText,DOMInput,DOMSemantic} from '@anikitenko/fdo-sdk';
+            // Virtual workspace source; its imports are supplied below, not read from this test's directory.
+            window.__editorTestApi.createFile('/render.ts', /* language=TEXT */ `import {DOM,DOMText,DOMInput,DOMSemantic} from '@anikitenko/fdo-sdk';
 import styles from './styles.css';
 const tabs = [['overview','Overview'],['resources','Resources']];
 export function render(){
+ const state = {}, busy = Boolean(state.loading || state.configuration?.saving);
+ const classNames = (...values) => values.filter(value=>Boolean(value)).join(' ');
+ const selected = Array.from(new Set(['overview','overview'])).sort();
  const text = new DOMText(), sem = new DOMSemantic(), input = new DOMInput('tenant');
  const dom = new DOM().collectStylesFrom(text,sem,input);
  if (!styles.shell) return dom.renderHTML(text.createText('Styles unavailable'));
  const button = (id,label,extra='') => '<button type="button" id="'+id+'" class="pure-button '+(extra.includes('af-primary')?'af-primary':'')+'" '+extra.replace(/class="[^"]*"/g,'')+'>'+label+'</button>';
- const nav = sem.createNav(tabs.map(([id,label])=>button(id,label,['overview'].includes(id)?'class="af-primary" aria-pressed="true"':'')));
- return dom.renderHTML(sem.createMain([text.createHText(1,'Azure FinOps'),nav,input.createSelect([new DOMInput().createOption('Tenant One','one')])],{classes:[dom.createClassFromStyle(styles.shell)]}));
+ const nav = sem.createNav(tabs.map(([id,label])=>button(id,label,selected.includes(id)?'class="af-primary" aria-pressed="true"':'')));
+ const title = dom.createElement('h1', {class:classNames('heading',busy?'busy':undefined)}, 'Azure FinOps');
+ return dom.renderHTML(sem.createMain([title,nav,input.createSelect([new DOMInput().createOption('Tenant One','one')])],{classes:[dom.createClassFromStyle(styles.shell)]})).replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script\\s*>/gi,'');
 }`);
             window.__editorTestApi.createFile('/styles.css','shell { color: #eee; padding: 12px; }','css');
         });
@@ -39,6 +44,11 @@ export function render(){
         await expect(frame.getByRole('button',{name:'Overview',exact:true})).toHaveAttribute('aria-pressed','true');
         await expect(frame.getByRole('combobox')).toContainText('Tenant One');
         await expect(visual.getByText('This render path needs a preview adapter',{exact:true})).toHaveCount(0);
+        await frame.getByRole('heading',{name:'Azure FinOps',exact:true}).click();
+        await expect(visual.getByLabel('Text',{exact:true})).toHaveValue('Azure FinOps');
+        await visual.getByLabel('Text',{exact:true}).fill('Updated FinOps');
+        await visual.getByRole('button',{name:'Preview change',exact:true}).click();
+        await expect(frame.getByRole('heading',{name:'Updated FinOps',exact:true})).toBeVisible();
         expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(window=>window.webContents.getURL().includes('#/live-ui'))?.getTitle()))
             .toBe('Live UI · Azure FinOps & Resource Manager');
         await visual.screenshot({path:test.info().outputPath('guarded-finops-preview.png'),animations:'disabled'});

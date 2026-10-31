@@ -63,7 +63,9 @@ export function findWorkspaceHtmlIssues(files = []) {
                 },
                 TemplateLiteral(path) {
                     if (path.parentPath.isTSLiteralType() || path.parentPath.isTSTemplateLiteralType?.() || isTextContentData(path)) return;
-                    record(path.node, path.node.quasis.map(part => part.value.cooked ?? part.value.raw).join('fdo-expression'));
+                    // A hole is not a literal tag name. A word/hyphen sentinel
+                    // invents custom elements such as <afdo-expression>.
+                    record(path.node, path.node.quasis.map(part => part.value.cooked ?? part.value.raw).join(' '));
                 },
             });
             if (!locations.length) continue;

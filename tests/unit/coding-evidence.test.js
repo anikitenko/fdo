@@ -47,6 +47,21 @@ test('uses the installed signature rather than a fixed API recipe', () => {
     expect(buildCodingEvidence(indexFor('open(value: number): void;'), request)).toContain('open(value: number): void;');
 });
 
+test('retrieves service contracts from backend source even while generating a separate UI file', () => {
+    const request = {targetPath: '/render.ts', prompt: 'Preserve controls and status',
+        source: 'import {DOMInput} from "@anikitenko/fdo-sdk";',
+        files: [{path: '/backend.ts', content: '// No verified SDK network or credential-storage adapter was supplied.'}]};
+    const indexForService = type => buildFdoSdkKnowledgeIndex([
+        {path: 'fdo-host/NETWORK_CREDENTIALS.md', content: 'Use the installed backend service contracts; never fabricate unavailable adapters.'},
+        {path: '@types/index.d.ts', content: `export declare class FDO_SDK { readonly secrets: SecretStore; }
+            export declare class SecretStore { get(key: string): Promise<${type}>; }`},
+        {path: '@types/ui.d.ts', content: 'export declare class DOMInput { createInput(): string; }'},
+    ]);
+    expect(buildCodingEvidence(indexForService('string | null'), request)).toContain('get(key: string): Promise<string | null>');
+    expect(buildCodingEvidence(indexForService('Uint8Array | null'), request)).toContain('get(key: string): Promise<Uint8Array | null>');
+    expect(buildCodingEvidence(indexForService('string | null'), request)).toContain('readonly secrets: SecretStore');
+});
+
 test('uses diagnostics even when a new file has no imports yet', () => {
     expect(buildCodingEvidence(indexFor('open(): void;'), {diagnostics: 'Gadget cannot be constructed'}))
         .toContain('@types/Gadget.d.ts');
