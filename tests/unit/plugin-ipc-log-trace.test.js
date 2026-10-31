@@ -17,6 +17,12 @@ jest.mock("../../src/ipc/pluginDoctorPresentation", () => ({
     normalizePluginDoctorPresentation: jest.fn(),
 }));
 
+// Export analysis imports the SDK too. Its handlers have a dedicated IPC suite;
+// keep SDK initialization away from this suite's deliberately mocked filesystem.
+jest.mock("../../src/ipc/pluginExport", () => ({
+    registerPluginExportHandlers: jest.fn(),
+}));
+
 jest.mock("node:fs", () => ({
     rmSync: jest.fn(),
     chmodSync: jest.fn(),

@@ -3,9 +3,13 @@ import {renderHook} from '@testing-library/react';
 import {afterEach, beforeEach, expect, jest, test} from '@jest/globals';
 import {useLiveUiConnection} from '../../src/components/live-ui/utils/useLiveUiConnection';
 import {liveUiWorkspacePayload} from '../../src/utils/plugins/authoring/liveUi/workspaceState';
+import virtualFS from '../../src/components/editor/utils/VirtualFS';
 
 jest.mock('../../src/components/editor/utils/VirtualFS', () => ({
     fs: {getRestoreLoading: () => false},
+    sandboxName: 'workspace',
+    aiCodingBusy: false,
+    notifications: {subscribe: jest.fn()},
 }));
 jest.mock('../../src/utils/plugins/authoring/liveUi/workspaceState', () => ({liveUiWorkspacePayload: jest.fn()}));
 jest.mock('../../src/components/live-ui/utils/applyVisualEdit', () => ({applyVisualEdit: jest.fn()}));
@@ -17,6 +21,8 @@ const asyncAct = act;
 let liveUi;
 beforeEach(() => {
     jest.useFakeTimers();
+    virtualFS.aiCodingBusy = false;
+    virtualFS.notifications.subscribe.mockImplementation(() => jest.fn());
     liveUiWorkspacePayload.mockReturnValue({workspaceId: 'workspace', files: {'/render.tsx': 'original'}});
     liveUi = {
         open: jest.fn(async () => ({sessionId: 'preview'})),
@@ -90,4 +96,25 @@ test('an unexpected synchronization failure identifies the preview and the avail
     await asyncAct(async () => {hook.failPublish();});
     expect(hook.result.current.error).toBe('The Live UI preview could not be updated. Select “Live UI editor” to try again.');
     hook.unmount();
+});
+
+test('deployment requests open only their owning idle workspace and unsubscribe on unmount', async () => {
+    const hook = renderHook(() => useLiveUiConnection());
+    const subscription = virtualFS.notifications.subscribe.mock.calls.findIndex(([event]) => event === 'openLiveUiDeployment');
+    expect(subscription).toBeGreaterThanOrEqual(0);
+    const notify = virtualFS.notifications.subscribe.mock.calls[subscription][1];
+    const unsubscribe = virtualFS.notifications.subscribe.mock.results[subscription].value;
+
+    await asyncAct(async () => {notify({workspaceId: 'another-workspace'});});
+    expect(liveUi.open).not.toHaveBeenCalled();
+    virtualFS.aiCodingBusy = true;
+    await asyncAct(async () => {notify({workspaceId: 'workspace'});});
+    expect(liveUi.open).not.toHaveBeenCalled();
+
+    virtualFS.aiCodingBusy = false;
+    await asyncAct(async () => {notify({workspaceId: 'workspace'});});
+    expect(liveUi.open).toHaveBeenCalledTimes(1);
+    expect(liveUi.open.mock.calls[0][0]).toMatchObject({workspaceId: 'workspace', focus: 'deployment', focusRequest: expect.any(String)});
+    hook.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
 });
