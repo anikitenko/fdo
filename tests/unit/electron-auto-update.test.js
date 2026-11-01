@@ -33,3 +33,17 @@ test('follows the prerelease channel and stops when Electron reports no update',
     expect(updater.allowPrerelease).toBe(true);
     expect(updater.calls).toEqual(['check']);
 });
+
+test('reports download progress and removes its listener after installation', async () => {
+    const updater = updaterDouble({isUpdateAvailable: true});
+    const listeners = new Map();
+    updater.on = jest.fn((name, listener) => listeners.set(name, listener));
+    updater.off = jest.fn();
+    updater.downloadUpdate = async () => listeners.get('download-progress')({percent: 42});
+    const onProgress = jest.fn();
+    await installWithElectronAutoUpdater({updater, onProgress});
+    expect(onProgress.mock.calls.map(([status]) => status)).toEqual([
+        {phase: 'checking'}, {phase: 'downloading'}, {phase: 'downloading', percent: 42}, {phase: 'restarting'},
+    ]);
+    expect(updater.off).toHaveBeenCalledWith('download-progress', listeners.get('download-progress'));
+});

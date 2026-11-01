@@ -175,6 +175,8 @@ contextBridge.exposeInMainWorld('electron', {
             getPreferences: () => ipcRenderer.invoke(SettingsChannels.updates.GET_PREFERENCES),
             savePreferences: preferences => ipcRenderer.invoke(SettingsChannels.updates.SAVE_PREFERENCES, preferences),
             install: () => ipcRenderer.invoke(SettingsChannels.updates.INSTALL),
+            getStatus: () => ipcRenderer.invoke(SettingsChannels.updates.STATUS),
+            onProgress: callback => subscribeSystemEvent(SettingsChannels.updates.PROGRESS, callback),
         },
         onOpen: callback => {
             const listener = (_, tab) => callback(tab);

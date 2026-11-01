@@ -676,7 +676,19 @@ app.whenReady().then(async () => {
             return {success: false, error: error.message || 'Could not check for updates.'};
         }
     });
+    let updateStatus = {phase: 'idle'};
+    let updateInProgress = false;
+    const onUpdateProgress = status => {
+        updateStatus = status;
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.webContents.isDestroyed()) window.webContents.send(SettingsChannels.updates.PROGRESS, status);
+        }
+    };
+    ipcMain.handle(SettingsChannels.updates.STATUS, () => updateStatus);
     ipcMain.handle(SettingsChannels.updates.INSTALL, async () => {
+        if (updateInProgress) return {success: false, error: 'An update is already in progress.'};
+        updateInProgress = true;
+        onUpdateProgress({phase: 'checking'});
         try {
             if (process.platform !== 'darwin') return {success: false, error: 'Automatic update is available on signed macOS builds.'};
             const local = macUpdateEligibility();
@@ -688,14 +700,18 @@ app.whenReady().then(async () => {
             if (!result.hasUpdate) return {success: false, error: 'FDO is already up to date.'};
             if (!decision.available) return {success: false, error: decision.reason};
             if (decision.feed) {
-                await installWithElectronAutoUpdater({channel});
+                await installWithElectronAutoUpdater({channel, onProgress: onUpdateProgress});
                 return {success: true};
             }
-            await installMacAutoUpdate({asset: decision.asset, appPath: currentMacAppPath()});
+            await installMacAutoUpdate({asset: decision.asset, appPath: currentMacAppPath(), onProgress: onUpdateProgress});
             setImmediate(() => app.quit());
             return {success: true};
         } catch (error) {
+            onUpdateProgress({phase: 'error', error: error.message || 'Could not install the update.'});
             return {success: false, error: error.message || 'Could not install the update.'};
+        } finally {
+            updateInProgress = false;
+            if (updateStatus.phase === 'checking') onUpdateProgress({phase: 'idle'});
         }
     });
     ipcMain.handle(SettingsChannels.updates.GET_PREFERENCES, () => ({

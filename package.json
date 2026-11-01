@@ -261,6 +261,7 @@
       "smartUnpack": false
     },
     "asarUnpack": [
+      "dist/main/export-runtime/**/*",
       "dist/main/node_modules/typescript/**/*",
       "dist/main/node_modules/@types/node/**/*",
       "dist/main/node_modules/undici-types/**/*",
