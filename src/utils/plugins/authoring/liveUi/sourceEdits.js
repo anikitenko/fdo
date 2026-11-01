@@ -30,6 +30,8 @@ import {planSelectorListEdit} from './selectorListEdits';
 import {VISUAL_CSS_PROPERTIES, isVisualCssProperty, normalizeCssProperty} from './cssProperties';
 
 const encodeText = value => value.replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+const unsafeJsCharMap = {'<':'\\u003C','>':'\\u003E','/':'\\u002F','\\':'\\\\','\b':'\\b','\f':'\\f','\n':'\\n','\r':'\\r','\t':'\\t','\0':'\\0','\u2028':'\\u2028','\u2029':'\\u2029'};
+export const escapeUnsafeJsChars = value => value.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g, char => unsafeJsCharMap[char]);
 export const decodePreviewText = value => value.replace(/&(amp|lt|gt|quot|#39);/g, entity => ({'&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'"}[entity]));
 
 export function describeCssStyle(files, file, classKey, breakpoint = null) {
@@ -106,7 +108,7 @@ export function planVisualSourceEdit(files, elements, request, catalog=[]) {
         if (!target) throw new Error('This content is computed or contains markup. Edit it in the IDE.');
         if (typeof request.value !== 'string' || request.value.length > 2000) throw new Error('Use up to 2,000 characters of plain text.');
         ({file, start, end} = target);
-        replacement = target.kind === 'html-literal' ? encodeHtmlLiteralText(request.value) : JSON.stringify(encodeText(request.value));
+        replacement = target.kind === 'html-literal' ? encodeHtmlLiteralText(request.value) : escapeUnsafeJsChars(JSON.stringify(encodeText(request.value)));
         description = `Change ${element.tag} text`;
         affected = elements.filter(item => item.text?.file === file && item.text.start === start).length;
     } else if (request.kind === 'css') {
