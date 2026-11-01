@@ -1143,3 +1143,343 @@ h2 {
   color: var(--muted);
   font: 12px/1.6 var(--mono);
 }
+
+/* Product tour: native buttons, full-size screenshots and a readable fallback. */
+.release-badge {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  border: 1px solid #526943;
+  border-radius: 4px;
+  margin-bottom: 24px;
+  color: var(--text);
+  font: 12px var(--mono);
+}
+.release-badge > span:first-child {
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+}
+.release-badge:hover {
+  border-color: var(--accent);
+}
+.tour-controls:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 36px 0 22px;
+}
+.tour-controls button {
+  text-align: left;
+  cursor: pointer;
+  padding: 17px 18px;
+  background: #18211a;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.tour-controls button[aria-pressed="true"] {
+  background: #263321;
+  border-color: var(--accent);
+}
+.tour-controls button:hover {
+  border-color: #829676;
+}
+.tour-controls span {
+  display: block;
+  color: var(--muted);
+  font: 9px var(--mono);
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.tour-controls strong {
+  font: 500 16px var(--sans);
+}
+.tour-panel {
+  margin-top: 22px;
+}
+.tour-panel[hidden],
+.tour-controls[hidden] {
+  display: none;
+}
+.tour-panel figure {
+  margin: 0;
+}
+.tour-panel figure > a {
+  display: block;
+  border: 1px solid #44503e;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #171d18;
+  box-shadow: 0 20px 50px #0003;
+}
+.tour-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.tour-panel figcaption {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font: 10px/1.7 var(--mono);
+}
+.tour-panel figcaption a:hover {
+  color: var(--accent);
+}
+.tour-caption {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 32px;
+  margin-top: 24px;
+}
+.tour-caption h3 {
+  font-size: 24px;
+  letter-spacing: -0.6px;
+  font-weight: 500;
+}
+.tour-caption p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+  max-width: 730px;
+  margin-top: 10px;
+}
+.tour-caption > a {
+  flex-shrink: 0;
+  font-size: 12px;
+  margin-top: 8px;
+}
+@media (max-width: 800px) {
+  .tour-caption {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .tour-controls button {
+    padding: 13px 12px;
+  }
+  .tour-controls strong {
+    font-size: 14px;
+  }
+}
+@media (max-width: 520px) {
+  .tour-controls:not([hidden]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 26px;
+  }
+  .tour-caption h3 {
+    font-size: 22px;
+  }
+  .tour-panel figcaption {
+    font-size: 9px;
+  }
+}
+
+@media (min-width: 521px) and (max-width: 900px) {
+  .tour-controls:not([hidden]) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .navigation nav a:first-child {
+    display: inline;
+  }
+  .navigation nav a:first-child {
+    font-size: 12px;
+  }
+  .navigation {
+    gap: 12px;
+  }
+  .navigation nav {
+    gap: 12px;
+  }
+  .navigation .nav-github {
+    padding-left: 12px;
+  }
+}
+
+/* Product positioning and guided discovery. */
+.hero {
+  position: relative;
+}
+.hero-visual::before {
+  content: "";
+  position: absolute;
+  inset: -55px -35px;
+  z-index: -1;
+  background: radial-gradient(ellipse, #48633140, transparent 68%);
+  pointer-events: none;
+}
+.hero .product-shot > a {
+  box-shadow: 0 30px 90px #0006;
+}
+.source-story {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 54px;
+  align-items: center;
+  padding: 40px 0 90px;
+}
+.source-story > div > p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.8;
+  font-size: 15px;
+  margin: 24px 0;
+}
+.source-story .text-link {
+  font-size: 13px;
+}
+.faq-section {
+  border-top: 1px solid var(--line);
+}
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+  margin-top: 40px;
+}
+.faq-grid details {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #18211a;
+  padding: 22px;
+}
+.faq-grid summary {
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 16px;
+}
+.faq-grid p {
+  margin-top: 16px;
+  color: var(--muted);
+  line-height: 1.8;
+  font-size: 14px;
+}
+.faq-grid p a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.template-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.template-guide-card {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #18211a;
+}
+.template-guide-card small {
+  color: var(--accent);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+.template-guide-card h3 {
+  font-size: 21px;
+  font-weight: 500;
+}
+.guide .template-guide-card p {
+  font-size: 14px;
+  margin: 12px 0;
+}
+.guide .template-guide-card .template-requirement {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.template-guide-card > a {
+  color: var(--accent);
+  font-size: 12px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+.template-guide-card > code {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 12px;
+}
+.guide ol {
+  padding-left: 24px;
+  color: var(--muted);
+}
+.guide ol li {
+  padding-left: 5px;
+  margin: 14px 0;
+  line-height: 1.8;
+}
+@media (max-width: 800px) {
+  .source-story {
+    grid-template-columns: 1fr;
+    gap: 30px;
+    padding-bottom: 65px;
+  }
+}
+@media (max-width: 520px) {
+  .faq-grid,
+  .template-guide-grid {
+    grid-template-columns: 1fr;
+  }
+  .faq-grid details {
+    padding: 18px;
+  }
+  .hero-visual::before {
+    inset: -20px 0;
+  }
+}
+
+.plugin-use-cases {
+  display: grid;
+  gap: 18px;
+}
+.plugin-use-cases article {
+  border-top: 1px solid #3a4534;
+  padding: 22px 0 4px;
+}
+.plugin-use-cases article:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.use-case-label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--accent);
+  font: 10px var(--mono);
+  letter-spacing: 0.07em;
+}
+.plugin-use-cases h3 {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  line-height: 1.4;
+}
+.plugin-use-cases p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+  margin-top: 10px;
+}
+.plugin-use-cases a {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text);
+}
+.plugin-use-cases a:hover {
+  color: var(--accent);
+}

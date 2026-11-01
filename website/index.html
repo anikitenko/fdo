@@ -4,26 +4,94 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#111713" />
-    <title>FDO — Your workflow. Your tools.</title>
+    <title>FDO — Open-source DevOps workspace, SSH &amp; plugin tools</title>
     <meta
       name="description"
-      content="A plugin-driven desktop workspace for developers and SREs. Build tools with an SDK-aware AI assistant, review UI changes, and automate from the CLI."
+      content="Run DevOps plugins, service dashboards and remote workflows in one open-source workspace. Built-in SSH, GitOps and Docker export for macOS, Windows and Linux."
     />
     <link rel="canonical" href="https://fdo.alexvwan.me/" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://fdo.alexvwan.me/" />
-    <meta property="og:title" content="FDO — Your workflow. Your tools." />
+    <meta
+      property="og:title"
+      content="FDO — Your DevOps workspace. Built by you."
+    />
     <meta
       property="og:description"
-      content="Build the DevOps workspace that fits the way you work. Open source. Plugin driven. Desktop native."
+      content="Run DevOps plugins, service dashboards and remote workflows in one open-source workspace. Built-in SSH, GitOps and Docker export for macOS, Windows and Linux."
     />
     <meta
       property="og:image"
       content="https://fdo.alexvwan.me/assets/social-card.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="FDO — Your DevOps workspace. Built by you."
+    />
+    <meta
+      name="twitter:description"
+      content="An open-source home for DevOps plugins, built-in SSH, GitOps and standalone Docker export."
+    />
+    <meta
+      name="twitter:image"
+      content="https://fdo.alexvwan.me/assets/social-card.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="FDO open-source DevOps workspace: built-in SSH, plugins, visual editing and Docker export."
+    />
     <link rel="icon" type="image/png" href="assets/fdo-icon.png" />
     <link rel="stylesheet" href="styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://fdo.alexvwan.me/#website",
+            "url": "https://fdo.alexvwan.me/",
+            "name": "FDO",
+            "alternateName": "FlexDevOps",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://fdo.alexvwan.me/#application",
+            "name": "FDO (FlexDevOps)",
+            "url": "https://fdo.alexvwan.me/",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": ["macOS", "Windows", "Linux"],
+            "softwareVersion": "1.0.5",
+            "description": "Run DevOps plugins, service dashboards and remote workflows in one open-source workspace. Built-in SSH, GitOps and Docker export for macOS, Windows and Linux.",
+            "isAccessibleForFree": true,
+            "license": "https://opensource.org/license/mit/",
+            "downloadUrl": "https://github.com/anikitenko/fdo/releases/tag/v1.0.5",
+            "sameAs": ["https://github.com/anikitenko/fdo"],
+            "image": "https://fdo.alexvwan.me/assets/social-card.png",
+            "screenshot": [
+              "https://fdo.alexvwan.me/assets/fdo-azure-finops.png",
+              "https://fdo.alexvwan.me/assets/fdo-editor.png",
+              "https://fdo.alexvwan.me/assets/fdo-live-ui.png",
+              "https://fdo.alexvwan.me/assets/fdo-templates.png",
+              "https://fdo.alexvwan.me/assets/fdo-export.png",
+              "https://fdo.alexvwan.me/assets/fdo-plugin-management.png",
+              "https://fdo.alexvwan.me/assets/fdo-tool-guide.png"
+            ],
+            "featureList": [
+              "Built-in cross-platform SSH",
+              "Plugin development with Monaco and SDK-aware AI",
+              "Live UI visual editing",
+              "GitOps with bundled Git",
+              "Standalone web and Docker export",
+              "Workspace snapshots and CLI automation"
+            ]
+          }
+        ]
+      }
+    </script>
     <script src="site.js" defer></script>
   </head>
   <body>
@@ -39,8 +107,9 @@
           /><span>FDO<span class="brand-dot">.</span></span></a
         >
         <nav aria-label="Main navigation">
-          <a href="#workspace">Workspace</a><a href="#build">Build plugins</a
-          ><a href="#cli">CLI</a><a href="#resources">Docs</a>
+          <a href="#tour">Product tour</a><a href="#workspace">Features</a
+          ><a href="#build">Build plugins</a><a href="#cli">CLI</a
+          ><a href="#resources">Docs</a>
         </nav>
         <a class="nav-github" href="https://github.com/anikitenko/fdo"
           >GitHub <span aria-hidden="true">↗</span></a
@@ -51,22 +120,29 @@
       <section class="hero container">
         <div class="hero-copy">
           <p class="eyebrow">
-            <span class="status-dot" aria-hidden="true"></span> FLEXDEVOPS /
-            OPEN SOURCE
+            <span class="status-dot" aria-hidden="true"></span> OPEN-SOURCE /
+            DEVOPS WORKSPACE
           </p>
+          <a
+            class="release-badge"
+            href="https://github.com/anikitenko/fdo/releases/tag/v1.0.5"
+            ><span>AVAILABLE NOW</span> FDO 1.0.5
+            <span aria-hidden="true">↗</span></a
+          >
           <h1>
-            Your workflow.<br />Your tools.<br /><span>Your workspace.</span>
+            DevOps tools.<br />Your workspace.<br /><span>Your way.</span>
           </h1>
           <p class="hero-description">
-            The desktop home for your DevOps tools. Build plugins, shape their
-            UI, and automate the routine—all in a workspace you can make your
-            own.
+            Keep service dashboards, remote commands and repeatable tasks in one
+            desktop workspace. Run plugins, connect through built-in SSH, and
+            share your toolset with GitOps. Customize a tool when you need to—or
+            export it as a standalone Docker app.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="#download"
-              >Get FDO <span aria-hidden="true">↓</span></a
-            ><a class="text-link" href="#workspace"
-              >Explore the workspace <span aria-hidden="true">↗</span></a
+              >Download FDO <span aria-hidden="true">↓</span></a
+            ><a class="text-link" href="#tour"
+              >Take a product tour <span aria-hidden="true">↗</span></a
             >
           </div>
           <p class="platform-note">
@@ -75,25 +151,26 @@
         </div>
         <div class="hero-visual">
           <div class="visual-label">
-            <span>ONE WORKSPACE. MANY POSSIBILITIES.</span
+            <span>YOUR OPERATIONS. IN ONE PLACE.</span
             ><span aria-hidden="true">↙</span>
           </div>
           <figure class="product-shot">
             <a
-              href="assets/fdo-editor.png"
-              aria-label="Open the full-size FDO plugin editor screenshot"
+              href="assets/fdo-azure-finops.png"
+              aria-label="Open the full-size Azure FinOps and Resource Manager plugin screenshot"
             >
               <img
-                src="assets/fdo-editor.png"
-                width="3200"
-                height="1954"
-                alt="The real FDO plugin editor showing a starter plugin workspace, source files, Monaco code editor, and development tools."
+                src="assets/fdo-azure-finops.png"
+                width="3438"
+                height="1944"
+                alt="Azure FinOps and Resource Manager plugin running in FDO demo mode, showing cloud spend, resource counts, daily cost trends and spending by resource group."
                 fetchpriority="high"
               />
             </a>
             <figcaption>
-              FDO plugin editor <span aria-hidden="true">·</span>
-              <a href="assets/fdo-editor.png">View full size ↗</a>
+              Azure FinOps &amp; Resource Manager · Demo mode
+              <span aria-hidden="true">·</span>
+              <a href="assets/fdo-azure-finops.png">View full size ↗</a>
             </figcaption>
           </figure>
         </div>
@@ -108,6 +185,244 @@
         <span aria-hidden="true">+</span>
         <p>CLI ready</p>
       </div>
+      <section
+        class="section container product-tour"
+        id="tour"
+        aria-labelledby="tour-heading"
+      >
+        <div class="section-heading">
+          <p class="eyebrow">INSIDE FDO 1.0.5</p>
+          <h2 id="tour-heading">
+            From the first idea<br />to a tool you can ship.
+          </h2>
+          <p>
+            Explore runnable plugins, management and standalone delivery.
+            Optional development tools are there when you want to customize a
+            plugin. These captures use FDO’s built-in demo content.
+          </p>
+        </div>
+        <div
+          class="tour-controls"
+          aria-label="Choose a product screenshot"
+          hidden
+        >
+          <button
+            type="button"
+            data-tour="manage"
+            aria-controls="tour-manage"
+            aria-pressed="true"
+          >
+            <span>01 / OPERATE</span><strong>Plugin management</strong>
+          </button>
+          <button
+            type="button"
+            data-tour="start"
+            aria-controls="tour-start"
+            aria-pressed="false"
+          >
+            <span>02 / START</span><strong>Plugin templates</strong>
+          </button>
+          <button
+            type="button"
+            data-tour="ship"
+            aria-controls="tour-ship"
+            aria-pressed="false"
+          >
+            <span>03 / SHIP</span><strong>Web &amp; Docker</strong>
+          </button>
+          <button
+            type="button"
+            data-tour="configure"
+            aria-controls="tour-configure"
+            aria-pressed="false"
+          >
+            <span>04 / PACKAGE</span><strong>Docker &amp; custom tools</strong>
+          </button>
+          <button
+            type="button"
+            data-tour="design"
+            aria-controls="tour-design"
+            aria-pressed="false"
+          >
+            <span>05 / OPTIONAL</span><strong>Visual editing</strong>
+          </button>
+        </div>
+        <article class="tour-panel" id="tour-manage" data-tour-panel="manage">
+          <figure>
+            <a
+              href="assets/fdo-plugin-management.png"
+              aria-label="Open full-size FDO plugin management screenshot"
+              ><img
+                src="assets/fdo-plugin-management.png"
+                width="1440"
+                height="973"
+                alt="FDO Manage Plugins showing the signed Operations overview demo plugin, compatibility and resource metrics."
+                loading="lazy"
+                decoding="async"
+            /></a>
+            <figcaption>
+              FDO 1.0.5 · Demo workspace
+              <a href="assets/fdo-plugin-management.png">View full size ↗</a>
+            </figcaption>
+          </figure>
+          <div class="tour-caption">
+            <div>
+              <h3>Your plugins, under control.</h3>
+              <p>
+                Inspect compatibility and signing status, review resource usage,
+                and manage plugin lifecycle and capability grants from one
+                place.
+              </p>
+            </div>
+            <a
+              class="text-link"
+              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_CAPABILITY_MODEL.md"
+              >Read the capability model ↗</a
+            >
+          </div>
+        </article>
+        <article class="tour-panel" id="tour-start" data-tour-panel="start">
+          <figure>
+            <a
+              href="assets/fdo-templates.png"
+              aria-label="Open full-size screenshot: Start with something that runs."
+              ><img
+                src="assets/fdo-templates.png"
+                width="1440"
+                height="973"
+                alt="FDO Create Plugin dialog with Dashboard selected among the runnable plugin templates."
+                loading="lazy"
+                decoding="async"
+            /></a>
+            <figcaption>
+              FDO 1.0.5 · Demo workspace
+              <a href="assets/fdo-templates.png">View full size ↗</a>
+            </figcaption>
+          </figure>
+          <div class="tour-caption">
+            <div>
+              <h3>Start with something that runs.</h3>
+              <p>
+                Choose a dashboard, local utility, service monitor, SSH
+                connection tool or another starter. Templates include code,
+                tests and a development guide.
+              </p>
+            </div>
+            <a class="text-link" href="templates.html"
+              >Explore the templates ↗</a
+            >
+          </div>
+        </article>
+        <article class="tour-panel" id="tour-ship" data-tour-panel="ship">
+          <figure>
+            <a
+              href="assets/fdo-export.png"
+              aria-label="Open full-size screenshot: A desktop tool. A standalone app."
+              ><img
+                src="assets/fdo-export.png"
+                width="1440"
+                height="973"
+                alt="FDO Export As dialog reviewing a demo plugin for standalone web application and Docker conversion."
+                loading="lazy"
+                decoding="async"
+            /></a>
+            <figcaption>
+              FDO 1.0.5 · Demo workspace
+              <a href="assets/fdo-export.png">View full size ↗</a>
+            </figcaption>
+          </figure>
+          <div class="tour-caption">
+            <div>
+              <h3>A desktop tool. A standalone app.</h3>
+              <p>
+                Review conversion in Manage Plugins and export a frontend,
+                backend, Dockerfile, Compose project and cloud templates.
+                Configure deployment access separately; desktop credentials stay
+                in FDO.
+              </p>
+            </div>
+            <a
+              class="text-link"
+              href="https://github.com/anikitenko/fdo/blob/main/docs/WEB_APPLICATION_EXPORT.md"
+              >Understand web export ↗</a
+            >
+          </div>
+        </article>
+        <article
+          class="tour-panel"
+          id="tour-configure"
+          data-tour-panel="configure"
+        >
+          <figure>
+            <a
+              href="assets/fdo-tool-guide.png"
+              aria-label="Open full-size screenshot: Package the CLI tools your app needs."
+              ><img
+                src="assets/fdo-tool-guide.png"
+                width="1440"
+                height="973"
+                alt="FDO container tool installation guide explaining a custom image and vendor installer workflow."
+                loading="lazy"
+                decoding="async"
+            /></a>
+            <figcaption>
+              FDO 1.0.5 · Demo workspace
+              <a href="assets/fdo-tool-guide.png">View full size ↗</a>
+            </figcaption>
+          </figure>
+          <div class="tour-caption">
+            <div>
+              <h3>Package the CLI tools your app needs.</h3>
+              <p>
+                Declare the CLI tools your plugin runs. The installation guide
+                covers catalog recipes, Debian packages, verified downloads and
+                custom images for vendor installers or full SDKs.
+              </p>
+            </div>
+            <a
+              class="text-link"
+              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_DEPLOYMENT_TOOLS.md"
+              >Read the deployment guide ↗</a
+            >
+          </div>
+        </article>
+        <article class="tour-panel" id="tour-design" data-tour-panel="design">
+          <figure>
+            <a
+              href="assets/fdo-live-ui.png"
+              aria-label="Open full-size screenshot: Prefer a visual alternative to Monaco?"
+              ><img
+                src="assets/fdo-live-ui.png"
+                width="1440"
+                height="973"
+                alt="FDO Live UI showing an Operations overview demo dashboard and its source-connected inspector."
+                loading="lazy"
+                decoding="async"
+            /></a>
+            <figcaption>
+              FDO 1.0.5 · Demo workspace
+              <a href="assets/fdo-live-ui.png">View full size ↗</a>
+            </figcaption>
+          </figure>
+          <div class="tour-caption">
+            <div>
+              <h3>Prefer a visual alternative to Monaco?</h3>
+              <p>
+                Choose Live UI for supported interface edits instead of editing
+                them directly in Monaco. Select elements, adjust text and CSS,
+                and review the resulting source changes before applying them.
+                Return to Monaco for code and backend logic.
+              </p>
+            </div>
+            <a
+              class="text-link"
+              href="https://github.com/anikitenko/fdo/blob/main/docs/LIVE_UI_EDITOR.md"
+              >Read the Live UI guide ↗</a
+            >
+          </div>
+        </article>
+        <p class="sr-only" id="tour-status" role="status"></p>
+      </section>
       <section class="section container" id="workspace">
         <div class="section-heading">
           <p class="eyebrow">01 / THE WORKSPACE</p>
@@ -126,8 +441,7 @@
               Build focused tools for the jobs you repeat. Keep their interfaces
               and workflows together in one desktop environment.
             </p>
-            <a
-              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_TEMPLATES.md"
+            <a href="templates.html"
               >Explore plugin templates <span aria-hidden="true">↗</span></a
             >
           </article>
@@ -135,8 +449,9 @@
             <span class="feature-icon" aria-hidden="true">⌘</span>
             <h3>An editor built in</h3>
             <p>
-              Work in the Monaco-based editor, use SDK-aware AI assistance, and
-              preview supported UI changes with Live UI.
+              Customize plugins in the Monaco editor with SDK-aware AI
+              assistance. For supported interface changes, Live UI offers a
+              visual alternative to direct code editing.
             </p>
             <a
               href="https://github.com/anikitenko/fdo/blob/main/docs/AI_CODING_AGENT.md"
@@ -156,82 +471,149 @@
               >Read the capability model <span aria-hidden="true">↗</span></a
             >
           </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">↻</span>
+            <h3>GitOps for your toolset</h3>
+            <p>
+              Sync plugin collections with FDO’s bundled Git on macOS, Windows
+              and Linux. Review updates and capability changes without
+              installing Git for GitOps.
+            </p>
+            <a href="https://github.com/anikitenko/fdo/blob/main/docs/GITOPS.md"
+              >Explore GitOps ↗</a
+            >
+          </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">⌁</span>
+            <h3>SSH and secrets, host managed</h3>
+            <p>
+              SSH is built in on macOS, Windows and Linux—no separate SSH client
+              needed. Use host-managed credentials, trusted host fingerprints,
+              remote commands and terminals.
+            </p>
+            <a
+              href="https://github.com/anikitenko/fdo/blob/main/docs/HOST_SECRETS_AND_SSH.md"
+              >See connections &amp; credentials ↗</a
+            >
+          </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">↶</span>
+            <h3>Room to experiment</h3>
+            <p>
+              Take workspace snapshots, inspect history and restore earlier
+              versions. Review visual and AI edits before making them part of
+              your plugin.
+            </p>
+            <a href="workspace-history.html"
+              >Explore snapshots &amp; history ↗</a
+            >
+          </article>
         </div>
       </section>
-      <section class="build-section" id="build">
+      <section
+        class="container source-story"
+        id="monaco-editor"
+        aria-labelledby="source-heading"
+      >
+        <div>
+          <p class="eyebrow">OPTIONAL / PLUGIN DEVELOPMENT</p>
+          <h2 id="source-heading">
+            Monaco for the code.<br />Live UI for the interface.
+          </h2>
+          <p>
+            When you want to build or customize a plugin, open the built-in
+            Monaco editor. Work with TypeScript and CSS, use SDK-aware AI
+            assistance, run tests and keep workspace snapshots. Prefer a visual
+            alternative for interface changes? Choose Live UI; both editing
+            paths work on your plugin’s source.
+          </p>
+          <a class="text-link" href="workspace-history.html"
+            >See the snapshot workflow ↗</a
+          >
+        </div>
+        <figure class="product-shot">
+          <a
+            href="assets/fdo-editor.png"
+            aria-label="Open the full-size Monaco editor screenshot"
+            ><img
+              src="assets/fdo-editor.png"
+              width="1440"
+              height="960"
+              alt="FDO plugin editor with dashboard source, tests, snapshot history and deployment actions."
+              loading="lazy"
+              decoding="async"
+          /></a>
+          <figcaption>Monaco editor · Operations overview source</figcaption>
+        </figure>
+      </section>
+      <section
+        class="build-section"
+        id="build"
+        aria-labelledby="plugin-workflows-heading"
+      >
         <div class="container build-layout">
           <div>
-            <p class="eyebrow">02 / THE PLUGIN SYSTEM</p>
-            <h2>Give me fuel.<br />Give me fire.</h2>
+            <p class="eyebrow">02 / MAKE IT YOURS</p>
+            <h2 id="plugin-workflows-heading">
+              A plugin for<br />the work you do.
+            </h2>
             <p class="section-description">
-              Your ideas are the fuel. Plugins bring the fire. Start with a
-              template, build with the SDK, and turn a repeated task into a tool
-              that works your way.
+              Bring the data, decisions and actions of a recurring task into one
+              focused interface. A plugin can be a cloud cost explorer, a remote
+              operations console or a tool built around your team’s process.
             </p>
             <a
               class="text-link"
-              href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_TEMPLATES.md"
-              >Find your starting point <span aria-hidden="true">↗</span></a
+              href="https://github.com/anikitenko/fdo-plugins"
+              >Explore plugin examples <span aria-hidden="true">↗</span></a
             >
             <p class="plugin-examples">
-              Explore the
-              <a href="https://github.com/anikitenko/fdo-plugins"
-                >FDO plugin examples</a
-              >, which you can use as a GitOps collection in FDO. For
-              SDK-focused starting points, browse the
+              Have a workflow of your own? Choose a
+              <a href="templates.html">working template</a> and extend it with
+              the
               <a href="https://github.com/anikitenko/fdo-sdk/tree/main/examples"
                 >SDK examples</a
-              >.
+              >. Your service configuration and capability grants determine what
+              the plugin can access.
             </p>
-            <div class="build-note">
-              <span aria-hidden="true">↳</span>
-              <p>
-                Have an idea, but need a hand?<br />The coding assistant
-                understands FDO’s SDK.
-              </p>
-            </div>
           </div>
-          <ol class="workflow-steps">
-            <li>
-              <span class="step-number">01</span>
-              <div>
-                <h3>Start with the SDK</h3>
-                <p>
-                  Scaffold a plugin with UI, styles, tests, and a development
-                  guide.
-                </p>
-                <code>fdo init ./my-tool --template blank</code>
-              </div>
-            </li>
-            <li>
-              <span class="step-number">02</span>
-              <div>
-                <h3>Build, preview, refine</h3>
-                <p>
-                  Edit code and explore supported visual changes. Review your
-                  draft before applying it.
-                </p>
-                <a
-                  href="https://github.com/anikitenko/fdo/blob/main/docs/LIVE_UI_EDITOR.md"
-                  >Explore Live UI <span aria-hidden="true">↗</span></a
-                >
-              </div>
-            </li>
-            <li>
-              <span class="step-number">03</span>
-              <div>
-                <h3>Test it. Make it part of your day.</h3>
-                <p>
-                  Validate, test, sign, and deploy. Share plugin collections
-                  through GitOps repositories.
-                </p>
-                <a
-                  href="https://github.com/anikitenko/fdo/blob/main/docs/GITOPS.md"
-                  >Read about GitOps <span aria-hidden="true">↗</span></a
-                >
-              </div>
-            </li>
-          </ol>
+          <div class="plugin-use-cases" aria-label="Plugin use cases">
+            <article>
+              <span class="use-case-label">CLOUD &amp; FINOPS</span>
+              <h3>See the context behind the numbers.</h3>
+              <p>
+                Put cost trends, resource inventory and saved views together.
+                The Azure FinOps plugin shown above demonstrates this workflow
+                in demo mode.
+              </p>
+            </article>
+            <article>
+              <span class="use-case-label">REMOTE OPERATIONS</span>
+              <h3>Make the routine easier to run.</h3>
+              <p>
+                Bring approved SSH commands and service actions into a dedicated
+                interface, using host-managed connection profiles and explicit
+                permissions.
+              </p>
+              <a
+                href="https://github.com/anikitenko/fdo/blob/main/docs/HOST_SECRETS_AND_SSH.md"
+                >Explore built-in SSH ↗</a
+              >
+            </article>
+            <article>
+              <span class="use-case-label">TEAM WORKFLOWS</span>
+              <h3>Keep a useful tool in circulation.</h3>
+              <p>
+                Share versioned plugin collections through GitOps. Review
+                updates and requested capabilities while keeping the source
+                connected to your team’s repository.
+              </p>
+              <a
+                href="https://github.com/anikitenko/fdo/blob/main/docs/GITOPS.md"
+                >Explore GitOps ↗</a
+              >
+            </article>
+          </div>
         </div>
       </section>
       <section class="section container cli-layout" id="cli">
@@ -283,14 +665,14 @@ fdo dev ./my-tool</code></pre>
               <h2>Your next tool<br />starts here.</h2>
             </div>
             <p>
-              Choose your platform on GitHub Releases. Release notes include
-              version details, checksums, and signing status.
+              Get FDO 1.0.5 for your platform on GitHub Releases. Release notes
+              include version details, checksums, and signing status.
             </p>
           </div>
           <div class="download-grid">
             <a
               class="download-card"
-              href="https://github.com/anikitenko/fdo/releases"
+              href="https://github.com/anikitenko/fdo/releases/tag/v1.0.5"
               ><span class="os-icon" aria-hidden="true">⌘</span>
               <h3>macOS</h3>
               <p>Apple Silicon & Intel</p>
@@ -300,7 +682,7 @@ fdo dev ./my-tool</code></pre>
             >
             <a
               class="download-card"
-              href="https://github.com/anikitenko/fdo/releases"
+              href="https://github.com/anikitenko/fdo/releases/tag/v1.0.5"
               ><span class="os-icon windows-icon" aria-hidden="true">⊞</span>
               <h3>Windows</h3>
               <p>x64</p>
@@ -310,7 +692,7 @@ fdo dev ./my-tool</code></pre>
             >
             <a
               class="download-card"
-              href="https://github.com/anikitenko/fdo/releases"
+              href="https://github.com/anikitenko/fdo/releases/tag/v1.0.5"
               ><span class="os-icon" aria-hidden="true">&gt;_</span>
               <h3>Linux</h3>
               <p>x64</p>
@@ -320,15 +702,92 @@ fdo dev ./my-tool</code></pre>
             >
           </div>
           <p class="release-note">
-            FDO is preparing for its first release. Available builds will appear
-            on
-            <a href="https://github.com/anikitenko/fdo/releases"
-              >GitHub Releases</a
-            >. You can also
+            FDO <strong>1.0.5 is available</strong>. Read the
+            <a href="https://github.com/anikitenko/fdo/releases/tag/v1.0.5"
+              >1.0.5 release notes</a
+            >
+            for platform assets, checksums and signing details. You can also
             <a href="https://github.com/anikitenko/fdo#quick-start"
               >build from source</a
             >. Prerelease builds may be unsigned; check their release notes.
           </p>
+        </div>
+      </section>
+      <section
+        class="section container faq-section"
+        id="questions"
+        aria-labelledby="questions-heading"
+      >
+        <div class="section-heading">
+          <p class="eyebrow">BEFORE YOU START</p>
+          <h2 id="questions-heading">
+            Built in. Bring your own.<br />Know the difference.
+          </h2>
+          <p>Clear runtime requirements, from the desktop to a container.</p>
+        </div>
+        <div class="faq-grid">
+          <details open>
+            <summary>Do I need to install an SSH client?</summary>
+            <p>
+              No. FDO includes its own SSH client on macOS, Windows and Linux.
+              Configure credentials, trusted host keys and plugin permissions in
+              FDO. Commands sent to a server must exist on that remote server.
+            </p>
+          </details>
+          <details open>
+            <summary>Does GitOps require Git on my computer?</summary>
+            <p>
+              No. FDO ships a built-in Git runtime for its GitOps
+              synchronization. Git or other CLI commands invoked by a plugin are
+              different: those tools must be installed on the computer running
+              FDO and allowed by the plugin’s process policy.
+            </p>
+          </details>
+          <details open>
+            <summary>How do custom CLI tools work in a Docker export?</summary>
+            <p>
+              Declare the tools the exported app needs. The generated image can
+              install catalog tools, Debian packages or verified executable
+              downloads. Use a custom base image for vendor installers or full
+              SDKs. The desktop’s installed tools are not copied.
+              <a
+                href="https://github.com/anikitenko/fdo/blob/main/docs/PLUGIN_DEPLOYMENT_TOOLS.md"
+                >Read the Docker tool guide ↗</a
+              >
+            </p>
+          </details>
+          <details>
+            <summary>Can every plugin be exported automatically?</summary>
+            <p>
+              Conversion is reviewed before export. Supported source and
+              services become a standalone frontend and backend; unsupported
+              dependencies require migration work. Configure cloud access,
+              credentials and persistent storage for the deployment.
+              <a
+                href="https://github.com/anikitenko/fdo/blob/main/docs/WEB_APPLICATION_EXPORT.md"
+                >See export requirements ↗</a
+              >
+            </p>
+          </details>
+          <details>
+            <summary>Is FDO free and open source?</summary>
+            <p>
+              FDO is an open-source project distributed under the MIT license.
+              Optional AI providers, cloud infrastructure and third-party
+              services may have their own costs. You can use the built-in
+              templates without making an AI request.
+            </p>
+          </details>
+          <details>
+            <summary>Where should I start?</summary>
+            <p>
+              Install FDO 1.0.5, create a plugin from one of the
+              <a href="templates.html">ten built-in templates</a>, and run its
+              tests. Use the editor and Live UI to customize it, then sign and
+              deploy it. The <a href="cli.html">FDO CLI guide</a> covers
+              terminal workflows.
+            </p>
+          </details>
         </div>
       </section>
       <section class="section container" id="resources">

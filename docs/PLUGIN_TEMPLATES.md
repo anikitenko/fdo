@@ -1,4 +1,4 @@
-# New plugin templates
+# FDO plugin templates
 
 Open **Create Plugin** from the Plugins menu or command search. Enter a name,
 select a template card, and choose **Open editor**. Templates are bundled with
@@ -15,25 +15,63 @@ again before opening the editor. A collision offers **Open existing plugin** or
 do not apply the selected template. If the installed-plugin check fails, use
 **Retry name check** before continuing.
 
-| Template | Working starting behavior |
-| --- | --- |
-| Blank | Metadata, a status button and a styled page. |
-| Local utility | Local JSON inspection with type, count, top-level keys and malformed-input feedback. |
-| Service monitor | Environment selection, an asynchronous demo adapter, loading feedback and service results. |
-| Dashboard | Demo overview/activity cards with refresh, quickbar action and sidebar navigation. |
-| Styled dialogs | Local workspace settings with a native modal dialog, validation, session-local saving and layered CSS. |
-| Resizable workspace | Injected Split Grid with a draggable and keyboard-accessible divider; panels stack at 640px. |
-| Side-by-side workspace | Dashboard with contextual and main panels beside one another; stacks on narrow screens. |
-| Stacked workspace | Dashboard with contextual and main panels arranged vertically. |
+| Template               | Working starting behavior                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Blank                  | Metadata, a status button and a styled page.                                                                                                                        |
+| SSH connections        | Host-managed SSH profiles and a policy-approved remote uptime inspection; built-in cross-platform SSH client. Configure a credential, profile and trusted host key. |
+| Git with SSH profiles  | Inspect remote references for two repositories using separate SSH profiles. Requires an installed, approved Git executable on the computer running FDO.             |
+| Local utility          | Local JSON inspection with type, count, top-level keys and malformed-input feedback.                                                                                |
+| Service monitor        | Environment selection, an asynchronous demo adapter, loading feedback and service results.                                                                          |
+| Dashboard              | Demo overview/activity cards with refresh, quickbar action and sidebar navigation.                                                                                  |
+| Styled dialogs         | Local workspace settings with a native modal dialog, validation, session-local saving and layered CSS.                                                              |
+| Resizable workspace    | Injected Split Grid with a draggable and keyboard-accessible divider; panels stack at 640px.                                                                        |
+| Side-by-side workspace | Dashboard with contextual and main panels beside one another; stacks on narrow screens.                                                                             |
+| Stacked workspace      | Dashboard with contextual and main panels arranged vertically.                                                                                                      |
 
 All templates contain `/index.ts`, `/render.tsx`, `/styles.css`, executable
-`node:test` tests, `/package.json`, `/SKILL.md` and `/README.md`. All nonblank
-starters also separate behavior into `/logic.ts` and plain
-text escaping into `/text.ts`.
+`node:test` tests, `/package.json`, `/SKILL.md` and `/README.md`. Starters add helper modules for their behavior, rendering and text escaping;
+connection starters also include their profile/capability configuration. The exact
+files vary by template.
 
 The guide describes the selected starter, modules, SDK conventions and extension
 points. It is authored as part of the bundled template, rather than an AI-generated
 proposal. Selecting a template does not bypass approval of later AI guide changes.
+
+## Actual template source
+
+These are the bundled generators used by Create Plugin, not external sample projects.
+The [template picker catalog](../src/utils/plugins/authoring/pluginTemplateCatalog.js)
+contains all ten choices and their stable IDs.
+
+| Template               | ID           | Source generator                                                                                                                                            |
+| ---------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Blank                  | `blank`      | [Blank factory](../src/components/editor/utils/virtualTemplates.js)                                                                                         |
+| SSH connections        | `ssh`        | [SSH starter](../src/components/editor/utils/templates/sshConnectionTemplate.js)                                                                            |
+| Git with SSH profiles  | `gitSsh`     | [Git/SSH starter](../src/components/editor/utils/templates/gitConnectionTemplate.js)                                                                        |
+| Local utility          | `utility`    | [Shared starter factory](../src/components/editor/utils/templates/starterFiles.js)                                                                          |
+| Service monitor        | `service`    | [Shared starter factory](../src/components/editor/utils/templates/starterFiles.js)                                                                          |
+| Dashboard              | `dashboard`  | [Shared starter factory](../src/components/editor/utils/templates/starterFiles.js)                                                                          |
+| Styled dialogs         | `dialogs`    | [Dialog starter](../src/components/editor/utils/templates/dialogTemplate.js)                                                                                |
+| Resizable workspace    | `splitGrid`  | [Starter factory](../src/components/editor/utils/templates/starterFiles.js) and [split layout](../src/components/editor/utils/templates/splitGridLayout.js) |
+| Side-by-side workspace | `horDivided` | [Shared starter factory](../src/components/editor/utils/templates/starterFiles.js)                                                                          |
+| Stacked workspace      | `verDivided` | [Shared starter factory](../src/components/editor/utils/templates/starterFiles.js)                                                                          |
+
+![FDO's actual Create Plugin picker with Dashboard selected](../website/assets/fdo-templates.png)
+
+## Built-in services versus installed tools
+
+- FDO's SSH client is built in and works on macOS, Windows and Linux. SDK SSH
+  profiles and commands do not require a separately installed `ssh` executable.
+  The remote command must still exist on the remote server; the SSH starter's
+  `uptime` example expects a compatible remote environment.
+- GitOps repository synchronization uses FDO's bundled Git. System Git is not
+  required for that feature.
+- Git or any other CLI invoked by a plugin must be installed on the computer
+  running FDO and allowed by its process scope. GitOps's private Git runtime is
+  not an automatic dependency installer for plugins.
+- In an exported Docker app, declare and install the required CLIs in the
+  container. The desktop computer's tools and login sessions are not copied.
+  See [plugin deployment tools](PLUGIN_DEPLOYMENT_TOOLS.md).
 
 ## First steps in the IDE
 
