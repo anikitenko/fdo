@@ -71,14 +71,16 @@ export function webServer() {
         for await(const chunk of request){bytes+=chunk.length;if(bytes>1048576)throw new Error('Request exceeds 1 MB.');chunks.push(chunk);}
         return JSON.parse(Buffer.concat(chunks).toString('utf8'));
     };
-    const normalizeMarkup=markup=>markup
+    const normalizeMarkup=markup=>{const normalized=markup
         .replace(/\bclass=/g,'className=').replace(/\bfor=/g,'htmlFor=')
         .replace(/\bstyle=(["'])(.*?)\1/g,(_match,_quote,style)=>{
             const values={};for(const declaration of style.split(';')){const colon=declaration.indexOf(':');if(colon<1)continue;const key=declaration.slice(0,colon).trim();values[key.startsWith('--')?key:key.replace(/-([a-z])/g,(_m,c)=>c.toUpperCase())]=declaration.slice(colon+1).trim();}
             return 'style={'+JSON.stringify(values)+'}';
         })
-        .replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(_match,attributes,css)=>'<style'+attributes+' dangerouslySetInnerHTML={{__html:'+JSON.stringify(css)+'}} />')
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'');
+        .replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(_match,attributes,css)=>'<style'+attributes+' dangerouslySetInnerHTML={{__html:'+JSON.stringify(css)+'}} />');
+        let output=normalized,previous;
+        do{previous=output;output=output.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'');}while(output!==previous);
+        return output;};
     const server=http.createServer(async(request,response)=>{
         const url=new URL(request.url,'http://localhost');
         if(request.method==='GET' && ['/health/live','/health/ready'].includes(url.pathname))return send(response,url.pathname.endsWith('ready') && !ready?503:200,{status:ready?'ready':'starting'});
