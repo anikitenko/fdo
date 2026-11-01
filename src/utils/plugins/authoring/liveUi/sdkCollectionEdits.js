@@ -1,5 +1,5 @@
 import {sourceNodeRemovalRanges} from './sourceRanges';
-import {escapeUnsafeJsChars} from './sourceEdits';
+import {escapeUnsafeJsChars} from './serializedJsLiteral';
 // Item keys and body expressions are never rewritten by label/state edits.
 const emptyBody=node=>node?.type==='StringLiteral' && node.value==='' || node?.type==='BinaryExpression' && node.operator==='+' && emptyBody(node.left) && emptyBody(node.right);
 const fieldsOf=node=>{

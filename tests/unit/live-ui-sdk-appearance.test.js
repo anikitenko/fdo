@@ -52,3 +52,11 @@ test('component-specific controls omit unused hooks and protect controller-owned
     expect(preview.elements[0].sdkComponent.appearance.map(item=>item.name)).not.toContain('--fdo-ui-backdrop');
     await expect(edit(filesFor(),{property:'display',value:'block'})).rejects.toThrow('editable appearance');
 });
+
+test('quoted appearance tokens retain their serialized string value', async () => {
+    const value = 'var(--custom-border, "fallback")';
+    const changed = await edit(filesFor(), {property:'--fdo-ui-border',value});
+    const next = await render(changed);
+    expect(next.status).toBe('ready');
+    expect(next.elements[0].sdkComponent.appearance.find(item=>item.name==='--fdo-ui-border').value).toBe(value);
+});

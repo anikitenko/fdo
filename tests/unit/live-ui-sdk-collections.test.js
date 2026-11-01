@@ -184,3 +184,17 @@ test('default selection refuses disabled/missing keys and computed activeKey, an
     expect(next.status).toBe('ready');
     expect(()=>planVisualSourceEdit(computed,next.elements,{kind:'component-collection',elementId:root.id,action:'flag',key:'two',value:true})).toThrow('computed state');
 });
+
+test.each([true,false])('collection labels retain quotes and backslashes (tabs=%s)', async tab => {
+    const label = 'User "defaults" C:\\tools';
+    const result = await edit(filesFor(tab), {action:'label',key:'two',value:label});
+    expect(result.element.sdkComponent.collection.items[1].label).toBe(label);
+});
+
+test('default tab keys preserve JSON escapes', async () => {
+    const key = 'tab"two\\path';
+    const files = filesFor();
+    files['/index.ts'] = files['/index.ts'].replace("key:'two'", 'key:' + JSON.stringify(key));
+    const result = await edit(files, {action:'default-tab',value:key});
+    expect(result.element.sdkComponent.collection.activeKey).toBe(key);
+});

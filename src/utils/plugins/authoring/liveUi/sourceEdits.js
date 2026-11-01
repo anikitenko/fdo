@@ -1,3 +1,4 @@
+import {escapeUnsafeJsChars} from './serializedJsLiteral';
 import {planToastProgress} from './sdkToastProgress';
 import {planSdkCollection} from './sdkCollectionEdits';
 import {planRemoveAction} from './actionLifecycle';
@@ -30,8 +31,6 @@ import {planSelectorListEdit} from './selectorListEdits';
 import {VISUAL_CSS_PROPERTIES, isVisualCssProperty, normalizeCssProperty} from './cssProperties';
 
 const encodeText = value => value.replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
-const unsafeJsCharMap = {'<':'\\u003C','>':'\\u003E','/':'\\u002F','\\':'\\\\','\b':'\\b','\f':'\\f','\n':'\\n','\r':'\\r','\t':'\\t','\0':'\\0','\u2028':'\\u2028','\u2029':'\\u2029'};
-export const escapeUnsafeJsChars = value => value.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g, char => unsafeJsCharMap[char]);
 export const decodePreviewText = value => value.replace(/&(amp|lt|gt|quot|#39);/g, entity => ({'&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'"}[entity]));
 
 export function describeCssStyle(files, file, classKey, breakpoint = null) {

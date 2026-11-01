@@ -18,7 +18,7 @@ export const SDK_COMPONENT_APPEARANCE = [
     {name:'--fdo-ui-success-color',label:'Success color',cssProperty:'color',kind:'color',identities:['fdo.toast','fdo.inline-alert']},
     {name:'--fdo-ui-warning-color',label:'Warning color',cssProperty:'color',kind:'color',identities:['fdo.toast','fdo.inline-alert']},
 ];
-import {escapeUnsafeJsChars} from './sourceEdits';
+import {escapeUnsafeJsChars} from './serializedJsLiteral';
 
 const properties = node => {
     if (node?.type !== 'ObjectExpression' || node.properties.some(item => item.type !== 'ObjectProperty' || item.computed || item.method)) return null;
