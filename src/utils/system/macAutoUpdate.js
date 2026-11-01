@@ -98,7 +98,7 @@ export function applyLocalMacSignature(published, local) {
     return {available: true, asset: published.asset, ...(published.feed ? {feed: true} : {})};
 }
 
-export async function downloadUpdateArchive({url, sha256, fetchImpl, redirectLimit = 5}) {
+export async function downloadUpdateArchive({url, sha256, fetchImpl, redirectLimit = 5, onProgress = () => {}}) {
     let current = url;
     for (let hop = 0; hop <= redirectLimit; hop++) {
         assertGithubDownloadUrl(current);
@@ -110,7 +110,21 @@ export async function downloadUpdateArchive({url, sha256, fetchImpl, redirectLim
             continue;
         }
         if (!response.ok) throw new Error(`Update download failed (${response.status}).`);
-        const bytes = Buffer.from(await response.arrayBuffer());
+        const total = Number(response.headers?.get?.('content-length'));
+        let bytes;
+        if (response.body?.getReader) {
+            const reader = response.body.getReader(), chunks = [];
+            let received = 0;
+            for (;;) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                chunks.push(Buffer.from(value));
+                received += value.length;
+                onProgress({phase: 'downloading', ...(total > 0 ? {percent: received / total * 100} : {})});
+            }
+            bytes = Buffer.concat(chunks);
+        } else bytes = Buffer.from(await response.arrayBuffer());
+        onProgress({phase: 'verifying'});
         const digest = crypto.createHash('sha256').update(bytes).digest('hex');
         if (digest !== sha256) throw new Error('Update archive checksum did not match the published release.');
         return bytes;
@@ -130,16 +144,19 @@ function findAppBundle(directory) {
     return '';
 }
 
-export async function installMacAutoUpdate({asset, appPath, fetchImpl = fetch, pid = process.pid} = {}) {
+export async function installMacAutoUpdate({asset, appPath, fetchImpl = fetch, pid = process.pid, onProgress = () => {}} = {}) {
     const local = assessCurrentMacApp({platform: 'darwin', packaged: true, appPath});
     if (!local.eligible) throw new Error(local.reason);
     if (!asset?.url || !/^[a-f0-9]{64}$/.test(asset.sha256 || '')) throw new Error('The macOS update is missing a checksum.');
-    const bytes = await downloadUpdateArchive({url: asset.url, sha256: asset.sha256, fetchImpl});
+    onProgress({phase: 'downloading'});
+    const bytes = await downloadUpdateArchive({url: asset.url, sha256: asset.sha256, fetchImpl, onProgress});
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-update-'));
     const extracted = path.join(temp, 'extracted');
-    fs.mkdirSync(extracted);
-    fs.writeFileSync(path.join(temp, 'update.zip'), bytes);
+    let handedOff = false;
     try {
+        fs.mkdirSync(extracted);
+        fs.writeFileSync(path.join(temp, 'update.zip'), bytes);
+        onProgress({phase: 'verifying'});
         defaultCommand('ditto', ['-x', '-k', path.join(temp, 'update.zip'), extracted]);
         const staged = findAppBundle(extracted);
         if (!staged) throw new Error('The update archive does not contain a Mac app.');
@@ -149,10 +166,12 @@ export async function installMacAutoUpdate({asset, appPath, fetchImpl = fetch, p
         fs.writeFileSync(scriptPath, macUpdateSwapScript(), {mode: 0o700});
         const child = spawn('/bin/bash', [scriptPath, String(pid), appPath, staged, temp], {detached: true, stdio: 'ignore'});
         child.unref();
+        onProgress({phase: 'restarting'});
+        handedOff = true;
         return {success: true};
-    } catch (error) {
-        fs.rmSync(temp, {recursive: true, force: true});
-        throw error;
+    } finally {
+        // The swap script owns cleanup after a successful handoff.
+        if (!handedOff) fs.rmSync(temp, {recursive: true, force: true});
     }
 }
 

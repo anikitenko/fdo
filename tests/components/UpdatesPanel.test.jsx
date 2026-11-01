@@ -51,3 +51,15 @@ test('the app menu request opens the page and starts a check even when automatic
     render(<UpdatesPanel checkOnOpen checkRequestId={42}/>);
     await waitFor(() => expect(updatesApi.check).toHaveBeenCalledWith('stable'));
 });
+
+test('restores background update progress when reopened and unsubscribes on close', async () => {
+    const unsubscribe = jest.fn();
+    updatesApi.onProgress = jest.fn(() => unsubscribe);
+    updatesApi.getStatus = jest.fn().mockResolvedValue({phase: 'downloading', percent: 42});
+    const view = render(<UpdatesPanel/>);
+    expect(await screen.findByText('Downloading update…')).toBeVisible();
+    expect(screen.getByText('42%')).toBeVisible();
+    expect(screen.getByText(/You can close this window/)).toBeVisible();
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+});

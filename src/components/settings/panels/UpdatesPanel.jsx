@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {Button, Callout, Card, HTMLSelect, H4, Intent, Spinner, Switch} from '@blueprintjs/core';
+import {Button, Callout, Card, HTMLSelect, H4, Intent, ProgressBar, Spinner, Switch} from '@blueprintjs/core';
 import Markdown from 'markdown-to-jsx';
 
 const formatReleaseNotes = value => {
@@ -24,6 +24,18 @@ const formatReleaseNotes = value => {
 };
 
 export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
+    const [progress, setProgress] = useState({phase: 'idle'});
+    useEffect(() => {
+        let active = true;
+        const receive = status => {
+            if (!active) return;
+            setProgress(status);
+            setInstalling(['checking', 'downloading', 'verifying', 'restarting'].includes(status.phase));
+        };
+        const unsubscribe = window.electron.settings.updates.onProgress?.(receive);
+        window.electron.settings.updates.getStatus?.().then(receive).catch(() => {});
+        return () => {active = false; unsubscribe?.();};
+    }, []);
     const [checking, setChecking] = useState(false);
     const [installing, setInstalling] = useState(false);
     const [result, setResult] = useState(null);
@@ -87,6 +99,12 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
 
     return <div style={{padding: 20, maxWidth: 760, overflowY: 'auto', height: '100%', minHeight: 0, boxSizing: 'border-box'}}>
         <H4>Software Updates</H4>
+        {installing && <Callout intent={Intent.PRIMARY} title={{checking: 'Checking update…', downloading: 'Downloading update…', verifying: 'Verifying and preparing update…', restarting: 'Restarting FDO…'}[progress.phase] || 'Preparing update…'} style={{marginBottom: 16}}>
+            <ProgressBar value={Number.isFinite(progress.percent) ? Math.max(0, Math.min(1, progress.percent / 100)) : undefined}/>
+            {Number.isFinite(progress.percent) && <p>{Math.round(progress.percent)}%</p>}
+            <p>You can close this window. The update will continue and FDO will restart automatically when ready. Keep FDO running until then.</p>
+        </Callout>}
+        {progress.phase === 'error' && <Callout intent={Intent.DANGER} title="Update failed">{progress.error}</Callout>}
         <Card style={{marginBottom: 16}}>
             <p>Check GitHub Releases for FDO updates. A signed and notarized Mac app can install the update itself. Other builds download an installer.</p>
             <Switch
@@ -103,7 +121,7 @@ export const UpdatesPanel = ({checkOnOpen = false, checkRequestId}) => {
                     onChange={event => savePreferences({...preferences, channel: event.target.value})}
                     options={[{label: 'Stable', value: 'stable'}, {label: 'Prerelease', value: 'prerelease'}]}
                 />
-                <Button intent={Intent.PRIMARY} icon="refresh" onClick={() => checkForUpdates()} disabled={checking || !preferencesLoaded}>
+                <Button intent={Intent.PRIMARY} icon="refresh" onClick={() => checkForUpdates()} disabled={installing || checking || !preferencesLoaded}>
                     {checking ? 'Checking…' : 'Check for Updates'}
                 </Button>
             </div>
