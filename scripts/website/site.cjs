@@ -10,6 +10,8 @@ const publicFiles = [
   "index.html",
   "404.html",
   "cli.html",
+  "templates.html",
+  "workspace-history.html",
   "privacy.html",
   "google9d9ae653e6dbd173.html",
   "styles.css",
@@ -21,6 +23,12 @@ const publicFiles = [
   "assets/fdo-icon.png",
   "assets/social-card.png",
   "assets/fdo-editor.png",
+  "assets/fdo-azure-finops.png",
+  "assets/fdo-live-ui.png",
+  "assets/fdo-templates.png",
+  "assets/fdo-export.png",
+  "assets/fdo-tool-guide.png",
+  "assets/fdo-plugin-management.png",
 ];
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -68,6 +76,11 @@ function check() {
       );
       if (!target.startsWith(root + path.sep) || !fs.existsSync(target))
         throw new Error(`Broken local reference in ${name}: ${value}`);
+      const publicPath = path.relative(root, target).split(path.sep).join("/");
+      if (!publicFiles.includes(publicPath))
+        throw new Error(
+          `Local reference is absent from the deployment allowlist in ${name}: ${value}`,
+        );
       if (
         fragment &&
         !fs.readFileSync(target, "utf8").includes(`id="${fragment}"`)

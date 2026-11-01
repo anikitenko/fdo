@@ -26,8 +26,10 @@ Choose **Add Git Repository**, then enter:
 
 **Verify and save** fetches the selected revision into a temporary bare Git
 repository, reads the manifest without checking out or executing repository code,
-and validates it. Failed verification does not save changes. Git must be available
-on PATH. Each Git command has a 30-second timeout. HTTP redirects are rejected;
+and validates it. Failed verification does not save changes. FDO uses its bundled,
+platform-specific Git runtime; a system Git installation is not required for GitOps.
+Git and other CLI commands invoked by plugins are separate: their executables must
+be installed on the computer running FDO and allowed by the plugin’s process policy. Each Git command has a 30-second timeout. HTTP redirects are rejected;
 enter the final repository URL. SSH and interactive OAuth are not yet supported.
 
 Credentials are encrypted as a separate pair for each collection repository using Electron

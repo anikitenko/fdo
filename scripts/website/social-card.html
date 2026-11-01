@@ -1,76 +1,107 @@
 <!doctype html>
 <html lang="en">
-  <meta charset="utf-8" /><title>FDO social card source</title
-  ><style>
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      width: 1200px;
-      height: 630px;
-      background: #111713;
-      color: #eef1e9;
-      font-family: Arial, sans-serif;
-      padding: 64px 76px;
-      position: relative;
-      overflow: hidden;
-    }
-    .brand {
-      font-size: 37px;
-      font-weight: 800;
-      letter-spacing: -2px;
-    }
-    .brand span {
-      color: #c8f58a;
-    }
-    .label {
-      color: #c8f58a;
-      font: 13px monospace;
-      letter-spacing: 3px;
-      margin-top: 40px;
-    }
-    h1 {
-      font-size: 75px;
-      line-height: 1.05;
-      letter-spacing: -4px;
-      font-weight: 600;
-      margin: 25px 0;
-    }
-    h1 span {
-      color: #c8f58a;
-    }
-    .footer {
-      position: absolute;
-      bottom: 48px;
-      left: 76px;
-      right: 76px;
-      display: flex;
-      justify-content: space-between;
-      border-top: 1px solid #46503e;
-      padding-top: 23px;
-      color: #a7b2a6;
-      font: 15px monospace;
-    }
-    .mark {
-      position: absolute;
-      right: 78px;
-      top: 170px;
-      border: 1px solid #6e865c;
-      padding: 30px 40px;
-      color: #c8f58a;
-      background: #1b241b;
-      transform: rotate(-7deg);
-      font: 90px monospace;
-      box-shadow: 17px 17px 0 #222e20;
-    }
-  </style>
-  <div class="brand">FDO<span>.</span></div>
-  <div class="label">FLEXDEVOPS / OPEN SOURCE</div>
-  <h1>Your workflow.<br />Your tools.<br /><span>Your workspace.</span></h1>
-  <div class="mark">&gt;_</div>
-  <div class="footer">
-    <span>Plugin driven · Desktop native · CLI ready</span
-    ><span>fdo.alexvwan.me</span>
-  </div>
+  <head>
+    <meta charset="utf-8" />
+    <title>FDO 1.0.5 social card</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+        background: #111713;
+        color: #eef1e9;
+        font-family: Arial, sans-serif;
+        padding: 54px 60px;
+        position: relative;
+        overflow: hidden;
+      }
+      .brand {
+        font-size: 34px;
+        font-weight: 800;
+        letter-spacing: -1px;
+      }
+      .brand span {
+        color: #c8f58a;
+      }
+      .version {
+        position: absolute;
+        right: 60px;
+        top: 62px;
+        color: #c8f58a;
+        font: 14px monospace;
+      }
+      .label {
+        color: #c8f58a;
+        font: 12px monospace;
+        letter-spacing: 2px;
+        margin-top: 48px;
+      }
+      h1 {
+        font-size: 62px;
+        line-height: 1.05;
+        letter-spacing: -3px;
+        font-weight: 600;
+        margin: 22px 0;
+        width: 570px;
+      }
+      h1 span {
+        color: #c8f58a;
+      }
+      .description {
+        font: 18px/1.6 Arial;
+        max-width: 480px;
+        color: #b4c1ad;
+      }
+      .shot {
+        margin: 0;
+        position: absolute;
+        left: 644px;
+        top: 167px;
+        width: 510px;
+        border: 1px solid #61784d;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 20px 70px #0008;
+        transform: rotate(-3deg);
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      footer {
+        position: absolute;
+        bottom: 38px;
+        left: 60px;
+        right: 60px;
+        display: flex;
+        justify-content: space-between;
+        border-top: 1px solid #46503e;
+        padding-top: 22px;
+        color: #a7b2a6;
+        font: 14px monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="brand">FDO<span>.</span></div>
+    <span class="version">VERSION 1.0.5</span>
+    <p class="label">OPEN-SOURCE DEVOPS WORKSPACE</p>
+    <h1>DevOps tools.<br />Your workspace.<br /><span>Your way.</span></h1>
+    <p class="description">
+      Plugin workflows. Built-in SSH. GitOps.<br />From your desktop to Docker.
+    </p>
+    <figure class="shot">
+      <img
+        src="../../website/assets/fdo-azure-finops.png"
+        alt="Azure FinOps plugin running in FDO demo mode"
+      />
+    </figure>
+    <footer>
+      <span>macOS · Windows · Linux</span><span>fdo.alexvwan.me</span>
+    </footer>
+  </body>
 </html>

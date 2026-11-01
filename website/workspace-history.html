@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111713" />
+    <title>
+      FDO workspace snapshots — save, review &amp; restore plugin history
+    </title>
+    <meta
+      name="description"
+      content="Learn how to create, name and restore FDO plugin workspace snapshots, preserve source before changes, and use Live UI draft Undo/Redo."
+    />
+    <link
+      rel="canonical"
+      href="https://fdo.alexvwan.me/workspace-history.html"
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="FDO workspace snapshots — save, review &amp; restore plugin history"
+    />
+    <meta
+      property="og:description"
+      content="Learn how to create, name and restore FDO plugin workspace snapshots, preserve source before changes, and use Live UI draft Undo/Redo."
+    />
+    <meta
+      property="og:url"
+      content="https://fdo.alexvwan.me/workspace-history.html"
+    />
+    <meta
+      property="og:image"
+      content="https://fdo.alexvwan.me/assets/social-card.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" href="assets/fdo-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container navigation">
+        <a class="brand" href="./" aria-label="FDO home"
+          ><img
+            src="assets/fdo-icon.png"
+            width="128"
+            height="128"
+            alt=""
+          /><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html#workspace">Workspace</a
+          ><a href="index.html#build">Build plugins</a><a href="cli.html">CLI</a
+          ><a href="index.html#resources">Docs</a>
+        </nav>
+        <a class="nav-github" href="https://github.com/anikitenko/fdo"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main" class="container guide">
+      <p class="eyebrow">FDO / WORKSPACE HISTORY</p>
+      <h1>Try the idea.<br />Keep a way back.</h1>
+      <p class="hero-description">
+        Workspace snapshots preserve local versions of your plugin’s source and
+        editor state. Make a restore point before changing a layout, refactoring
+        a handler or trying an AI edit.
+      </p>
+      <nav class="guide-toc" aria-label="Snapshot guide">
+        <a href="#create">Create</a><a href="#restore">Review &amp; restore</a
+        ><a href="#live-ui">Live UI drafts</a>
+      </nav>
+      <figure class="product-shot">
+        <a href="assets/fdo-editor.png"
+          ><img
+            src="assets/fdo-editor.png"
+            width="1440"
+            height="960"
+            alt="FDO editor showing Snapshot, Recent and Timeline controls above the workspace."
+        /></a>
+        <figcaption>
+          Snapshot, Recent and Timeline are part of the editor toolbar.
+        </figcaption>
+      </figure>
+      <section id="create">
+        <h2>1. Capture a useful checkpoint.</h2>
+        <p>
+          Open your plugin in the built-in editor and choose
+          <strong>Snapshot</strong>. You can also open
+          <strong>Timeline</strong> and select <strong>Create snapshot</strong>.
+          Rename it from Recent or the timeline so you can recognize it
+          later—for example, “Before changing the dashboard layout”.
+        </p>
+      </section>
+      <section id="restore">
+        <h2>2. Review history before switching.</h2>
+        <p>
+          Open <strong>Timeline</strong> in the toolbar or
+          <strong>Open Snapshot Timeline…</strong> in the Snapshots sidebar.
+          Search versions, identify the current snapshot and select the version
+          to restore.
+        </p>
+        <p>
+          If you have changes since the last snapshot, FDO asks you to create
+          one before switching if you want to keep your current changes and open
+          tabs. Follow the confirmation carefully: switching restores the
+          selected workspace’s files and editor state.
+        </p>
+        <p>
+          Snapshots are local editor history. Keep your project in Git or a
+          separate backup for durable recovery. Deleting a snapshot removes that
+          restore point.
+        </p>
+      </section>
+      <section id="live-ui">
+        <h2>3. Use drafts for visual iteration.</h2>
+        <p>
+          Live UI has its own draft Undo/Redo before you apply changes. Applying
+          a reviewed change creates a restore point in the connected workspace.
+          Check the reported restore point and return to editor history if you
+          need to revisit it.
+        </p>
+        <p>
+          A source restore does not roll back a deployed plugin, a remote
+          command or cloud resources. Test the restored source and deploy it
+          explicitly when you want the running plugin to use that version.
+        </p>
+        <p>
+          See the
+          <a
+            href="https://github.com/anikitenko/fdo/blob/main/docs/WORKSPACE_SNAPSHOTS.md"
+            >workspace snapshot documentation</a
+          >
+          or
+          <a
+            href="https://github.com/anikitenko/fdo/blob/main/docs/LIVE_UI_EDITOR.md"
+            >Live UI guide</a
+          >
+          for more detail.
+        </p>
+      </section>
+      <p class="guide-back"><a class="text-link" href="./">← Back to FDO</a></p>
+    </main>
+    <footer class="site-footer container">
+      <div>
+        <a class="brand" href="./"
+          ><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <p>FlexDevOps. Built to be yours.</p>
+      </div>
+      <div class="footer-links">
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/anikitenko/fdo">Source on GitHub</a
+        ><a href="index.html#download">Get FDO</a>
+      </div>
+    </footer>
+  </body>
+</html>
