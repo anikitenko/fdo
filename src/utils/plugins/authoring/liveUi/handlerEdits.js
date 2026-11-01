@@ -2,13 +2,12 @@ import {parse,parseExpression} from '@babel/parser';
 import traverseModule from '@babel/traverse';
 import {sourceNodeRemovalRanges} from './sourceRanges';
 import {handlerNameError} from './actionBindingOptions';
-import {escapeUnsafeJsChars} from './sourceEdits';
 
 const traverse=traverseModule.default || traverseModule;
 const options={sourceType:'module',plugins:['typescript']};
 function callbackSource(files,file,property) {
-    if(property.type==='ObjectMethod')return `${property.async?'async ':''}function (${property.params.map(node=>escapeUnsafeJsChars(files[file].slice(node.start,node.end))).join(', ')}) ${escapeUnsafeJsChars(files[file].slice(property.body.start,property.body.end))}`;
-    return property.value.type==='StringLiteral' ? escapeUnsafeJsChars(property.value.value) : escapeUnsafeJsChars(files[file].slice(property.value.start,property.value.end));
+    if(property.type==='ObjectMethod')return `${property.async?'async ':''}function (${property.params.map(node=>files[file].slice(node.start,node.end)).join(', ')}) ${files[file].slice(property.body.start,property.body.end)}`;
+    return property.value.type==='StringLiteral' ? property.value.value : files[file].slice(property.value.start,property.value.end);
 }
 export function validateHandlerFunction(code) {
     if(typeof code!=='string' || !code.trim() || code.length>20000)throw new Error('Supply a complete handler function, up to 20,000 characters.');
