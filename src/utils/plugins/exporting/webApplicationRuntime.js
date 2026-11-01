@@ -33,7 +33,22 @@ export function webServer() {
     const manifest=require(path.join(__dirname,'deployment/application.json'));
     const username=process.env.WEB_APP_USERNAME,password=process.env.WEB_APP_PASSWORD;
     if(!username || !password || password.length<24 || /[:\r\n]/.test(username))throw new Error('Set WEB_APP_USERNAME and WEB_APP_PASSWORD (at least 24 characters) before starting.');
-    const credentials=crypto.createHash('sha256').update(username+':'+password).digest();
+    // OWASP's scrypt profile with a lower memory footprint for small containers.
+    // The verifier is process-local, so a new random salt is generated on startup.
+    const credentialSalt=crypto.randomBytes(16),scryptOptions={N:16384,r:8,p:5,maxmem:64*1024*1024};
+    const credentials=crypto.scryptSync(username+':'+password,credentialSalt,64,scryptOptions);
+    let activeAuthentications=0;
+    const authenticate=async authorization=>{
+        if(!/^Basic [A-Za-z0-9+/]+={0,2}$/.test(authorization) || authorization.length>8192)return false;
+        if(activeAuthentications>=4)return null;
+        activeAuthentications++;
+        try {
+            const input=Buffer.from(authorization.slice(6),'base64');
+            const supplied=await new Promise((resolve,reject)=>crypto.scrypt(input,credentialSalt,64,scryptOptions,(error,key)=>error?reject(error):resolve(key)));
+            return crypto.timingSafeEqual(credentials,supplied);
+        }catch {return null;}
+        finally {activeAuthentications--;}
+    };
     const childEnv={...process.env};delete childEnv.WEB_APP_PASSWORD;
     const child=fork(path.join(__dirname,'worker.cjs'),[],{env:childEnv,stdio:['ignore','inherit','inherit','ipc']});
     let ready=false,stopping=false,sequence=0,queued=0,bootResolve,bootReject;
@@ -71,20 +86,23 @@ export function webServer() {
         for await(const chunk of request){bytes+=chunk.length;if(bytes>1048576)throw new Error('Request exceeds 1 MB.');chunks.push(chunk);}
         return JSON.parse(Buffer.concat(chunks).toString('utf8'));
     };
-    const normalizeMarkup=markup=>markup
+    const normalizeMarkup=markup=>{const normalized=markup
         .replace(/\bclass=/g,'className=').replace(/\bfor=/g,'htmlFor=')
         .replace(/\bstyle=(["'])(.*?)\1/g,(_match,_quote,style)=>{
             const values={};for(const declaration of style.split(';')){const colon=declaration.indexOf(':');if(colon<1)continue;const key=declaration.slice(0,colon).trim();values[key.startsWith('--')?key:key.replace(/-([a-z])/g,(_m,c)=>c.toUpperCase())]=declaration.slice(colon+1).trim();}
             return 'style={'+JSON.stringify(values)+'}';
         })
-        .replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(_match,attributes,css)=>'<style'+attributes+' dangerouslySetInnerHTML={{__html:'+JSON.stringify(css)+'}} />')
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'');
+        .replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(_match,attributes,css)=>'<style'+attributes+' dangerouslySetInnerHTML={{__html:'+JSON.stringify(css)+'}} />');
+        let output=normalized,previous;
+        do{previous=output;output=output.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'');}while(output!==previous);
+        return output;};
     const server=http.createServer(async(request,response)=>{
         const url=new URL(request.url,'http://localhost');
         if(request.method==='GET' && ['/health/live','/health/ready'].includes(url.pathname))return send(response,url.pathname.endsWith('ready') && !ready?503:200,{status:ready?'ready':'starting'});
         const authorization=request.headers.authorization || '';
-        const supplied=crypto.createHash('sha256').update(authorization.startsWith('Basic ')?Buffer.from(authorization.slice(6),'base64').toString('utf8'):'').digest();
-        if(!crypto.timingSafeEqual(credentials,supplied)){response.setHeader('WWW-Authenticate','Basic realm="Web application", charset="UTF-8"');return send(response,401,{error:'Sign in to this application.'});}
+        const authenticated=await authenticate(authorization);
+        if(authenticated===null){response.setHeader('Retry-After','1');return send(response,503,{error:'Authentication is busy. Try again shortly.'});}
+        if(!authenticated){response.setHeader('WWW-Authenticate','Basic realm="Web application", charset="UTF-8"');return send(response,401,{error:'Sign in to this application.'});}
         const origin=request.headers.origin;
         if(origin && origin!==(process.env.WEB_APP_ORIGIN || `${request.socket.encrypted?'https':'http'}://${request.headers.host}`))return send(response,403,{error:'Origin is not allowed. Set WEB_APP_ORIGIN to the external HTTPS origin.'});
         try {

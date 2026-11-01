@@ -18,6 +18,8 @@ export const SDK_COMPONENT_APPEARANCE = [
     {name:'--fdo-ui-success-color',label:'Success color',cssProperty:'color',kind:'color',identities:['fdo.toast','fdo.inline-alert']},
     {name:'--fdo-ui-warning-color',label:'Warning color',cssProperty:'color',kind:'color',identities:['fdo.toast','fdo.inline-alert']},
 ];
+import {escapeUnsafeJsChars} from './serializedJsLiteral';
+
 const properties = node => {
     if (node?.type !== 'ObjectExpression' || node.properties.some(item => item.type !== 'ObjectProperty' || item.computed || item.method)) return null;
     const entries = node.properties.map(item => [item.key.name ?? item.key.value, item.value]);
@@ -54,9 +56,9 @@ export function planSdkAppearance(element, request) {
     if (!['set','reset'].includes(action)) throw new Error('Choose a supported appearance action.');
     if (action === 'reset' && !target.overridden) throw new Error('This component has no local override for that property.');
     if (action === 'set') {const error = sdkAppearanceValueError(request.value); if (error) throw new Error(error);}
-    let replacement = action === 'reset' ? 'null' : JSON.stringify(request.value.trim());
+    let replacement = action === 'reset' ? 'null' : escapeUnsafeJsChars(JSON.stringify(request.value.trim()));
     if (target.insert) {
-        replacement = JSON.stringify(target.name) + ': ' + replacement + ', ';
+        replacement = escapeUnsafeJsChars(JSON.stringify(target.name)) + ': ' + replacement + ', ';
         if (target.missingStyle) replacement = '"style": {' + replacement + '}, ';
         if (target.missingOptions) replacement = '"options": {' + replacement + '}, ';
     }
