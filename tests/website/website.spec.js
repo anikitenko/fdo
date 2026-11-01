@@ -264,3 +264,125 @@ test("plugin use cases and terminal automation have distinct content", async ({
     "Azure FinOps & Resource Manager",
   );
 });
+
+test("AI coding is visible on the homepage and the Codex guide is crawlable and scoped accurately", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  const feature = page.locator("#ai-coding");
+  await expect(feature).toContainText("Codex CLI is built into FDO");
+  await expect(feature.locator(".ai-extension-grid article")).toHaveCount(3);
+  await expect(
+    page.getByRole("link", { name: "Explore AI coding & Codex extensions ↗" }),
+  ).toHaveAttribute("href", "ai-coding.html");
+  await page
+    .getByRole("link", { name: "Explore AI coding & Codex extensions ↗" })
+    .click();
+  await expect(page).toHaveURL(/ai-coding.html$/);
+  await expect(page).toHaveTitle(
+    /FDO AI coding.*Built-in Codex, Skills, MCP & Hooks/,
+  );
+  await expect(page.locator("h1")).toHaveCount(1);
+  await expect(page.locator("link[rel=canonical]")).toHaveAttribute(
+    "href",
+    "https://fdo.alexvwan.me/ai-coding.html",
+  );
+  await expect(page.locator(".ai-scope-note")).toContainText(
+    "You do not need to install a separate Codex CLI",
+  );
+  await expect(page.locator(".ai-scope-note")).toContainText(
+    "currently supported for Codex coding assistants",
+  );
+  await expect(page.locator("#skills")).toContainText(
+    "Scripts, reference folders, MCP connections and Hooks are not imported",
+  );
+  await expect(page.locator("#mcp")).toContainText(
+    "Install that MCP server and its runtime separately",
+  );
+  await expect(page.locator("#hooks")).toContainText(
+    "Commands run with your user permissions",
+  );
+  for (const key of ["skills", "mcp", "hooks", "setup"]) {
+    await expect(page.locator("#" + key)).toBeVisible();
+  }
+  const data = JSON.parse(
+    await page.locator('script[type="application/ld+json"]').textContent(),
+  );
+  expect(data.url).toBe("https://fdo.alexvwan.me/ai-coding.html");
+  await page.screenshot({
+    path: test.info().outputPath("ai-coding-desktop.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      `AI guide width ${width}`,
+    ).toBe(true);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: test.info().outputPath("ai-coding-mobile.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.locator("#skills").scrollIntoViewIfNeeded();
+  await expect(page.locator("#skills h2")).toBeInViewport();
+  await page.screenshot({
+    path: test.info().outputPath("ai-skills-mobile-viewport.png"),
+    animations: "disabled",
+  });
+  expect(await (await request.get("/sitemap.xml")).text()).toContain(
+    "https://fdo.alexvwan.me/ai-coding.html",
+  );
+});
+
+test("the AI guide names every authentication mode and keeps its download button readable", async ({
+  page,
+}) => {
+  await page.goto("/ai-coding.html");
+  await expect(page.locator("#mcp")).toContainText(
+    "All three authentication modes are supported: unauthenticated access, bearer-token authentication, and OAuth browser sign-in.",
+  );
+  await expect(page.locator("#mcp")).toContainText("custom headers");
+  const download = page.locator("#setup a.button-primary");
+  await expect(download).toHaveText("Get FDO ↗");
+  await expect(download).toHaveCSS("color", "rgb(25, 35, 20)");
+  await expect(download).toHaveCSS("background-color", "rgb(200, 245, 138)");
+  await download.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: test.info().outputPath("ai-guide-download-button.png"),
+    animations: "disabled",
+  });
+});
+
+test("the AI page features the actual assistant window instead of Monaco", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/ai-coding.html");
+  const image = page.locator("main figure img");
+  await expect(image).toHaveAttribute("src", "assets/fdo-ai-coding.png");
+  await expect(image).toHaveAttribute("width", "1120");
+  await expect
+    .poll(() =>
+      image.evaluate((img) => img.complete && img.naturalWidth === 1120),
+    )
+    .toBe(true);
+  await expect(page.locator("main figure figcaption")).toContainText(
+    "Unsent draft request",
+  );
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+    "content",
+    "https://fdo.alexvwan.me/assets/fdo-ai-coding.png",
+  );
+  await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute(
+    "content",
+    "https://fdo.alexvwan.me/assets/fdo-ai-coding.png",
+  );
+  expect((await request.get("/assets/fdo-ai-coding.png")).status()).toBe(200);
+});

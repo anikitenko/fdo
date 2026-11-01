@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111713" />
+    <title>FDO AI coding — Built-in Codex, Skills, MCP &amp; Hooks</title>
+    <meta
+      name="description"
+      content="Build and refine FDO plugins with SDK-aware AI. The Codex CLI is built in, with Skills, MCP tools and Hooks configurable per coding assistant."
+    />
+    <link rel="canonical" href="https://fdo.alexvwan.me/ai-coding.html" />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="FDO AI coding — Built-in Codex, Skills, MCP &amp; Hooks"
+    />
+    <meta
+      property="og:description"
+      content="Build and refine FDO plugins with SDK-aware AI. The Codex CLI is built in, with Skills, MCP tools and Hooks configurable per coding assistant."
+    />
+    <meta property="og:url" content="https://fdo.alexvwan.me/ai-coding.html" />
+    <meta
+      property="og:image"
+      content="https://fdo.alexvwan.me/assets/fdo-ai-coding.png"
+    />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="920" />
+    <meta
+      property="og:image:alt"
+      content="FDO AI Coding Assistant window with Codex selected and an unsent plugin review request."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="FDO AI coding — Built-in Codex, Skills, MCP &amp; Hooks"
+    />
+    <meta
+      name="twitter:description"
+      content="Build and refine FDO plugins with SDK-aware AI. The Codex CLI is built in, with Skills, MCP tools and Hooks configurable per coding assistant."
+    />
+    <meta
+      name="twitter:image"
+      content="https://fdo.alexvwan.me/assets/fdo-ai-coding.png"
+    />
+    <link rel="icon" type="image/png" href="assets/fdo-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": "https://fdo.alexvwan.me/ai-coding.html#page",
+        "url": "https://fdo.alexvwan.me/ai-coding.html",
+        "name": "FDO AI coding \u2014 Built-in Codex, Skills, MCP & Hooks",
+        "description": "Build and refine FDO plugins with SDK-aware AI. The Codex CLI is built in, with Skills, MCP tools and Hooks configurable per coding assistant.",
+        "isPartOf": {
+          "@id": "https://fdo.alexvwan.me/#website"
+        },
+        "about": {
+          "@id": "https://fdo.alexvwan.me/#application"
+        },
+        "inLanguage": "en",
+        "primaryImageOfPage": {
+          "@type": "ImageObject",
+          "url": "https://fdo.alexvwan.me/assets/fdo-ai-coding.png",
+          "width": 1120,
+          "height": 920
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container navigation">
+        <a class="brand" href="./" aria-label="FDO home"
+          ><img
+            src="assets/fdo-icon.png"
+            width="128"
+            height="128"
+            alt=""
+          /><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="index.html#workspace">Workspace</a
+          ><a href="index.html#build">Build plugins</a
+          ><a href="ai-coding.html" aria-current="page">AI coding</a
+          ><a href="cli.html">CLI</a><a href="index.html#resources">Docs</a>
+        </nav>
+        <a class="nav-github" href="https://github.com/anikitenko/fdo"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main" class="container guide">
+      <p class="eyebrow">FDO / AI CODING ASSISTANT</p>
+      <h1>AI coding.<br />Your way of working.</h1>
+      <p class="hero-description">
+        Build and refine FDO plugins with SDK-aware AI assistance. Extend a
+        Codex coding assistant with reusable Skills, selected MCP tools and
+        lifecycle Hooks—all configured inside FDO.
+      </p>
+      <div class="ai-scope-note">
+        <strong>Codex CLI is built in.</strong>
+        <p>
+          Packaged FDO includes the Codex CLI runtime. You do not need to
+          install a separate Codex CLI to use the integrated coding assistant.
+          Configure and sign in to your Codex assistant in FDO; your provider’s
+          account access and usage terms still apply.
+        </p>
+        <span
+          >Skills, MCP and Hooks are currently supported for Codex coding
+          assistants.</span
+        >
+      </div>
+      <nav class="guide-toc" aria-label="AI coding guide">
+        <a href="#assistant">Coding workflow</a><a href="#skills">Skills</a
+        ><a href="#mcp">MCP tools</a><a href="#hooks">Hooks</a
+        ><a href="#setup">Set up in FDO</a>
+      </nav>
+      <figure class="product-shot">
+        <a
+          href="assets/fdo-ai-coding.png"
+          aria-label="Open the full-size AI Coding Assistant screenshot"
+          ><img
+            src="assets/fdo-ai-coding.png"
+            width="1120"
+            height="920"
+            alt="FDO AI Coding Assistant with Codex selected, Smart Mode, deployment context, a draft request and the Submit button."
+        /></a>
+        <figcaption>
+          AI Coding Assistant in its own window · Codex selected · Unsent draft
+          request.
+        </figcaption>
+      </figure>
+      <section id="assistant">
+        <h2>AI assistance in the plugin workspace.</h2>
+        <p>
+          Ask for help creating, changing, explaining or repairing plugin code.
+          FDO supplies SDK and host compatibility context so the assistant can
+          work with the plugin APIs and target versions in your workspace.
+          Review changes, run the plugin’s tests and keep snapshots before you
+          deploy.
+        </p>
+        <p>
+          Codex is available as a coding assistant in FDO. The extension
+          features below apply to that integration; they are not a claim that
+          every AI provider supports the same extensions. AI provider access and
+          any external service costs are separate from the FDO desktop
+          application.
+        </p>
+        <p>
+          <a
+            href="https://github.com/anikitenko/fdo/blob/main/docs/AI_CODING_AGENT.md"
+            >Read the AI coding workflow ↗</a
+          >
+          · <a href="workspace-history.html">Keep workspace restore points</a>
+        </p>
+      </section>
+      <section id="skills">
+        <p class="eyebrow">01 / REUSABLE INSTRUCTIONS</p>
+        <h2>Skills: carry your conventions into a request.</h2>
+        <p>
+          Import a <code>SKILL.md</code> with a name and description in YAML
+          front matter. Assign it to one or more saved Codex coding assistants
+          and enable it. Use skills for team conventions, review checklists or
+          repeatable authoring guidance.
+        </p>
+        <p>
+          The assistant initially sees the skill’s name and description. Full
+          instructions load for an explicit <code>$skill-name</code> mention or
+          when requested for the current step. This keeps reusable guidance
+          available without inserting every skill’s full contents into every
+          request.
+        </p>
+        <pre><code>---
+name: plugin-review
+description: Review FDO plugin changes against our team checklist.
+---
+Check capability declarations, UI error states and observable tests.
+Keep credentials outside plugin source.</code></pre>
+        <p>
+          <strong>Instruction-only import:</strong> FDO stores a copy of the
+          SKILL.md file. Scripts, reference folders, MCP connections and Hooks
+          are not imported with it. Configure MCP and Hooks separately. Imported
+          extension skills are also separate from the plugin workspace’s
+          generated SKILL.md implementation guide.
+        </p>
+      </section>
+      <section id="mcp">
+        <p class="eyebrow">02 / CONNECTED TOOLS</p>
+        <h2>MCP: give Codex the tools you select.</h2>
+        <p>
+          Connect a remote HTTP MCP server or a local command server using
+          stdio. Discover its tools, select the tools you allow, assign the
+          server to saved Codex coding assistants, then enable it and save its
+          permissions. Changes take effect on the next request.
+        </p>
+        <ul>
+          <li>
+            <strong>HTTP:</strong> remote endpoints use HTTPS; local development
+            endpoints can use loopback HTTP. All three authentication modes are
+            supported: unauthenticated access, bearer-token authentication, and
+            OAuth browser sign-in. You can also configure custom headers.
+          </li>
+          <li>
+            <strong>Command / stdio:</strong> supply an installed executable,
+            literal arguments and any required environment values. Install that
+            MCP server and its runtime separately—the bundled Codex CLI does not
+            include arbitrary MCP servers.
+          </li>
+          <li>
+            <strong>Permissions:</strong> FDO filters the tool catalog and
+            rejects calls to unselected tools. Saving permissions authorizes
+            selected tools to run during coding requests without a separate
+            prompt for every call.
+          </li>
+        </ul>
+        <p>
+          Choose trusted servers: selected tools can send task context to a
+          service and perform real actions. AI Progress shows actual MCP call
+          lifecycle events. Checking a connection discovers tools; it does not
+          execute those tools.
+        </p>
+        <p>
+          <a
+            href="https://github.com/anikitenko/fdo/blob/main/docs/CODEX_MCP_TOOLS.md"
+            >Read the MCP connection and permission guide ↗</a
+          >
+        </p>
+      </section>
+      <section id="hooks">
+        <p class="eyebrow">03 / LIFECYCLE AUTOMATION</p>
+        <h2>Hooks: add your own lifecycle commands.</h2>
+        <p>
+          Configure trusted commands for supported Codex lifecycle events, such
+          as SessionStart, UserPromptSubmit, PreToolUse, PostToolUse and Stop.
+          Assign each Hook to saved Codex coding assistants, enable it and save
+          the assignments. New Hooks start disabled and unassigned.
+        </p>
+        <p>
+          A Hook receives an event JSON object on stdin and can return the
+          supported native Hook response. For example, a UserPromptSubmit Hook
+          can add a concise team review reminder. Supported pre-operation
+          responses can block an operation; a PostToolUse Hook cannot undo a
+          completed action.
+        </p>
+        <p>
+          Hook scripts and runtimes must be installed separately. Commands run
+          with your user permissions as explicitly configured trusted processes.
+          Avoid returning secrets: Hook stdout may become assistant context.
+          FDO’s Codex shell tools remain disabled; enabling a Hook does not give
+          the model arbitrary shell access.
+        </p>
+        <p>
+          Hook tests can have real side effects. Event behavior depends on the
+          lifecycle event; do not rely on Hooks for mandatory cleanup or
+          guaranteed enforcement. See the runtime guide for tested events,
+          platform-validation status and cancellation limits.
+        </p>
+        <p>
+          <a
+            href="https://github.com/anikitenko/fdo/blob/main/docs/CODEX_HOOKS.md"
+            >Read the Hook setup and execution guide ↗</a
+          >
+        </p>
+      </section>
+      <section id="setup">
+        <h2>
+          Set up the assistant once.<br />Choose its extensions deliberately.
+        </h2>
+        <ol>
+          <li>
+            Open <strong>Settings → AI Assistants</strong>, add a Codex coding
+            assistant and complete its sign-in/configuration. FDO uses its
+            bundled Codex CLI.
+          </li>
+          <li>
+            Open <strong>Settings → AI Extensions → Codex</strong>. Choose
+            <strong>Skills</strong>, <strong>MCP Tools</strong> or
+            <strong>Hooks</strong>.
+          </li>
+          <li>
+            Import or configure an extension, select its saved Codex assistants,
+            and enable it. Save assignments or tool permissions before starting
+            the next coding request.
+          </li>
+          <li>
+            In the plugin editor, open <strong>AI Coding Agent</strong> and
+            select the assigned assistant. Mention an imported skill explicitly
+            when you want that workflow, or request work using an allowed MCP
+            tool.
+          </li>
+          <li>
+            Review the result in the workspace, inspect AI Progress where
+            relevant, and run tests before deployment.
+          </li>
+        </ol>
+        <p>
+          FDO uses extensions explicitly configured and assigned inside FDO; do
+          not assume your global Codex setup is imported. The built-in Codex
+          runtime, extension permissions, external tool installation and
+          provider sign-in are distinct pieces of setup.
+        </p>
+        <p>
+          <a class="button button-primary" href="index.html#download"
+            >Get FDO ↗</a
+          >
+        </p>
+      </section>
+      <p class="guide-back"><a class="text-link" href="./">← Back to FDO</a></p>
+    </main>
+    <footer class="site-footer container">
+      <div>
+        <a class="brand" href="./"
+          ><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <p>FlexDevOps. Built to be yours.</p>
+      </div>
+      <div class="footer-links">
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/anikitenko/fdo">Source on GitHub</a
+        ><a href="index.html#download">Get FDO</a>
+      </div>
+    </footer>
+  </body>
+</html>
