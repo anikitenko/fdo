@@ -982,3 +982,16 @@
 .fileBreadcrumbs { flex: 0 0 auto; min-width: 0; height: 28px; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px; overflow: hidden; background: #1e1e1e; border-bottom: 1px solid #303236; }
 .fileBreadcrumbs :global(.bp6-breadcrumbs) { flex-wrap: nowrap; margin: 0; min-width: 0; }
 .fileBreadcrumbs :global(.bp6-breadcrumb-current), .fileBreadcrumbs :global(.bp6-breadcrumb) { color: #aeb2bb; }
+
+.deploymentToolsWorkspace {
+    display: flex;
+    flex-direction: column;
+}
+.deploymentToolsWorkspace > .editor-header {
+    flex-shrink: 0;
+}
+.deploymentToolsWorkspace > .editorWorkspaceShell {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}

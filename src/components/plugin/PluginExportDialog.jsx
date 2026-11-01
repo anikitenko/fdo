@@ -1,3 +1,4 @@
+import {ToolInstallationGuide} from './ToolInstallationGuide';
 import React,{useEffect,useRef,useState} from 'react';
 import {Button,Callout,Dialog,DialogBody,DialogFooter,FormGroup,HTMLSelect,HTMLTable,Spinner,Tag} from '@blueprintjs/core';
 import {attachWebExportRecovery,migrationBrief} from '../../utils/plugins/exporting/webExportRecovery';
@@ -31,10 +32,10 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
         try{await navigator.clipboard.writeText(migrationBrief({...report,recovery},plugin.name));setNotice('Migration brief copied. It is also included in the migration work package.');}
         catch{setError('The brief could not be copied. Export the migration work package to get the same plan as a file.');}
     };
-    const openSource=async()=>{
+    const openSource=async(purpose)=>{
         setOpening(true);setError('');setSaved('');
-        try {const result=await window.electron.system.openPluginInEditor('builtin',plugin.id);if(!result?.success){setError(result?.error || 'The plugin source could not be opened.');return;}
-            setNotice('Source opened in the IDE. Save and deploy source edits before reviewing the installed version. For GitOps, update and synchronize the repository.');
+        try {const result=await window.electron.system.openPluginInEditor('builtin',plugin.id,...(purpose==='deployment-tools'?[{purpose}]:[]));if(!result?.success){setError(result?.error || 'The plugin source could not be opened.');return;}
+            setNotice(purpose==='deployment-tools'?'Opened package.json with container tool setup guidance. Save and deploy your changes, then return here and choose Review installed version.':'Source opened in the IDE. Save and deploy source edits before reviewing the installed version. For GitOps, update and synchronize the repository.');
         }catch(failure){setError(failure.message);}finally{setOpening(false);}
     };
     const groups=Object.values((report?.requirements || []).reduce((result,item)=>{
@@ -86,13 +87,15 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
                         <summary style={{cursor:'pointer'}}>Container CLI tools · {report.toolchain.tools.length} requirements{report.toolchain.warnings?.length?' · configuration required':''}</summary>
                         <p>Base image: <code>{report.toolchain.baseImage}</code></p>
                         <p>Tool installation and version checks run during the image build. Installing a tool does not grant permission to execute it.</p>
+                        {!report.toolchain.tools.length && <p>No container CLI tools were identified. If the plugin only calls HTTP APIs or uses JavaScript packages, no CLI declaration is needed. Add requirements only for external commands it actually runs.</p>}
                         <HTMLTable compact striped style={{width:'100%'}}><thead><tr><th>Tool</th><th>Version</th><th>Installation</th></tr></thead>
                             <tbody>{report.toolchain.tools.map(tool=><tr key={tool.id}><td>{tool.id}{tool.authentication && <div className="bp6-text-muted">Authenticate separately: {tool.authentication.methods.join(', ')}</div>}</td><td><code>{tool.version}</code></td><td>{tool.installer?.type==='provided'?'Included in base image':tool.installer?.type==='artifact'?'Verified artifact':tool.installer?.type==='apt'?'Debian package':tool.installer?.type==='azure-cli'?'Microsoft package':'Installer definition required'}{tool.installer?.packages && <div><code>{tool.installer.packages.join(', ')}</code></div>}{tool.installer?.packageVersion && <div><code>{tool.installer.packageVersion}</code></div>}{tool.installer?.platforms && <details><summary>Artifact sources</summary>{Object.entries(tool.installer.platforms).map(([platform,artifact])=><p key={platform} style={{overflowWrap:'anywhere'}}>{platform}: {artifact.url}<br/><code>SHA-256: {artifact.sha256}</code></p>)}</details>}<div className="bp6-text-muted">{{declared:'Plugin declaration','declared-custom':'Custom dependency','inferred-single-tool-scope':'Inferred from approved scope',provided:'Base toolchain'}[tool.source] || tool.source}</div></td></tr>)}</tbody>
                         </HTMLTable>
                         {!!report.toolchain.unresolved.length && <ul>{report.toolchain.unresolved.map(item=><li key={item.scope}><strong>{item.scope}</strong>: {item.reason}</li>)}</ul>}
                         {!!report.toolchain.warnings?.length && <Callout intent="warning" title="Complete tool requirements before building">Declare the required tools in package.json under <code>fdo.deployment.tools</code> and export again, or complete <code>deployment/toolchain.json</code> in this project.</Callout>}
-                        <Button icon="code" disabled={saving || opening} loading={opening} onClick={openSource}>Edit plugin tool requirements</Button>
-                        <p>Run <code>node tools.cjs check</code> to inspect availability and versions. Credentials and cloud roles are configured independently.</p>
+                        <ToolInstallationGuide disabled={saving || opening}/> {' '}<Button icon="code" disabled={saving || opening} loading={opening} onClick={()=>openSource('deployment-tools')}>Edit package.json tool requirements</Button>
+                        <p>Opens <code>package.json</code> in the editor with setup instructions. Declare tools under <code>fdo.deployment.tools</code>, save and deploy the plugin, then choose <strong>Review installed version</strong> here.</p>
+                        <p>After extracting the exported ZIP, run <code>node tools.cjs check</code> to inspect availability and versions. Credentials and cloud roles are configured independently.</p>
                     </details>}
                     {report.analysis && <details style={{marginTop:12}}><summary style={{cursor:'pointer'}}>Analysis scope · {report.analysis.included.length} runtime files · {report.analysis.excluded.length} unimported files excluded</summary>
                         <p>Only dependencies of <code>{report.analysis.entry}</code> affect conversion. Imported scripts are checked too.</p>

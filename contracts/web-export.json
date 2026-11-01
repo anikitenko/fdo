@@ -53,7 +53,7 @@
     },
     "encrypted-secrets": {
       "status": "configuration",
-      "description": "AES-256-GCM credential vault. Inject WEB_APP_SECRET_KEY and mount /data; desktop credentials are never copied."
+      "description": "The exported app can save credentials, but starts without your FDO credentials. After extracting the ZIP, run sh start.sh: setup creates WEB_APP_SECRET_KEY in .env, and Docker Compose keeps encrypted credentials in a persistent volume at /data. This key protects saved credentials; it is not your service API token. Enter your service credentials again in the exported app, if it provides credential settings, or follow the README section \"Service credentials\". Keep the same encryption key and data volume across restarts."
     },
     "network": {
       "status": "supported",

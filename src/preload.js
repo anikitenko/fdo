@@ -271,7 +271,7 @@ contextBridge.exposeInMainWorld('electron', {
         getBabelPath: () => ipcRenderer.invoke(SystemChannels.GET_BABEL_PATH),
         confirmEditorCloseApproved: () => ipcRenderer.send(SystemChannels.EDITOR_CLOSE_APPROVED),
         confirmEditorReloadApproved: () => ipcRenderer.send(SystemChannels.EDITOR_RELOAD_APPROVED),
-        openPluginInEditor: (editor, pluginID) => ipcRenderer.invoke(SystemChannels.OPEN_PLUGIN_IN_EDITOR, editor, pluginID),
+        openPluginInEditor: (editor, pluginID, options) => ipcRenderer.invoke(SystemChannels.OPEN_PLUGIN_IN_EDITOR, editor, pluginID, options),
         isFdoInPath: () => ipcRenderer.invoke(SystemChannels.IS_FDO_IN_PATH),
         addFdoInPath: () => ipcRenderer.invoke(SystemChannels.ADD_FDO_IN_PATH),
         removeFdoFromPath: () => ipcRenderer.invoke(SystemChannels.REMOVE_FDO_FROM_PATH),

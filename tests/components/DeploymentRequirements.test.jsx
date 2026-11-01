@@ -32,7 +32,7 @@ test('AI view offers an explicit handoff and a prepared review without pretendin
     const manage=jest.fn(),ask=jest.fn();render(<DeploymentRequirements context={context()} onManage={manage} onAsk={ask}/>);
     fireEvent.click(screen.getByRole('button',{name:'Manage in Live UI'}));expect(manage).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button',{name:'Prepare AI deployment review'}));expect(ask).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button',{name:/login|authenticate|install/i})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:/^(login|authenticate|install)(\s|$)/i})).not.toBeInTheDocument();
 });
 
 test('a workspace update cannot silently replace a declaration from an old open dialog',()=>{

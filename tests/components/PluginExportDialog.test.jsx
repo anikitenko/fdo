@@ -74,3 +74,16 @@ test('tool choices and authentication setup are visible before saving the applic
     expect(screen.getByText('azure-cli')).toBeVisible();expect(screen.getByText('^2.91.0')).toBeVisible();expect(screen.getByText(/Authenticate separately: device-code, managed-identity/)).toBeVisible();
     expect(screen.getByRole('button',{name:'Export web application'})).toBeEnabled();
 });
+
+
+test('empty tool requirements explain when setup is optional and open a guided package editor',async()=>{
+    window.electron.system={openPluginInEditor:jest.fn().mockResolvedValue({success:true})};
+    window.electron.plugin.previewExport.mockResolvedValue({success:true,token:'tools',report:{...report,toolchain:{baseImage:'node:24-bookworm-slim',tools:[],unresolved:[],warnings:[]}}});
+    render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    fireEvent.change(screen.getByLabelText('Export format'),{target:{value:'web'}});
+    await screen.findByText(/No container CLI tools were identified/);
+    fireEvent.click(screen.getByText(/Container CLI tools ·/));
+    fireEvent.click(screen.getByRole('button',{name:'Edit package.json tool requirements'}));
+    await waitFor(()=>expect(window.electron.system.openPluginInEditor).toHaveBeenCalledWith('builtin','plugin-a',{purpose:'deployment-tools'}));
+    expect(await screen.findByRole('status')).toHaveTextContent('Opened package.json with container tool setup guidance');
+});
