@@ -1,3 +1,4 @@
+import {escapeUnsafeJsChars} from './serializedJsLiteral';
 import {planToastProgress} from './sdkToastProgress';
 import {planSdkCollection} from './sdkCollectionEdits';
 import {planRemoveAction} from './actionLifecycle';
@@ -106,7 +107,7 @@ export function planVisualSourceEdit(files, elements, request, catalog=[]) {
         if (!target) throw new Error('This content is computed or contains markup. Edit it in the IDE.');
         if (typeof request.value !== 'string' || request.value.length > 2000) throw new Error('Use up to 2,000 characters of plain text.');
         ({file, start, end} = target);
-        replacement = target.kind === 'html-literal' ? encodeHtmlLiteralText(request.value) : JSON.stringify(encodeText(request.value));
+        replacement = target.kind === 'html-literal' ? encodeHtmlLiteralText(request.value) : escapeUnsafeJsChars(JSON.stringify(encodeText(request.value)));
         description = `Change ${element.tag} text`;
         affected = elements.filter(item => item.text?.file === file && item.text.start === start).length;
     } else if (request.kind === 'css') {

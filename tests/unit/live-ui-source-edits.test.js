@@ -110,3 +110,11 @@ test('removing a declaration preserves comments, unrelated declarations, states 
     expect(next.elements.find(item => item.tag === 'button').styles[0].declarations.some(item => item.property === 'color')).toBe(false);
     expect(() => planVisualSourceEdit(files, preview.elements, {elementId: button.id, kind: 'css', scope: 'shared', action: 'remove', styleFile: '/styles.css', styleKey: 'button', property: 'missing'})).toThrow('supported CSS declaration');
 });
+
+test('plain text edits preserve backslashes and text newlines in serialized source', async () => {
+    const value = 'Path C:\\tools\\new\nNext line\t"quoted" </script>';
+    const patch = planVisualSourceEdit(files, preview.elements, {elementId: button.id, kind: 'text', value});
+    expect(JSON.parse(patch.replacement)).toBe('Path C:\\tools\\new\nNext line\t&quot;quoted&quot; &lt;/script&gt;');
+    const next = await createStaticUiPreview({...files, [patch.file]: patch.after}, sdk);
+    expect(next.status).toBe('ready');
+});
