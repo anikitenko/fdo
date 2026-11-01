@@ -33,6 +33,32 @@ list; unknown tools require an installer definition. These requirements appear i
 Export As and the generated `deployment/toolchain.json`; configuration is editable
 there, or in plugin package.json followed by a new export.
 
+## Choose an installation approach
+
+In the plugin editor, open **Installation guide** from the container tool setup
+bar. The same guide is available in **Export As → Container CLI tools** and
+**Live UI → Deployment requirements → Manage deployment requirements**.
+
+| What the tool needs | Choose | What you supply |
+| --- | --- | --- |
+| An existing catalog installer | Catalog tool | Tool ID and optional version constraint |
+| A package in a configured Debian repository | Debian package | Package names, executable path and version command |
+| One Linux executable, possibly inside an archive | Binary or archive download | Public release URL, verified SHA-256, CPU architecture and archive member |
+| Vendor setup, additional repositories, a full SDK or multiple files | Custom image / vendor installer | Your tested base image digest and provided executable path |
+
+For custom installation instructions, read the publisher's Linux documentation
+and decide whether the result is a single executable or a full distribution.
+Do not place an install script in package.json. If the recipe needs a repository
+setup command, shell installer or additional SDK files, perform those steps in
+your own base-image pipeline and use a provided-tool declaration below. Keep
+Node 24, Debian bookworm, npm and the node user available in that image.
+
+Merge the declaration into package.json without replacing existing fdo fields
+or other required tools. Preview and apply changes in Live UI, then save and
+deploy the plugin. For GitOps, commit the change to the source repository and
+synchronize it. Return to Export As, choose **Review installed version**, and
+export again. Nothing is installed on your desktop by editing these requirements.
+
 ## Custom Debian package
 
 ```json
@@ -115,6 +141,30 @@ Pin its OCI digest using `fdo.deployment.baseImage` and declare its tools as pro
   }
 }
 ```
+
+For example, if you have already downloaded and verified a vendor SDK directory,
+build a separate base-image project (replace paths with the actual SDK layout):
+
+```dockerfile
+FROM node:24-bookworm-slim
+USER root
+# Add the vendor-required Linux libraries or repository setup here.
+COPY vendor-sdk/ /opt/example-sdk/
+RUN chmod 0755 /opt/example-sdk/bin/example-cli
+USER node
+RUN /opt/example-sdk/bin/example-cli --version
+```
+
+Build and publish it for the SDK's architecture:
+
+```sh
+docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/node24-tools:1 --push .
+```
+
+Use the actual published digest, executable path and version in the declaration.
+If using a vendor installer instead of copying a directory, run the reviewed,
+version-pinned installation steps in this separate image build. Do not embed tokens,
+private download URLs or interactive login steps. Test execution as the node user.
 
 Replace the digest placeholder with the actual 64-character SHA-256 digest. The
 image must include Node, npm and the node user from the normal base. The export

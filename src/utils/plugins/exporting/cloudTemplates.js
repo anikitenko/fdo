@@ -41,8 +41,9 @@ conversion-report.json records the converter version, source fingerprint and cap
    Read .env locally to sign in as engineer; subsequent runs preserve existing keys.
    If configuring .env manually, set WEB_APP_USERNAME and a random WEB_APP_PASSWORD
    of at least 24 characters. Generate passwords with: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))".
-2. If the application uses credentials, independently generate WEB_APP_SECRET_KEY with
-   the same command. Keep that 32-byte base64 key in your cloud secret manager. Do not
+2. Setup already generates WEB_APP_SECRET_KEY, a base64-encoded 32-byte encryption key.
+   If configuring .env manually, generate it separately with the command above.
+   For cloud deployment, store this key in your cloud secret manager. Do not
    commit it or bake it into an image. Pin its secret-manager version; key rotation
    requires re-encrypting the vault. Losing it prevents decryption of stored credentials.
 3. Docker Compose 2.24 or newer is required. Open http://localhost:8080 and sign in.
@@ -52,6 +53,44 @@ conversion-report.json records the converter version, source fingerprint and cap
 For local Node development: npm ci --ignore-scripts; npm run build; load the values
 from .env into the process environment and run npm start. Node 24 or newer is required.
 Set WEB_APP_DATA_DIR to a writable persistent directory outside Docker.
+
+## Service credentials
+
+The exported app starts without the credentials saved in FDO. Export is supported;
+this configuration step means you must supply the service credentials again.
+
+WEB_APP_SECRET_KEY encrypts saved credentials. It is not a provider API token and
+does not sign you into your provider. WEB_APP_USERNAME and
+WEB_APP_PASSWORD are only for signing into the exported web app.
+
+For local Docker Compose, sh start.sh creates the encryption key in .env and
+mounts the application-data volume at /data automatically. Keep both .env and
+that volume across restarts. Back them up separately. Do not regenerate the key
+for an existing vault or delete the volume with docker compose down -v: losing
+either prevents recovery of the saved credentials.
+
+After signing into the exported app, enter the provider credentials in its own
+credential settings, if the plugin provides them. If it has no credential entry
+screen, provision credentials through deployment/services.json instead:
+
+1. Find the exact credential name used in backend/source (the name passed to
+   secrets.get or secrets.set). Use that name, not the capability secrets.get.
+2. Add a mapping under secretEnvironment, for example:
+
+       "secretEnvironment": {"EXACT_CREDENTIAL_NAME": "PROVIDER_API_TOKEN"}
+
+3. Supply PROVIDER_API_TOKEN to the application container. For local Compose,
+   add PROVIDER_API_TOKEN=your-token to the private .env file; the supplied
+   env_file setting passes it into the container. For cloud deployment, inject
+   this environment variable from your platform's secret manager.
+4. Start the app (or rebuild and recreate it after changing services.json):
+
+       docker compose up --build -d
+
+On startup, the backend saves the supplied value into its encrypted vault. Keep
+services.json limited to credential names and environment variable names; never
+put token values in it or in source files. An injected value overwrites the same
+named vault entry on every startup while that environment variable is present.
 
 ## CLI dependencies
 

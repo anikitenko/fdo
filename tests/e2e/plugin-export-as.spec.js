@@ -35,6 +35,30 @@ test('Manage Plugins reviews and saves a standalone web archive through Export A
         await dialog.getByRole('button',{name:'Export web application',exact:true}).click();
         await expect(dialog.getByRole('status')).toContainText(output);
         expect(fs.readFileSync(output).subarray(0,2).toString()).toBe('PK');
+        await dialog.getByText(/Container CLI tools ·/).click();
+        await expect(dialog.getByText(/No container CLI tools were identified/)).toBeVisible();
+        const editorOpened=app.waitForEvent('window');
+        await dialog.getByRole('button',{name:'Edit package.json tool requirements',exact:true}).click();
+        const editor=await editorOpened;
+        await editor.waitForLoadState('domcontentloaded');
+        await expect(editor.getByRole('region',{name:'Container tool setup'})).toBeVisible({timeout:30000});
+        await expect.poll(()=>editor.evaluate(()=>window.__editorTestApi?.getState?.().activeTabId)).toBe('/package.json');
+        await expect.poll(()=>editor.evaluate(()=>window.__editorTestApi?.getState?.().selectedId)).toBe('/package.json');
+        await editor.screenshot({path:test.info().outputPath('export-tool-requirements-editor.png'),animations:'disabled'});
+        const bar=editor.getByRole('region',{name:'Container tool setup'});
+        expect((await bar.boundingBox()).height).toBeLessThan(140);
+        await bar.getByRole('button',{name:'Installation guide'}).click();
+        const guide=editor.getByRole('dialog',{name:'Container tool installation guide'});
+        await expect(guide).toBeVisible();
+        await guide.getByLabel('How is the tool distributed?').selectOption('artifact');
+        await expect(guide.getByText(/Template: replace the example URL and hash/)).toBeVisible();
+        await guide.getByLabel('How is the tool distributed?').selectOption('image');
+        await expect(guide.getByText('Prepare a base image with the tool installed',{exact:true})).toBeVisible();
+        await guide.screenshot({path:test.info().outputPath('custom-tool-installation-guide.png'),animations:'disabled'});
+        await guide.getByRole('button',{name:'Close guide'}).click();
+        await expect(guide).not.toBeVisible();
+        await expect.poll(()=>editor.evaluate(()=>window.__editorTestApi?.getState?.().activeTabId)).toBe('/package.json');
+
     }finally{await closeElectronApp(app);fs.rmSync(directory,{recursive:true,force:true});}
 });
 

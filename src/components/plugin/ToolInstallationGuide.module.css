@@ -1,0 +1,27 @@
+.bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 18px;
+    border-bottom: 1px solid #46505d;
+    background: #252d38;
+    color: #f1f5f9;
+    flex-shrink: 0;
+}
+.bar p { margin: 4px 0 0; color: #c6d0dc; font-size: 12px; }
+.actions { display: flex; align-items: center; gap: 8px; }
+.body { max-height: 72vh; overflow-y: auto; line-height: 1.6; color: #e6edf5; }
+.intro { margin-top: 0; color: #becbd9; }
+.label { display: block; margin-bottom: 8px; font-weight: 600; }
+.steps { padding-left: 22px; }
+.steps li { margin-bottom: 10px; }
+.example { padding: 14px; margin: 20px 0; background: #202733; border: 1px solid #46505d; border-radius: 8px; }
+.exampleHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.example pre { max-height: 280px; overflow: auto; padding: 12px; background: #161d27; color: #dbe7f5; border-radius: 4px; font-size: 12px; line-height: 1.6; }
+.example p { margin-bottom: 0; color: #c6d0dc; }
+.command { padding: 12px; background: #161d27; color: #dbe7f5; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 4px; }
+.boundary { margin-top: 16px; }
+.body summary { cursor: pointer; font-weight: 600; }
+.body h3 { font-size: 17px; margin-top: 20px; }

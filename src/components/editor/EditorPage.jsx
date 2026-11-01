@@ -1,3 +1,4 @@
+import ContainerToolSetup from '../plugin/ToolInstallationGuide';
 import AiPendingFiles from './AiPendingFiles';
 import {useLocation} from "react-router-dom";
 import Split from "react-split-grid";
@@ -315,16 +316,18 @@ export const EditorPage = () => {
                 }
 
                 const activeTabId = virtualFS.tabs.getActiveTabId();
+                const requestedFile = pluginData.purpose === 'deployment-tools' ? virtualFS.getTreeObjectItemById('/package.json') : null;
                 const initialFile =
-                    virtualFS.getTreeObjectItemSelected() ||
+                    requestedFile || virtualFS.getTreeObjectItemSelected() ||
                     virtualFS.getTreeObjectItemById(activeTabId) ||
                     virtualFS.getTreeObjectItemById(virtualFS.DEFAULT_FILE_MAIN);
 
                 if (initialFile) {
                     virtualFS.setTreeObjectItemSelectedSilent(initialFile.id);
 
-                    if (virtualFS.tabs.get().length === 0) {
+                    if (requestedFile || virtualFS.tabs.get().length === 0) {
                         virtualFS.tabs.add(initialFile);
+                        if (requestedFile) virtualFS.tabs.setActiveTab(initialFile);
                     } else if (!activeTabId) {
                         virtualFS.tabs.setActiveTab(initialFile);
                     }
@@ -344,7 +347,7 @@ export const EditorPage = () => {
         return () => {
             cancelled = true;
         };
-    }, [pluginDirectory, pluginName, pluginTemplate, pluginData.name]);
+    }, [pluginDirectory, pluginName, pluginTemplate, pluginData.name, pluginData.purpose]);
 
     useEffect(() => codeEditorActions(codeEditor, {onCompile: () => setBuildOutputSelectedTabId('output')}), [codeEditor]);
 
@@ -1194,7 +1197,7 @@ export const EditorPage = () => {
         && String(selectedRenderOnLoadTemplate.source || "").includes("defineRenderOnLoadActions(");
 
     return (
-        <div className={`${styles["editor-page-component"]} ${compact ? styles["compact"] : ""}`}>
+        <div className={`${styles["editor-page-component"]} ${compact ? styles["compact"] : ""} ${pluginData.purpose === 'deployment-tools' ? styles.deploymentToolsWorkspace : ""}`}>
             <div className={styles["editor-header"]}>
                 <div className={styles["editor-header-left"]}>
                     <Button icon="arrow-left" variant={"minimal"}
@@ -1221,6 +1224,7 @@ export const EditorPage = () => {
                     </div>
                 </div>
             </div>
+            {workspaceReady && pluginData.purpose === 'deployment-tools' && <ContainerToolSetup/>}
             {!workspaceReady && !workspaceError && (
                 <div className={styles["editorLoadingState"]}>
                     <div className={styles["editorLoadingCard"]}>

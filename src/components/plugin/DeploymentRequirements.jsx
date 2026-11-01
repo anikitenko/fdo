@@ -1,3 +1,4 @@
+import {ToolInstallationGuide} from './ToolInstallationGuide';
 import React, {useState} from 'react';
 import PropTypes from 'prop-types';
 import {Button,Callout,Dialog,DialogBody,DialogFooter,FormGroup,HTMLSelect,InputGroup,Checkbox,Tag} from '@blueprintjs/core';
@@ -34,6 +35,7 @@ export default function DeploymentRequirements({context,disabled=false,onReview,
         <p>Tool requirements are part of the plugin source. Installation, cloud sign-in and resource permissions are verified in the deployment environment.</p>
         <p>Web export {context.catalog.exportContractVersion} · Tool schema {context.catalog.schemaVersion} · Default image <code>{context.catalog.baseImage}</code></p>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'10px 0'}}>
+            <ToolInstallationGuide disabled={working}/>
             {onReview && <Button icon="edit" disabled={working || !context.editable} onClick={()=>show()}>Manage deployment requirements</Button>}
             {onReview && !!context.suggestions.length && <Button icon="add" disabled={working || !context.editable} onClick={()=>show(true)}>Review detected tools</Button>}
             {!onReview && onManage && <Button icon="edit" disabled={working} onClick={onManage}>Manage in Live UI</Button>}
@@ -56,6 +58,7 @@ export default function DeploymentRequirements({context,disabled=false,onReview,
         {actionError && <Callout intent="danger" role="alert">{actionError}</Callout>}
         {open && <Dialog isOpen title="Manage deployment requirements" className="bp6-dark" style={{width:760,maxWidth:'calc(100vw - 32px)'}} onClose={()=>!busy && setOpen(false)} canOutsideClickClose={!busy} canEscapeKeyClose={!busy}>
             <DialogBody><fieldset disabled={working} style={{border:0,padding:0,minWidth:0}}>
+                <div style={{marginBottom:12}}><ToolInstallationGuide disabled={working}/></div>
                 <p>Changes are reviewed as a package.json-only draft. No installer, login, permission change or cloud operation runs here.</p>
                 <FormGroup label="Catalog tool"><HTMLSelect aria-label="Catalog tool" fill value={selection} options={choices.map(([id,tool])=>({value:id,label:id+' · '+tool.version}))} onChange={event=>setSelection(event.target.value)}/></FormGroup>
                 <Button icon="add" disabled={!selection || rows.some(row=>row.id===selection)} onClick={()=>setRows(current=>[...current,{id:selection}])}>Add catalog tool</Button>{' '}

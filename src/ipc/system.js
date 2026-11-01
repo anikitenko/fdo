@@ -548,14 +548,14 @@ export function registerSystemHandlers() {
         }
     })
 
-    ipcMain.handle(SystemChannels.OPEN_PLUGIN_IN_EDITOR, async (event, editor, pluginID) => {
+    ipcMain.handle(SystemChannels.OPEN_PLUGIN_IN_EDITOR, async (event, editor, pluginID, options) => {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         const plugin = pluginORM.getPlugin(pluginID);
         if (plugin) {
             const pluginDirectory = plugin.home
             switch (editor) {
                 case "builtin":
-                    systemOpenEditorWindow({name: pluginID})
+                    systemOpenEditorWindow({name: pluginID, ...(options?.purpose === 'deployment-tools' ? {purpose: 'deployment-tools'} : {})})
                     break;
                 case "vscode":
                     if (!await lookpath("code")) {
