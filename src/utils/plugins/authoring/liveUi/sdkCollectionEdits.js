@@ -1,4 +1,5 @@
 import {sourceNodeRemovalRanges} from './sourceRanges';
+import {escapeUnsafeJsChars} from './sourceEdits';
 // Item keys and body expressions are never rewritten by label/state edits.
 const emptyBody=node=>node?.type==='StringLiteral' && node.value==='' || node?.type==='BinaryExpression' && node.operator==='+' && emptyBody(node.left) && emptyBody(node.right);
 const fieldsOf=node=>{
@@ -53,21 +54,21 @@ export function planSdkCollection(files,element,request) {
         if(typeof value!=='string' || value!=='' && !items.some(row=>row.key===value && !row.flag)) throw new Error('Choose an enabled tab, or the first-enabled SDK default.');
         if(value===(collection.activeKey ?? '') && (value!=='' || !target.present)) throw new Error('This is already the default tab setting.');
         if(value==='') ({start,end,replacement}=combineEdits(before,target.removals.map(range=>({...range,value:''}))));
-        else {({start,end}=target);replacement=(target.insert ? '"activeKey":' : '')+JSON.stringify(value)+(target.insert ? ',' : '');}
+        else {({start,end}=target);replacement=(target.insert ? '"activeKey":' : '')+escapeUnsafeJsChars(JSON.stringify(value))+(target.insert ? ',' : '');}
     } else if(request.action==='add') {
         if(items.length>=50) throw new Error('Use at most 50 visually managed items.');
         let count=1,key;do {key='item-'+count++;} while(Object.values(files).some(source=>source.includes(key)));
-        const added=JSON.stringify({key,[collection.labelProperty]:tab ? 'New tab' : 'New section',body:''});
+        const added=escapeUnsafeJsChars(JSON.stringify({key,[collection.labelProperty]:tab ? 'New tab' : 'New section',body:''}));
         // Appending before the trailing gap preserves its comma/comments and the default active tab.
         start=end=items.at(-1).end;replacement=', '+added;
     } else if(!item) throw new Error('Select a current item.');
     else if(request.action==='label') {
         if(!item.labelTarget || typeof request.value!=='string' || !request.value.trim() || request.value.length>2000 || /[\r\n\u0000-\u001f]/.test(request.value)) throw new Error('Use a non-empty label of up to 2,000 characters on one line.');
-        ({start,end}=item.labelTarget);replacement=JSON.stringify(request.value);
+        ({start,end}=item.labelTarget);replacement=escapeUnsafeJsChars(JSON.stringify(request.value));
     } else if(request.action==='flag') {
         if(!item.flagTarget || typeof request.value!=='boolean') throw new Error('This item state must be edited in the IDE.');
         if(tab && request.value && (items.filter(row=>!row.flag).length===1 && !item.flag || collection.activeKey===item.key)) throw new Error('Keep an enabled tab and select another active key before disabling the active tab.');
-        const flagEdit=(row,value)=>({...row.flagTarget,value:(row.flagTarget.insert ? JSON.stringify(collection.flagProperty)+':' : '')+JSON.stringify(value)+(row.flagTarget.insert ? ', ' : '')});
+        const flagEdit=(row,value)=>({...row.flagTarget,value:(row.flagTarget.insert ? escapeUnsafeJsChars(JSON.stringify(collection.flagProperty))+':' : '')+escapeUnsafeJsChars(JSON.stringify(value))+(row.flagTarget.insert ? ', ' : '')});
         const edits=[flagEdit(item,request.value)];
         if(!tab && request.value && !collection.multiple) {
             const others=items.filter(row=>row!==item && row.flag);
