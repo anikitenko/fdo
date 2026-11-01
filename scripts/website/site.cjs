@@ -11,6 +11,7 @@ const publicFiles = [
   "404.html",
   "cli.html",
   "privacy.html",
+  "google9d9ae653e6dbd173.html",
   "styles.css",
   "site.js",
   "CNAME",
