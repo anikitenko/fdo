@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111713" />
+    <title>
+      FDO workshops — build your first plugin &amp; connect a real API
+    </title>
+    <meta
+      name="description"
+      content="Learn FlexDevOPs with short, practical video workshops. Create your first FDO plugin, connect the GitHub API, and debug with Plugin Doctor. Watch on YouTube and follow the setup guides."
+    />
+    <link rel="canonical" href="https://fdo.alexvwan.me/workshops.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="FDO workshops — learn by building" />
+    <meta
+      property="og:description"
+      content="From your first plugin to a real GitHub API integration. Two practical FDO workshops, with videos and setup guides."
+    />
+    <meta property="og:url" content="https://fdo.alexvwan.me/workshops.html" />
+    <meta
+      property="og:image"
+      content="https://fdo.alexvwan.me/assets/workshop-2.jpg"
+    />
+    <meta
+      property="og:image:alt"
+      content="The GitHub Release Monitor running in FDO during workshop 2."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FDO workshops — learn by building" />
+    <meta
+      name="twitter:description"
+      content="Create your first FDO plugin, connect a real API, and investigate faults with Plugin Doctor."
+    />
+    <meta
+      name="twitter:image"
+      content="https://fdo.alexvwan.me/assets/workshop-2.jpg"
+    />
+    <link rel="icon" type="image/png" href="assets/fdo-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "FDO video workshops",
+        "description": "Practical FlexDevOPs workshops: create a plugin, connect a real API, and investigate plugin faults.",
+        "url": "https://fdo.alexvwan.me/workshops.html",
+        "inLanguage": "en",
+        "isPartOf": {
+          "@type": "WebSite",
+          "name": "FDO — FlexDevOPs",
+          "url": "https://fdo.alexvwan.me/"
+        },
+        "mainEntity": {
+          "@type": "ItemList",
+          "itemListOrder": "https://schema.org/ItemListOrderAscending",
+          "numberOfItems": 2,
+          "itemListElement": [
+            {
+              "@type": "ListItem",
+              "position": 1,
+              "name": "Your first FDO plugin",
+              "url": "https://youtu.be/TMmLsL6ZCdc"
+            },
+            {
+              "@type": "ListItem",
+              "position": 2,
+              "name": "A real API and Plugin Doctor",
+              "url": "https://youtu.be/da2ojSPlC7w"
+            }
+          ]
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container navigation">
+        <a class="brand" href="/" aria-label="FDO home"
+          ><img
+            src="/assets/fdo-icon.png"
+            width="128"
+            height="128"
+            alt=""
+          /><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="/index.html#tour">Product tour</a>
+          <a href="/index.html#workspace">Features</a>
+          <a href="/ai-coding.html">AI coding</a>
+          <a href="/index.html#build">Build plugins</a>
+          <a href="/cli.html">CLI</a>
+          <a class="nav-workshops" href="/workshops.html" aria-current="page"
+            >Workshops</a
+          >
+          <a href="/index.html#resources">Docs</a>
+        </nav>
+        <a class="nav-github" href="https://github.com/anikitenko/fdo"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main" class="container workshops-page">
+      <header class="workshops-intro">
+        <p class="eyebrow">FDO / LEARN BY BUILDING</p>
+        <h1>Your first plugin.<br /><span>Then a real integration.</span></h1>
+        <p class="hero-description">
+          Short workshops from FDO’s author. Start with a working template,
+          learn the workflow, then connect a real service. Watch on YouTube and
+          follow along at your own pace.
+        </p>
+        <p class="workshops-note">
+          New to FDO? Start with workshop 1. Already built a plugin? Jump to
+          workshop 2.
+        </p>
+      </header>
+      <div class="workshop-grid" aria-label="Workshops in learning order">
+        <article class="workshop-card" id="first-plugin">
+          <a
+            class="workshop-video"
+            href="https://youtu.be/TMmLsL6ZCdc"
+            aria-labelledby="workshop-1-title workshop-1-watch"
+          >
+            <div class="workshop-thumbnail">
+              <img
+                src="assets/workshop-1.jpg"
+                width="1280"
+                height="720"
+                alt=""
+                fetchpriority="high"
+              />
+              <span class="workshop-play" aria-hidden="true">▶</span>
+            </div>
+            <div class="workshop-content">
+              <p class="eyebrow">01 / START HERE</p>
+              <h2 id="workshop-1-title">Your first FDO plugin</h2>
+              <p>
+                Create a Service monitor from a built-in template. Prepare a
+                signing certificate, explore the workspace, preview with Live
+                UI, run tests, and deploy your plugin locally.
+              </p>
+              <div class="workshop-topics" aria-label="Topics">
+                <span>Setup</span><span>Templates</span
+                ><span>Test &amp; deploy</span>
+              </div>
+              <span class="workshop-watch" id="workshop-1-watch"
+                >Watch workshop 1 on YouTube
+                <span aria-hidden="true">↗</span></span
+              >
+            </div>
+          </a>
+          <div class="workshop-resources">
+            <span>Follow along</span
+            ><a href="templates.html#start"
+              >Template &amp; setup guide <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </article>
+        <article class="workshop-card" id="real-api">
+          <a
+            class="workshop-video"
+            href="https://youtu.be/da2ojSPlC7w"
+            aria-labelledby="workshop-2-title workshop-2-watch"
+          >
+            <div class="workshop-thumbnail">
+              <img
+                src="assets/workshop-2.jpg"
+                width="1280"
+                height="720"
+                alt=""
+              />
+              <span class="workshop-play" aria-hidden="true">▶</span>
+            </div>
+            <div class="workshop-content">
+              <p class="eyebrow">02 / CONNECT A REAL SERVICE</p>
+              <h2 id="workshop-2-title">
+                A real API.<br />A better way to debug.
+              </h2>
+              <p>
+                Build a GitHub Release Monitor with a backend HTTPS request.
+                Review network permissions, handle failed checks, and use Plugin
+                Doctor to inspect a handler fault, fix it, and retry.
+              </p>
+              <div class="workshop-topics" aria-label="Topics">
+                <span>GitHub API</span><span>Permissions</span
+                ><span>Plugin Doctor</span>
+              </div>
+              <span class="workshop-watch" id="workshop-2-watch"
+                >Watch workshop 2 on YouTube
+                <span aria-hidden="true">↗</span></span
+              >
+            </div>
+          </a>
+          <div class="workshop-resources">
+            <span>Follow along</span
+            ><a
+              href="https://github.com/anikitenko/fdo/tree/main/examples/workshop/2"
+              >Source &amp; setup guide <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </article>
+      </div>
+      <aside class="workshops-start" aria-labelledby="workshops-start-title">
+        <div>
+          <h2 id="workshops-start-title">Ready to follow along?</h2>
+          <p>
+            Install FDO for macOS, Windows or Linux. Workshop 1 uses demo data;
+            workshop 2 calls GitHub’s public API without a token. Neither needs
+            an AI subscription.
+          </p>
+        </div>
+        <a class="button button-primary" href="index.html#download"
+          >Get FDO <span aria-hidden="true">↓</span></a
+        >
+      </aside>
+    </main>
+    <footer class="site-footer container">
+      <div>
+        <a class="brand" href="./"
+          ><span>FDO<span class="brand-dot">.</span></span></a
+        >
+        <p>FlexDevOps. Built to be yours.</p>
+      </div>
+      <div class="footer-links">
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/anikitenko/fdo">Source on GitHub</a>
+        <a href="https://github.com/anikitenko/fdo-plugins"
+          >Author’s plugins ↗</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>
