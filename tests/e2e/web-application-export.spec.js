@@ -12,6 +12,10 @@ test('exported SDK-free application serves browser actions and retains encrypted
     let child,context;
     const originalNodePath=process.env.NODE_PATH;
     const password=crypto.randomBytes(24).toString('base64'),key=crypto.randomBytes(32).toString('base64');
+    const reservation=require('node:net').createServer();
+    await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));
+    const selectedPort=reservation.address().port;
+    await new Promise(resolve=>reservation.close(resolve));
     const stop=async()=>{if(!child || child.exitCode!==null)return;const current=child;await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{current.kill('SIGKILL');reject(new Error('Standalone server did not shut down.'));},12000);current.once('exit',()=>{clearTimeout(timer);resolve();});current.kill('SIGTERM');});};
     try {
         const converter=path.join(directory,'converter.cjs');
@@ -24,7 +28,7 @@ test('exported SDK-free application serves browser actions and retains encrypted
             await window.FDOCharts.create(plot,{type:'bar',label:'Standalone chart',xKey:'day',data:[{day:'Monday',value:3}],series:[{key:'value'}],height:160});
         },handlers:`);
         const result=await createRequire(converter)(converter).prepareWebApplicationExport({snapshot:{virtual:files,sourceEntry:'index.ts'},plugin:{id:'fixture',name:'Web counter',capabilities,customProcessScopes:[{scope:'test-cli',allowedExecutables:['/desktop/bin/fake-cli'],allowedCwdRoots:['/desktop/project'],allowedEnvKeys:[],requireConfirmation:true,timeoutCeilingMs:2000,argumentPolicy:{version:1,mode:'first-arg',allowedFirstArgs:['account']}}]},
-            sdkSource:fs.readFileSync(require.resolve('@anikitenko/fdo-sdk'),'utf8'),viewLibrary:await buildWebExportAssets(),runtimeSources:webExportRuntimeSources(),esbuild:require('esbuild')});
+            sdkSource:fs.readFileSync(require.resolve('@anikitenko/fdo-sdk'),'utf8'),viewLibrary:await buildWebExportAssets(),runtimeSources:webExportRuntimeSources(),esbuild:require('esbuild'),port:selectedPort});
         expect(result.report.blockers).toEqual([]);
         expect(result.report.adapters).toContainEqual(expect.objectContaining({id:'charts',status:'supported'}));
         for(const [file,content] of Object.entries(result.files)){const target=path.join(output,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,content);}
@@ -38,12 +42,14 @@ test('exported SDK-free application serves browser actions and retains encrypted
         expect(fs.existsSync(path.join(output,'node_modules','electron'))).toBe(false);
         const data=path.join(directory,'state');let logs='';
         const start=async()=>{
-            const env={...process.env,PORT:'0',WEB_APP_DATA_DIR:data,WEB_APP_USERNAME:'engineer',WEB_APP_PASSWORD:password,WEB_APP_SECRET_KEY:key};
+            const env={...process.env,WEB_APP_DATA_DIR:data,WEB_APP_USERNAME:'engineer',WEB_APP_PASSWORD:password,WEB_APP_SECRET_KEY:key};
+            delete env.PORT; // Exercise the selected export default rather than overriding it.
             delete env.NODE_PATH;delete env.ESBUILD_BINARY_PATH;
             child=spawn(process.execPath,['server.cjs'],{cwd:output,env,stdio:['ignore','pipe','pipe']});
             child.stdout.on('data',value=>logs+=value.toString());child.stderr.on('data',value=>logs+=value.toString());
             await expect.poll(()=>logs.match(/Web application listening on port (\d+)/g)?.at(-1),{message:'Server startup: '+logs}).toBeTruthy();
             const port=logs.match(/Web application listening on port (\d+)/g).at(-1).match(/\d+/)[0],url='http://127.0.0.1:'+port;
+            expect(Number(port)).toBe(selectedPort);
             await expect.poll(async()=>fetch(url+'/health/ready').then(response=>response.status)).toBe(200);
             return url;
         };

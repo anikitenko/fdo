@@ -16,6 +16,11 @@ surface. License notices are included. It never connects back to desktop FDO.
 
 ## Run the exported project
 
+Choose **Container port** in the Export As dialog before reviewing the application.
+The default is `8080`; ports `1024–65535` are supported by this non-root image.
+Changing the port requires a fresh review and updates the generated server default,
+Dockerfile, Compose mapping, setup environment, health checks and cloud target ports.
+
 Extract the ZIP and run:
 
 ```sh
@@ -23,7 +28,7 @@ sh start.sh
 ```
 
 This generates `.env` once and runs `docker compose up --build`. Read the private
-`.env` file to sign in as `engineer` at http://localhost:8080. Existing access and
+`.env` file to sign in as `engineer` at http://localhost:8080 (or your selected port). Existing access and
 encryption keys are preserved. Without a local Node installation, setup runs through
 the Compose `setup` profile. On Windows use `docker compose --profile setup run --rm
 setup`, then `docker compose up --build`.
@@ -31,6 +36,18 @@ setup`, then `docker compose up --build`.
 Every successful application export includes `Dockerfile`, `docker-compose.yml`,
 `setup.cjs`, `start.sh`, frontend, backend, converted source, a pinned lockfile and
 cloud deployment templates. Configuration requirements do not produce a documentation-only ZIP.
+
+The export dialog opens bundled deployment instructions in a **Cloud deployment
+guide** window, with a platform selector, section navigation, and code/guide copying:
+
+- [Azure Container Apps](AZURE_CONTAINER_APPS_DEPLOYMENT.md), shipped as `docs/AZURE_CONTAINER_APPS.md`.
+- [AWS ECS Fargate](AWS_ECS_DEPLOYMENT.md), shipped as `docs/AWS_ECS.md`.
+- [Google Cloud Run](GCP_CLOUD_RUN_DEPLOYMENT.md), shipped as `docs/GCP_CLOUD_RUN.md`.
+
+The same Markdown files power the dialog and ZIP. Each covers image builds, persistent
+`/data`, secret references before first start, HTTPS origin/target port, permissions,
+verification and updates. Commands are reference material and are not executed by
+the dialog. Cloud public HTTPS uses port 443 independently of the internal port.
 
 ## CLI dependencies and authentication
 

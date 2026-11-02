@@ -19,7 +19,7 @@ const capabilities=['storage','storage.json','secrets.use','secrets.set','secret
 const plugin={id:'fixture',name:'Web counter',capabilities};
 let viewLibrary;
 beforeAll(async()=>{viewLibrary=await buildWebExportAssets();},30000);
-const prepare=(files=fixture(),owner=plugin)=>prepareWebApplicationExport({snapshot:{virtual:files,sourceEntry:'index.ts'},plugin:owner,esbuild,sdkSource,viewLibrary,runtimeSources:webExportRuntimeSources()});
+const prepare=(files=fixture(),owner=plugin,options={})=>prepareWebApplicationExport({snapshot:{virtual:files,sourceEntry:'index.ts'},plugin:owner,esbuild,sdkSource,viewLibrary,runtimeSources:webExportRuntimeSources(),...options});
 
 test('the independent conversion contract covers every host capability and all scope families',()=>{
     for(const capability of KNOWN_PLUGIN_CAPABILITIES)expect(WEB_EXPORT_CONTRACT.adapters[capabilityAdapter(capability)]).toBeDefined();
@@ -46,10 +46,15 @@ test('conversion emits editable source, an independent backend, cloud templates 
     expect(files['backend/source/index.ts']).toContain('../../runtime/authoring.cjs');
     expect(files['Dockerfile']).toContain('USER node');expect(files['Dockerfile']).toContain('npm ci');
     expect(files['.dockerignore']).toContain('.env');expect(files['docker-compose.yml']).toContain('127.0.0.1:8080:8080');
+    expect(files['.gcloudignore']).toContain('.env');expect(files['.gcloudignore']).toContain('deployment/*.private.json');
     expect(JSON.parse(files['deployment/aws-ecs.task.json']).requiresCompatibilities).toEqual(['FARGATE']);
     expect(JSON.parse(files['deployment/azure-container-app.json']).properties.template.scale.maxReplicas).toBe(1);
     expect(JSON.parse(files['deployment/gcp-cloud-run.json']).spec.template.spec.containers[0].startupProbe.httpGet.path).toBe('/health/ready');
     expect(files['README.md']).toContain('Rolling revisions may overlap');
+    for(const [file,source] of [['AZURE_CONTAINER_APPS.md','AZURE_CONTAINER_APPS_DEPLOYMENT.md'],['AWS_ECS.md','AWS_ECS_DEPLOYMENT.md'],['GCP_CLOUD_RUN.md','GCP_CLOUD_RUN_DEPLOYMENT.md']]) {
+        expect(files['docs/'+file]).toBe(fs.readFileSync(path.resolve('docs',source),'utf8'));
+        expect(files['README.md']).toContain('docs/'+file);
+    }
     expect(result.report.sourceFingerprint).toBe(exportFingerprint(fixture(),plugin));
     expect(exportFingerprint(fixture(),{...plugin,capabilities:[]})).not.toBe(result.report.sourceFingerprint);
 });
@@ -61,6 +66,92 @@ test('unapproved grants block export while configured services retain runnable p
     expect(report.blockers).toEqual([]);expect(report.adapters).toEqual(expect.arrayContaining([expect.objectContaining({id:'tray',status:'configuration'}),expect.objectContaining({id:'x11',status:'configuration'})]));
     files['/logic.ts']="export const auth='fdo.auth.start.v1';";
     expect(analyzeWebExport(files,{...plugin,capabilities:[...capabilities,'system.tray','ssh.x11.forward']}).adapters).toContainEqual(expect.objectContaining({id:'authentication',status:'configuration'}));
+});
+
+test('a selected port reaches the server, setup, Docker, Compose and all cloud ingress/probe definitions',async()=>{
+    const result=await prepare(fixture(),plugin,{port:9090}),files=result.files;
+    expect(result.report.deployment.port).toBe(9090);
+    expect(files['server.cjs']).toContain("process.env.PORT ||= '9090'");
+    expect(files.Dockerfile).toContain('PORT=9090');expect(files.Dockerfile).toContain('EXPOSE 9090');
+    expect(files['docker-compose.yml']).toContain('127.0.0.1:9090:9090');expect(files['docker-compose.yml']).toContain('PORT: "9090"');
+    expect(files['healthcheck.cjs']).toContain('process.env.PORT||9090');
+    const aws=JSON.parse(files['deployment/aws-ecs.task.json']).containerDefinitions[0];
+    expect(aws.portMappings[0].containerPort).toBe(9090);expect(aws.environment).toContainEqual({name:'PORT',value:'9090'});
+    const azure=JSON.parse(files['deployment/azure-container-app.json']).properties;
+    expect(azure.configuration.ingress.targetPort).toBe(9090);
+    expect(azure.template.containers[0].env).toContainEqual({name:'PORT',value:'9090'});
+    expect(azure.template.containers[0].probes.every(item=>item.httpGet.port===9090)).toBe(true);
+    const gcp=JSON.parse(files['deployment/gcp-cloud-run.json']).spec.template.spec.containers[0];
+    expect(gcp.ports[0].containerPort).toBe(9090);expect(gcp.startupProbe.httpGet.port).toBe(9090);expect(gcp.livenessProbe.httpGet.port).toBe(9090);
+    expect(gcp.env.some(item=>item.name==='PORT')).toBe(false); // Cloud Run supplies its reserved PORT variable.
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'web-port-'));
+    try {
+        fs.writeFileSync(path.join(root,'setup.cjs'),files['setup.cjs']);execFileSync(process.execPath,[path.join(root,'setup.cjs')]);
+        const env=fs.readFileSync(path.join(root,'.env'),'utf8');expect(env).toContain('PORT=9090');expect(env).toContain('WEB_APP_ORIGIN=http://localhost:9090');
+    }finally{fs.rmSync(root,{recursive:true,force:true});}
+    expect(files['README.md']).toContain('localhost:9090');expect(files['README.md']).toContain('docs/AZURE_CONTAINER_APPS.md');
+});
+
+test.each([0,80,1023,65536,-1,9090.5,'9090; echo invalid','',null])('invalid export port %p is rejected before conversion',async port=>{
+    await expect(prepare(fixture(),plugin,{port})).rejects.toThrow('1024 to 65535');
+});
+
+test('the shipped Azure guide generates a complete private deployment without printing or baking secrets',async()=>{
+    const {files}=await prepare(fixture(),plugin,{port:9090});
+    const guide=files['docs/AZURE_CONTAINER_APPS.md'],script=guide.match(/node <<'NODE'\n([\s\S]*?)\nNODE/)[1];
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'web-azure-guide-'));
+    try {
+        fs.mkdirSync(path.join(root,'deployment'));
+        fs.writeFileSync(path.join(root,'deployment/azure-container-app.json'),files['deployment/azure-container-app.json']);
+        const key=Buffer.alloc(32,7).toString('base64'),password='a-private-test-password-at-least-24-characters';
+        fs.writeFileSync(path.join(root,'.env'),`PORT=9090\nWEB_APP_USERNAME=engineer\nWEB_APP_PASSWORD=${password}\nWEB_APP_SECRET_KEY=${key}\nWEB_APP_ORIGIN=http://localhost:9090\nPROVIDER_API_TOKEN="a=private-token"\n`);
+        const output=execFileSync(process.execPath,['-'],{input:script,cwd:root,encoding:'utf8',env:{...process.env,APP:'fdo-test',LOCATION:'westeurope',ACR_SERVER:'example.azurecr.io',ACR_USER:'registry-user',ACR_PASSWORD:'private-registry-password',IMAGE_TAG:'1.0',ENVIRONMENT_ID:'/subscriptions/test/environments/test',DEFAULT_DOMAIN:'test.azurecontainerapps.io',STORAGE_MOUNT_NAME:'test-mount'}});
+        const file=path.join(root,'deployment/azure-container-app.private.json'),config=JSON.parse(fs.readFileSync(file,'utf8')),props=config.properties;
+        expect(config.identity).toBeUndefined();expect(config.name).toBe('fdo-test');
+        expect(props.configuration.ingress.targetPort).toBe(9090);
+        expect(props.configuration.registries[0].passwordSecretRef).toBe('registry-password');
+        expect(props.configuration.secrets).toContainEqual({name:'app-provider-api-token',value:'a=private-token'});
+        expect(props.template.containers[0].env).toEqual(expect.arrayContaining([{name:'PROVIDER_API_TOKEN',secretRef:'app-provider-api-token'},{name:'WEB_APP_ORIGIN',value:'https://fdo-test.test.azurecontainerapps.io'}]));
+        expect(props.template.containers[0].volumeMounts).toEqual([{volumeName:'application-data',mountPath:'/data'}]);
+        expect(props.template.volumes[0]).toMatchObject({storageName:'test-mount',storageType:'AzureFile',mountOptions:expect.stringContaining('uid=1000')});
+        expect(props.template.scale).toEqual({minReplicas:1,maxReplicas:1});
+        expect(JSON.stringify(config)).not.toContain('REPLACE_WITH');expect(output).not.toContain(password);expect(output).not.toContain(key);
+        expect(fs.statSync(file).mode&0o777).toBe(0o600);
+        expect(files['.dockerignore']).toContain('deployment/*.private.json');expect(files['.gitignore']).toContain('deployment/*.private.json');
+    }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('the shipped ECS and Cloud Run guides generate complete configuration locally without cloud calls',async()=>{
+    const {files}=await prepare(fixture(),plugin,{port:9090});
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'web-cloud-guides-'));
+    try {
+        const testEnv={...process.env,APP:'fdo-test',AWS_REGION:'eu-west-1',ACCOUNT_ID:'123456789012',ECR_SERVER:'123456789012.dkr.ecr.eu-west-1.amazonaws.com',IMAGE_TAG:'1.0',APP_HOST:'fdo.example.com',SECRET_ARN:'arn:aws:secretsmanager:eu-west-1:123456789012:secret:env-test',EFS_ID:'fs-test',EFS_AP:'fsap-test',PORT:'9090',PROJECT_ID:'test-project',SERVICE_ACCOUNT:'fdo@test-project.iam.gserviceaccount.com',IMAGE_URI:'europe-west1-docker.pkg.dev/test/fdo/app:1.0',APP_ORIGIN:'https://fdo-test-123.europe-west1.run.app',NETWORK:'fdo-network',SUBNET:'fdo-subnet',FILESTORE_IP:'10.42.1.2',SHARE:'data'};
+        fs.mkdirSync(path.join(directory,'deployment'));
+        for(const file of ['aws-ecs.task.json','gcp-cloud-run.json'])fs.writeFileSync(path.join(directory,'deployment',file),files['deployment/'+file]);
+        const key=Buffer.alloc(32,9).toString('base64');
+        fs.writeFileSync(path.join(directory,'.env'),`PORT=9090\nWEB_APP_USERNAME=engineer\nWEB_APP_PASSWORD=private-password-longer-than-24-characters\nWEB_APP_SECRET_KEY=${key}\nWEB_APP_ORIGIN=http://localhost:9090\nPROVIDER_API_TOKEN=private-token\n`);
+        const awsScripts=[...files['docs/AWS_ECS.md'].matchAll(/node <<'NODE'\n([\s\S]*?)\nNODE/g)].map(match=>match[1]);
+        expect(awsScripts).toHaveLength(3);
+        for(const script of awsScripts)execFileSync(process.execPath,['-'],{input:script,cwd:directory,env:testEnv});
+        const task=JSON.parse(fs.readFileSync(path.join(directory,'deployment/ecs-task.private.json'),'utf8'));
+        expect(task.containerDefinitions[0].portMappings[0].containerPort).toBe(9090);
+        expect(task.containerDefinitions[0].secrets).toContainEqual({name:'PROVIDER_API_TOKEN',valueFrom:testEnv.SECRET_ARN+':PROVIDER_API_TOKEN::'});
+        expect(task.volumes[0].efsVolumeConfiguration).toMatchObject({fileSystemId:'fs-test',transitEncryption:'ENABLED',authorizationConfig:{accessPointId:'fsap-test',iam:'ENABLED'}});
+        expect(JSON.stringify(task)).not.toContain('private-token');expect(JSON.stringify(task)).not.toContain('REPLACE_WITH');
+        const gcpScript=files['docs/GCP_CLOUD_RUN.md'].match(/node <<'NODE'\n([\s\S]*?)\nNODE/)[1];
+        execFileSync(process.execPath,['-'],{input:gcpScript,cwd:directory,env:testEnv});
+        const config=JSON.parse(fs.readFileSync(path.join(directory,'deployment/gcp-service.private.json'),'utf8'));
+        const spec=config.spec.template.spec,c=spec.containers[0];
+        expect(c.ports[0].containerPort).toBe(9090);expect(c.env.some(item=>item.name==='PORT')).toBe(false);
+        expect(c.env).toContainEqual({name:'PROVIDER_API_TOKEN',valueFrom:{secretKeyRef:{name:'fdo-test-provider-api-token',key:'1'}}});
+        expect(config.metadata.annotations['run.googleapis.com/manualInstanceCount']).toBe('1');
+        expect(config.spec.template.metadata.annotations['run.googleapis.com/cpu-throttling']).toBe('false');
+        expect(spec.serviceAccountName).toBe(testEnv.SERVICE_ACCOUNT);expect(spec.volumes[0].nfs).toEqual({server:'10.42.1.2',path:'/data'});
+        expect(JSON.stringify(config)).not.toContain('REPLACE_WITH');expect(JSON.stringify(config)).not.toContain('private-token');
+        const uploads=JSON.parse(fs.readFileSync(path.join(directory,'deployment/gcp-secrets.private.json'),'utf8'));
+        expect(uploads).toContainEqual({name:'fdo-test-provider-api-token',value:'private-token'});
+        for(const file of ['ecs-env.private.json','ecs-task.private.json','gcp-service.private.json','gcp-secrets.private.json'])expect(fs.statSync(path.join(directory,'deployment',file)).mode&0o777).toBe(0o600);
+    }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
 
 test('declarations using imported constant capability lists are resolved without executing plugin code',async()=>{

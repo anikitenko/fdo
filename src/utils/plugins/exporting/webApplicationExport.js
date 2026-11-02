@@ -19,6 +19,7 @@ import {EsbuildVirtualFsPlugin} from '../../esbuild/plugins/virtual-fs';
 import {inspectGitOpsCapabilities} from '../../gitops/inspectCapabilities';
 import {runtimeSourceGraph} from './runtimeSourceGraph';
 import {attachWebExportRecovery} from './webExportRecovery';
+import {normalizeExportPort} from './exportOptions';
 const traverse=Reflect.get(traverseModule,'default') || traverseModule;
 
 export function exportFingerprint(files,plugin) {
@@ -34,8 +35,9 @@ const projectName=value=>{
     return name.slice(0,32).replace(/-+$/,'');
 };
 
-export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSource,viewLibrary,runtimeSources}) {
-    for(const key of ['toolRuntime','toolSemver','serviceCore','workerLiveSource','gitSshHelper','applicationRuntime','installApplicationNetworkPolicy','backendWorker','webServer','webFrontend','iframeRuntime','createWebServices','deploymentSetup','thirdPartyNotices'])if(typeof runtimeSources?.[key]!=='string' || !runtimeSources[key])throw new Error('The standalone runtime assets are incomplete. Rebuild or update FDO before exporting ('+key+').');
+export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSource,viewLibrary,runtimeSources,port=8080}) {
+    port=normalizeExportPort(port);
+    for(const key of ['toolRuntime','toolSemver','serviceCore','workerLiveSource','gitSshHelper','applicationRuntime','installApplicationNetworkPolicy','backendWorker','webServer','webFrontend','iframeRuntime','createWebServices','deploymentSetup','thirdPartyNotices','azureDeploymentDocumentation','awsDeploymentDocumentation','gcpDeploymentDocumentation'])if(typeof runtimeSources?.[key]!=='string' || !runtimeSources[key])throw new Error('The standalone runtime assets are incomplete. Rebuild or update FDO before exporting ('+key+').');
     const selectedEntry=snapshot.sourceEntry || snapshot.runtimeEntry;
     let declaration,metafile;
     if(selectedEntry)try {
@@ -52,6 +54,7 @@ export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSo
     const blocked=()=>({report:attachWebExportRecovery(report)});
     report.sourceFingerprint=exportFingerprint(snapshot.virtual,plugin);
     report.build={fdo:appPackage.version,sdk:sdkPackage.version};
+    report.deployment={port};
     if(!selectedEntry)report.blockers.push('No plugin entry point was found.');
     const compatibility=snapshot.sourceEntry?snapshot.sourceCompatibility:snapshot.compatibility;
     if(compatibility?.status==='incompatible')report.blockers.push(...compatibility.issues);
@@ -105,6 +108,9 @@ export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSo
     const frontendEntryUrl='/assets/application.js';
     Object.assign(files,{
         'docs/TOOLCHAIN.md':runtimeSources.toolchainDocumentation || 'See deployment/toolchain.json and run node tools.cjs check.\n',
+        'docs/AZURE_CONTAINER_APPS.md':runtimeSources.azureDeploymentDocumentation,
+        'docs/AWS_ECS.md':runtimeSources.awsDeploymentDocumentation,
+        'docs/GCP_CLOUD_RUN.md':runtimeSources.gcpDeploymentDocumentation,
         'deployment/toolchain.json':JSON.stringify(toolchain,null,2)+'\n',
         'runtime/tool-semver.cjs':runtimeSources.toolSemver,
         'runtime/tools.cjs':'module.exports=('+runtimeSources.toolRuntime+')();\n',
@@ -118,21 +124,22 @@ export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSo
         'runtime/systemGit.cjs':"exports.bundledGit=()=>({execPath:'/usr/lib/git-core',binPaths:['/usr/bin']});\n",
         'runtime/git-ssh-helper.cjs':runtimeSources.gitSshHelper,
         'deployment/services.json':JSON.stringify({executables,pathMappings,sshProfiles:[],secretEnvironment:{},aiAssistants:[],gateway:{url:''}},null,2)+'\n',
-        'setup.cjs':'('+runtimeSources.deploymentSetup+')();\n',
+        'setup.cjs':'('+runtimeSources.deploymentSetup+')('+port+');\n',
         'start.sh':'#!/bin/sh\nset -eu\nif command -v node >/dev/null 2>&1; then node setup.cjs; else docker compose --profile setup run --rm setup; fi\ndocker compose up --build\n',
         'THIRD_PARTY_NOTICES.txt':runtimeSources.thirdPartyNotices,
-        'server.cjs':'('+runtimeSources.webServer+')();\n','worker.cjs':'('+runtimeSources.backendWorker+')();\n',
+        'server.cjs':`process.env.PORT ||= '${port}';\n`+'('+runtimeSources.webServer+')();\n','worker.cjs':'('+runtimeSources.backendWorker+')();\n',
         'frontend/application.js':runtimeSources.iframeRuntime+'\n('+runtimeSources.webFrontend+')();\n',
         'frontend/view.js':typeof viewLibrary==='string'?viewLibrary:Buffer.from(viewLibrary).toString('utf8'),
         'frontend/index.html':`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Web application</title><style>html,body{margin:0;height:100%;font:16px system-ui}#status{padding:16px}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><p id="status" role="status">Loading application…</p><iframe id="application" title="Application" sandbox="allow-scripts" allow="clipboard-read; clipboard-write"></iframe><script src="${frontendEntryUrl}" defer></script></body></html>\n`,
         'deployment/application.json':JSON.stringify(manifest,null,2)+'\n',
-        'healthcheck.cjs':"require('node:http').get('http://127.0.0.1:'+(process.env.PORT||8080)+'/health/ready',response=>process.exit(response.statusCode===200?0:1)).on('error',()=>process.exit(1));\n",
-        '.env.example':'WEB_APP_USERNAME=engineer\nWEB_APP_PASSWORD=\nWEB_APP_SECRET_KEY=\nWEB_APP_ORIGIN=http://localhost:8080\n',
-        '.gitignore':'node_modules/\n.env\ndata/\n*.enc\n',
-        '.dockerignore':'.git\nnode_modules\n.env\n.env.*\ndata\n*.enc\ndeployment/toolchain.lock.json\n',
-        'Dockerfile':`FROM ${toolchain.baseImage}\nUSER root\nENV NODE_ENV=production PORT=8080 WEB_APP_DATA_DIR=/data AZURE_CONFIG_DIR=/data/azure HOME=/data PATH=/opt/fdo-tools/bin:$PATH\nWORKDIR /app\nCOPY deployment/toolchain.json deployment/toolchain.json\nCOPY runtime/tools.cjs runtime/tool-semver.cjs runtime/\nCOPY tools.cjs .\nRUN node tools.cjs install\nCOPY package.json package-lock.json ./\nRUN npm ci --omit=dev --ignore-scripts && npm cache clean --force\nCOPY . .\nRUN npm run build && mkdir -p /data && chown -R node:node /data\nUSER node\nEXPOSE 8080\nHEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node","healthcheck.cjs"]\nCMD ["node","server.cjs"]\n`,
-        'docker-compose.yml':'services:\n  setup:\n    image: node:24-bookworm-slim\n    profiles: [setup]\n    working_dir: /project\n    volumes: [".:/project"]\n    command: [node, setup.cjs]\n  application:\n    build: .\n    ports: ["127.0.0.1:8080:8080"]\n    env_file:\n      - path: .env\n        required: false\n    init: true\n    cap_drop: [ALL]\n    security_opt: ["no-new-privileges:true"]\n    volumes: ["application-data:/data"]\nvolumes:\n  application-data: {}\n',
-        ...cloudTemplates(name,{persistent,encrypted}),
+        'healthcheck.cjs':`require('node:http').get('http://127.0.0.1:'+(process.env.PORT||${port})+'/health/ready',response=>process.exit(response.statusCode===200?0:1)).on('error',()=>process.exit(1));\n`,
+        '.env.example':`PORT=${port}\nWEB_APP_USERNAME=engineer\nWEB_APP_PASSWORD=\nWEB_APP_SECRET_KEY=\nWEB_APP_ORIGIN=http://localhost:${port}\n`,
+        '.gitignore':'node_modules/\n.env\ndata/\n*.enc\ndeployment/*.private.json\n',
+        '.dockerignore':'.git\nnode_modules\n.env\n.env.*\ndata\n*.enc\ndeployment/*.private.json\ndeployment/toolchain.lock.json\n',
+        '.gcloudignore':'.gcloudignore\n.git\nnode_modules\n.env\n.env.*\ndata\n*.enc\ndeployment/*.private.json\ndeployment/toolchain.lock.json\n',
+        'Dockerfile':`FROM ${toolchain.baseImage}\nUSER root\nENV NODE_ENV=production PORT=${port} WEB_APP_DATA_DIR=/data AZURE_CONFIG_DIR=/data/azure HOME=/data PATH=/opt/fdo-tools/bin:$PATH\nWORKDIR /app\nCOPY deployment/toolchain.json deployment/toolchain.json\nCOPY runtime/tools.cjs runtime/tool-semver.cjs runtime/\nCOPY tools.cjs .\nRUN node tools.cjs install\nCOPY package.json package-lock.json ./\nRUN npm ci --omit=dev --ignore-scripts && npm cache clean --force\nCOPY . .\nRUN npm run build && mkdir -p /data && chown -R node:node /data\nUSER node\nEXPOSE ${port}\nHEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node","healthcheck.cjs"]\nCMD ["node","server.cjs"]\n`,
+        'docker-compose.yml':`services:\n  setup:\n    image: node:24-bookworm-slim\n    profiles: [setup]\n    working_dir: /project\n    volumes: [".:/project"]\n    command: [node, setup.cjs]\n  application:\n    build: .\n    ports: ["127.0.0.1:${port}:${port}"]\n    environment:\n      PORT: "${port}"\n    env_file:\n      - path: .env\n        required: false\n    init: true\n    cap_drop: [ALL]\n    security_opt: ["no-new-privileges:true"]\n    volumes: ["application-data:/data"]\nvolumes:\n  application-data: {}\n`,
+        ...cloudTemplates(name,{persistent,encrypted,port}),
     });
     const dependencies={...runtimeLock.packages[''].dependencies};
     files['package.json']=JSON.stringify({name,version:'1.0.0',private:true,scripts:{start:'node server.cjs',build:'node build.cjs'},engines:{node:'>=24'},dependencies},null,2)+'\n';

@@ -1226,6 +1226,11 @@ h2 {
 .tour-panel figcaption a:hover {
   color: var(--accent);
 }
+.tour-caption p a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .tour-caption {
   display: flex;
   align-items: start;

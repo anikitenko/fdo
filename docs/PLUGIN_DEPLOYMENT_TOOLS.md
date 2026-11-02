@@ -2,6 +2,8 @@
 
 Deployment tooling is shared with AI Coding and Live UI: see [Deployment authoring workflow](DEPLOYMENT_AUTHORING.md) for source review, tool editing, authentication and recovery.
 
+For an exported application, follow the [Azure Container Apps](AZURE_CONTAINER_APPS_DEPLOYMENT.md), [AWS ECS Fargate](AWS_ECS_DEPLOYMENT.md) or [Google Cloud Run](GCP_CLOUD_RUN_DEPLOYMENT.md) walkthrough for registry builds, persistent `/data`, identities, `.env` secret references, ports and updates. All three are available in the export dialog and shipped in the ZIP's `docs/` folder.
+
 Host capabilities authorize operations; they do not describe binary dependencies.
 A process allowlist may contain several interchangeable tools and platform paths.
 The exporter must not install that entire allowlist or assume that a network grant

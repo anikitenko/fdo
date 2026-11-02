@@ -11,6 +11,7 @@ import {ensureExecutableEsbuildBinary,getHostPluginNodeModulesPath,loadHostEsbui
 import {getIgnoreInstance} from '../utils/filesystem/getIgnoreInstance';
 import {getAllFilesWithIgnorance} from '../utils/filesystem/getAllFilesWithIgnorance';
 import {createMigrationWorkPackage} from '../utils/plugins/exporting/webExportRecovery';
+import {normalizeExportPort} from '../utils/plugins/exporting/exportOptions';
 
 // Only host-owned plugin paths and snapshots are accepted. No renderer-supplied
 // paths, bundle code or capability overrides enter the export build.
@@ -23,11 +24,12 @@ export function registerPluginExportHandlers({getPlugin}) {
         if(!plugin?.home)throw new Error('The installed plugin could not be found.');
         return {...plugin,name:plugin.metadata?.name || plugin.name || plugin.id};
     };
-    ipcMain.handle(PluginChannels.EXPORT_PREVIEW,async(event,id)=>{
+    ipcMain.handle(PluginChannels.EXPORT_PREVIEW,async(event,id,options={})=>{
         const owner=event.sender.id;
         clearTimeout(cleanupTimers.get(owner));cleanupTimers.delete(owner);
         previews.delete(owner);
         try {
+            const port=normalizeExportPort(options?.port);
             const plugin=readPlugin(id),snapshot=await inspectPluginFolder(plugin.home),nodeModules=getHostPluginNodeModulesPath();
             ensureExecutableEsbuildBinary(nodeModules);
             const requireHost=Module.createRequire(path.join(nodeModules,'__web_export__.cjs'));
@@ -37,7 +39,7 @@ export function registerPluginExportHandlers({getPlugin}) {
                 fs.readFile(path.join(assets,'view.js')),
                 fs.readFile(path.join(assets,'runtime-sources.json'),'utf8').then(JSON.parse),
             ]);
-            const prepared=await prepareWebApplicationExport({snapshot,plugin,sdkSource,viewLibrary,runtimeSources,esbuild:loadHostEsbuild(nodeModules)});
+            const prepared=await prepareWebApplicationExport({snapshot,plugin,sdkSource,viewLibrary,runtimeSources,esbuild:loadHostEsbuild(nodeModules),port});
             if(event.sender.isDestroyed())return {success:false,error:'The export window closed.'};
             const token=randomUUID(),expires=Date.now()+10*60*1000;
             previews.set(owner,{id,token,expires,prepared});

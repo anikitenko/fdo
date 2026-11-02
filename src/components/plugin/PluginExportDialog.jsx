@@ -1,16 +1,22 @@
 import {ToolInstallationGuide} from './ToolInstallationGuide';
 import React,{useEffect,useRef,useState} from 'react';
-import {Button,Callout,Dialog,DialogBody,DialogFooter,FormGroup,HTMLSelect,HTMLTable,Spinner,Tag} from '@blueprintjs/core';
+import {Button,Callout,Dialog,DialogBody,DialogFooter,FormGroup,HTMLSelect,HTMLTable,InputGroup,Spinner,Tag} from '@blueprintjs/core';
 import {attachWebExportRecovery,migrationBrief} from '../../utils/plugins/exporting/webExportRecovery';
+import {normalizeExportPort} from '../../utils/plugins/exporting/exportOptions';
+import DeploymentGuideDialog from './DeploymentGuideDialog';
 
 export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}) {
     const [format,setFormat]=useState('archive'),[review,setReview]=useState(null),[reviewing,setReviewing]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState('');
     const generation=useRef(0);
     const [notice,setNotice]=useState(''),[opening,setOpening]=useState(false);
+    const [port,setPort]=useState('8080');
+    const [guideProvider,setGuideProvider]=useState(null);
+    let portError='';try{normalizeExportPort(port);}catch(failure){portError=failure.message;}
     useEffect(()=>()=>{generation.current++;},[]);
     const inspect=async()=>{
+        if(portError){setError(portError);return;}
         const current=++generation.current;setReviewing(true);setError('');setReview(null);setSaved('');setNotice('');
-        try{const result=await window.electron.plugin.previewExport(plugin.id);if(current!==generation.current)return;
+        try{const result=await window.electron.plugin.previewExport(plugin.id,{port:normalizeExportPort(port)});if(current!==generation.current)return;
             if(!result?.success){setError(result?.error || 'The plugin could not be reviewed.');return;}setReview(result);
         }catch(failure){if(current===generation.current)setError(failure.message);}
         finally{if(current===generation.current)setReviewing(false);}
@@ -41,7 +47,7 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
     const groups=Object.values((report?.requirements || []).reduce((result,item)=>{
         const group=result[item.adapter] || (result[item.adapter]={...item,capabilities:[]});group.capabilities.push(item.capability);return result;
     },{}));
-    return <Dialog isOpen title={'Export As · '+plugin.name} onClose={onClose} canOutsideClickClose={!saving} canEscapeKeyClose={!saving} isCloseButtonShown={!saving}
+    return <><Dialog isOpen title={'Export As · '+plugin.name} onClose={onClose} canOutsideClickClose={!saving && !guideProvider} canEscapeKeyClose={!saving && !guideProvider} isCloseButtonShown={!saving}
         style={{width:800,maxWidth:'calc(100vw - 32px)'}}>
         <DialogBody>
             <FormGroup label="Export format" labelFor="plugin-export-format">
@@ -55,6 +61,18 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
                     Converted source with Docker packaging and templates for AWS ECS, Azure Container Apps and Google Cloud Run. Runs without Electron or an installed FDO SDK.
                 </Callout>
                 <p>The export carries the public host contract and approved capability policies. Configure deployment services and cloud access independently; desktop credentials and data stay here.</p>
+                <FormGroup label="Container port" labelFor="plugin-export-port" intent={portError?'danger':'none'} helperText={portError || 'Used by the server, Docker/Compose, cloud target ports and health checks. Azure public HTTPS still uses port 443.'}>
+                    <InputGroup id="plugin-export-port" type="number" min={1024} max={65535} step={1} value={port} disabled={saving || reviewing}
+                        onChange={event=>{generation.current++;setPort(event.target.value);setReview(null);setError('');setSaved('');setNotice('Port changed. Choose Review installed version to prepare the updated container files.');}}/>
+                </FormGroup>
+                <Callout icon="cloud" title="Cloud deployment guides" style={{marginBottom:12}}>
+                    Read the bundled instructions for image builds, persistent <code>/data</code>, secrets, ingress and updates. Configure storage and secrets before the first app start.
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:8}}>
+                        <Button icon="document-open" disabled={saving} onClick={()=>setGuideProvider('azure')}>Azure deployment guide</Button>
+                        <Button icon="document-open" disabled={saving} onClick={()=>setGuideProvider('aws')}>AWS ECS deployment guide</Button>
+                        <Button icon="document-open" disabled={saving} onClick={()=>setGuideProvider('gcp')}>GCP deployment guide</Button>
+                    </div>
+                </Callout>
                 {reviewing && <div role="status" style={{display:'flex',gap:12,alignItems:'center',padding:16}}><Spinner size={20}/>Checking conversion and building the application…</div>}
                 {report && <>
                     <Callout intent={blocked?'warning':'success'} title={blocked?'Web migration required':'Application conversion prepared'}>
@@ -111,7 +129,7 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
                     </details>
                     <details style={{marginTop:12}}><summary style={{cursor:'pointer'}}>Deployment notes</summary><ul>{report.warnings.map(message=><li key={message}>{message}</li>)}</ul></details>
                 </>}
-                <div style={{display:'flex',gap:8,marginTop:16}}><Button icon="refresh" disabled={saving || reviewing} onClick={inspect}>Review installed version</Button>
+                <div style={{display:'flex',gap:8,marginTop:16}}><Button icon="refresh" disabled={saving || reviewing || !!portError} onClick={inspect}>Review installed version</Button>
                     <Button icon="document" disabled={saving || !review || reviewing} onClick={()=>save('report')}>Save conversion report</Button></div>
             </>}
             {error && <Callout intent="danger" role="alert" style={{marginTop:16}}>{error}</Callout>}
@@ -119,7 +137,7 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
             {notice && <Callout intent="primary" role="status" style={{marginTop:16}}>{notice}</Callout>}
         </DialogBody>
         <DialogFooter actions={<><Button disabled={saving} onClick={onClose}>Close</Button><Button intent="primary" icon="export" loading={saving}
-            disabled={saving || format==='web' && (reviewing || !report || blocked)} onClick={()=>save(format)}>{format==='web'?'Export web application':'Export plugin archive'}</Button>
+            disabled={saving || format==='web' && (reviewing || !report || blocked || !!portError)} onClick={()=>save(format)}>{format==='web'?'Export web application':'Export plugin archive'}</Button>
             {format==='web' && blocked && <Button intent="primary" icon="archive" disabled={saving || reviewing} loading={saving} onClick={()=>save('migration')}>Export migration work package</Button>}</>}/>
-    </Dialog>;
+    </Dialog><DeploymentGuideDialog provider={guideProvider} onProviderChange={setGuideProvider} onClose={()=>setGuideProvider(null)} port={port}/></>;
 }

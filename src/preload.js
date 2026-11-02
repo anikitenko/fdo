@@ -330,7 +330,7 @@ contextBridge.exposeInMainWorld('electron', {
         verifySignature: (id) => ipcRenderer.invoke(PluginChannels.VERIFY_SIGNATURE, id),
         sign: (id, signerLabel) => ipcRenderer.invoke(PluginChannels.SIGN, id, signerLabel),
         export: (id) => ipcRenderer.invoke(PluginChannels.EXPORT, id),
-        previewExport: (id) => ipcRenderer.invoke(PluginChannels.EXPORT_PREVIEW, id),
+        previewExport: (id, options) => ipcRenderer.invoke(PluginChannels.EXPORT_PREVIEW, id, options),
         exportAs: (id, options) => ipcRenderer.invoke(PluginChannels.EXPORT_AS, id, options),
         setCapabilities: (id, capabilities) => ipcRenderer.invoke(PluginChannels.SET_CAPABILITIES, id, capabilities),
         getPrivilegedAudit: (id, options) => ipcRenderer.invoke(PluginChannels.GET_PRIVILEGED_AUDIT, id, options),

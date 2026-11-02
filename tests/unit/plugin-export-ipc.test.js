@@ -65,6 +65,15 @@ test('review tokens cannot cross windows and changed source or grants invalidate
     expect(changed).toMatchObject({success:false,error:expect.stringContaining('source or permissions changed')});
     expect(dialog.showSaveDialog).not.toHaveBeenCalled();
 });
+test('only a validated port is accepted as an export preview option',async()=>{
+    const result=await handlers[PluginChannels.EXPORT_PREVIEW](event,plugin.id,{port:9090,home:'/tmp/not-owned',capabilities:['sudo.prompt']});
+    expect(result.success).toBe(true);
+    expect(prepareWebApplicationExport).toHaveBeenCalledWith(expect.objectContaining({port:9090,plugin:expect.objectContaining({home:root,capabilities:[]})}));
+    prepareWebApplicationExport.mockClear();
+    expect(await handlers[PluginChannels.EXPORT_PREVIEW](event,plugin.id,{port:'8080; touch /tmp/no'})).toMatchObject({success:false,error:expect.stringContaining('1024 to 65535')});
+    expect(prepareWebApplicationExport).not.toHaveBeenCalled();
+    expect((await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'web',token:result.token})).success).toBe(false);
+});
 test('blocked conversions allow saving a report but never a runnable web archive',async()=>{
     prepareWebApplicationExport.mockResolvedValue({report:{blockers:['Requires terminal gateway'],sourceFingerprint:'fingerprint'}});
     const review=await handlers[PluginChannels.EXPORT_PREVIEW](event,plugin.id);

@@ -39,6 +39,7 @@ async function buildWebExportAssets(root=path.resolve(__dirname,'..')) {
 }
 function webExportRuntimeSources(root=path.resolve(__dirname,'..')) {
     const result={serviceCore,toolSemver,toolchainDocumentation:fs.readFileSync(path.join(root,'docs/PLUGIN_DEPLOYMENT_TOOLS.md'),'utf8')};
+    for(const [key,file] of [['azureDeploymentDocumentation','AZURE_CONTAINER_APPS_DEPLOYMENT.md'],['awsDeploymentDocumentation','AWS_ECS_DEPLOYMENT.md'],['gcpDeploymentDocumentation','GCP_CLOUD_RUN_DEPLOYMENT.md']])result[key]=fs.readFileSync(path.join(root,'docs',file),'utf8');
     if(!serviceCore)throw new Error('Build standalone host services before collecting runtime sources.');
     result.workerLiveSource=fs.readFileSync(path.join(root,'src/utils/hostServices/workerLiveSource.js'),'utf8').split('String.raw`')[1].split('`;')[0];
     result.gitSshHelper=fs.readFileSync(path.join(root,'src/utils/hostServices/gitSshHelper.cjs'),'utf8');

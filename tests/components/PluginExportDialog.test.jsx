@@ -1,5 +1,5 @@
 import React from 'react';
-import {render,screen,fireEvent,waitFor} from '@testing-library/react';
+import {render,screen,fireEvent,waitFor,within} from '@testing-library/react';
 import PluginExportDialog from '../../src/components/plugin/PluginExportDialog';
 const plugin={id:'plugin-a',name:'Availability'};
 const report={contractVersion:'1.0.0',requirements:[],adapters:[],warnings:['Configure cloud access.'],blockers:[]};
@@ -18,6 +18,47 @@ test('web export waits for host analysis and uses the reviewed snapshot token',a
     await screen.findByText('Application conversion prepared');
     fireEvent.click(screen.getByRole('button',{name:'Export web application'}));
     await waitFor(()=>expect(window.electron.plugin.exportAs).toHaveBeenCalledWith('plugin-a',{format:'web',token:'review-token'}));
+});
+
+test('changing the port invalidates the review and exports only after the selected port is reviewed',async()=>{
+    render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    fireEvent.change(screen.getByLabelText('Export format'),{target:{value:'web'}});
+    await screen.findByText('Application conversion prepared');
+    expect(window.electron.plugin.previewExport).toHaveBeenCalledWith('plugin-a',{port:8080});
+    fireEvent.change(screen.getByLabelText('Container port'),{target:{value:'9090'}});
+    expect(screen.getByRole('button',{name:'Export web application'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'Review installed version'}));
+    await screen.findByText('Application conversion prepared');
+    expect(window.electron.plugin.previewExport).toHaveBeenLastCalledWith('plugin-a',{port:9090});
+    expect(screen.getByRole('button',{name:'Export web application'})).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('Container port'),{target:{value:'80'}});
+    expect(screen.getByRole('button',{name:'Review installed version'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Export web application'})).toBeDisabled();
+});
+
+test('deployment references open locally, switch platforms, copy commands and return to the export',async()=>{
+    window.electron.system={openExternal:jest.fn()};
+    const writeText=jest.fn().mockResolvedValue();Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText}});
+    render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    fireEvent.change(screen.getByLabelText('Export format'),{target:{value:'web'}});
+    await screen.findByText('Application conversion prepared');
+    fireEvent.click(screen.getByRole('button',{name:'Azure deployment guide'}));
+    const guide=screen.getByRole('dialog',{name:'Cloud deployment guide'});
+    expect(within(guide).getByRole('region',{name:'Azure Container Apps deployment instructions'})).toHaveTextContent('Storage File Data SMB MI Admin');
+    fireEvent.click(within(guide).getAllByRole('button',{name:'Copy code'})[0]);
+    await waitFor(()=>expect(writeText).toHaveBeenCalledWith(expect.stringContaining('RG="rg-fdo-plugins"')));
+    fireEvent.change(within(guide).getByLabelText('Deployment platform'),{target:{value:'aws'}});
+    expect(within(guide).getByRole('region',{name:'AWS ECS Fargate deployment instructions'})).toHaveTextContent('EFS');
+    expect(within(guide).getByText(/docs\/AWS_ECS.md/)).toBeVisible();
+    fireEvent.change(within(guide).getByLabelText('Deployment platform'),{target:{value:'gcp'}});
+    expect(within(guide).getByRole('region',{name:'Google Cloud Run deployment instructions'})).toHaveTextContent('Filestore');
+    fireEvent.click(within(guide).getByRole('button',{name:'Copy full guide'}));
+    await waitFor(()=>expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining('gcloud run services replace')));
+    expect(window.electron.system.openExternal).not.toHaveBeenCalled();
+    fireEvent.click(within(guide).getByRole('button',{name:'Close guide'}));
+    await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Cloud deployment guide'})).not.toBeInTheDocument());
+    expect(screen.getByRole('dialog',{name:'Export As · Availability'})).toBeVisible();
+    expect(screen.getByRole('button',{name:'Export web application'})).toBeEnabled();
 });
 test('conversion blockers keep web export disabled while the report can still be saved',async()=>{
     window.electron.plugin.previewExport.mockResolvedValue({success:true,token:'blocked-review',report:{...report,blockers:['Replace the desktop tray with web controls.']}});
