@@ -7,11 +7,13 @@ on:
       - 'website/**'
       - 'scripts/website/**'
       - '.github/workflows/website.yml'
+      - 'examples/workshop/**'
   pull_request:
     paths-ignore:
       - 'website/**'
       - 'scripts/website/**'
       - '.github/workflows/website.yml'
+      - 'examples/workshop/**'
   merge_group:
   workflow_dispatch:
   workflow_call:
