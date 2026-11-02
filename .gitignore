@@ -3,6 +3,7 @@ dist/
 /release/
 vendor/
 artifacts/
+scripts/workshops/
 
 # Logs
 logs

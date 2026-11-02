@@ -1,0 +1,13 @@
+{
+  "name": "workshop-release-monitor",
+  "main": "dist/index.cjs",
+  "source": "index.ts",
+  "fdo": {
+    "compatibility": {
+      "fdo": ">=1.0.5 <2.0.0",
+      "sdk": ">=1.8.3 <2.0.0",
+      "api": "^1.0.0",
+      "features": []
+    }
+  }
+}
