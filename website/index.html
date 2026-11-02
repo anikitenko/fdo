@@ -99,19 +99,22 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <div class="container navigation">
-        <a class="brand" href="#" aria-label="FDO home"
+        <a class="brand" href="/" aria-label="FDO home" aria-current="page"
           ><img
-            src="assets/fdo-icon.png"
+            src="/assets/fdo-icon.png"
             width="128"
             height="128"
             alt=""
           /><span>FDO<span class="brand-dot">.</span></span></a
         >
         <nav aria-label="Main navigation">
-          <a href="#tour">Product tour</a><a href="#workspace">Features</a
-          ><a href="ai-coding.html">AI coding</a
-          ><a href="#build">Build plugins</a><a href="#cli">CLI</a
-          ><a href="#resources">Docs</a>
+          <a href="/index.html#tour">Product tour</a>
+          <a href="/index.html#workspace">Features</a>
+          <a href="/ai-coding.html">AI coding</a>
+          <a href="/index.html#build">Build plugins</a>
+          <a href="/cli.html">CLI</a>
+          <a class="nav-workshops" href="/workshops.html">Workshops</a>
+          <a href="/index.html#resources">Docs</a>
         </nav>
         <a class="nav-github" href="https://github.com/anikitenko/fdo"
           >GitHub <span aria-hidden="true">↗</span></a
@@ -478,10 +481,11 @@
             <p>
               Sync plugin collections with FDO’s bundled Git on macOS, Windows
               and Linux. Review updates and capability changes without
-              installing Git for GitOps.
+              installing Git for GitOps. Explore the author’s plugins in the
+              fdo-plugins GitOps repository.
             </p>
-            <a href="https://github.com/anikitenko/fdo/blob/main/docs/GITOPS.md"
-              >Explore GitOps ↗</a
+            <a href="https://github.com/anikitenko/fdo-plugins"
+              >Browse the author’s GitOps plugins ↗</a
             >
           </article>
           <article class="feature">
@@ -622,12 +626,14 @@
             <a
               class="text-link"
               href="https://github.com/anikitenko/fdo-plugins"
-              >Explore plugin examples <span aria-hidden="true">↗</span></a
+              >Explore the author’s plugin repository
+              <span aria-hidden="true">↗</span></a
             >
             <p class="plugin-examples">
-              Have a workflow of your own? Choose a
-              <a href="templates.html">working template</a> and extend it with
-              the
+              The author’s plugins are published as a GitOps collection in
+              <strong>anikitenko/fdo-plugins</strong>. Have a workflow of your
+              own? Choose a <a href="templates.html">working template</a> and
+              extend it with the
               <a href="https://github.com/anikitenko/fdo-sdk/tree/main/examples"
                 >SDK examples</a
               >. Your service configuration and capability grants determine what
@@ -838,7 +844,9 @@ fdo dev ./my-tool</code></pre>
           <details>
             <summary>Where should I start?</summary>
             <p>
-              Install FDO 1.0.5, create a plugin from one of the
+              Follow the <a href="workshops.html">beginner video workshops</a>
+              to build your first plugin and connect a real API. Install FDO
+              1.0.5, create a plugin from one of the
               <a href="templates.html">ten built-in templates</a>, and run its
               tests. Use the editor and Live UI to customize it, then sign and
               deploy it. The <a href="cli.html">FDO CLI guide</a> covers
@@ -853,9 +861,17 @@ fdo dev ./my-tool</code></pre>
             <p class="eyebrow">KEEP EXPLORING</p>
             <h2>Open code.<br />Room to build.</h2>
           </div>
-          <p>Read the docs, explore the SDK, or help shape what comes next.</p>
+          <p>
+            Watch a workshop, read the docs, or build something of your own.
+          </p>
         </div>
         <div class="resource-links">
+          <a href="workshops.html"
+            ><span
+              ><small>WATCH &amp; BUILD</small
+              ><strong>Video workshops</strong></span
+            ><span aria-hidden="true">↗</span></a
+          >
           <a href="https://github.com/anikitenko/fdo#readme"
             ><span><small>START HERE</small><strong>Documentation</strong></span
             ><span aria-hidden="true">↗</span></a
@@ -880,6 +896,7 @@ fdo dev ./my-tool</code></pre>
         <p>FlexDevOps. Built to be yours.</p>
       </div>
       <div class="footer-links">
+        <a href="workshops.html">Workshops</a>
         <a href="privacy.html">Privacy Policy</a>
         <a href="https://github.com/anikitenko/fdo">Source on GitHub</a
         ><a href="https://github.com/anikitenko/fdo/blob/main/package.json"

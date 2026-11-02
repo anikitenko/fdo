@@ -67,8 +67,9 @@
     "test:ci": "node scripts/run-jest.cjs --ci --silent",
     "check:dependencies": "node scripts/check-dependencies.cjs",
     "test:handles": "node scripts/run-jest.cjs --detectOpenHandles --runInBand",
-    "website:dev": "node scripts/website/site.cjs serve",
-    "website:check": "node scripts/website/site.cjs check"
+    "website:dev": "node --watch scripts/website/site.cjs serve",
+    "website:check": "node scripts/website/site.cjs check",
+    "website:nav": "node scripts/website/navigation.cjs --write"
   },
   "devDependencies": {
     "@babel/core": "^8.0.7",

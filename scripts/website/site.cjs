@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
 const { execFileSync } = require("node:child_process");
+const { checkNavigation } = require("./navigation.cjs");
 const root = path.resolve(__dirname, "../../website");
 const publicFiles = [
   "index.html",
@@ -13,6 +14,7 @@ const publicFiles = [
   "ai-coding.html",
   "templates.html",
   "workspace-history.html",
+  "workshops.html",
   "privacy.html",
   "google9d9ae653e6dbd173.html",
   "styles.css",
@@ -31,18 +33,22 @@ const publicFiles = [
   "assets/fdo-export.png",
   "assets/fdo-tool-guide.png",
   "assets/fdo-plugin-management.png",
+  "assets/workshop-1.jpg",
+  "assets/workshop-2.jpg",
 ];
 const mime = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
   ".xml": "application/xml",
   ".xsd": "application/xml",
   ".txt": "text/plain; charset=utf-8",
 };
 
 function check() {
+  checkNavigation();
   for (const file of publicFiles) {
     const target = path.join(root, file);
     const stat = fs.lstatSync(target);

@@ -20,6 +20,11 @@ PLAYWRIGHT_BROWSER_CHANNEL=chrome npx playwright test --config scripts/website/p
 
 Set `PORT` to change the preview port. Stop the server with Ctrl+C. The preview
 serves only the listed public assets and returns the custom 404 for unknown URLs.
+The development command watches the server script and restarts when its public
+file list changes. HTML, CSS and image edits are read from disk on each request;
+refresh the browser to see them. If an older preview was started before this
+watch mode was added, stop it and run `npm run website:dev` again. Otherwise a new
+navigation link can appear while the older server still returns 404 for its page.
 The check verifies required assets, local references, anchors, and script syntax;
 it does not check remote links or replace a browser review. Check desktop/mobile
 layouts, the full-size screenshot link, the CLI guide navigation, and the copy
@@ -78,6 +83,20 @@ card source are excluded. Add new public assets to `publicFiles` in
 `scripts/website/site.cjs`. Keep secrets, build output, and internal project
 material out of this folder.
 
+## Shared header navigation
+
+All eight site pages, including the 404 page, use the same header definition in
+`scripts/website/navigation.cjs`: Product tour, Features, AI coding, Build plugins,
+CLI, Workshops and Docs, followed by the GitHub link. The CLI item always opens
+the CLI guide. Links use root-relative URLs so they also work from nested 404s.
+The current page is marked with `aria-current` when it has a navigation item.
+
+To change a header link, edit that definition and run `npm run website:nav` to
+update the committed HTML. Then run `npm run website:check`; it rejects missing
+or inconsistent header copies before deployment. Navigation stays available in
+the static HTML without JavaScript. On narrow screens the same links wrap into
+another row; items are not hidden according to their position or page.
+
 ## Content maintenance
 
 The current release badge and platform cards point to v1.0.5's release page,
@@ -106,9 +125,27 @@ policy revision, not a deployment date.
 `templates.html` lists all ten built-in templates and links to their source
 factories. `workspace-history.html` documents snapshots rather than routing readers
 to unrelated AI documentation. Keep these pages aligned with the picker and editor.
+
+`workshops.html` is the video learning hub, linked from the site's navigation,
+the homepage resources and beginner FAQ. Keep episodes in learning order, with
+short summaries, direct YouTube links, and separate source/setup links. It uses
+ordinary links rather than embedded players. Workshop 1's local thumbnail is the
+published YouTube thumbnail; workshop 2 uses a clear frame from the author's
+finished recording because its YouTube thumbnail catches a loading screen.
+Both previews are locally hosted JPEGs; visiting the page does not contact YouTube.
+Update the visible cards and the CollectionPage/ItemList structured data together
+when adding an episode. Add its thumbnail to `publicFiles` in the site script.
+The workshops URL is included in the sitemap; no invented upload dates, ratings,
+or completion claims are used.
+
 GitOps uses bundled Git; SSH is built in across supported platforms. A plugin's own
 Git and other CLI requests require installed, approved executables on the desktop.
 Container exports install their dependencies separately.
+
+The homepage links to the author's GitOps plugin collection at
+https://github.com/anikitenko/fdo-plugins from both the GitOps feature and the
+plugin examples section. Keep this distinct from the FDO application repository
+and the SDK's authoring examples.
 
 The homepage's structured application data, visible version, release link and
 share image must be updated together. Keep metadata descriptive and grounded in
@@ -121,7 +158,8 @@ Regenerate the social preview after editing its HTML source:
 node scripts/website/capture-social.cjs
 ```
 
-Restart the preview server after changing the public-file allowlist. The checker
+The watched preview restarts after changes to the public-file allowlist; restart
+older previews manually if they were started without watch mode. The checker
 now rejects local references absent from that allowlist, so an asset cannot pass
 local validation yet be silently omitted from the deployment artifact.
 
