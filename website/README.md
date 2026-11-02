@@ -83,6 +83,13 @@ card source are excluded. Add new public assets to `publicFiles` in
 `scripts/website/site.cjs`. Keep secrets, build output, and internal project
 material out of this folder.
 
+Staging also writes content-hashed copies of `styles.css` and `site.js` and updates
+every staged HTML page to reference those filenames, including root-relative
+assets on the 404 page. A CSS or JavaScript change therefore gets a new URL and
+cannot reuse the preceding release's cached asset. Source HTML and local preview
+URLs stay unchanged. The canonical asset copies remain in the upload for older
+pages. Do not upload `website/` directly; use the workflow's staged artifact.
+
 ## Shared header navigation
 
 All eight site pages, including the 404 page, use the same header definition in

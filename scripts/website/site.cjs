@@ -4,6 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
+const { createHash } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { checkNavigation } = require("./navigation.cjs");
 const root = path.resolve(__dirname, "../../website");
@@ -158,7 +159,37 @@ function stage() {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.copyFileSync(path.join(root, file), target, fs.constants.COPYFILE_EXCL);
   }
-  console.log(`Staged ${publicFiles.length} public files in ${destination}`);
+  // Give changed assets new URLs. Pages/CDN/browser caches can otherwise keep
+  // an older styles.css while a newly deployed page needs additional rules.
+  // Keep canonical copies for already-open pages from the preceding release.
+  const versions = new Map();
+  for (const file of ["styles.css", "site.js"]) {
+    const contents = fs.readFileSync(path.join(root, file));
+    const hash = createHash("sha256")
+      .update(contents)
+      .digest("hex")
+      .slice(0, 12);
+    const parsed = path.parse(file);
+    const versioned = `${parsed.name}.${hash}${parsed.ext}`;
+    fs.writeFileSync(path.join(destination, versioned), contents, {
+      flag: "wx",
+    });
+    versions.set(file, versioned);
+  }
+  for (const file of publicFiles.filter((name) => name.endsWith(".html"))) {
+    const target = path.join(destination, file);
+    const html = fs
+      .readFileSync(target, "utf8")
+      .replace(
+        /\b(href|src)="(\/?)(styles\.css|site\.js)"/g,
+        (_match, attribute, prefix, asset) =>
+          `${attribute}="${prefix}${versions.get(asset)}"`,
+      );
+    fs.writeFileSync(target, html);
+  }
+  console.log(
+    `Staged ${publicFiles.length + versions.size} public files in ${destination}`,
+  );
 }
 
 try {
