@@ -1,5 +1,6 @@
 module.exports = {
   transform: {
+    "^.+\\.md$": "<rootDir>/tests/helpers/markdownTextTransformer.cjs",
     "^.+\\.(?:[jt]sx?|mjs)$": "babel-jest",
   },
   transformIgnorePatterns: ["/node_modules/"],

@@ -52,6 +52,11 @@ module.exports = (_env, argv = {}) => ({
     module: {
         rules: [
             {
+                test: /\.md$/,
+                include: path.resolve(__dirname, 'docs'),
+                type: 'asset/source',
+            },
+            {
                 test: /\.module\.css$/,  // Ensure only .module.css files use CSS modules
                 use: [
                     "style-loader",

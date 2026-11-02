@@ -1,29 +1,33 @@
-export function cloudTemplates(name,{persistent=false,encrypted=false}={}) {
-    const probe={httpGet:{path:'/health/ready',port:8080},initialDelaySeconds:5,periodSeconds:10};
+import {normalizeExportPort} from './exportOptions';
+
+export function cloudTemplates(name,{persistent=false,encrypted=false,port=8080}={}) {
+    port=normalizeExportPort(port);
+    const probe={httpGet:{path:'/health/ready',port},initialDelaySeconds:5,periodSeconds:10};
     const task={family:name,requiresCompatibilities:['FARGATE'],networkMode:'awsvpc',cpu:'256',memory:'512',runtimePlatform:{operatingSystemFamily:'LINUX',cpuArchitecture:'X86_64'},
         executionRoleArn:'REPLACE_WITH_EXECUTION_ROLE_ARN',...(persistent?{taskRoleArn:'REPLACE_WITH_TASK_ROLE_ARN'}:{}),containerDefinitions:[{name:'application',image:'REPLACE_WITH_IMAGE_URI',essential:true,user:'1000:1000',
-            portMappings:[{containerPort:8080,protocol:'tcp'}],environment:[{name:'WEB_APP_USERNAME',value:'engineer'},{name:'WEB_APP_ORIGIN',value:'https://REPLACE_WITH_PUBLIC_HOST'}],
+            portMappings:[{containerPort:port,protocol:'tcp'}],environment:[{name:'PORT',value:String(port)},{name:'WEB_APP_USERNAME',value:'engineer'},{name:'WEB_APP_ORIGIN',value:'https://REPLACE_WITH_PUBLIC_HOST'}],
             secrets:[{name:'WEB_APP_PASSWORD',valueFrom:'REPLACE_WITH_PASSWORD_SECRET_ARN'},...(encrypted?[{name:'WEB_APP_SECRET_KEY',valueFrom:'REPLACE_WITH_ENCRYPTION_KEY_SECRET_VERSION_ARN'}]:[])],
             healthCheck:{command:['CMD','node','healthcheck.cjs'],interval:30,timeout:5,retries:3,startPeriod:30},
             ...(persistent?{mountPoints:[{sourceVolume:'application-data',containerPath:'/data',readOnly:false}]}:{})}],
         ...(persistent?{volumes:[{name:'application-data',efsVolumeConfiguration:{fileSystemId:'REPLACE_WITH_EFS_ID',transitEncryption:'ENABLED',authorizationConfig:{accessPointId:'REPLACE_WITH_EFS_ACCESS_POINT_ID',iam:'ENABLED'}}}]}:{})};
     const azure={name,location:'REPLACE_WITH_AZURE_REGION',type:'Microsoft.App/containerApps',properties:{managedEnvironmentId:'REPLACE_WITH_ENVIRONMENT_RESOURCE_ID',
-        configuration:{activeRevisionsMode:'Single',ingress:{external:true,targetPort:8080,transport:'http',allowInsecure:false},secrets:[{name:'application-password',keyVaultUrl:'https://REPLACE_WITH_VAULT.vault.azure.net/secrets/application-password',identity:'REPLACE_WITH_MANAGED_IDENTITY_RESOURCE_ID'},...(encrypted?[{name:'application-key',keyVaultUrl:'https://REPLACE_WITH_VAULT.vault.azure.net/secrets/application-key/REPLACE_WITH_KEY_VERSION',identity:'REPLACE_WITH_MANAGED_IDENTITY_RESOURCE_ID'}]:[])]},
+        configuration:{activeRevisionsMode:'Single',ingress:{external:true,targetPort:port,transport:'http',allowInsecure:false},secrets:[{name:'application-password',keyVaultUrl:'https://REPLACE_WITH_VAULT.vault.azure.net/secrets/application-password',identity:'REPLACE_WITH_MANAGED_IDENTITY_RESOURCE_ID'},...(encrypted?[{name:'application-key',keyVaultUrl:'https://REPLACE_WITH_VAULT.vault.azure.net/secrets/application-key/REPLACE_WITH_KEY_VERSION',identity:'REPLACE_WITH_MANAGED_IDENTITY_RESOURCE_ID'}]:[])]},
         template:{containers:[{name:'application',image:'REPLACE_WITH_IMAGE_URI',resources:{cpu:0.5,memory:'1Gi'},
-            env:[{name:'WEB_APP_USERNAME',value:'engineer'},{name:'WEB_APP_ORIGIN',value:'https://REPLACE_WITH_PUBLIC_HOST'},{name:'WEB_APP_PASSWORD',secretRef:'application-password'},...(encrypted?[{name:'WEB_APP_SECRET_KEY',secretRef:'application-key'}]:[])],
-            probes:[{type:'Readiness',...probe},{type:'Liveness',httpGet:{path:'/health/live',port:8080},initialDelaySeconds:5,periodSeconds:10}],
+            env:[{name:'PORT',value:String(port)},{name:'WEB_APP_USERNAME',value:'engineer'},{name:'WEB_APP_ORIGIN',value:'https://REPLACE_WITH_PUBLIC_HOST'},{name:'WEB_APP_PASSWORD',secretRef:'application-password'},...(encrypted?[{name:'WEB_APP_SECRET_KEY',secretRef:'application-key'}]:[])],
+            probes:[{type:'Readiness',...probe},{type:'Liveness',httpGet:{path:'/health/live',port},initialDelaySeconds:5,periodSeconds:10}],
             ...(persistent?{volumeMounts:[{volumeName:'application-data',mountPath:'/data'}]}:{})}],
-            scale:{minReplicas:1,maxReplicas:1},...(persistent?{volumes:[{name:'application-data',storageType:'AzureFile',storageName:'REPLACE_WITH_ENVIRONMENT_STORAGE_NAME'}]}:{})}},identity:{type:'UserAssigned',userAssignedIdentities:{REPLACE_WITH_MANAGED_IDENTITY_RESOURCE_ID:{}}}};
+            scale:{minReplicas:1,maxReplicas:1},...(persistent?{volumes:[{name:'application-data',storageType:'AzureFile',storageName:'REPLACE_WITH_ENVIRONMENT_STORAGE_NAME',mountOptions:'uid=1000,gid=1000,dir_mode=0700,file_mode=0600'}]}:{})}},identity:{type:'UserAssigned',userAssignedIdentities:{REPLACE_WITH_MANAGED_IDENTITY_RESOURCE_ID:{}}}};
     const run={apiVersion:'serving.knative.dev/v1',kind:'Service',metadata:{name},spec:{template:{metadata:{annotations:{'autoscaling.knative.dev/maxScale':'1'}},spec:{containerConcurrency:1,
-        containers:[{image:'REPLACE_WITH_IMAGE_URI',ports:[{containerPort:8080}],env:[{name:'WEB_APP_USERNAME',value:'engineer'},{name:'WEB_APP_ORIGIN',value:'https://REPLACE_WITH_PUBLIC_HOST'},
+        containers:[{image:'REPLACE_WITH_IMAGE_URI',ports:[{containerPort:port}],env:[{name:'WEB_APP_USERNAME',value:'engineer'},{name:'WEB_APP_ORIGIN',value:'https://REPLACE_WITH_PUBLIC_HOST'},
             {name:'WEB_APP_PASSWORD',valueFrom:{secretKeyRef:{name:'REPLACE_WITH_PASSWORD_SECRET_NAME',key:'latest'}}},...(encrypted?[{name:'WEB_APP_SECRET_KEY',valueFrom:{secretKeyRef:{name:'REPLACE_WITH_ENCRYPTION_KEY_SECRET_NAME',key:'REPLACE_WITH_KEY_VERSION'}}}]:[])],
-            startupProbe:{httpGet:{path:'/health/ready',port:8080},periodSeconds:5,failureThreshold:12},livenessProbe:{httpGet:{path:'/health/live',port:8080}},
+            startupProbe:{httpGet:{path:'/health/ready',port},periodSeconds:5,failureThreshold:12},livenessProbe:{httpGet:{path:'/health/live',port}},
             ...(persistent?{volumeMounts:[{name:'application-data',mountPath:'/data'}]}:{})}],
         ...(persistent?{volumes:[{name:'application-data',nfs:{server:'REPLACE_WITH_FILESTORE_IP',path:'/REPLACE_WITH_SHARE'}}]}:{})}}}};
     return Object.fromEntries(Object.entries({'aws-ecs.task.json':task,'azure-container-app.json':azure,'gcp-cloud-run.json':run}).map(([file,value])=>['deployment/'+file,JSON.stringify(value,null,2)+'\n']));
 }
 
 export function deploymentReadme(name,report) {
+    const port=normalizeExportPort(report.deployment?.port);
     return `# ${name}: standalone web application
 
 This is a converted frontend and backend, with no Electron or FDO SDK runtime dependency.
@@ -46,7 +50,7 @@ conversion-report.json records the converter version, source fingerprint and cap
    For cloud deployment, store this key in your cloud secret manager. Do not
    commit it or bake it into an image. Pin its secret-manager version; key rotation
    requires re-encrypting the vault. Losing it prevents decryption of stored credentials.
-3. Docker Compose 2.24 or newer is required. Open http://localhost:8080 and sign in.
+3. Docker Compose 2.24 or newer is required. Open http://localhost:${port} and sign in.
    Compose binds the service to localhost. Cloud access must use HTTPS.
 4. The image runs as UID 1000. Ensure mounted /data is writable by UID 1000.
 
@@ -160,7 +164,25 @@ References: https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-i
 https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-managed-identity
 https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli-service-principal
 
+## Container port
+
+This export uses port ${port}. Dockerfile PORT/EXPOSE, Compose port mapping,
+health checks and cloud ingress/probes use the same value. Select a different port
+in FDO before reviewing/exporting, or update these files together after export.
+Azure public HTTPS remains on port 443; its ingress targetPort must match PORT.
+To change only the local host port, keep the container port and change the first
+port in the Compose mapping; update WEB_APP_ORIGIN to the URL you open.
+
 ## Build and deploy
+
+Follow the guide for your deployment platform:
+
+- [Azure Container Apps](docs/AZURE_CONTAINER_APPS.md): ACR, Azure Files, managed-identity mounts and secret references.
+- [AWS ECS Fargate](docs/AWS_ECS.md): ECR, EFS access points, task/execution roles, Secrets Manager and HTTPS ALB.
+- [Google Cloud Run](docs/GCP_CLOUD_RUN.md): Artifact Registry, Secret Manager, Filestore, VPC connectivity and background CPU.
+
+These same guides are available offline in FDO's Cloud deployment guide dialog.
+They include first deployment, selected ports, health checks and maintenance updates.
 
 Build a Linux image, for example:
 
@@ -173,7 +195,7 @@ The templates are deployment inputs, not provisioned cloud resources. Export nev
 contacts your cloud account, pushes an image, deploys resources, or grants IAM roles.
 
 - AWS ECS: register deployment/aws-ecs.task.json and create a Fargate service with
-  desired count 1, awsvpc networking and an HTTPS load balancer targeting port 8080.
+  desired count 1, awsvpc networking and an HTTPS load balancer targeting port ${port}.
   Configure execution/task IAM roles, EFS access if present, and secret-manager access.
 - Azure Container Apps: pass deployment/azure-container-app.json to az containerapp
   create --resource-group YOUR_GROUP --yaml FILE after configuring the environment,
@@ -194,7 +216,7 @@ Cloud filesystem layers are ephemeral; mounting persistent storage is required f
 settings and encrypted credentials to survive replacement. NFS/filesystem semantics
 must support atomic rename. Back up the volume and encryption key separately.
 
-The container listens on 0.0.0.0:$PORT (8080 by default), exposes /health/live and
+The container listens on 0.0.0.0:$PORT (${port} selected for this export), exposes /health/live and
 /health/ready, logs to stdout/stderr, and handles SIGTERM with a bounded shutdown.
 Health routes are public and contain no application data. Other routes require
 application sign-in. The browser UI uses an opaque sandbox and an HTTP action API.

@@ -154,6 +154,11 @@ https://github.com/anikitenko/fdo-plugins from both the GitOps feature and the
 plugin examples section. Keep this distinct from the FDO application repository
 and the SDK's authoring examples.
 
+The Web & Docker tour links to the Azure Container Apps, AWS ECS Fargate and Google
+Cloud Run deployment references in `docs/`. These same guides are bundled in the
+application's deployment dialog and exported ZIPs. Keep storage, secret-reference,
+identity and port guidance aligned with generated deployment files.
+
 The homepage's structured application data, visible version, release link and
 share image must be updated together. Keep metadata descriptive and grounded in
 the product; do not add invented ratings or reviews. See

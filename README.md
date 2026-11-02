@@ -18,7 +18,20 @@ to GitHub Pages independently of desktop releases. Preview it with
 `npm run website:dev` and validate it with `npm run website:check`. See the
 [website setup guide](website/README.md) for the custom-domain configuration.
 
+## Standalone Docker export
+
+Use **Manage Plugins → Export As… → Standalone web application / Docker**. Choose
+the container port, review the installed version, and export the project. The ZIP
+contains a Dockerfile, Compose setup, cloud reference files and deployment guides.
+Start with [web application export](docs/WEB_APPLICATION_EXPORT.md) or the
+[Azure Container Apps](docs/AZURE_CONTAINER_APPS_DEPLOYMENT.md),
+[AWS ECS Fargate](docs/AWS_ECS_DEPLOYMENT.md), or
+[Google Cloud Run](docs/GCP_CLOUD_RUN_DEPLOYMENT.md) walkthrough for registries,
+persistent `/data`, secret references, ingress and updates. All three guides open
+inside FDO and are included in the ZIP.
+
 ## AI Coding Agent
+
 
 The AI Coding Agent provides intelligent coding assistance directly in the FDO editor:
 
