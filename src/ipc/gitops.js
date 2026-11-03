@@ -23,6 +23,16 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
     const channels = SettingsChannels.gitops;
     const repositories = () => settings.get('gitops.repositories', []);
     let busy = false;
+    // Runtime state survives closing Settings, but is never persisted with secrets.
+    let operation = null;
+    const progress = update => {if (operation) {operation = {...operation, ...update}; notify();}};
+    const begin = (kind, repository, automatic = false) => {
+        operation = {kind, automatic, repositoryId: repository?.id,
+            repositoryName: repository?.manifest?.metadata?.displayName || repository?.manifest?.metadata?.name || 'Repository',
+            phase: 'starting', startedAt: new Date().toISOString()};
+        notify();
+    };
+    const finish = () => {const changed = !!operation; busy = false; operation = null; if (changed) notify();};
     const credentialsSession = osCredentialSession(safeStorage);
     const assertEncryption = () => {
         if (safeStorage.getSelectedStorageBackend?.() === 'basic_text'
@@ -62,12 +72,17 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
         if (!sync) throw new Error('Plugin synchronization is unavailable.');
         let current = repository;
         try {
+            progress({repositoryId: current.id, repositoryName: current.manifest?.metadata?.displayName || current.manifest?.metadata?.name || 'Repository',
+                phase: refresh ? 'verifying' : 'preparing', pluginName: undefined, completed: undefined, total: undefined});
             const secret = repository.authType === 'basic' ? credentials(repository) : {};
             if (refresh) current = {...current, ...await verify({...current, ...secret})};
             const declarations = current.manifest.spec.plugins;
             requireDeclaredPlugin(declarations, pluginName);
+            const selected = declarations.filter(plugin => !pluginName || plugin.name === pluginName);
+            let completed = 0;
             const statuses = new Map((current.pluginStatuses || []).filter(status => declarations.some(plugin => plugin.name === status.name)).map(status => [status.name, status]));
-            for (const plugin of declarations.filter(plugin => !pluginName || plugin.name === pluginName)) {
+            for (const plugin of selected) {
+                progress({phase: 'synchronizing', pluginName: plugin.name, completed, total: selected.length});
                 statuses.set(plugin.name, {...statuses.get(plugin.name),name:plugin.name,state:'checking'});
                 current = {...current, pluginStatuses: [...statuses.values()]};
                 replace(current); notify();
@@ -91,7 +106,9 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
                 }
                 current = {...current, pluginStatuses: [...statuses.values()]};
                 replace(current); notify();
+                progress({completed: ++completed});
             }
+            progress({phase: 'finishing', pluginName: undefined});
             if (!pluginName && current.installedPlugins?.some(installed => !declarations.some(plugin => plugin.name === installed.name))) {
                 const {pendingUpdates,reviewStatuses,...result}=await sync({source:current,secret,pruneOnly:true});
                 current={...current,...result};
@@ -118,10 +135,11 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
         try { return {success: true, ...await action(input)}; }
         catch (error) { return {success: false, error: error.message}; }
     });
-    handle(channels.LIST, () => ({repositories: repositories().map(publicRepository)}));
+    handle(channels.LIST, () => ({repositories: repositories().map(publicRepository), ...(operation ? {operation} : {})}));
     handle(channels.SAVE, async input => {
         if (busy) throw new Error('Repository verification is already running.');
         busy = true;
+        begin('save', repositories().find(repo => repo.id === input?.id));
         try {
             const previous = input?.id ? repositories().find(repo => repo.id === input.id) : undefined;
             if (input?.id && !previous) throw new Error('Repository no longer exists. Refresh GitOps settings.');
@@ -145,6 +163,7 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
                     throw new Error('Could not encrypt repository credentials. Unlock your OS keychain and try again.');
                 }
             }
+            progress({phase: 'verifying'});
             const verified = await verify({...candidate, ...config});
             const {encryptedCredentials: _oldSecret, ...previousState} = previous || {};
             let repository = {...previousState, id: previous?.id || randomUUID(), ...config, ...verified,
@@ -157,40 +176,44 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
             }
             notify();
             return {repository: publicRepository(repository), repositories: repositories().map(publicRepository)};
-        } finally { busy = false; }
+        } finally { finish(); }
     });
     handle(channels.VERIFY, async id => {
         if (busy) throw new Error('Repository verification is already running.');
         const repository = repositories().find(repo => repo.id === id);
         if (!repository) throw new Error('Repository no longer exists.');
         busy = true;
+        begin('verify', repository);
         try {
+            progress({phase: 'verifying'});
             const secret = repository.authType === 'basic' ? credentials(repository) : {};
             const verified = await verify({...repository, ...secret});
             const updated = {...repository, ...verified};
             settings.set('gitops.repositories', repositories().map(repo => repo.id === id ? updated : repo));
             return {repositories: repositories().map(publicRepository)};
-        } finally { busy = false; }
+        } finally { finish(); }
     });
     handle(channels.SYNC, async id => {
         if (busy) throw new Error('Repository verification or synchronization is already running.');
         const repository = repositories().find(repo => repo.id === id);
         if (!repository) throw new Error('Repository no longer exists.');
         busy = true;
+        begin('sync', repository);
         try {
             await synchronize(repository);
             return {repositories: repositories().map(publicRepository)};
-        } finally { busy = false; }
+        } finally { finish(); }
     });
     handle(channels.SYNC_PLUGIN, async ({id, pluginName}) => {
         if (busy) throw new Error('Another repository check is running. Please wait for it to finish.');
         const repository = repositories().find(repo => repo.id === id);
         if (!repository) throw new Error('Repository no longer exists.');
         busy = true;
+        begin('syncPlugin', repository);
         try {
             await synchronize(repository, false, pluginName);
             return {repositories: repositories().map(publicRepository)};
-        } finally { busy = false; }
+        } finally { finish(); }
     });
     handle(channels.REVIEW_UPDATE, async input => {
         if(busy)throw new Error('Wait for the current repository operation to finish.');
@@ -200,6 +223,8 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
         requireDeclaredPlugin(repository.manifest.spec.plugins,input.pluginName);
         if(!input.pluginName)throw new Error('Choose a plugin update to review.');
         busy=true;
+        begin('reviewUpdate',repository);
+        progress({phase:'reviewing',pluginName:input.pluginName});
         try {
             const result=await review({source:repository,pluginName:input.pluginName,reviewId:input.reviewId,decision:input.decision,capabilities:input.capabilities});
             if(result.state==='checking')await synchronize(repository,false,input.pluginName);
@@ -210,7 +235,7 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
                 replace({...repository,pluginStatuses:statuses,installedPlugins});notify();
             }
             return {repositories:repositories().map(publicRepository)};
-        } finally {busy=false;}
+        } finally {finish();}
     });
     handle(channels.SET_INTERVAL, ({id, minutes}) => {
         if (busy) throw new Error('Wait for the current repository check to finish.');
@@ -232,12 +257,14 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
     handle(channels.REMOVE, async id => {
         if (busy) throw new Error('Wait for repository verification to finish.');
         busy = true;
+        begin('remove', repositories().find(repo => repo.id === id));
+        progress({phase: 'removing'});
         try {
             await detach?.(id);
             settings.set('gitops.repositories', repositories().filter(repo => repo.id !== id));
             notify();
             return {repositories: repositories().map(publicRepository)};
-        } finally { busy = false; }
+        } finally { finish(); }
     });
     let stopped = false;
     let timer;
@@ -250,9 +277,10 @@ export function registerGitOpsHandlers({ipcMain, settings, safeStorage, getMainW
                 if (repository.autoSync === false) continue;
                 const elapsed = Date.now() - Date.parse(repository.lastCheckedAt || '');
                 if (!startup && Number.isFinite(elapsed) && elapsed < (repository.checkIntervalMinutes || 5) * 60 * 1000) continue;
+                begin('sync', repository, true);
                 try { await synchronize(repository); } catch { /* Saved on the repository for Settings. */ }
             }
-        } finally { busy = false; }
+        } finally { finish(); }
     };
     return {
         start: () => {

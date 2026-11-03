@@ -1,5 +1,5 @@
 import React from 'react';
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import GitOpsPanel from '../../src/components/settings/panels/GitOpsPanel';
 
 const repository = {id: 'one', url: 'https://github.com/acme/tools', authType: 'basic', hasCredentials: true,
@@ -22,6 +22,47 @@ const open = async () => {
     fireEvent.click(screen.getByRole('button', {name: 'Add Git Repository'}));
     await screen.findByLabelText('Repository URL');
 };
+
+test('shows an existing background check, counts completed plugins, and unlocks actions when it finishes', async () => {
+    const api = window.electron.settings.gitops;
+    const operation = {kind: 'sync', automatic: true, repositoryId: 'one', repositoryName: 'Team Tools', phase: 'verifying'};
+    api.list.mockResolvedValue({success: true, repositories: [repository], operation});
+    let update;
+    const unsubscribe = jest.fn();
+    api.onUpdated = jest.fn(callback => {update = callback; return unsubscribe;});
+    const view = render(<GitOpsPanel/>);
+    const progress = await screen.findByRole('progressbar', {name: 'GitOps progress'});
+    expect(progress).not.toHaveAttribute('aria-valuenow');
+    expect(screen.getByText('Automatic synchronization in progress')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Sync now'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Add Git Repository'})).toBeDisabled();
+    api.list.mockResolvedValue({success: true, repositories: [repository], operation: {...operation, phase: 'synchronizing', pluginName: 'example', completed: 1, total: 2}});
+    await act(async () => {await update();});
+    expect(progress).toHaveAttribute('aria-valuenow', '50');
+    expect(progress).toHaveAttribute('aria-valuemax', '100');
+    expect(screen.getByText(/Checking example · 1 of 2 plugins checked/)).toBeInTheDocument();
+    api.list.mockResolvedValue({success: true, repositories: [repository]});
+    await act(async () => {await update();});
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Sync now'})).toBeEnabled();
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalled();
+});
+
+test('shows progress immediately for a manual verification before a host update arrives', async () => {
+    const api = window.electron.settings.gitops;
+    api.list.mockResolvedValue({success: true, repositories: [repository]});
+    let finish;
+    api.verify.mockImplementation(() => new Promise(resolve => {finish = resolve;}));
+    render(<GitOpsPanel/>);
+    fireEvent.click(await screen.findByRole('button', {name: 'Verify repository'}));
+    expect(screen.getByRole('progressbar', {name: 'GitOps progress'})).toBeInTheDocument();
+    expect(screen.getByText('Verifying repository', {exact: true})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Sync now'})).toBeDisabled();
+    await act(async () => {finish({success: true, repositories: [repository]});});
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Sync now'})).toBeEnabled();
+});
 
 test('adds a repository with its own credentials, manifest path and release tag', async () => {
     render(<GitOpsPanel/>);

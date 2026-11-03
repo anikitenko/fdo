@@ -188,6 +188,10 @@ Raw templates prevent desktop bundlers from rewriting generated dependencies.
 CSS style maps become adjacent `.css.cjs` modules; after editing original styles,
 update those maps or adopt the application's own web styling pipeline.
 
+Conversion contract 2.1.1 preserves editable native HTML form defaults when rendering
+them through React. Existing exports retain their generated runtime; export again
+to include this correction for fields that previously reverted user input.
+
 Tests cover capability coverage, dialog behavior, native saves, review ownership
 and an independent browser app that installs without SDK/Electron, rebuilds,
 executes actions, encrypts credentials and retains state across restart.

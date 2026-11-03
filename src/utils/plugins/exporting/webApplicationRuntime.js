@@ -95,7 +95,27 @@ export function webServer() {
         .replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi,(_match,attributes,css)=>'<style'+attributes+' dangerouslySetInnerHTML={{__html:'+JSON.stringify(css)+'}} />');
         let output=normalized,previous;
         do{previous=output;output=output.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'');}while(output!==previous);
-        return output;};
+        // HTML values initialize native controls. Rendering them as React value /
+        // checked props makes them controlled and restores the original value
+        // after input events, before delegated SDK handlers can read user edits.
+        // Edit JSX attribute nodes only, preserving quoted text and component APIs.
+        const prefix='const markup = <>',source=prefix+output+'</>;',edits=[];
+        const visit=node=>{
+            if(!node || typeof node!=='object')return;
+            if(node.type==='JSXOpeningElement' && node.name.type==='JSXIdentifier' && ['input','textarea','select'].includes(node.name.name)) {
+                const attributes=node.attributes.filter(attribute=>attribute.type==='JSXAttribute');
+                if(!attributes.some(attribute=>attribute.name.name==='onChange'))for(const attribute of attributes) {
+                    const name=attribute.name.name;
+                    if(name==='value' || name==='checked' && node.name.name==='input')edits.push({start:attribute.name.start-prefix.length,end:attribute.name.end-prefix.length,value:name==='value'?'defaultValue':'defaultChecked'});
+                }
+            }
+            for(const [key,value] of Object.entries(node))if(key!=='loc') {
+                if(Array.isArray(value))value.forEach(visit);
+                else if(value && typeof value==='object')visit(value);
+            }
+        };
+        visit(parse(source,{plugins:['jsx']}).program);
+        return edits.sort((a,b)=>b.start-a.start).reduce((text,edit)=>text.slice(0,edit.start)+edit.value+text.slice(edit.end),output);};
     const server=http.createServer(async(request,response)=>{
         const url=new URL(request.url,'http://localhost');
         if(request.method==='GET' && ['/health/live','/health/ready'].includes(url.pathname))return send(response,url.pathname.endsWith('ready') && !ready?503:200,{status:ready?'ready':'starting'});

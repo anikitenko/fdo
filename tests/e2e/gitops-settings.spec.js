@@ -61,6 +61,7 @@ test(`syncs real Git revisions for ${pluginFormat} plugins, signs with the defau
     const collectionDir = path.join(directory, 'collection');
     const pluginDir = path.join(directory, 'plugin');
     const bin = path.join(directory, 'bin');
+    const pauseGit = path.join(directory, 'pause-git');
     const realGit = require('../../src/utils/git/bundledGit.cjs').bundledGit().command;
     const commit = (cwd, message) => {
         execFileSync(realGit, ['add', '.'], {cwd});
@@ -103,6 +104,10 @@ spec:
     fs.writeFileSync(path.join(bin, 'git'), `#!${process.execPath}
 const {spawnSync} = require('node:child_process');
 let args = process.argv.slice(2);
+if (['fetch', 'ls-remote'].includes(args[0])) {
+    const fs = require('node:fs'), deadline = Date.now() + 15000;
+    while (fs.existsSync(${JSON.stringify(pauseGit)}) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+}
 const repositories = ${JSON.stringify({'https://fixture.example/collection': `file://${collectionDir}`, 'https://fixture.example/plugin': `file://${pluginDir}`})};
 if (['fetch', 'ls-remote'].includes(args[0])) args = ['-c', 'protocol.file.allow=always', ...args.map(arg => repositories[arg] || arg)];
 const result = spawnSync(${JSON.stringify(realGit)}, args, {stdio: 'inherit', env: process.env});
@@ -127,6 +132,28 @@ process.exit(result.status ?? 1);
         await expect(page.getByText('Native Tools', {exact: true})).toBeVisible();
         await expect(page.getByRole('link', {name: '@anikitenko'})).toHaveAttribute('href', 'https://github.com/anikitenko');
         await expect(page.getByText('1 plugin', {exact: true})).toBeVisible();
+        if (pluginFormat === 'prebuilt') {
+            // Delay the real Git subprocess so opening Settings during an active
+            // background task is deterministic, without mocking IPC or progress.
+            fs.writeFileSync(pauseGit, 'pause');
+            await page.getByRole('button', {name: 'Sync now', exact: true}).click();
+            const progress = page.getByRole('progressbar', {name: 'GitOps progress'});
+            await expect(progress).toBeVisible();
+            await expect(progress).not.toHaveAttribute('aria-valuenow');
+            await expect(page.getByText('Checking repository access and the collection manifest…', {exact: false})).toBeVisible();
+            await expect(page.getByRole('button', {name: 'Sync now', exact: true})).toBeDisabled();
+            await page.getByRole('dialog', {name: 'Settings', exact: true}).getByRole('button', {name: 'Close', exact: true}).click();
+            expect((await page.evaluate(() => window.electron.settings.gitops.list())).operation).toMatchObject({phase: 'verifying'});
+            await page.getByLabel('Open command search').click();
+            await page.getByRole('menuitem').filter({hasText: 'Configure FDO'}).click();
+            await page.getByRole('tab', {name: 'GitOps', exact: true}).click();
+            await expect(progress).toBeVisible();
+            await expect(page.getByRole('button', {name: 'Verify repository', exact: true})).toBeDisabled();
+            await page.screenshot({path: testInfo.outputPath('gitops-operation-progress.png')});
+            fs.unlinkSync(pauseGit);
+            await expect(progress).not.toBeVisible({timeout: 30000});
+            await expect(page.getByRole('button', {name: 'Sync now', exact: true})).toBeEnabled();
+        }
         let installed = await page.evaluate(() => window.electron.plugin.getAll());
         expect(installed.plugins).toHaveLength(1);
         const first = installed.plugins[0];

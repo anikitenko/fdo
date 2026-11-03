@@ -24,7 +24,7 @@ const prepare=(files=fixture(),owner=plugin,options={})=>prepareWebApplicationEx
 test('the independent conversion contract covers every host capability and all scope families',()=>{
     for(const capability of KNOWN_PLUGIN_CAPABILITIES)expect(WEB_EXPORT_CONTRACT.adapters[capabilityAdapter(capability)]).toBeDefined();
     for(const capability of ['system.fs.scope.custom','system.process.scope.custom','system.network.scope.custom'])expect(capabilityAdapter(capability)).toBeDefined();
-    expect(WEB_EXPORT_CONTRACT.contractVersion).toBe('2.1.0');
+    expect(WEB_EXPORT_CONTRACT.contractVersion).toBe('2.1.1');
 });
 
 test('pure helpers are compiled without loading the SDK registry or communicator',()=>{
