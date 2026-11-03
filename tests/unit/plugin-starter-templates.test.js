@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import path from 'node:path';
+import fs from 'node:fs';
 import {createPluginTemplateFiles} from '../../src/components/editor/utils/virtualTemplates';
 import {PLUGIN_TEMPLATES} from '../../src/utils/plugins/authoring/pluginTemplateCatalog';
 import {typecheckPluginWorkspace} from '../../src/utils/sdk/pluginWorkspaceTypecheck';
@@ -24,4 +25,15 @@ test.each(PLUGIN_TEMPLATES)('$title scaffolds type-safe code and passes its own 
     expect(result.output).not.toMatch(/Missing .*style/);
     expect({success: result.success, error: result.error, ...(result.success ? {} : {output: result.output})}).toEqual({success: true, error: null});
     expect(result.results.length).toBeGreaterThanOrEqual(2);
+}, 30000);
+
+test('workshop release monitor typechecks and runs its five tests through the plugin runner', async () => {
+    const directory = path.resolve('examples/workshop/2');
+    const files = Object.fromEntries(fs.readdirSync(directory, {withFileTypes: true}).filter(entry => entry.isFile())
+        .map(entry => ['/' + entry.name, fs.readFileSync(path.join(directory, entry.name), 'utf8')]));
+    expect(typecheckPluginWorkspace(files, path.resolve('node_modules')).diagnostics).toEqual([]);
+    const result = await runPluginWorkspaceTests(files);
+    expect({success: result.success, error: result.error, ...(result.success ? {} : {output: result.output})}).toEqual({success: true, error: null});
+    expect(result.results).toHaveLength(5);
+    expect(result.results.every(item => item.passed && !item.skipped)).toBe(true);
 }, 30000);

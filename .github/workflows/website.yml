@@ -6,11 +6,17 @@ on:
     paths:
       - "website/**"
       - "scripts/website/**"
+      - "tests/website/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/website.yml"
   pull_request:
     paths:
       - "website/**"
       - "scripts/website/**"
+      - "tests/website/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/website.yml"
   workflow_dispatch:
 
@@ -21,13 +27,29 @@ jobs:
   check:
     name: Check public website
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - run: node scripts/website/site.cjs check
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run website browser checks
+        run: npx playwright test --config scripts/website/playwright.config.cjs --reporter=line,html
+        env:
+          PLAYWRIGHT_HTML_REPORT: playwright-report-website
+      - name: Upload website browser results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: website-browser-results
+          path: |
+            playwright-report-website
+            test-results/website
+          retention-days: 14
+          if-no-files-found: warn
       - name: Stage public files
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: node scripts/website/site.cjs stage

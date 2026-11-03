@@ -79,9 +79,13 @@ describe("PluginContainer message hardening", () => {
 
         rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network", "system.network.https"]} />);
         await waitFor(() => expect(window.fetch).toHaveBeenCalledTimes(2));
-        await waitFor(() => expect(iframe.srcdoc).toContain("system.network.https"));
+        const replacement = container.querySelector("iframe");
+        expect(replacement).not.toBe(iframe);
+        expect(iframe.isConnected).toBe(false);
+        await waitFor(() => expect(replacement.srcdoc).toContain("system.network.https"));
         rerender(<PluginContainer plugin="example-plugin" capabilities={["system.network.https", "system.network", "system.network"]} />);
         await act(async () => {});
+        expect(container.querySelector("iframe")).toBe(replacement);
         expect(window.fetch).toHaveBeenCalledTimes(2);
     });
 
