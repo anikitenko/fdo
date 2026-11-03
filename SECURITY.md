@@ -52,10 +52,31 @@ host services and runtime API guards reduce unintended access; they are not an
 OS sandbox for hostile JavaScript. A plugin signature establishes the signer and
 integrity of the code, not that the code is safe.
 
-The backend currently inherits the application's environment and can read files
-accessible to the application user. Do not treat a plugin with no capability
-grants as isolated from local secrets. Strong containment of untrusted backends
-requires a separate OS-enforced boundary and explicit environment/read policies.
+Installed-plugin workers receive a constructed environment, rather than the
+application's environment. Host API keys, cloud credentials, SSH agent sockets,
+proxy credentials, and Node loader options are not inherited. Home, configuration,
+cache, and temporary-directory variables point to the plugin's own data directory.
+
+The runtime guards standard filesystem reads and module loading against a
+host-supplied list: that plugin's data, signed code/assets, generated runtime, and
+bundled dependency directories. Symlinks are checked against their resolved
+targets. Other plugins' data and the user's configuration and credential files
+are outside that list. Host-service access still requires the corresponding
+capabilities and scope checks. Secrets intentionally supplied to a plugin are
+accessible to that plugin and must be treated accordingly.
+
+Known ancestor directories may be checked for existence so SDKs can create their
+own directories; that does not grant listing or reading those ancestors.
+Electron's ignored stdin remains available to Node, without inheriting the
+application's terminal input. Unknown file descriptors are denied.
+
+These are runtime API controls for trusted code, not containment against hostile
+code or filesystem races. Broad legacy `sudo.prompt` access permits raw process
+execution and can bypass in-process filesystem controls through a child process;
+prefer scoped host tools. Editor-authored test commands also execute trusted
+developer code and are not an isolation boundary. Strong containment of
+untrusted backends requires a separate OS-enforced sandbox. Do not claim that a
+zero-grant plugin is safe to run merely because these guards are present.
 
 Reports about the FDO host, CLI, plugin isolation, capability enforcement,
 privileged-action scopes, signature verification, credential handling, and

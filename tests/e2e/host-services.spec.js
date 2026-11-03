@@ -9,6 +9,63 @@ const {spawn, execFileSync} = require('node:child_process');
 const {launchElectronApp, closeElectronApp, dismissBlueprintOverlays} = require('./helpers/electronApp');
 const {deploySdkExample, waitForPluginReady, waitForPluginUiRendered, removePlugin, getPluginLogTail, getPluginDiagnostics, selectPluginOpen} = require('./helpers/sdkExamples');
 const {runPermissionProbe, assertPermissionProbe} = require('../fixtures/plugin-permission-probe.cjs');
+const {runSensitiveDataProbe, assertSensitiveDataProbe} = require('../fixtures/plugin-sensitive-data-probe.cjs');
+
+async function deployPolicyFixture(page, entry, options, testInfo) {
+    try {return await deploySdkExample(page, entry, options);}
+    catch (error) {
+        const trace = await page.evaluate(id => window.electron.plugin.getLogTrace(id), options.pluginName).catch(() => null);
+        await testInfo.attach('worker-startup', {body: JSON.stringify(trace, null, 2), contentType: 'application/json'});
+        throw error;
+    }
+}
+
+test('plugin worker excludes host secrets and denies unrelated files while loading its own assets', async ({}, testInfo) => {
+    test.setTimeout(120000);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-e2e-sensitive-'));
+    for (const directory of ['.aws', '.ssh']) fs.mkdirSync(path.join(outside, directory));
+    fs.writeFileSync(path.join(outside, 'settings.json'), '{"synthetic":"host-private"}');
+    fs.writeFileSync(path.join(outside, '.aws/credentials'), 'synthetic-aws');
+    fs.writeFileSync(path.join(outside, '.ssh/id_ed25519'), 'synthetic-ssh');
+    fs.writeFileSync(path.join(outside, 'secret.cjs'), 'module.exports = "synthetic-secret";');
+    let app, sibling;
+    try {
+        app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
+            AWS_SECRET_ACCESS_KEY: 'synthetic-aws-secret', AZURE_CLIENT_SECRET: 'synthetic-azure-secret',
+            OPENAI_API_KEY: 'synthetic-ai-secret', GITHUB_TOKEN: 'synthetic-github-token',
+            FDO_REVIEW_ENV_MARKER: 'synthetic-host-marker', SSH_AUTH_SOCK: '/synthetic/agent',
+        }});
+        const page = await app.firstWindow();
+        await page.getByTestId('header-command-search').waitFor({timeout: 30000});
+        const compiledContent = `
+const {FDO_SDK, PluginRegistry} = require('@anikitenko/fdo-sdk');
+class SensitiveFixture extends FDO_SDK {
+    get metadata() {return {name:'Sensitive data fixture',version:'1.0.0',author:'FDO',description:'Synthetic data boundary regression',icon:'shield'};}
+    declareCapabilities() {return [];}
+    init() {
+        PluginRegistry.registerHandler('home', () => process.env.PLUGIN_HOME);
+        PluginRegistry.registerHandler('probe', sibling => (${runSensitiveDataProbe.toString()})(${JSON.stringify(outside)}, sibling));
+    }
+    render() {return '<p>Synthetic data fixture</p>';}
+}
+new SensitiveFixture();`;
+        await deployPolicyFixture(page, {relativePath: 'sensitive-data-regression'}, {pluginName: 'sensitive-data-regression', compiledContent, capabilities: []}, testInfo);
+        const home = await page.evaluate(() => window.electron.plugin.uiMessage('sensitive-data-regression', {handler: 'home', content: {}}));
+        sibling = path.join(path.dirname(home), 'synthetic-sibling');
+        fs.mkdirSync(sibling);fs.writeFileSync(path.join(sibling, 'settings.json'), '{"synthetic":"sibling-private"}');
+        fs.symlinkSync(outside, path.join(home, 'sensitive-link'), 'junction');
+        const result = await page.evaluate(sibling => window.electron.plugin.uiMessage('sensitive-data-regression', {handler: 'probe', content: sibling}), sibling);
+        const host = await app.evaluate(({app}) => ({packaged: app.isPackaged, version: app.getVersion(), node: process.versions.node, electron: process.versions.electron}));
+        const evidencePath = testInfo.outputPath('sensitive-data-policy.json');
+        fs.writeFileSync(evidencePath, JSON.stringify({host, result}, null, 2));
+        await testInfo.attach('sensitive-data-policy', {path: evidencePath, contentType: 'application/json'});
+        assertSensitiveDataProbe(result, expect);
+    } finally {
+        if (sibling) fs.rmSync(sibling, {recursive: true, force: true});
+        if (app) await closeElectronApp(app);
+        fs.rmSync(outside, {recursive: true, force: true});
+    }
+});
 
 // This suite also runs against packaged macOS, Windows and Linux builds in CI.
 test('zero-grant plugin enforces builtin and filesystem permissions in its real worker', async ({}, testInfo) => {
@@ -26,16 +83,21 @@ class PermissionFixture extends FDO_SDK {
     get metadata() {return {name:'Permission fixture',version:'1.0.0',author:'FDO',description:'Synthetic permission regression',icon:'shield'};}
     declareCapabilities() {return [];}
     init() {
+        process.on('uncaughtExceptionMonitor', () => console.error('Permission probe last check:', globalThis.__FDO_PERMISSION_PROBE_LAST_CHECK));
         PluginRegistry.registerHandler('home', () => process.env.PLUGIN_HOME);
         PluginRegistry.registerHandler('probe', () => (${runPermissionProbe.toString()})(${JSON.stringify(outside)}));
     }
     render() {return '<p>Permission fixture</p>';}
 }
 new PermissionFixture();`;
-        await deploySdkExample(page, {relativePath: 'permission-regression'}, {pluginName: 'permission-regression', compiledContent, capabilities: []});
+        await deployPolicyFixture(page, {relativePath: 'permission-regression'}, {pluginName: 'permission-regression', compiledContent, capabilities: []}, testInfo);
         const home = await page.evaluate(() => window.electron.plugin.uiMessage('permission-regression', {handler: 'home', content: {}}));
         fs.symlinkSync(outside, path.join(home, 'preexisting-outside-link'), 'junction');
         const result = await page.evaluate(() => window.electron.plugin.uiMessage('permission-regression', {handler: 'probe', content: {}}));
+        if (result?.ok === false) {
+            const trace = await page.evaluate(() => window.electron.plugin.getLogTrace('permission-regression'));
+            fs.writeFileSync(testInfo.outputPath('worker-request-error.json'), JSON.stringify(trace, null, 2));
+        }
         const host = await app.evaluate(({app}) => ({packaged: app.isPackaged, version: app.getVersion(), node: process.versions.node, electron: process.versions.electron}));
         const evidencePath = testInfo.outputPath('permission-policy.json');
         fs.writeFileSync(evidencePath, JSON.stringify({host, result}, null, 2));

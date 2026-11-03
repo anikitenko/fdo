@@ -18,6 +18,7 @@ import {buildPluginRuntimeBundle, getHostPluginNodeModulesPath} from "./pluginRu
 import path from "node:path";
 import {mkdirSync, readdirSync, statSync} from "node:fs";
 import {buildPluginRuntimePolicy, ensurePluginRuntimeBootstrap, resolveHostGrantedCapabilities} from "../security/pluginRuntimeSecurity";
+import {buildPluginWorkerEnvironment} from '../security/pluginWorkerEnvironment';
 import {
     executeHostPrivilegedAction,
     HOST_PRIVILEGED_ACTION_SYSTEM_CLIPBOARD_READ,
@@ -633,7 +634,7 @@ const PluginManager = {
                     message: `${compatibility.summary} ${compatibility.remediation}`});
             }
             let runtimeEntry = plugin.entry;
-            let hostNodeModulesPath = process.env.NODE_PATH || "";
+            let hostNodeModulesPath = getHostPluginNodeModulesPath();
             try {
                 const runtimeBundle = await buildPluginRuntimeBundle(id, plugin.home);
                 if (runtimeBundle?.entry) {
@@ -661,7 +662,7 @@ const PluginManager = {
 
             const userDataRoot = process.env.FDO_E2E_USER_DATA_DIR || app.getPath("userData");
             const pluginDataHome = path.join(userDataRoot, "plugin-data", id);
-            mkdirSync(pluginDataHome, {recursive: true});
+            mkdirSync(pluginDataHome, {recursive: true, mode: 0o700});
             if (!app.isPackaged) {
                 this.pluginCodeSnapshots[id] = this.capturePluginCodeSnapshot(plugin.home);
             }
@@ -670,30 +671,18 @@ const PluginManager = {
             });
             const runtimePolicy = buildPluginRuntimePolicy(grantedCapabilities);
             const bootstrapEntry = ensurePluginRuntimeBootstrap(id);
+            const workerEnv = buildPluginWorkerEnvironment({
+                pluginHome: pluginDataHome, pluginCodeHome: plugin.home,
+                runtimeEntry, bootstrapEntry, nodeModulesPath: hostNodeModulesPath,
+                grantedCapabilities, runtimePolicy,
+            });
+            mkdirSync(workerEnv.TMPDIR, {recursive: true, mode: 0o700});
 
             const child = utilityProcess.fork(bootstrapEntry, [], {
                 serviceName: `plugin-${id}`,
                 cwd: pluginDataHome,
                 stdio: "pipe",
-                env: {
-                    // Keep signed plugin directory immutable by default.
-                    // Runtime/plugin state should be written to the data directory.
-                    // We keep PLUGIN_CODE_HOME for explicit access to shipped files.
-                    ...process.env,
-                    PLUGIN_HOME: pluginDataHome,
-                    PLUGIN_CODE_HOME: plugin.home,
-                    // SDK JSON store resolves from FDO_SDK_STORAGE_ROOT.
-                    // Point it to writable plugin runtime home so json store works
-                    // without per-plugin manual host configuration.
-                    FDO_SDK_STORAGE_ROOT: pluginDataHome,
-                    FDO_PLUGIN_RUNTIME_ENTRY: runtimeEntry,
-                    FDO_PLUGIN_CAPABILITIES: grantedCapabilities.join(","),
-                    FDO_PLUGIN_POLICY_JSON: JSON.stringify(runtimePolicy),
-                    FDO_SDK_LOG_ROOT: path.join(pluginDataHome, "logs"),
-                    LOG_LEVEL: "info",
-                    FDO_PLUGIN_NODE_PATH: hostNodeModulesPath,
-                    NODE_PATH: hostNodeModulesPath,
-                },
+                env: workerEnv,
             });
             child.__drainStorage = () => drainWorkerStorage(child);
             const closeHostBridge = attachHostServiceBridge(child, createHostServiceEndpoint(id));
