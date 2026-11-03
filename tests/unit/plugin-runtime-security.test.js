@@ -33,6 +33,7 @@ describe("plugin runtime security", () => {
         expect(result.childProcess).toBe("blocked");
         expect(result.codeWrite).toBe("blocked");
         expect(result.homeWrite).toBe("allowed");
+        expect(result.builtinExecution).toBe("blocked");
     });
 
     test("recognizes SDK internals with Windows and POSIX paths while denying plugin imports", () => {
@@ -46,6 +47,7 @@ describe("plugin runtime security", () => {
         expect(result.childProcess).toBe("allowed");
         expect(result.codeWrite).toBe("blocked");
         expect(result.homeWrite).toBe("allowed");
+        expect(result.builtinExecution).toBe("allowed");
     });
 
     test("blocks outbound network APIs without network capability grants", () => {
@@ -159,6 +161,10 @@ function runBootstrapPolicy(capabilitiesCsv) {
 const fs = require("node:fs");
 const path = require("node:path");
 const result = {};
+try {
+    process.getBuiltinModule('node:child_process').execFileSync(process.execPath, ['-e', 'process.stdout.write("test")']);
+    result.builtinExecution = 'allowed';
+} catch (_) {result.builtinExecution = 'blocked';}
 result.sdkImports = Object.fromEntries(Object.entries({
   windows: "C:/host/node_modules/@anikitenko/fdo-sdk/dist/fdo-sdk.bundle.js".replaceAll("/", String.fromCharCode(92)),
   posix: "/host/node_modules/@anikitenko/fdo-sdk/dist/fdo-sdk.bundle.js",

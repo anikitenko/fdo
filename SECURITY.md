@@ -44,6 +44,19 @@ Let the maintainer know whether and how you would like to be credited.
 
 ## Scope
 
+### Plugin trust boundary
+
+Install plugins only from authors and repositories you trust. Plugin backends run
+JavaScript in an Electron utility process with Node APIs. Capability checks on
+host services and runtime API guards reduce unintended access; they are not an
+OS sandbox for hostile JavaScript. A plugin signature establishes the signer and
+integrity of the code, not that the code is safe.
+
+The backend currently inherits the application's environment and can read files
+accessible to the application user. Do not treat a plugin with no capability
+grants as isolated from local secrets. Strong containment of untrusted backends
+requires a separate OS-enforced boundary and explicit environment/read policies.
+
 Reports about the FDO host, CLI, plugin isolation, capability enforcement,
 privileged-action scopes, signature verification, credential handling, and
 release distribution are welcome. A plugin performing an operation through an

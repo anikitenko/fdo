@@ -8,6 +8,46 @@ const os = require('node:os');
 const {spawn, execFileSync} = require('node:child_process');
 const {launchElectronApp, closeElectronApp, dismissBlueprintOverlays} = require('./helpers/electronApp');
 const {deploySdkExample, waitForPluginReady, waitForPluginUiRendered, removePlugin, getPluginLogTail, getPluginDiagnostics, selectPluginOpen} = require('./helpers/sdkExamples');
+const {runPermissionProbe, assertPermissionProbe} = require('../fixtures/plugin-permission-probe.cjs');
+
+// This suite also runs against packaged macOS, Windows and Linux builds in CI.
+test('zero-grant plugin enforces builtin and filesystem permissions in its real worker', async ({}, testInfo) => {
+    test.setTimeout(120000);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-e2e-permissions-'));
+    fs.writeFileSync(path.join(outside, 'sentinel.txt'), 'unchanged');
+    let app;
+    try {
+        app = await launchElectronApp(electron, {isolatedUserDataDir: true});
+        const page = await app.firstWindow();
+        await page.getByTestId('header-command-search').waitFor({timeout: 30000});
+        const compiledContent = `
+const {FDO_SDK, PluginRegistry} = require('@anikitenko/fdo-sdk');
+class PermissionFixture extends FDO_SDK {
+    get metadata() {return {name:'Permission fixture',version:'1.0.0',author:'FDO',description:'Synthetic permission regression',icon:'shield'};}
+    declareCapabilities() {return [];}
+    init() {
+        PluginRegistry.registerHandler('home', () => process.env.PLUGIN_HOME);
+        PluginRegistry.registerHandler('probe', () => (${runPermissionProbe.toString()})(${JSON.stringify(outside)}));
+    }
+    render() {return '<p>Permission fixture</p>';}
+}
+new PermissionFixture();`;
+        await deploySdkExample(page, {relativePath: 'permission-regression'}, {pluginName: 'permission-regression', compiledContent, capabilities: []});
+        const home = await page.evaluate(() => window.electron.plugin.uiMessage('permission-regression', {handler: 'home', content: {}}));
+        fs.symlinkSync(outside, path.join(home, 'preexisting-outside-link'), 'junction');
+        const result = await page.evaluate(() => window.electron.plugin.uiMessage('permission-regression', {handler: 'probe', content: {}}));
+        const host = await app.evaluate(({app}) => ({packaged: app.isPackaged, version: app.getVersion(), node: process.versions.node, electron: process.versions.electron}));
+        const evidencePath = testInfo.outputPath('permission-policy.json');
+        fs.writeFileSync(evidencePath, JSON.stringify({host, result}, null, 2));
+        await testInfo.attach('permission-policy', {path: evidencePath, contentType: 'application/json'});
+        assertPermissionProbe(result, expect);
+        expect(fs.readFileSync(path.join(outside, 'sentinel.txt'), 'utf8')).toBe('unchanged');
+        expect(fs.readdirSync(outside)).toEqual(['sentinel.txt']);
+    } finally {
+        if (app) await closeElectronApp(app);
+        fs.rmSync(outside, {recursive: true, force: true});
+    }
+});
 
 const capabilities = ['system.process.exec', 'system.process.scope.git', 'secrets.use', 'secrets.consume', 'ssh.use', 'ssh.exec', 'ssh.profiles.list'];
 const allCapabilities = [...capabilities, 'secrets.set', 'secrets.get', 'secrets.list', 'secrets.delete'];
