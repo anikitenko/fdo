@@ -7,6 +7,26 @@ This protects signature integrity and avoids accidental mutation of shipped plug
 ## Runtime Paths
 - `PLUGIN_CODE_HOME`: read-only plugin assets and bundled code (signed content).
 - `PLUGIN_HOME`: writable runtime data directory (`<userData>/plugin-data/<plugin-id>`).
+- `HOME`, profile/config/cache paths and temp directories now point into
+  `PLUGIN_HOME`; they do not refer to the operator's desktop home.
+
+## Read Access And Credentials
+
+Installed-plugin workers can read their own code/assets, runtime data, generated
+bundle, and bundled runtime dependencies. Reads of other plugins' directories,
+FDO settings, `~/.aws`, `~/.ssh`, and other files outside these roots are denied
+by the runtime API guards, including reads through symlinks and module imports.
+Glob and recursive directory reads are unavailable; use non-recursive `readdir`
+and check each directory through the normal APIs.
+
+Host shell variables, API keys, cloud credentials and SSH agent sockets are no
+longer inherited. Configure credentials through FDO's host services and request
+the corresponding SDK secrets/profile/tool capabilities. Use scoped host tools
+for CLI access instead of reading desktop CLI login caches directly. Configuration
+and secrets deliberately supplied to a plugin remain accessible to that plugin.
+
+These controls require trusted plugin authors; see the
+[trust boundary](../SECURITY.md#plugin-trust-boundary). They are not an OS sandbox.
 
 ## Required Migration For Plugin Authors
 1. Move all writable state from `PLUGIN_CODE_HOME` into `PLUGIN_HOME`.

@@ -8,6 +8,7 @@ async function runPermissionProbe(outside) {
     const outsideFile = path.join(outside, 'sentinel.txt');
     const result = {};
     const check = async (name, action) => {
+        globalThis.__FDO_PERMISSION_PROBE_LAST_CHECK = name;
         try {await action(); result[name] = 'allowed';}
         catch (error) {result[name] = error.message.includes('[host-policy]') ? 'blocked' : 'unexpected: ' + error.message;}
     };
@@ -70,13 +71,17 @@ async function runPermissionProbe(outside) {
     await check('outside:mkdir', () => callback(done => fs.mkdir(path.join(outside, 'created'), done)));
     await check('outside:unlink', () => callback(done => fs.unlink(outsideFile, done)));
 
-    const outsideFd = fs.openSync(outsideFile, 'r');
-    try {
+    let outsideFd;
+    try {outsideFd = fs.openSync(outsideFile, 'r');}
+    catch (error) {result['outside:read-open'] = error.code === 'FDO_PLUGIN_PERMISSION_DENIED' ? 'blocked' : 'unexpected: ' + error.message;}
+    if (outsideFd !== undefined) try {
         await check('outside:fd-sync', () => fs.ftruncateSync(outsideFd, 0));
         await check('outside:fd-callback', () => callback(done => fs.writeFile(outsideFd, 'changed', done)));
     } finally {fs.closeSync(outsideFd);}
-    const outsideHandle = await fs.promises.open(outsideFile, 'r');
-    try {
+    let outsideHandle;
+    try {outsideHandle = await fs.promises.open(outsideFile, 'r');}
+    catch (error) {result['outside:read-handle'] = error.code === 'FDO_PLUGIN_PERMISSION_DENIED' ? 'blocked' : 'unexpected: ' + error.message;}
+    if (outsideHandle) try {
         await check('outside:filehandle', () => outsideHandle.truncate(0));
         const ownFd = fs.openSync(path.join(home, 'state-string'), 'r+');
         try {

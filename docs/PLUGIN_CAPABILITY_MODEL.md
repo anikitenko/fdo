@@ -1,9 +1,9 @@
 # Plugin Capability Model
 
 This host uses a deny-by-default capability model for host services. Install only
-trusted plugins: the Node backend's API guards are not an OS sandbox. Backends
-currently inherit the application environment and can read files accessible to
-the application user. See [the security policy](../SECURITY.md#plugin-trust-boundary).
+trusted plugins: the Node backend's API guards are not an OS sandbox. Installed
+workers receive a filtered environment and filesystem reads are limited to their
+own files and runtime dependencies. See [the security policy](../SECURITY.md#plugin-trust-boundary).
 
 ## Source Of Truth
 
@@ -29,9 +29,39 @@ Host runtime policy is generated from granted capabilities and injected into plu
 - recursive `fs.cp` is unavailable; use checked `mkdir` and `copyFile` operations instead
 - raw process methods remain blocked without the explicit legacy `sudo.prompt` grant;
   use scoped host tools for ordinary plugin execution needs
+- filesystem reads and module loading check the host-supplied read roots: this
+  plugin's data, code/assets, runtime cache, and bundled dependencies
+- reads include callbacks, promises, sync calls, streams, metadata queries,
+  tracked descriptors, CommonJS/JSON loading, and ESM imports; symlinks resolve
+  to their actual targets before checking the roots
+- known ancestor directories support existence checks for SDK initialization,
+  without directory listing/content access; the host's ignored stdin is preserved
+- glob and recursive directory enumeration are unavailable; traverse using
+  checked non-recursive `readdir` calls
+- Electron host modules are unavailable to plugins; use the SDK's host brokers
 
 These guards execute in the same JavaScript process as the backend and do not
 establish containment against deliberately hostile code or filesystem races.
+
+### Worker environment and sensitive data
+
+The worker environment is built in `pluginWorkerEnvironment.js`, with explicit
+runtime paths and a small locale/system allowlist. The host environment is never
+spread into an installed-plugin worker. `HOME`, `USERPROFILE`, XDG paths, Windows
+application-data folders, and temp variables use the plugin data directory.
+`PATH` contains standard system directories; scoped host tools use their own
+host-side environment policy.
+
+Host API keys, cloud credentials, SSH agent sockets, proxies, and Node loader
+options are excluded. Plugins must use explicitly granted SDK secrets, SSH
+profiles, and scoped host services instead of reading the user's credential
+files or relying on inherited shell variables. This does not hide data an
+operator deliberately stores in a plugin's own files or sends to the plugin.
+
+The legacy `sudo.prompt` grant is broad raw execution, not scoped tooling.
+A child process can access resources beyond the in-process filesystem guards.
+Use it only for fully trusted code; prefer `system.process.exec` with a narrow
+process scope. Developer-authored test commands are also trusted-code execution.
 
 Privileged host actions are transported via reserved UI message handler:
 

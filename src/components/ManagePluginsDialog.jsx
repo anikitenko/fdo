@@ -4,6 +4,7 @@ import PluginExportDialog from './plugin/PluginExportDialog';
 import {
     Alert,
     Button,
+    Callout,
     Card,
     Checkbox,
     ControlGroup,
@@ -2678,7 +2679,7 @@ const SelectPluginPanel = ({
             <Divider/>
             <ControlGroup vertical={false}>
                 <Switch size="medium" style={{marginTop: "15px"}} labelElement={<strong
-                    style={{color: localStorage.getItem("sandbox_" + plugin.id) ? "red" : "green"}}>{localStorage.getItem("sandbox_" + plugin.id) ? "Sandboxed" : "No sandbox"}</strong>}
+                    style={{color: localStorage.getItem("sandbox_" + plugin.id) ? "red" : "green"}}>{localStorage.getItem("sandbox_" + plugin.id) ? "Editor workspace" : "No editor workspace"}</strong>}
                         innerLabelChecked="yes :(" innerLabel="no :)"
                         checked={!!localStorage.getItem("sandbox_" + plugin.id)}
                         disabled={true}
@@ -3640,7 +3641,7 @@ const SelectPluginPanel = ({
                     <div>
                         <div className={"bp6-heading"} style={{fontSize: "0.95rem"}}>Capabilities & Privileged Access</div>
                         <div className={classNames("bp6-text-small", "bp6-text-muted")}>
-                            Default is deny-by-default. Grant only what this plugin needs.
+                            Host services require explicit grants. Grant only what this plugin needs.
                         </div>
                     </div>
                     <Button
@@ -3653,6 +3654,10 @@ const SelectPluginPanel = ({
                         {hasUnsavedCapabilityChanges ? "Save Capabilities" : "Saved"}
                     </Button>
                 </div>
+                <Callout icon="shield" title="Install plugins you trust" style={{marginTop: 12}}>
+                    Plugin backends run local Node.js code. Their environment is filtered and file reads are limited to their own files and runtime dependencies.
+                    {' '}These API guards do not isolate hostile code. A valid signature verifies the signer and code integrity; review the author and source before enabling a plugin.
+                </Callout>
                 <div style={{display: "flex", gap: "10px", alignItems: "center", justifyContent: "space-between", marginTop: "12px", marginBottom: "8px", flexWrap: "wrap"}}>
                     <div style={{display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", flex: "1 1 auto"}}>
                     <InputGroup

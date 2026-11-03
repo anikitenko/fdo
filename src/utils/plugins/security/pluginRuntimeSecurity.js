@@ -39,7 +39,17 @@ const path = require("node:path");
 const Module = require("node:module");
 const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
+// Electron can expose a separate ASAR promises facade through fs.promises.
+// Keep every public alias on the same guarded implementation.
+Object.defineProperty(fs, 'promises', {get: () => fsPromises, configurable: false, enumerable: true});
 const {fileURLToPath, URL: FileURL} = require("node:url");
+let canonicalFs = fs;
+if (process.versions.electron) canonicalFs = require('original-fs');
+// Keep canonicalization independent of the public APIs patched below.
+const policyFs = {
+    existsSync: canonicalFs.existsSync.bind(canonicalFs),
+    realpathSync: (canonicalFs.realpathSync.native || canonicalFs.realpathSync).bind(canonicalFs),
+};
 const hostBackendContext = new (require("node:async_hooks").AsyncLocalStorage)();
 
 const runtimeEntry = process.env.FDO_PLUGIN_RUNTIME_ENTRY;
@@ -48,6 +58,16 @@ if (!runtimeEntry) {
 }
 
 const pluginHome = process.env.PLUGIN_HOME ? path.resolve(process.env.PLUGIN_HOME) : "";
+const ignoredStdin = process.env.FDO_PLUGIN_STDIN_IGNORED === '1';
+const configuredReadRoots = process.env.FDO_PLUGIN_READ_ROOTS;
+const readRoots = configuredReadRoots ? JSON.parse(configuredReadRoots) : [
+    pluginHome, process.env.PLUGIN_CODE_HOME, path.dirname(runtimeEntry),
+    ...(process.env.FDO_PLUGIN_NODE_PATH || process.env.NODE_PATH || '').split(path.delimiter),
+].filter(Boolean);
+if (!Array.isArray(readRoots) || !readRoots.length || readRoots.some(root =>
+    typeof root !== 'string' || !path.isAbsolute(root) || path.resolve(root) === path.parse(root).root)) {
+    throw new Error('Invalid plugin filesystem read policy.');
+}
 let runtimePolicy = { blockedModules: [] };
 try {
     runtimePolicy = JSON.parse(process.env.FDO_PLUGIN_POLICY_JSON || "{}");
@@ -557,17 +577,14 @@ function isWithin(basePath, targetPath) {
     const toCanonicalPath = (value) => {
         const absolute = path.resolve(value);
         try {
-            if (typeof fs.realpathSync?.native === "function") {
-                return fs.realpathSync.native(absolute);
-            }
-            return fs.realpathSync(absolute);
+            return policyFs.realpathSync(absolute);
         } catch (_) {
             // When the exact target does not exist yet (e.g. mkdir target),
             // resolve via the nearest existing parent to normalize symlinks
             // like /var -> /private/var on macOS.
             const pending = [];
             let current = absolute;
-            while (!fs.existsSync(current)) {
+            while (!policyFs.existsSync(current)) {
                 const parent = path.dirname(current);
                 if (parent === current) {
                     return absolute;
@@ -577,9 +594,7 @@ function isWithin(basePath, targetPath) {
             }
             let canonicalParent;
             try {
-                canonicalParent = typeof fs.realpathSync?.native === "function"
-                    ? fs.realpathSync.native(current)
-                    : fs.realpathSync(current);
+                canonicalParent = policyFs.realpathSync(current);
             } catch (_) {
                 canonicalParent = current;
             }
@@ -588,7 +603,8 @@ function isWithin(basePath, targetPath) {
     };
     const canonicalBase = toCanonicalPath(basePath);
     const canonicalTarget = toCanonicalPath(targetPath);
-    return canonicalTarget === canonicalBase || canonicalTarget.startsWith(canonicalBase + path.sep);
+    const relative = path.relative(canonicalBase, canonicalTarget);
+    return relative === '' || (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
 }
 
 const openDescriptors = new Map();
@@ -597,7 +613,7 @@ function writePath(target) {
     if (typeof target === 'string') return target;
     if (Buffer.isBuffer(target)) {
         const value = target.toString('utf8');
-        if (!Buffer.from(value).equals(target)) deny('[host-policy] Non-UTF-8 write paths are not supported.');
+        if (!Buffer.from(value).equals(target)) deny('[host-policy] Non-UTF-8 filesystem paths are not supported.');
         return value;
     }
     if (target instanceof FileURL) return fileURLToPath(target);
@@ -617,6 +633,18 @@ function assertWritableTarget(targetPath, operation) {
     if (typeof targetPath !== 'string') deny('[host-policy] Write target or file descriptor is not owned by this plugin.');
     if (!isWithin(pluginHome, targetPath)) {
         deny(\`[host-policy] \${operation} denied for "\${targetPath}". Writes are only allowed under PLUGIN_HOME.\`);
+    }
+}
+function assertReadableTarget(target, operation) {
+    const normalized = writePath(target);
+    const fd = typeof target === 'number' ? target : ownedFileHandles.get(target);
+    // Node lazily constructs a ReadStream for stdin. The host only enables this
+    // exception for its ignored utility-process stdin, never an inherited file.
+    if (normalized === null && fd === 0 && ignoredStdin) return;
+    const filename = normalized ?? openDescriptors.get(fd);
+    if (typeof filename !== 'string' || !readRoots.some(root => isWithin(root, filename))) {
+        const description = typeof filename === 'string' ? filename : 'unowned file descriptor ' + String(fd);
+        deny('[host-policy] ' + operation + ' denied for "' + description + '". Reads are limited to this plugin and its runtime dependencies.');
     }
 }
 
@@ -691,6 +719,7 @@ for (const method of ['chmod', 'chown', 'lchmod', 'lchown', 'utimes', 'lutimes',
 if (typeof fs.openSync === "function") {
     const originalOpenSync = fs.openSync;
     fs.openSync = function patchedOpenSync(targetPath, flags, ...rest) {
+        assertReadableTarget(targetPath, 'openSync');
         if (usesWriteFlags(flags)) {
             assertWritableTarget(targetPath, "openSync");
         }
@@ -755,7 +784,10 @@ if (typeof fs.open === 'function') {
     const originalOpen = fs.open;
     fs.open = function(target, flags, ...args) {
         const callback = args[args.length - 1];
-        try {if (usesWriteFlags(flags)) assertWritableTarget(target, 'open');}
+        try {
+            assertReadableTarget(target, 'open');
+            if (usesWriteFlags(flags)) assertWritableTarget(target, 'open');
+        }
         catch (error) {
             if (typeof callback !== 'function') throw error;
             queueMicrotask(() => callback(error));return;
@@ -789,6 +821,14 @@ function protectFileHandle(handle, target) {
                     return original.apply(this, args);
                 };
         }
+        for (const name of ['read', 'readv', 'readFile', 'stat', 'createReadStream', 'readLines', 'readableWebStream']) {
+            const original = prototype[name];
+            if (typeof original !== 'function') continue;
+            const validate = handle => assertReadableTarget(handle, name);
+            prototype[name] = ['createReadStream', 'readLines', 'readableWebStream'].includes(name)
+                ? function(...args) {validate(this);return original.apply(this, args);}
+                : async function(...args) {validate(this);return original.apply(this, args);};
+        }
     }
     return handle;
 }
@@ -805,6 +845,7 @@ for (const name of ['close', 'closeSync']) {
 if (typeof fsPromises.open === "function") {
     const originalOpen = fsPromises.open;
     fsPromises.open = async function patchedOpen(targetPath, flags, ...rest) {
+        assertReadableTarget(targetPath, 'open');
         if (usesWriteFlags(flags)) {
             assertWritableTarget(targetPath, "open");
         }
@@ -812,8 +853,105 @@ if (typeof fsPromises.open === "function") {
     };
 }
 
+function patchRead(object, name, kind, targets = args => [args[0]]) {
+    const original = object[name];
+    if (typeof original !== 'function') return;
+    const validate = args => {
+        targets(args).forEach(target => assertReadableTarget(target, name));
+        if ((name.startsWith('readdir') || name.startsWith('opendir')) && args[1]?.recursive) {
+            deny('[host-policy] Recursive directory reads are unavailable; use checked non-recursive readdir calls.');
+        }
+    };
+    if (kind === 'promise') {
+        object[name] = async function(...args) {validate(args);return original.apply(this, args);};
+    } else if (kind === 'callback') {
+        object[name] = function(...args) {
+            try {validate(args);} catch (error) {
+                const callback = args[args.length - 1];
+                if (typeof callback !== 'function') throw error;
+                queueMicrotask(() => callback(error));return;
+            }
+            return original.apply(this, args);
+        };
+    } else {
+        object[name] = function(...args) {validate(args);return original.apply(this, args);};
+    }
+    if (typeof original.native === 'function') {
+        const holder = {native: original.native};
+        patchRead(holder, 'native', kind, targets);
+        object[name].native = holder.native;
+    }
+}
+for (const name of ['readFile', 'readdir', 'opendir', 'stat', 'lstat', 'statfs', 'readlink', 'realpath', 'access']) {
+    patchRead(fs, name + 'Sync', 'sync');
+    patchRead(fs, name, 'callback');
+    patchRead(fsPromises, name, 'promise');
+}
+for (const name of ['read', 'readv']) {
+    patchRead(fs, name + 'Sync', 'sync');patchRead(fs, name, 'callback');
+}
+patchRead(fs, 'fstatSync', 'sync');patchRead(fs, 'fstat', 'callback');
+patchRead(fs, 'openAsBlob', 'promise');
+patchRead(fs, 'copyFileSync', 'sync');patchRead(fs, 'copyFile', 'callback');patchRead(fsPromises, 'copyFile', 'promise');
+for (const name of ['watch', 'watchFile']) patchRead(fs, name, 'sync');
+patchRead(fsPromises, 'watch', 'sync');
+const originalExistsSync = fs.existsSync;
+function isReadRootAncestor(target) {
+    const filename = writePath(target);
+    return filename !== null && readRoots.some(root => isWithin(filename, root));
+}
+fs.existsSync = function(target) {
+    try {assertReadableTarget(target, 'existsSync');}
+    catch (_) {
+        // Directory-creation libraries walk known parent directories up to the
+        // filesystem root. Existence alone is safe; listing/reading stays denied.
+        return isReadRootAncestor(target) && policyFs.existsSync(target);
+    }
+    return originalExistsSync.call(this, target);
+};
+const originalExists = fs.exists;
+fs.exists = function(target, callback) {
+    try {assertReadableTarget(target, 'exists');}
+    catch (_) {queueMicrotask(() => callback(isReadRootAncestor(target) && policyFs.existsSync(target)));return;}
+    return originalExists.call(this, target, callback);
+};
+const originalCreateReadStream = fs.createReadStream;
+fs.createReadStream = function(target, options) {
+    assertReadableTarget(options?.fd ?? target, 'createReadStream');
+    return originalCreateReadStream.call(this, target, options);
+};
+if (typeof fs.ReadStream?.prototype?._construct === 'function') {
+    const originalConstruct = fs.ReadStream.prototype._construct;
+    fs.ReadStream.prototype._construct = function(callback) {
+        try {assertReadableTarget(this.fd ?? this.path, 'ReadStream');}
+        catch (error) {callback(error);return;}
+        return originalConstruct.call(this, callback);
+    };
+}
+// Glob traverses directories internally, bypassing per-path public API checks.
+for (const [object, name] of [[fs, 'glob'], [fs, 'globSync'], [fsPromises, 'glob']]) {
+    if (typeof object[name] === 'function') object[name] = function() {
+        deny('[host-policy] Glob is unavailable; use checked readdir calls.');
+    };
+}
+
+// Resolving/loading JSON or JavaScript must not become an alternative file reader.
+const originalResolveFilename = Module._resolveFilename;
+Module._resolveFilename = function(...args) {
+    const resolved = originalResolveFilename.apply(this, args);
+    if (!Module.isBuiltin(resolved)) assertReadableTarget(resolved, 'require');
+    return resolved;
+};
+for (const name of Object.keys(Module._extensions)) {
+    const original = Module._extensions[name];
+    Module._extensions[name] = function(module, filename, ...args) {
+        assertReadableTarget(filename, 'module load');
+        return original.call(this, module, filename, ...args);
+    };
+}
+
 const blockedNetworkModules = new Set(["undici", "node:undici"]);
-const alwaysBlockedModules = new Set(["worker_threads", "node:worker_threads"]);
+const alwaysBlockedModules = new Set(["worker_threads", "node:worker_threads", "original-fs", "node:original-fs", "electron", "electron/main", "electron/common", "electron/renderer"]);
 
 if (!allowNetworkDns) {
     ["dns", "dns/promises", "node:dns", "node:dns/promises"].forEach((entry) => blockedNetworkModules.add(entry));
@@ -903,6 +1041,11 @@ if (blockedModules.has('child_process') || blockedModules.has('node:child_proces
     if (childProcess.ChildProcess?.prototype) childProcess.ChildProcess.prototype.spawn = denyExecution;
 }
 Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'electron' || request.startsWith('electron/') || request === 'original-fs' || request === 'node:original-fs') {
+        // The SDK uses process.parentPort. Exposing Electron's net module would
+        // create a second file/network reader outside the Node fs guards.
+        deny('[host-policy] Electron host APIs are unavailable in plugin backends.');
+    }
     if (blockedModules.has(request) || blockedNetworkModules.has(request) || alwaysBlockedModules.has(request)) {
         const parentFile = typeof parent?.filename === "string" ? parent.filename : "";
         const isSdkInternalImport = parentFile.replace(/\\\\/g, "/").includes("@anikitenko/fdo-sdk");
@@ -1136,6 +1279,7 @@ if (typeof process.getBuiltinModule === 'function') {
         configurable: false,
         writable: false,
         value(request) {
+            if (alwaysBlockedModules.has(request)) deny('[host-policy] Builtin access is denied by host capability policy.');
             // Preserve Node's behavior for unknown names and invalid arguments.
             if (typeof request !== 'string' || !isBuiltin(request)) return originalGetBuiltinModule(request);
             return guardedLoad(request, {filename: runtimeEntry}, false);
@@ -1156,6 +1300,7 @@ Module.registerHooks({
     resolve(request, context, nextResolve) {
         const resolved = nextResolve(request, context);
         const builtin = resolved.url.startsWith('node:') ? resolved.url : request;
+        if (resolved.url.startsWith('file:')) assertReadableTarget(fileURLToPath(resolved.url), 'ESM import');
         const bare = builtin.startsWith('node:') ? builtin.slice(5) : builtin;
         const forbidden = [builtin, bare, 'node:' + bare].some(name =>
             blockedModules.has(name) || blockedNetworkModules.has(name) || alwaysBlockedModules.has(name));
