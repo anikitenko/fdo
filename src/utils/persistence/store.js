@@ -2,6 +2,8 @@ import Store from 'electron-store';
 import {stageObservabilityMigration} from './stageObservabilityMigration.cjs';
 import fs from 'node:fs';
 import {migrateCodingTimeoutDefaults} from '../ai/generation/codingRequestPolicy.cjs';
+import {createAiCredentialSettings} from './aiCredentialSettings.cjs';
+import {createAiCredentialProtection} from './aiCredentialProtection';
 
 const e2eCwd = process.env.FDO_E2E_USER_DATA_DIR;
 if (e2eCwd) {
@@ -12,8 +14,10 @@ if (e2eCwd) {
     }
 }
 
-export const settings = new Store({
+const rawSettings = new Store({
     ...(e2eCwd ? { cwd: e2eCwd } : {}),
+    // Legacy settings compatibility, not credential protection. AI secret fields
+    // receive an independent OS-backed layer through the exported store below.
     encryptionKey: "FDO-APPLICATION",
     name: "settings",
     // Persistence layout version, independent of the application release.
@@ -57,11 +61,13 @@ export const settings = new Store({
             properties: {
                 codingTimeoutDefaultsVersion: {type:'integer',minimum:0,default:0},
                 usageRates: {type: "object", default: {}},
+                // Ciphertext/base64 needs more room than the validated 8 KiB
+                // plaintext extension values, especially for Unicode input.
                 codexHooks: {type:'array',default:[],maxItems:30,items:{type:'object',additionalProperties:false,
                     required:['id','name','event','toolPattern','command','args','cwd','environment','timeoutSeconds','enabled','assistantIds'],
                     properties:{id:{type:'string'},name:{type:'string',maxLength:64},event:{type:'string',enum:['SessionStart','UserPromptSubmit','PreToolUse','PostToolUse','PreCompact','PostCompact','Stop','SessionEnd','Interrupt']},
                         toolPattern:{type:'string',maxLength:128},command:{type:'string',maxLength:2048},args:{type:'array',maxItems:64,items:{type:'string',maxLength:8192}},cwd:{type:'string',maxLength:2048},
-                        environment:{type:'object',maxProperties:32,additionalProperties:{type:'string',maxLength:8192}},timeoutSeconds:{type:'integer',minimum:1,maximum:60},enabled:{type:'boolean'},assistantIds:{type:'array',uniqueItems:true,items:{type:'string'}}}}},
+                        environment:{type:'object',maxProperties:32,additionalProperties:{type:'string',maxLength:65536}},timeoutSeconds:{type:'integer',minimum:1,maximum:60},enabled:{type:'boolean'},assistantIds:{type:'array',uniqueItems:true,items:{type:'string'}}}}},
                 codexMcpAuth: {type: 'object', default: {}, additionalProperties: {type: 'object'}},
                 codexMcpServers: {
                     type: 'array', default: [], maxItems: 20,
@@ -70,11 +76,11 @@ export const settings = new Store({
                         properties: {
                             transport: {type: 'string', enum: ['http', 'stdio']}, authMode: {type: 'string', enum: ['none', 'bearer', 'oauth']},
                             command: {type: 'string', maxLength: 2048}, args: {type: 'array', maxItems: 64, items: {type: 'string', maxLength: 8192}}, cwd: {type: 'string', maxLength: 2048},
-                            headers: {type: 'object', maxProperties: 32, additionalProperties: {type: 'string', maxLength: 8192}},
-                            environment: {type: 'object', maxProperties: 32, additionalProperties: {type: 'string', maxLength: 8192}},
+                            headers: {type: 'object', maxProperties: 32, additionalProperties: {type: 'string', maxLength: 65536}},
+                            environment: {type: 'object', maxProperties: 32, additionalProperties: {type: 'string', maxLength: 65536}},
                             oauthClientId: {type: 'string', maxLength: 1024}, oauthScopes: {type: 'string', maxLength: 1024}, oauthCallbackPort: {type: 'integer', minimum: 0, maximum: 65535}, authRevision: {type: 'string'},
                             id: {type: 'string'}, name: {type: 'string', maxLength: 64}, url: {type: 'string', maxLength: 2048},
-                            bearerToken: {type: 'string', maxLength: 8192}, enabled: {type: 'boolean'}, checkedAt: {type: 'string'},
+                            bearerToken: {type: 'string', maxLength: 65536}, enabled: {type: 'boolean'}, checkedAt: {type: 'string'},
                             assistantIds: {type: 'array', uniqueItems: true, items: {type: 'string'}},
                             enabledTools: {type: 'array', maxItems: 100, uniqueItems: true, items: {type: 'string'}},
                             tools: {type: 'array', maxItems: 100, items: {type: 'object', additionalProperties: false,
@@ -352,4 +358,7 @@ export const settings = new Store({
     }
 });
 
-if (typeof settings.get === 'function' && typeof settings.set === 'function') migrateCodingTimeoutDefaults(settings);
+// Metadata-only layout migration runs before OS-backed secret access is enabled.
+if (typeof rawSettings.get === 'function' && typeof rawSettings.set === 'function') migrateCodingTimeoutDefaults(rawSettings);
+export const settings = typeof rawSettings.get === 'function'
+    ? createAiCredentialSettings(rawSettings, createAiCredentialProtection()) : rawSettings;

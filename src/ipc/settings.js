@@ -16,6 +16,7 @@ import {ipcMain, utilityProcess, BrowserWindow, dialog, shell} from "electron";
 import {registerAiExtensionsHandlers} from './aiExtensions';
 import {SettingsChannels} from "./channels";
 import {settings} from "../utils/persistence/store";
+import {assistantRecords, assistantMetadata} from '../utils/persistence/aiCredentialSettings.cjs';
 import {Certs} from "../utils/system/certs";
 import {certificateStorage} from "../utils/persistence/certificateStorage";
 import LLM from "../utils/ai/providers/aiProviderClient"
@@ -38,8 +39,8 @@ const CODEX_AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const GEMINI_AUTH_TIMEOUT_MS = 10 * 60 * 1000;
 
 function broadcastAIAssistantsUpdate() {
-    const chat = settings.get('ai.chat', []) || [];
-    const coding = settings.get('ai.coding', []) || [];
+    const chat = assistantMetadata(settings, 'chat');
+    const coding = assistantMetadata(settings, 'coding');
     const fullList = [
         ...chat.map(a => ({ ...a, purpose: 'chat' })),
         ...coding.map(a => ({ ...a, purpose: 'coding' })),
@@ -55,7 +56,7 @@ function broadcastAIAssistantsUpdate() {
 }
 
 function updateCodexAssistantState(assistantId, patch = {}) {
-    const list = settings.get("ai.coding", []) || [];
+    const list = assistantRecords(settings, 'coding');
     const index = list.findIndex((item) => item.id === assistantId);
     if (index === -1) return null;
     list[index] = {
@@ -378,6 +379,17 @@ function monitorGeminiTerminalSession(assistant, invocation, loginLaunchResult) 
 }
 
 export function registerSettingsHandlers() {
+    try {settings.migrateAiCredentials?.();}
+    catch {
+        NotificationCenter.addNotification({source: 'security', type: 'warning',
+            title: 'AI credential migration paused',
+            message: 'Unlock or configure your OS credential store, then retry an AI action. Existing credentials have been preserved; FDO will not save new AI secrets without OS protection.'});
+    }
+    ipcMain.handle(SettingsChannels.ai_assistants.SECURE_CREDENTIALS, () => {
+        const migrated = settings.migrateAiCredentials?.() || 0;
+        broadcastAIAssistantsUpdate();
+        return {migrated};
+    });
     registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, settings, openExternal: url => shell.openExternal(url)});
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
         return certificateStorage.list('root');
@@ -423,8 +435,8 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.GET, async () => {
-        const chat   = settings.get('ai.chat',   []) || [];
-        const coding = settings.get('ai.coding', []) || [];
+        const chat = assistantMetadata(settings, 'chat');
+        const coding = assistantMetadata(settings, 'coding');
 
         const currentCoding = await Promise.all(coding.map(assistant =>
             refreshCodexRuntime(assistant, resolveCodexCliInvocation)
@@ -618,7 +630,7 @@ export function registerSettingsHandlers() {
 // (unless it's a brand-new item, and you want the very first one to be default)
         const key = `ai.${data.purpose}`;
         const now = new Date().toISOString();
-        const list = (settings.get(key, []) || []).slice();
+        const list = assistantRecords(settings, data.purpose).slice();
 
         const norm = v => String(v ?? "").trim().toLowerCase();
         const target = norm(data.name);
@@ -713,7 +725,7 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_STATUS, async (_, assistantId) => {
-        const list = settings.get("ai.coding", []) || [];
+        const list = assistantRecords(settings, 'coding');
         const assistant = list.find((item) => item.id === assistantId);
         if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
             throw new Error("CLI assistant not found.");
@@ -755,7 +767,7 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_LOGIN, async (_, assistantId) => {
-        const list = settings.get("ai.coding", []) || [];
+        const list = assistantRecords(settings, 'coding');
         const assistant = list.find((item) => item.id === assistantId);
         if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
             throw new Error("CLI assistant not found.");
@@ -780,7 +792,7 @@ export function registerSettingsHandlers() {
             result = launchCodexLoginUtilityProcess(assistant, invocation);
         } else {
             if (activeGeminiAuthProcesses.has(assistant.id)) {
-                const latest = (settings.get("ai.coding", []) || []).find((item) => item.id === assistant.id);
+                const latest = (assistantRecords(settings, 'coding')).find((item) => item.id === assistant.id);
                 return {
                     started: true,
                     mode: "utilityProcess",
@@ -822,7 +834,7 @@ export function registerSettingsHandlers() {
             }
         }
 
-        const latest = (settings.get("ai.coding", []) || []).find((item) => item.id === assistant.id);
+        const latest = (assistantRecords(settings, 'coding')).find((item) => item.id === assistant.id);
         return {
             ...result,
             auth: latest?.codexAuth || startStatus,
@@ -830,7 +842,7 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_LOGOUT, async (_, assistantId) => {
-        const list = settings.get("ai.coding", []) || [];
+        const list = assistantRecords(settings, 'coding');
         const assistant = list.find((item) => item.id === assistantId);
         if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
             throw new Error("CLI assistant not found.");
@@ -869,7 +881,7 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CODEX_AUTH_CANCEL, async (_, assistantId) => {
-        const list = settings.get("ai.coding", []) || [];
+        const list = assistantRecords(settings, 'coding');
         const assistant = list.find((item) => item.id === assistantId);
         if (!assistant || !["codex-cli", "gemini-cli"].includes(assistant.provider)) {
             throw new Error("CLI assistant not found.");
@@ -898,7 +910,7 @@ export function registerSettingsHandlers() {
     ipcMain.handle(SettingsChannels.ai_assistants.SET_DEFAULT, async (_, data) => {
         // Make exactly one assistant default by name (case-insensitive)
         const key = `ai.${data.purpose}`;
-        const list = (settings.get(key, []) || []).map(a => ({
+        const list = assistantRecords(settings, data.purpose).map(a => ({
             ...a,
             default: false,
         }));
@@ -913,7 +925,7 @@ export function registerSettingsHandlers() {
 
     ipcMain.handle(SettingsChannels.ai_assistants.REMOVE, async (_, data) => {
         const key = `ai.${data.purpose}`;
-        const raw = settings.get(key, []) || [];
+        const raw = assistantRecords(settings, data.purpose);
 
         if (!['chat', 'coding'].includes(data.purpose)) {
             throw new Error(`[REMOVE] invalid purpose "${data.purpose}"`);

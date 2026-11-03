@@ -1,5 +1,6 @@
 import LLM from "../../ai/providers/aiProviderClient";
 import {settings} from "../../persistence/store";
+import {assistantRecords, assistantCredentials} from '../../persistence/aiCredentialSettings.cjs';
 import {
     hasCapability,
     SYSTEM_AI_ASSISTANTS_LIST_CAPABILITY,
@@ -81,10 +82,10 @@ function assistantComparator(left, right) {
 }
 
 export function listHostAiAssistants(options = {}) {
-    const chatAssistants = (settings.get("ai.chat", []) || [])
+    const chatAssistants = assistantRecords(settings, 'chat')
         .map((item) => normalizeAssistant(item, "chat"))
         .filter(Boolean);
-    const codingAssistants = (settings.get("ai.coding", []) || [])
+    const codingAssistants = assistantRecords(settings, 'coding')
         .map((item) => normalizeAssistant(item, "coding"))
         .filter(Boolean);
     const all = [...chatAssistants, ...codingAssistants];
@@ -312,8 +313,16 @@ export async function handleHostAiRequest(payload = {}, options = {}) {
         return failure("AI_ASSISTANT_RESOLUTION_FAILED", "Failed to resolve an assistant for the request.", {}, {degraded: true});
     }
 
-    const fullRecord = (settings.get(`ai.${assistant.purpose || "coding"}`, []) || [])
+    const selectedRecord = assistantRecords(settings, assistant.purpose || 'coding')
         .find((item) => String(item?.id || "").trim() === assistant.id) || null;
+    let fullRecord;
+    try {fullRecord = selectedRecord ? assistantCredentials(settings, assistant.purpose || 'coding', selectedRecord) : null;}
+    catch (error) {
+        if (error?.code !== 'AI_CREDENTIAL_STORE_LOCKED') throw error;
+        return failure('AI_CREDENTIALS_UNAVAILABLE', 'The host AI credential store is locked or unavailable.', {
+            remediation: 'Unlock or configure the system keychain, then retry in FDO.',
+        });
+    }
     if (!fullRecord) {
         return failure(
             "AI_ASSISTANT_STALE",

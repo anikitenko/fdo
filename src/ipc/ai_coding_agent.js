@@ -1,4 +1,5 @@
 import {INVESTIGATION_CONTRACT} from '../components/editor/utils/aiCodingAgentInvestigation';
+import {assistantRecords, assistantCredentials} from '../utils/persistence/aiCredentialSettings.cjs';
 import {pluginGuideRecoveryMetadata} from '../utils/ai/assistant/pluginGuideRecovery';
 import {selectedCodexHooks} from '../utils/ai/codex/codexHooks';
 import {selectedCodexMcpServers} from '../utils/ai/codex/codexMcp';
@@ -265,12 +266,12 @@ function normalizeRouteJudgePayload(parsed = {}) {
 
 // Select a coding assistant from settings
 function selectCodingAssistant(assistantId) {
-    const list = settings.get("ai.coding", []) || [];
+    const list = assistantRecords(settings, 'coding');
     
     // If assistantId is provided, find that specific assistant
     if (assistantId) {
         const assistant = list.find(a => a.id === assistantId);
-        if (assistant) return assistant;
+        if (assistant) return assistantCredentials(settings, 'coding', assistant);
         throw new Error("The selected AI Coding assistant no longer exists. Select an assistant again in the Editor.");
     }
     
@@ -279,12 +280,12 @@ function selectCodingAssistant(assistantId) {
     if (!assistantInfo) {
         throw new Error("No AI Coding assistant found. Please add one in Settings → AI Assistants.");
     }
-    return assistantInfo;
+    return assistantCredentials(settings, 'coding', assistantInfo);
 }
 
 function updateCodexAssistantState(assistantInfo, patch = {}) {
     if (!assistantInfo?.id) return;
-    const list = settings.get("ai.coding", []) || [];
+    const list = assistantRecords(settings, 'coding');
     const index = list.findIndex((item) => item.id === assistantInfo.id);
     if (index === -1) return;
     list[index] = {

@@ -48,6 +48,7 @@ export const SettingsChannels = withPrefix('settings', {
     },
     ai_assistants: {
         GET: 'get',
+        SECURE_CREDENTIALS: 'ai-secure-credentials',
         GET_PROVIDER_INSTRUCTIONS: 'get-provider-instructions',
         SET_PROVIDER_INSTRUCTIONS: 'set-provider-instructions',
         MCP_SIGN_IN: 'mcp-sign-in',
