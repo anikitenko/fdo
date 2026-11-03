@@ -4,6 +4,7 @@ dist/
 vendor/
 artifacts/
 scripts/workshops/
+docs/workshops/
 
 # Logs
 logs

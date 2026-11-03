@@ -30,7 +30,7 @@ Otherwise, open FDO's command search, choose **Settings**, open **Certificates**
 
 1. Open command search and choose **Create Plugin**.
 2. Under **Import an existing plugin folder**, choose **Select folder** and select `examples/workshop/2`.
-3. Review the detected **GitHub Release Monitor** source project and plugin ID, `workshop-release-monitor`.
+3. Review the detected **GitHub Release Monitor** source project. Set **Plugin ID** to `workshop-release-monitor`; FDO may initially suggest `github-release-monitor` from the display name.
 4. Set **Import as** to **Build from source and install**.
 5. Select **Build and install plugin** and wait for completion.
 

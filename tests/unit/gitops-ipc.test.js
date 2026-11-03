@@ -31,6 +31,48 @@ beforeEach(() => {
 });
 afterEach(() => {controller.stop(); jest.useRealTimers();});
 
+test('publishes automatic verification and completed-plugin progress while Settings is closed', async () => {
+    await invoke('SAVE', input);
+    const second = {...verified.manifest.spec.plugins[0], name: 'second'};
+    store[0] = {...store[0], manifest: {...store[0].manifest, spec: {plugins: [verified.manifest.spec.plugins[0], second]}}};
+    let releaseVerification, releaseFirst, failSecond;
+    verify.mockImplementationOnce(() => new Promise(resolve => {releaseVerification = resolve;}));
+    sync.mockImplementation(({pluginName}) => new Promise((resolve, reject) => {
+        if (pluginName === 'example') releaseFirst = resolve;
+        else failSecond = reject;
+    }));
+    controller.start();
+    const status = await invoke('LIST');
+    expect(status.operation).toMatchObject({kind: 'sync', automatic: true, phase: 'verifying', repositoryId: store[0].id, repositoryName: 'tools'});
+    expect(status.operation.startedAt).toBeDefined();
+    expect(JSON.stringify(status.operation)).not.toMatch(/alice|secret|encrypted/i);
+    expect((await invoke('SYNC', store[0].id)).success).toBe(false);
+    expect((await invoke('LIST')).operation).toEqual(status.operation);
+    releaseVerification({...verified, manifest: store[0].manifest});
+    await new Promise(setImmediate);
+    expect((await invoke('LIST')).operation).toMatchObject({phase: 'synchronizing', pluginName: 'example', completed: 0, total: 2});
+    releaseFirst({installedPlugins: []});
+    await new Promise(setImmediate);
+    expect((await invoke('LIST')).operation).toMatchObject({phase: 'synchronizing', pluginName: 'second', completed: 1, total: 2});
+    failSecond(new Error('Plugin repository unavailable'));
+    await new Promise(setImmediate);
+    expect((await invoke('LIST')).operation).toBeUndefined();
+    expect(store[0].pluginStatuses.find(item => item.name === 'second').state).toBe('error');
+    expect(store[0]).not.toHaveProperty('operation');
+});
+
+test('clears verification progress and releases the operation lock after failure', async () => {
+    await invoke('SAVE', input);
+    let rejectVerification;
+    verify.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectVerification = reject;}));
+    const pending = invoke('VERIFY', store[0].id);
+    expect((await invoke('LIST')).operation).toMatchObject({kind: 'verify', phase: 'verifying'});
+    rejectVerification(new Error('Collection is unavailable'));
+    expect(await pending).toMatchObject({success: false, error: 'Collection is unavailable'});
+    expect((await invoke('LIST')).operation).toBeUndefined();
+    expect((await invoke('VERIFY', store[0].id)).success).toBe(true);
+});
+
 test('encrypts each repository credential pair and never returns secrets or ciphertext to the renderer', async () => {
     const alice = await invoke('SAVE', input);
     const bob = await invoke('SAVE', {...input, url: 'https://github.com/work/tools', username: 'bob', password: 'bob-secret'});

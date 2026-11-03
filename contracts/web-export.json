@@ -1,5 +1,5 @@
 {
-  "contractVersion": "2.1.0",
+  "contractVersion": "2.1.1",
   "applicationApiVersion": "1.1.0",
   "capabilities": {
     "storage": "persistent-storage",

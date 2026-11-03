@@ -23,6 +23,11 @@ test('exported SDK-free application serves browser actions and retains encrypted
         process.env.NODE_PATH=path.resolve('node_modules');Module._initPaths();
         const files=fixture(),capabilities=['storage','storage.json','secrets.use','secrets.set','secrets.get','secrets.delete','secrets.list','system.process.exec','system.process.scope.test-cli'];
         files['/index.ts']=files['/index.ts'].replace("return ['storage'","return ['system.process.exec','system.process.scope.test-cli','storage'");
+        files['/index.ts']=files['/index.ts'].replace("dom.createElement('h1',{},'Standalone counter'),", `dom.createElement('h1',{},'Standalone counter'),
+            dom.createElement('label',{for:'note'},'Deployment note'),
+            dom.createElement('input',{id:'note',type:'text',value:'Initial value'}),
+            dom.createElement('input',{id:'enabled',type:'checkbox',checked:true,'aria-label':'Enable checks'}),`);
+        files['/index.ts']=files['/index.ts'].replace("{handler:'counter.increment',content:{}}", "{handler:'counter.increment',content:{note:document.getElementById('note').value,enabled:document.getElementById('enabled').checked}}");
         files['/index.ts']=files['/index.ts'].replace("strict:true,handlers:",`strict:true,setup:async()=>{
             const plot=document.createElement('div');plot.id='chart';plot.style.width='400px';document.querySelector('section').appendChild(plot);
             await window.FDOCharts.create(plot,{type:'bar',label:'Standalone chart',xKey:'day',data:[{day:'Monday',value:3}],series:[{key:'value'}],height:160});
@@ -60,7 +65,13 @@ test('exported SDK-free application serves browser actions and retains encrypted
         const frame=page.frameLocator('iframe[title="Application"]');
         await expect(frame.getByRole('heading',{name:'Standalone counter'})).toBeVisible();
         await expect(frame.getByRole('figure',{name:'Standalone chart'}).locator('svg').first()).toBeVisible();
+        const note=frame.getByLabel('Deployment note'),enabled=frame.getByRole('checkbox',{name:'Enable checks'});
+        await expect(note).toHaveValue('Initial value');await expect(enabled).toBeChecked();
+        await note.fill('A user-entered "note" with \\ and >');await enabled.uncheck();
+        const increment=page.waitForRequest(request=>request.url().endsWith('/api/actions') && request.postDataJSON()?.handler==='counter.increment');
         await frame.getByRole('button',{name:'Increment',exact:true}).click();
+        expect((await increment).postDataJSON().content).toEqual({note:'A user-entered "note" with \\ and >',enabled:false});
+        await expect(note).toHaveValue('A user-entered "note" with \\ and >');await expect(enabled).not.toBeChecked();
         await expect(frame.locator('#value')).toHaveText('1');
         await expect(page.locator('#status')).toBeHidden();
         const headers={'Authorization':'Basic '+Buffer.from('engineer:'+password).toString('base64'),'Content-Type':'application/json','X-Web-App-Request':'1'};

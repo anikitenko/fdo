@@ -30,6 +30,9 @@ Start with [web application export](docs/WEB_APPLICATION_EXPORT.md) or the
 persistent `/data`, secret references, ingress and updates. All three guides open
 inside FDO and are included in the ZIP.
 
+Follow [workshop 3: from plugin to standalone Docker app](examples/workshop/3/README.md)
+for a hands-on local exercise using the workshop 2 GitHub Release Monitor.
+
 ## AI Coding Agent
 
 

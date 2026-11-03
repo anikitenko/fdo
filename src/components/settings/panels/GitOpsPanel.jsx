@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Button, Callout, Dialog, FormGroup, HTMLSelect, InputGroup, NonIdealState} from '@blueprintjs/core';
 import * as styles from '../../css/SettingsDialog.module.css';
 import GitOpsRepositoryCard from './GitOpsRepositoryCard';
+import GitOpsProgress from './GitOpsProgress';
 
 const EMPTY = {url: '', authType: 'none', username: '', password: '', manifestPath: 'fdo-plugins.yaml', revisionType: 'branch', targetRevision: 'main'};
 
@@ -14,6 +15,9 @@ export default function GitOpsPanel({focusRepositoryId}) {
     const [repositories, setRepositories] = useState([]);
     const [draft, setDraft] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [operation, setOperation] = useState(null);
+    const [pendingOperation, setPendingOperation] = useState(null);
+    const working = busy || !!operation;
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [formError, setFormError] = useState('');
@@ -27,12 +31,17 @@ export default function GitOpsPanel({focusRepositoryId}) {
     }, [focusRepositoryId, repositories.length]);
     useEffect(() => {
         let active = true;
-        const load = () => window.electron.settings.gitops.list().then(result => {
-            if (!active) return;
-            if (!result.success) throw new Error(result.error);
-            setRepositories(result.repositories);
-        }).catch(reason => { if (active) setError(reason.message); })
-            .finally(() => { if (active) setLoading(false); });
+        let request = 0;
+        const load = () => {
+            const current = ++request;
+            return window.electron.settings.gitops.list().then(result => {
+                if (!active || current !== request) return;
+                if (!result.success) throw new Error(result.error);
+                setRepositories(result.repositories);
+                setOperation(result.operation || null);
+            }).catch(reason => { if (active && current === request) setError(reason.message); })
+                .finally(() => { if (active && current === request) setLoading(false); });
+        };
         void load();
         const unsubscribe = window.electron.settings.gitops.onUpdated?.(load);
         return () => { active = false; unsubscribe?.(); };
@@ -41,19 +50,23 @@ export default function GitOpsPanel({focusRepositoryId}) {
     const save = async event => {
         event.preventDefault();
         setBusy(true); setFormError(''); setNotice('');
+        setPendingOperation({kind: 'save', phase: 'starting', repositoryName: draft?.manifest?.metadata?.displayName || draft?.manifest?.metadata?.name || 'Repository'});
         try {
             const result = successfulResult(await window.electron.settings.gitops.save(draft));
+            setOperation(result.operation || null);
             setRepositories(result.repositories); setDraft(null);
             setExpanded(previous => ({...previous, [result.repository?.id || result.repositories.at(-1)?.id]: true}));
             setNotice(result.repository?.pluginStatuses?.some(status=>status.state==='awaiting_approval') ? 'Repository saved. Review pending permission updates below.' : result.repository?.syncError ? 'Repository saved. Plugin synchronization needs attention below.' : 'Repository saved and plugins synchronized.');
         } catch (reason) { setFormError(reason.message); }
-        finally { setBusy(false); }
+        finally { setBusy(false); setPendingOperation(null); }
     };
     const action = async (method, id, value) => {
         setBusy(true); setError(''); setNotice('');
+        setPendingOperation({kind: method, phase: 'starting', repositoryName: repositories.find(repository => repository.id === id)?.manifest?.metadata?.displayName || repositories.find(repository => repository.id === id)?.manifest?.metadata?.name || 'Repository'});
         setFeedback(previous => ({...previous, [id]: null}));
         try {
             const result = successfulResult(await window.electron.settings.gitops[method](id, value));
+            setOperation(result.operation || null);
             setRepositories(result.repositories);
             const messages = {verify: 'Repository access and manifest verified.', sync: 'Plugin checks completed. See each plugin for its result.',
                 syncPlugin: `Check completed for ${value}.`, setInterval: 'Automatic check interval saved.',
@@ -64,16 +77,17 @@ export default function GitOpsPanel({focusRepositoryId}) {
         } catch (reason) {
             setFeedback(previous => ({...previous, [id]: {intent: 'danger', message: reason.message}}));
             const refreshed = await window.electron.settings.gitops.list().catch(() => null);
-            if (refreshed?.success) setRepositories(refreshed.repositories);
+            if (refreshed?.success) {setRepositories(refreshed.repositories); setOperation(refreshed.operation || null);}
             return {success:false,error:reason.message};
         }
-        finally { setBusy(false); }
+        finally { setBusy(false); setPendingOperation(null); }
     };
     return <div className={styles['card-panel']}>
         <h3 className={styles['card-setting-header']}>GitOps</h3>
         <p>Connect Git repositories containing a PluginCollection manifest.</p>
         <p className="bp6-text-muted">Manage each repository’s schedule and check individual plugins for updates. New plugins are installed disabled; existing enabled states are preserved.</p>
-        <Button icon="git-repo" intent="primary" disabled={busy || loading} onClick={() => {setDraft({...EMPTY}); setFormError('');}}>Add Git Repository</Button>
+        <Button icon="git-repo" intent="primary" disabled={working || loading} onClick={() => {setDraft({...EMPTY}); setFormError('');}}>Add Git Repository</Button>
+        <GitOpsProgress operation={operation || pendingOperation}/>
         {loading && <p>Loading repositories…</p>}
         {error && <Callout intent="danger" style={{marginTop: 12}}>{error}</Callout>}
         {notice && <Callout intent="success" style={{marginTop: 12}}>{notice}</Callout>}
@@ -81,12 +95,13 @@ export default function GitOpsPanel({focusRepositoryId}) {
         {repositories.map(repository => <GitOpsRepositoryCard key={repository.id} repository={repository}
             expanded={expanded[repository.id] ?? repositories.length === 1}
             onToggle={() => setExpanded(previous => ({...previous, [repository.id]: !(previous[repository.id] ?? repositories.length === 1)}))}
-            busy={busy} onAction={action} feedback={feedback[repository.id]}
+            busy={working} onAction={action} feedback={feedback[repository.id]}
             onEdit={repository => {setDraft({...repository, username: '', password: ''}); setFormError('');}}/>)}
         <Dialog isOpen={!!draft} title={draft?.id ? 'Edit Git Repository' : 'Add Git Repository'} style={{width: 580}}
             canOutsideClickClose={false} canEscapeKeyClose={!busy} isCloseButtonShown={!busy} onClose={() => !busy && setDraft(null)}>
             {draft && <form onSubmit={save} style={{padding: '0 20px 20px', maxHeight: '75vh', overflowY: 'auto'}}>
-                <fieldset disabled={busy} style={{border: 0, padding: 0, margin: 0}}>
+                <GitOpsProgress operation={operation || pendingOperation}/>
+                <fieldset disabled={working} style={{border: 0, padding: 0, margin: 0}}>
                     <FormGroup label="Repository URL" labelFor="gitops-url" helperText="HTTPS Git URL, without credentials in the URL.">
                         <InputGroup id="gitops-url" required type="url" placeholder="https://github.com/acme/fdo-plugins.git" value={draft.url} onChange={event => change('url', event.target.value)}/>
                     </FormGroup>
@@ -120,7 +135,7 @@ export default function GitOpsPanel({focusRepositoryId}) {
                 </fieldset>
                 <div style={{display: 'flex', justifyContent: 'flex-end', gap: 8}}>
                     <Button disabled={busy} onClick={() => setDraft(null)}>Cancel</Button>
-                    <Button type="submit" intent="primary" loading={busy}>Verify and save</Button>
+                    <Button type="submit" intent="primary" loading={busy} disabled={working}>Verify and save</Button>
                 </div>
             </form>}
         </Dialog>
