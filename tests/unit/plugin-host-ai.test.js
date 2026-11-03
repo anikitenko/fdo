@@ -13,6 +13,7 @@ jest.mock("../../src/utils/ai/providers/aiProviderClient", () => {
 });
 
 import {settings} from "../../src/utils/persistence/store";
+import LLM from '../../src/utils/ai/providers/aiProviderClient';
 import {
     handleHostAiAssistantsListRequest,
     handleHostAiRequest,
@@ -53,7 +54,9 @@ describe("plugin host ai", () => {
 
     test("routes request to assistant selected by assistantId and returns task-shaped payload", async () => {
         mockChat.mockResolvedValueOnce({content: "feat: add AI bridge"});
-        const response = await handleHostAiRequest({
+        settings.resolveAiAssistant = jest.fn((_purpose, record) => ({...record,apiKey:'decrypted-fixture-key'}));
+        try {
+            const response = await handleHostAiRequest({
             task: "commit-message",
             assistantId: "chat-1",
             prompt: "Generate commit message",
@@ -61,11 +64,16 @@ describe("plugin host ai", () => {
             grantedCapabilities: ["system.ai", "system.ai.request"],
         });
 
-        expect(response).toEqual(expect.objectContaining({
-            ok: true,
-            commitMessage: "feat: add AI bridge",
-            assistantId: "chat-1",
-        }));
+            expect(response).toEqual(expect.objectContaining({
+                ok: true,
+                commitMessage: "feat: add AI bridge",
+                assistantId: "chat-1",
+            }));
+            expect(settings.resolveAiAssistant).toHaveBeenCalledTimes(1);
+            expect(settings.resolveAiAssistant).toHaveBeenCalledWith('chat', expect.objectContaining({id:'chat-1'}));
+            expect(LLM).toHaveBeenCalledWith(expect.objectContaining({apiKey:'decrypted-fixture-key'}));
+            expect(JSON.stringify(response)).not.toContain('decrypted-fixture-key');
+        } finally {delete settings.resolveAiAssistant;}
     });
 
     test("returns degraded response when provider is unavailable for request routing", async () => {
@@ -91,6 +99,18 @@ describe("plugin host ai", () => {
             code: "AI_PROVIDER_UNAVAILABLE",
             degraded: true,
         }));
+    });
+
+    test('reports a locked credential store without sending a provider request or exposing key material', async () => {
+        settings.resolveAiAssistant = () => {throw Object.assign(new Error('synthetic-private-detail'), {code:'AI_CREDENTIAL_STORE_LOCKED'});};
+        try {
+            const response = await handleHostAiRequest({task:'summarize',assistantId:'chat-1'}, {
+                grantedCapabilities:['system.ai','system.ai.request'],
+            });
+            expect(response).toMatchObject({ok:false,code:'AI_CREDENTIALS_UNAVAILABLE'});
+            expect(JSON.stringify(response)).not.toContain('synthetic-private-detail');
+            expect(mockChat).not.toHaveBeenCalled();
+        } finally {delete settings.resolveAiAssistant;}
     });
 
     test("treats Gemini CLI as unavailable for host-side plugin AI routing", async () => {

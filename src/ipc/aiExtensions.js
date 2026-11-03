@@ -1,4 +1,5 @@
 import {validateCodexHook, publicCodexHook} from '../utils/ai/codex/codexHooks';
+import {assistantRecords} from '../utils/persistence/aiCredentialSettings.cjs';
 import {runCodexHookCommand} from '../utils/ai/codex/codexHookRuntime';
 import os from 'node:os';
 import {configureMcpCredentialsStore, hasMcpOAuthCredentials, startMcpOAuth} from '../utils/ai/mcp/mcpOAuth';
@@ -18,16 +19,16 @@ export function registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, se
         settings.set('ai.codexMcpAuth', {...settings.get('ai.codexMcpAuth', {}), [id]: record});
     }});
     const storedServers = () => {
-        const ids = new Set(codexAssistantChoices(settings.get('ai.coding', [])).map(a => a.id));
+        const ids = new Set(codexAssistantChoices(assistantRecords(settings, 'coding')).map(a => a.id));
         return settings.get('ai.codexMcpServers', []).map(s => ({...s, assistantIds: s.assistantIds.filter(id => ids.has(id))}));
     };
     const inventory = () => {
-        const assistants = codexAssistantChoices(settings.get('ai.coding', []));
+        const assistants = codexAssistantChoices(assistantRecords(settings, 'coding'));
         const allowed = new Set(assistants.map(assistant => assistant.id));
         return {hooks: settings.get('ai.codexHooks', []).map(hook => publicCodexHook({...hook,assistantIds:hook.assistantIds.filter(id=>allowed.has(id))})), mcpServers: storedServers().map(server => ({...publicMcpServer({...server, assistantIds: server.assistantIds.filter(id => allowed.has(id))}), oauthStatus: (signIns.get(server.id)?.status !== 'authorized' ? signIns.get(server.id)?.status : undefined) || (hasMcpOAuthCredentials(server.id) ? 'authorized' : 'signed_out'), oauthMessage: signIns.get(server.id)?.message || ''})), skills: settings.get('ai.codexSkills', []).map(skill => ({...skill, assistantIds: skill.assistantIds.filter(id => allowed.has(id))})), assistants};
     };
     const save = skills => {
-        validateCodexSkillAssignments(skills, settings.get('ai.coding', []));
+        validateCodexSkillAssignments(skills, assistantRecords(settings, 'coding'));
         settings.set('ai.codexSkills', skills);
         for (const window of BrowserWindow.getAllWindows?.() || []) {
             if (!window.isDestroyed()) window.webContents.send(channels.on_off.EXTENSIONS_UPDATED);
@@ -41,22 +42,22 @@ export function registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, se
     };
     const saveServers = servers => {
         if (servers.length > 20) throw new Error('Add at most 20 MCP servers.');
-        servers.forEach(server => validateMcpServer(server, settings.get('ai.coding', [])));
+        servers.forEach(server => validateMcpServer(server, assistantRecords(settings, 'coding')));
         settings.set('ai.codexMcpServers', servers); notify(); return inventory();
     };
     const storedHooks = () => {
-        const ids = new Set(codexAssistantChoices(settings.get('ai.coding', [])).map(a=>a.id));
+        const ids = new Set(codexAssistantChoices(assistantRecords(settings, 'coding')).map(a=>a.id));
         return settings.get('ai.codexHooks', []).map(h=>({...h,assistantIds:h.assistantIds.filter(id=>ids.has(id))}));
     };
     const saveHooks = hooks => {
         if(hooks.length>30)throw new Error('Add at most 30 hooks.');
-        hooks.forEach(h=>validateCodexHook(h,settings.get('ai.coding',[])));
+        hooks.forEach(h=>validateCodexHook(h,assistantRecords(settings, 'coding')));
         settings.set('ai.codexHooks',hooks);notify();return inventory();
     };
     ipcMain.handle(channels.ADD_CODEX_HOOK,(_event,input)=>{
         const hooks=storedHooks();
         const hook={id:randomUUID(),name:input.name?.trim(),event:input.event,toolPattern:input.toolPattern || '',command:input.command,args:input.args || [],cwd:input.cwd || '',environment:input.environment || {},timeoutSeconds:input.timeoutSeconds,enabled:false,assistantIds:[]};
-        validateCodexHook(hook,settings.get('ai.coding',[]));
+        validateCodexHook(hook,assistantRecords(settings, 'coding'));
         if(hooks.some(h=>h.name===hook.name))throw new Error('Choose a unique hook name.');
         return saveHooks([...hooks,hook]);
     });
@@ -69,7 +70,7 @@ export function registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, se
     ipcMain.handle(channels.TEST_CODEX_HOOK,async(_event,{id})=>{
         if(testingHook)throw new Error('A hook test is already running.');
         const hook=storedHooks().find(h=>h.id===id);if(!hook)throw new Error('This hook no longer exists.');
-        validateCodexHook(hook,settings.get('ai.coding',[]));testingHook=true;
+        validateCodexHook(hook,assistantRecords(settings, 'coding'));testingHook=true;
         try {
             const result=await runCodexHookCommand(hook,{hook_event_name:hook.event,session_id:'fdo-hook-test',cwd:hook.cwd||os.homedir(),model:'fdo-hook-test',permission_mode:'plan',prompt:'FDO synthetic hook test',tool_name:'mcp__fdo_probe__test',tool_input:{},tool_response:{},last_assistant_message:'FDO sample response',stop_hook_active:false,source:'startup',reason:'other',trigger:'auto'});
             let output=(result.stdout || result.stderr).slice(0,4000);
@@ -88,7 +89,7 @@ export function registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, se
             command: input.command || '', args: input.args || [], cwd: input.cwd || '', environment: input.environment || {}, headers: input.headers || {},
             oauthClientId: input.oauthClientId || '', oauthScopes: input.oauthScopes || '', oauthCallbackPort: input.oauthCallbackPort || 0, authRevision: randomUUID(),
             bearerToken: input.bearerToken || '', enabled: false, assistantIds: [], enabledTools: [], tools: [], checkedAt: ''};
-        validateMcpServer(server, settings.get('ai.coding', []));
+        validateMcpServer(server, assistantRecords(settings, 'coding'));
         if (!previous && servers.some(s => s.name === server.name)) throw new Error('Choose a unique MCP server name.');
         if (!previous && server.authMode === 'oauth') return saveServers([...servers, server]);
         checking = true;

@@ -44,6 +44,17 @@ Let the maintainer know whether and how you would like to be credited.
 
 ## Scope
 
+### Saved AI credentials
+
+Saved assistant API keys and AI extension credential fields receive OS-backed
+encryption in addition to the general settings format. Migration preserves
+legacy data on failure, rejects plaintext storage fallbacks, and removes legacy
+values only after verified encryption and an atomic settings update. Pending
+migrations remain legacy-protected until the system keychain is available.
+Assistant listings and broadcasts never return saved keys or their ciphertext.
+See [AI credential storage and recovery](docs/AI_CREDENTIAL_STORAGE.md) for scope,
+platform limitations, CLI-managed logins and backup considerations.
+
 ### Plugin trust boundary
 
 Install plugins only from authors and repositories you trust. Plugin backends run

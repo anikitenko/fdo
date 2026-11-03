@@ -51,6 +51,7 @@ const EMPTY_CODEX_AUTH_DIALOG = {
 export default function AIAssistantsPanel() {
     const [assistants, setAssistants] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSecuringCredentials, setIsSecuringCredentials] = useState(false);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [providerModels, setProviderModels] = useState([]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -483,6 +484,23 @@ export default function AIAssistantsPanel() {
                 </div>
             </div>
 
+            <Callout icon="lock" style={{marginBottom: 16}}
+                intent={assistants.some(assistant => assistant.credentialMigrationPending) ? 'warning' : 'none'}
+                title={assistants.some(assistant => assistant.credentialMigrationPending) ? 'Credential migration needs your keychain' : 'OS-protected credentials'}>
+                {assistants.some(assistant => assistant.credentialMigrationPending)
+                    ? 'Existing API keys still need OS protection. Legacy values are removed only after verified migration succeeds.'
+                    : 'Saved API keys use your operating system credential store and are never returned in the assistant list.'}
+                {' '}CLI providers manage their own sign-in credentials.
+                {assistants.some(assistant => assistant.credentialMigrationPending) && <>
+                    <p>Existing keys are preserved. Unlock your system keychain, then retry migration.</p>
+                    <Button icon="refresh" text="Retry credential migration" loading={isSecuringCredentials} onClick={async () => {
+                        setIsSecuringCredentials(true);
+                        try {await window.electron.settings.ai.secureCredentials();await refreshAssistants();}
+                        catch (error) {AppToaster.show({message: operationError('Could not secure AI credentials', error, 'Unlock or configure your system keychain, then retry.'), intent:'danger'});}
+                        finally {setIsSecuringCredentials(false);}
+                    }}/>
+                </>}
+            </Callout>
             {isLoading ? (
                 <Spinner />
             ) : assistants.length === 0 ? (

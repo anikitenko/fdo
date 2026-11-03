@@ -216,6 +216,7 @@ contextBridge.exposeInMainWorld('electron', {
             renew: (label) => ipcRenderer.invoke(SettingsChannels.certificates.RENEW, label),
         },
         ai: {
+            secureCredentials: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.SECURE_CREDENTIALS),
             getAssistants: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET),
             getProviderInstructions: () => ipcRenderer.invoke(SettingsChannels.ai_assistants.GET_PROVIDER_INSTRUCTIONS),
             setProviderInstructions: (instructions) => ipcRenderer.invoke(SettingsChannels.ai_assistants.SET_PROVIDER_INSTRUCTIONS, instructions),

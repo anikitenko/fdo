@@ -174,7 +174,7 @@ jobs:
       - run: npm run build
       # One invocation preserves every failure artifact; native UI tests run serially.
       - name: Run desktop and Live UI smoke tests
-        run: npm run test:e2e:ci -- tests/e2e/cli.spec.js tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js tests/e2e/host-services.spec.js tests/e2e/remote-commands.spec.js tests/e2e/ssh-terminal.spec.js
+        run: npm run test:e2e:ci -- tests/e2e/cli.spec.js tests/e2e/main-window.spec.js tests/e2e/editor-window.spec.js tests/e2e/ai-coding-agent.spec.js tests/e2e/snapshots.e2e.spec.js tests/e2e/plugin-stability.spec.js tests/e2e/live-ui-workspace.spec.js tests/e2e/sdk-ui-components.spec.js tests/e2e/host-services.spec.js tests/e2e/ai-credential-storage.spec.js tests/e2e/remote-commands.spec.js tests/e2e/ssh-terminal.spec.js
       - name: Package host for credential and SSH verification
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

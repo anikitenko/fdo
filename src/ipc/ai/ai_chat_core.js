@@ -2,6 +2,7 @@
 import LLM from "../../utils/ai/providers/aiProviderClient";
 import {currentTurnUsage} from "../../utils/ai/billing/ledger";
 import { settings as applicationSettings } from "../../utils/persistence/store.js";
+import {assistantRecords, assistantCredentials} from '../../utils/persistence/aiCredentialSettings.cjs';
 import { AiChatChannels } from "../channels.js";
 import { recordAnswerMetrics, recordTokenUsage, recordToolUsage } from "./metrics.js";
 import { getObservabilityPromptVersion } from "./observability.js";
@@ -1091,7 +1092,7 @@ export async function prepareSessionMessage(sessionId, content, attachments, rep
 }
 
 export function selectAssistant(assistantId, provider, model) {
-    const list = settings.get("ai.chat", []) || [];
+    const list = assistantRecords(settings, 'chat');
     let assistantInfo = null;
 
     if (assistantId) {
@@ -1106,11 +1107,11 @@ export function selectAssistant(assistantId, provider, model) {
         assistantInfo = matches.find(a => a.default) || matches[0] || null;
     }
     if (!assistantInfo) {
-        const all = settings.get("ai.chat", []);
+        const all = list;
         assistantInfo = all.find(a => a.default) || all[0];
     }
     if (!assistantInfo) throw new Error(getAiChatText(getCurrentChatUiLanguage(), "noChatAssistantFound"));
-    return assistantInfo;
+    return assistantCredentials(settings, 'chat', assistantInfo);
 }
 
 async function createAttachment(attachment) {
