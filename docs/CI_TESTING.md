@@ -24,6 +24,17 @@ between independent Linux runners. New deterministic `tests/e2e/*.spec.js` files
 are included automatically, including fault injection. Jest discovers all its
 suites rather than the old five-suite `test:editor:unit` selection.
 
+Jest discovery is rooted in `tests/` and excludes the Electron and website
+Playwright directories. Workshop `node:test` files run through FDO's plugin test
+runner from the starter-template suite, including TypeScript and CSS conversion.
+Generated exports under `artifacts/` are not crawled as host tests or modules.
+The Website workflow runs `tests/website/` with its dedicated Playwright config
+and uploads browser results before publishing the site. Run it locally with:
+
+```sh
+npx playwright test --config scripts/website/playwright.config.cjs
+```
+
 SDK tests resolve examples from the installed, lockfile-controlled SDK package.
 An explicit `FDO_SDK_EXAMPLES_PATH` can override that for SDK development. Frontend
 recipes and helper modules are not background plugins; runtime discovery includes

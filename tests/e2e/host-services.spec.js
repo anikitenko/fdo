@@ -7,7 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const {spawn, execFileSync} = require('node:child_process');
 const {launchElectronApp, closeElectronApp, dismissBlueprintOverlays} = require('./helpers/electronApp');
-const {deploySdkExample, waitForPluginReady, removePlugin, getPluginLogTail, getPluginDiagnostics, selectPluginOpen} = require('./helpers/sdkExamples');
+const {deploySdkExample, waitForPluginReady, waitForPluginUiRendered, removePlugin, getPluginLogTail, getPluginDiagnostics, selectPluginOpen} = require('./helpers/sdkExamples');
 
 const capabilities = ['system.process.exec', 'system.process.scope.git', 'secrets.use', 'secrets.consume', 'ssh.use', 'ssh.exec', 'ssh.profiles.list'];
 const allCapabilities = [...capabilities, 'secrets.set', 'secrets.get', 'secrets.list', 'secrets.delete'];
@@ -397,6 +397,7 @@ test('Git starter displays selected repository output using different Git-only S
         await manager.getByText('Secret store access', {exact: true}).click();
         await expect(manager.getByRole('checkbox', {name: 'Use credential references', exact: true})).not.toBeChecked();
         await manager.getByText('Use credential references', {exact: true}).click();
+        const beforePermissionReload = await page.locator(`iframe[data-plugin-id="${pluginName}"]`).elementHandle();
         await manager.getByRole('button', {name: 'Save Capabilities', exact: true}).click();
         await expect.poll(async () => {
             const saved = await page.evaluate(id => window.electron.plugin.get(id), pluginName);
@@ -404,7 +405,11 @@ test('Git starter displays selected repository output using different Git-only S
         }).toEqual([...gitCapabilities].sort());
         await manager.getByRole('button', {name: 'Close', exact: true}).click();
         await expect(manager).toHaveCount(0);
+        await expect.poll(() => beforePermissionReload.evaluate(node => node.isConnected)).toBe(false);
         await waitForPluginReady(page, pluginName);
+        // Backend readiness alone does not establish a working iframe after a
+        // capability-triggered worker/security-document reload.
+        await waitForPluginUiRendered(page, pluginName);
         await expect.poll(async () => {
             const response = await page.evaluate(id => window.electron.plugin.uiMessage(id, {handler: 'listRepositories', content: {}}), pluginName);
             return {repositories: response?.repositories?.length, missing: response?.permissions?.missing};

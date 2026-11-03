@@ -934,8 +934,11 @@ export const PluginContainer = ({
                     )}
                 </div>
             )}
+            {/* Replace the security document and WindowProxy together on a
+                permission change; reusing a srcdoc context can stay blank after
+                the Windows worker restart. */}
             <iframe
-                key={`${plugin}:${renderAttempt}`}
+                key={hostDocumentKey}
                 ref={iframeRef}
                 title={active ? plugin : `${plugin} (inactive)`}
                 data-plugin-id={plugin}

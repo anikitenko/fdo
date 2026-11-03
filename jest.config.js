@@ -1,4 +1,7 @@
 module.exports = {
+  // Plugin examples use FDO's node:test runner; browser suites use Playwright.
+  // Restrict crawling too, so exported projects under artifacts cannot collide.
+  roots: ["<rootDir>/tests"],
   transform: {
     "^.+\\.md$": "<rootDir>/tests/helpers/markdownTextTransformer.cjs",
     "^.+\\.(?:[jt]sx?|mjs)$": "babel-jest",
@@ -18,5 +21,5 @@ module.exports = {
   },
   setupFiles: ["<rootDir>/jest.setup.js"],
   setupFilesAfterEnv: ["<rootDir>/tests/test-setup-react.js"],
-  testPathIgnorePatterns: ["/tests/e2e/"],
+  testPathIgnorePatterns: ["/tests/e2e/", "/tests/website/"],
 };
