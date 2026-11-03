@@ -39,6 +39,7 @@ const path = require("node:path");
 const Module = require("node:module");
 const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
+const {fileURLToPath, URL: FileURL} = require("node:url");
 const hostBackendContext = new (require("node:async_hooks").AsyncLocalStorage)();
 
 const runtimeEntry = process.env.FDO_PLUGIN_RUNTIME_ENTRY;
@@ -590,31 +591,73 @@ function isWithin(basePath, targetPath) {
     return canonicalTarget === canonicalBase || canonicalTarget.startsWith(canonicalBase + path.sep);
 }
 
-function assertWritableTarget(targetPath, operation) {
-    if (typeof targetPath !== "string") {
-        return;
+const openDescriptors = new Map();
+const ownedFileHandles = new WeakMap();
+function writePath(target) {
+    if (typeof target === 'string') return target;
+    if (Buffer.isBuffer(target)) {
+        const value = target.toString('utf8');
+        if (!Buffer.from(value).equals(target)) deny('[host-policy] Non-UTF-8 write paths are not supported.');
+        return value;
     }
+    if (target instanceof FileURL) return fileURLToPath(target);
+    return null;
+}
+function assertWritableTarget(targetPath, operation) {
+    const normalizedPath = writePath(targetPath);
+    if (normalizedPath !== null) {
+        targetPath = normalizedPath;
+    } else {
+        const fd = typeof targetPath === 'number'
+            ? targetPath
+            : ownedFileHandles.get(targetPath);
+        if ((fd === 1 || fd === 2) && /^(?:write|writev|writeFile|appendFile)(?:Sync)?$/.test(operation)) return;
+        targetPath = openDescriptors.get(fd);
+    }
+    if (typeof targetPath !== 'string') deny('[host-policy] Write target or file descriptor is not owned by this plugin.');
     if (!isWithin(pluginHome, targetPath)) {
         deny(\`[host-policy] \${operation} denied for "\${targetPath}". Writes are only allowed under PLUGIN_HOME.\`);
     }
 }
 
-function patchSyncWrite(methodName, resolveTarget = (args) => args[0]) {
+function patchSyncWrite(methodName, resolveTargets = (args) => [args[0]]) {
     const original = fs[methodName];
     if (typeof original !== "function") return;
     fs[methodName] = function patchedSyncWrite(...args) {
-        assertWritableTarget(resolveTarget(args), methodName);
+        resolveTargets(args).forEach(target => assertWritableTarget(target, methodName));
         return original.apply(this, args);
     };
 }
 
-function patchAsyncWrite(methodName, resolveTarget = (args) => args[0]) {
+function patchAsyncWrite(methodName, resolveTargets = (args) => [args[0]]) {
     const original = fsPromises[methodName];
     if (typeof original !== "function") return;
     fsPromises[methodName] = async function patchedAsyncWrite(...args) {
-        assertWritableTarget(resolveTarget(args), methodName);
+        resolveTargets(args).forEach(target => assertWritableTarget(target, methodName));
         return original.apply(this, args);
     };
+}
+function patchCallbackWrite(methodName, resolveTargets = (args) => [args[0]]) {
+    const original = fs[methodName];
+    if (typeof original !== 'function') return;
+    fs[methodName] = function(...args) {
+        try {resolveTargets(args).forEach(target => assertWritableTarget(target, methodName));}
+        catch (error) {
+            const callback = args[args.length - 1];
+            if (typeof callback !== 'function') throw error;
+            queueMicrotask(() => callback(error));
+            return;
+        }
+        return original.apply(this, args);
+    };
+}
+function rememberDescriptor(fd, target) {
+    const value = writePath(target);
+    if (typeof value !== 'string') return;
+    const absolute = path.resolve(value);
+    let canonical = absolute;
+    try {canonical = fs.realpathSync(absolute);} catch (_) {}
+    openDescriptors.set(fd, canonical);
 }
 
 function usesWriteFlags(flags) {
@@ -641,8 +684,9 @@ patchSyncWrite("rmSync");
 patchSyncWrite("rmdirSync");
 patchSyncWrite("unlinkSync");
 patchSyncWrite("truncateSync");
-patchSyncWrite("copyFileSync", (args) => args[1]);
-patchSyncWrite("renameSync", (args) => args[1]);
+patchSyncWrite("copyFileSync", (args) => [args[1]]);
+patchSyncWrite("renameSync", (args) => [args[0], args[1]]);
+for (const method of ['chmod', 'chown', 'lchmod', 'lchown', 'utimes', 'lutimes', 'mkdtemp', 'write', 'writev', 'ftruncate', 'fchmod', 'fchown', 'futimes']) patchSyncWrite(method + 'Sync');
 
 if (typeof fs.openSync === "function") {
     const originalOpenSync = fs.openSync;
@@ -650,15 +694,27 @@ if (typeof fs.openSync === "function") {
         if (usesWriteFlags(flags)) {
             assertWritableTarget(targetPath, "openSync");
         }
-        return originalOpenSync.call(this, targetPath, flags, ...rest);
+        const fd = originalOpenSync.call(this, targetPath, flags, ...rest);
+        rememberDescriptor(fd, targetPath);
+        return fd;
     };
 }
 
 if (typeof fs.createWriteStream === "function") {
     const originalCreateWriteStream = fs.createWriteStream;
     fs.createWriteStream = function patchedCreateWriteStream(targetPath, ...rest) {
-        assertWritableTarget(targetPath, "createWriteStream");
+        assertWritableTarget(rest[0]?.fd ?? targetPath, "write");
         return originalCreateWriteStream.call(this, targetPath, ...rest);
+    };
+}
+if (typeof fs.WriteStream?.prototype?._construct === 'function') {
+    // Patch construction in place: preserve the callable constructor and aliases,
+    // including constructors obtained from an existing stream's prototype.
+    const originalConstruct = fs.WriteStream.prototype._construct;
+    fs.WriteStream.prototype._construct = function(callback) {
+        try {assertWritableTarget(this.fd ?? this.path, 'write');}
+        catch (error) {callback(error);return;}
+        return originalConstruct.call(this, callback);
     };
 }
 
@@ -668,8 +724,83 @@ patchAsyncWrite("mkdir");
 patchAsyncWrite("rm");
 patchAsyncWrite("rmdir");
 patchAsyncWrite("unlink");
-patchAsyncWrite("copyFile", (args) => args[1]);
-patchAsyncWrite("rename", (args) => args[1]);
+patchAsyncWrite("copyFile", (args) => [args[1]]);
+patchAsyncWrite("rename", (args) => [args[0], args[1]]);
+for (const method of ['chmod', 'chown', 'lchmod', 'lchown', 'utimes', 'lutimes', 'mkdtemp', 'mkdtempDisposable']) patchAsyncWrite(method);
+patchAsyncWrite('truncate');
+// Recursive copy can traverse destination symlinks below the checked root.
+// Require callers to use the individually checked mkdir/copyFile operations.
+for (const [object, name] of [[fs, 'cpSync'], [fs, 'cp'], [fsPromises, 'cp']]) {
+    if (typeof object[name] !== 'function') continue;
+    object[name] = function(...args) {
+        const error = new Error('[host-policy] Recursive copy is unavailable; use mkdir and copyFile under PLUGIN_HOME.');
+        const callback = args[args.length - 1];
+        if (name === 'cp' && object === fs && typeof callback === 'function') {queueMicrotask(() => callback(error));return;}
+        if (object === fsPromises) return Promise.reject(error);
+        throw error;
+    };
+}
+for (const method of ['writeFile', 'appendFile', 'mkdir', 'mkdtemp', 'rm', 'rmdir', 'unlink', 'truncate', 'chmod', 'chown', 'lchmod', 'lchown', 'utimes', 'lutimes', 'write', 'writev', 'ftruncate', 'fchmod', 'fchown', 'futimes']) patchCallbackWrite(method);
+patchCallbackWrite('copyFile', args => [args[1]]);
+patchCallbackWrite('rename', args => [args[0], args[1]]);
+const linkTargets = args => [args[0], args[1]];
+const symlinkTargets = args => {
+    const target = writePath(args[0]), destination = writePath(args[1]);
+    return [target && destination ? path.resolve(path.dirname(path.resolve(destination)), target) : null, args[1]];
+};
+for (const [name, targets] of [['link', linkTargets], ['symlink', symlinkTargets]]) {
+    patchSyncWrite(name + 'Sync', targets);patchAsyncWrite(name, targets);patchCallbackWrite(name, targets);
+}
+if (typeof fs.open === 'function') {
+    const originalOpen = fs.open;
+    fs.open = function(target, flags, ...args) {
+        const callback = args[args.length - 1];
+        try {if (usesWriteFlags(flags)) assertWritableTarget(target, 'open');}
+        catch (error) {
+            if (typeof callback !== 'function') throw error;
+            queueMicrotask(() => callback(error));return;
+        }
+        if (typeof callback === 'function') args[args.length - 1] = (error, fd) => {
+            if (!error) rememberDescriptor(fd, target);
+            callback(error, fd);
+        };
+        return originalOpen.call(this, target, flags, ...args);
+    };
+}
+const fileHandlePrototypes = new WeakSet();
+function protectFileHandle(handle, target) {
+    const fd = handle.fd;
+    ownedFileHandles.set(handle, fd);
+    rememberDescriptor(fd, target);
+    handle.once('close', () => {openDescriptors.delete(fd);ownedFileHandles.delete(handle);});
+    const prototype = Object.getPrototypeOf(handle);
+    if (!fileHandlePrototypes.has(prototype)) {
+        fileHandlePrototypes.add(prototype);
+        for (const name of ['write', 'writev', 'writeFile', 'appendFile', 'truncate', 'chmod', 'chown', 'utimes', 'createWriteStream']) {
+            const original = prototype[name];
+            if (typeof original !== 'function') continue;
+            prototype[name] = name === 'createWriteStream'
+                ? function(...args) {
+                    assertWritableTarget(this, name);
+                    return original.apply(this, args);
+                }
+                : async function(...args) {
+                    assertWritableTarget(this, name);
+                    return original.apply(this, args);
+                };
+        }
+    }
+    return handle;
+}
+for (const name of ['close', 'closeSync']) {
+    const original = fs[name];
+    fs[name] = function(fd, ...args) {
+        if (name === 'closeSync') {const result = original.call(this, fd, ...args);openDescriptors.delete(fd);return result;}
+        const callback = args[args.length - 1];
+        if (typeof callback === 'function') args[args.length - 1] = error => {if (!error) openDescriptors.delete(fd);callback(error);};
+        return original.call(this, fd, ...args);
+    };
+}
 
 if (typeof fsPromises.open === "function") {
     const originalOpen = fsPromises.open;
@@ -677,7 +808,7 @@ if (typeof fsPromises.open === "function") {
         if (usesWriteFlags(flags)) {
             assertWritableTarget(targetPath, "open");
         }
-        return originalOpen.call(this, targetPath, flags, ...rest);
+        return protectFileHandle(await originalOpen.call(this, targetPath, flags, ...rest), targetPath);
     };
 }
 
@@ -759,6 +890,18 @@ if (typeof globalThis.EventSource === "function") {
 }
 
 const originalLoad = Module._load;
+// SDK internals may load this module, but that must not provide raw execution
+// to a plugin without the explicit legacy sudo grant. Patch the shared exports
+// as well as the loader so builtin access and ESM cannot recover raw methods.
+if (blockedModules.has('child_process') || blockedModules.has('node:child_process')) {
+    const childProcess = originalLoad('node:child_process');
+    const denyExecution = () => deny('[host-policy] Raw process execution is denied. Use a granted host tool service.');
+    if (typeof process.execve === 'function') process.execve = denyExecution;
+    for (const name of ['exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync', 'fork']) {
+        childProcess[name] = denyExecution;
+    }
+    if (childProcess.ChildProcess?.prototype) childProcess.ChildProcess.prototype.spawn = denyExecution;
+}
 Module._load = function patchedLoad(request, parent, isMain) {
     if (blockedModules.has(request) || blockedNetworkModules.has(request) || alwaysBlockedModules.has(request)) {
         const parentFile = typeof parent?.filename === "string" ? parent.filename : "";
@@ -984,6 +1127,44 @@ Module._load = function patchedLoad(request, parent, isMain) {
     }
     return loaded;
 };
+
+const guardedLoad = Module._load;
+const isBuiltin = Module.isBuiltin.bind(Module);
+if (typeof process.getBuiltinModule === 'function') {
+    const originalGetBuiltinModule = process.getBuiltinModule.bind(process);
+    Object.defineProperty(process, 'getBuiltinModule', {
+        configurable: false,
+        writable: false,
+        value(request) {
+            // Preserve Node's behavior for unknown names and invalid arguments.
+            if (typeof request !== 'string' || !isBuiltin(request)) return originalGetBuiltinModule(request);
+            return guardedLoad(request, {filename: runtimeEntry}, false);
+        },
+    });
+}
+
+// ESM has its own loader and otherwise skips Module._load. Initialize shared
+// builtin exports through the guards before syncing their ESM named bindings.
+for (const name of ['net', 'http', 'https', 'http2', 'tls', 'dgram', 'dns', 'dns/promises']) {
+    guardedLoad('node:' + name, {filename: __filename + '/@anikitenko/fdo-sdk/bootstrap'}, false);
+}
+Module.syncBuiltinESMExports();
+if (typeof Module.registerHooks !== 'function') {
+    deny('[host-policy] This Node runtime does not support the required module policy hooks.');
+}
+Module.registerHooks({
+    resolve(request, context, nextResolve) {
+        const resolved = nextResolve(request, context);
+        const builtin = resolved.url.startsWith('node:') ? resolved.url : request;
+        const bare = builtin.startsWith('node:') ? builtin.slice(5) : builtin;
+        const forbidden = [builtin, bare, 'node:' + bare].some(name =>
+            blockedModules.has(name) || blockedNetworkModules.has(name) || alwaysBlockedModules.has(name));
+        const parentPath = decodeURIComponent(context.parentURL || '').replace(/\\\\/g, '/');
+        const sdkParent = parentPath.includes('/@anikitenko/fdo-sdk/');
+        if (forbidden && !sdkParent) deny('[host-policy] Import "' + request + '" is denied by host capability policy.');
+        return resolved;
+    },
+});
 
 require(runtimeEntry);
 `;

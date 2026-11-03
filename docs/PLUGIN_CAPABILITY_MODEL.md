@@ -1,6 +1,9 @@
 # Plugin Capability Model
 
-This host uses a deny-by-default capability model for plugins.
+This host uses a deny-by-default capability model for host services. Install only
+trusted plugins: the Node backend's API guards are not an OS sandbox. Backends
+currently inherit the application environment and can read files accessible to
+the application user. See [the security policy](../SECURITY.md#plugin-trust-boundary).
 
 ## Source Of Truth
 
@@ -19,8 +22,16 @@ That file is the single place to extend:
 Host runtime policy is generated from granted capabilities and injected into plugin bootstrap:
 
 - `blockedModules` is computed from non-granted capability grants
-- plugin runtime denies imports listed in `blockedModules`
-- writes are still restricted to `PLUGIN_HOME` regardless of capability grants
+- plugin runtime checks CommonJS imports, builtin-module access, and ESM imports
+- standard filesystem mutation APIs check `PLUGIN_HOME` regardless of capability grants,
+  including callbacks, promises, Buffer/URL paths, streams and tracked file descriptors
+- rename checks both paths; links cannot point outside `PLUGIN_HOME`
+- recursive `fs.cp` is unavailable; use checked `mkdir` and `copyFile` operations instead
+- raw process methods remain blocked without the explicit legacy `sudo.prompt` grant;
+  use scoped host tools for ordinary plugin execution needs
+
+These guards execute in the same JavaScript process as the backend and do not
+establish containment against deliberately hostile code or filesystem races.
 
 Privileged host actions are transported via reserved UI message handler:
 
