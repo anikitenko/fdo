@@ -293,6 +293,29 @@ describe("plugin IPC log trace", () => {
         expect(response.notifications).toHaveLength(3);
     });
 
+    test('runtime and AI trace expose public running grants without copying worker environment values',async()=>{
+        jest.resetModules();
+        const {ipcMain}=require('electron');
+        const {registerPluginHandlers}=require('../../src/ipc/plugin');
+        const {PluginChannels}=require('../../src/ipc/channels');
+        const manager=require('../../src/utils/plugins/runtime/PluginManager').default;
+        manager.getLoadedPlugin.mockReturnValue({grantedCapabilities:['system.network','system.network.https','system.network.scope.public-web-secure'],env:{HYPERSTACK_KEY:'synthetic-private'}});
+        ipcMain.handle.mockClear();registerPluginHandlers();
+        const handler=channel=>ipcMain.handle.mock.calls.find(([name])=>name===channel)[1];
+        const status=await handler(PluginChannels.GET_RUNTIME_STATUS)({},['trace-plugin']);
+        const trace=await handler(PluginChannels.GET_LOG_TRACE)({},'trace-plugin');
+        const contract=status.statuses[0].runtimeContract;
+        expect(contract.grantSource).toBe('running-worker');expect(contract.network).toMatchObject({https:true,tcp:false,dns:false});
+        expect(trace.runtimeStatus.runtimeContract).toEqual(contract);
+        expect(trace.combined).toContain('Desktop runtime contract');
+        expect(trace.combined).toContain('"inheritsHostEnvironment":false');
+        expect(trace.combined).not.toContain('synthetic-private');
+        manager.getLoadedPlugin.mockReturnValue(null);
+        const stopped=await handler(PluginChannels.GET_RUNTIME_STATUS)({},['trace-plugin']);
+        expect(stopped.statuses[0].runtimeContract.grantSource).toBe('configured');
+        expect(stopped.statuses[0].runtimeContract.grantedCapabilities).toEqual([]);
+    });
+
     test("reads exact sdk log lines from the per-plugin logs directory under userData", async () => {
         jest.resetModules();
         const actualFs = jest.requireActual("node:fs");

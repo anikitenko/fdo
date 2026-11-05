@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "missing-package-notices",
+      "status": "pending",
+      "scope": "@anikitenko/fdo-sdk 1.8.3 and lazy-val 1.0.5",
+      "action": "Obtain the actual copyright/permission notices from their rights holders and include them in the distributed notices. Installed packages and their npm gitHead source trees declare ISC/MIT but do not contain the full original license notices. Do not invent copyright years or a grant from metadata alone.",
+      "evidence": ["https://github.com/anikitenko/fdo-sdk/tree/50a9021bb60102255e66521a40ad1616c0db7f33", "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071"]
+    },
+    {
+      "id": "publication-rights",
+      "status": "pending",
+      "scope": "Code, documentation, logos, screenshots and workshop media",
+      "action": "Maintainer must document publication rights, employment/client clearance where applicable, and uncertain third-party or AI-assisted material. Attach the statement and supporting evidence; do not infer ownership from the MIT license.",
+      "evidence": []
+    },
+    {
+      "id": "cursor-redistribution",
+      "status": "pending",
+      "scope": "@cursor/sdk and platform runtime 1.0.40",
+      "action": "Obtain a redistribution grant covering the SDK/runtime included in FDO, or remove those components from distribution. The installed license reserves rights and refers to Cursor terms; npm availability does not establish redistribution permission.",
+      "evidence": ["https://cursor.com/terms-of-service", "node_modules/@cursor/sdk/LICENSE.md"]
+    },
+    {
+      "id": "git-native-distribution",
+      "status": "pending",
+      "scope": "Dugite native v2.53.0-4: Git, Git LFS, Git Credential Manager and platform libraries/tools",
+      "action": "Audit each target archive, include its component notices, and fulfill applicable GPL corresponding-source obligations for the exact shipped binaries, including required build scripts/patches. An upstream source link alone is not recorded as fulfillment. Store the actual source distribution or a reviewed compliant alternative with release evidence.",
+      "evidence": ["https://github.com/desktop/dugite-native/tree/4098283a7ecb8a227b9d43580336c78a06f90e5d", "https://github.com/git/git/tree/67ad42147a7acc2af6074753ebd03d904476118f", "node_modules/dugite/script/embedded-git.json"]
+    },
+    {
+      "id": "native-ai-notices",
+      "status": "pending",
+      "scope": "Native Codex, Cursor and TypeScript-Go embedded dependencies",
+      "action": "Obtain version/platform-specific embedded dependency notices and review source/redistribution obligations. Parent npm metadata is not a complete inventory of Rust, Go, .NET or other native dependencies. Codex upstream LICENSE and NOTICE are now retained, but do not establish complete native coverage.",
+      "evidence": ["https://github.com/openai/codex/tree/rust-v0.162.1", "third_party/licenses/codex-0.162.1-NOTICE"]
+    },
+    {
+      "id": "copied-artwork-and-builds",
+      "status": "pending",
+      "scope": "vscode-icons artwork, highlight.js custom build and copied stylesheets",
+      "action": "Review branded-icon permissions and ShareAlike attribution/source obligations; identify file_type_npm.svg origin or replace it with a cleared asset. Record the highlight.js custom build recipe and stylesheet origins. Recheck third_party/assets.json after any replacement.",
+      "evidence": ["third_party/source-evidence.json", "third_party/assets.json"]
+    }
+  ]
+}

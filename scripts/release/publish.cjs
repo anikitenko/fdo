@@ -26,6 +26,7 @@ function previousRelease(releases, version, isAncestor) {
 function notes({generated, history, repository, tag, previous, manifest}) {
     const body = [generated.slice(0, 70000), '\n## Downloads and verification',
         'Installers are attached below. electron-builder publishes the files, including its update metadata. `SHA256SUMS` covers every attached file except itself, and `release-manifest.json` records source commit, platform and signing status.',
+        '\nEach platform also includes a legal-notices archive, a scoped CycloneDX SBOM and build/signing evidence. See [licensing and provenance verification](https://github.com/'+repository+'/blob/'+manifest.commit+'/docs/LICENSING_AND_PROVENANCE.md). GitHub build attestations cover the released files; checksums alone do not authenticate their producer.',
         '\nmacOS installers are Developer ID signed and notarized.',
         '\nWindows installers are published unsigned.',
         `\nSource: [${manifest.commit.slice(0, 12)}](https://github.com/${repository}/commit/${manifest.commit}).`,

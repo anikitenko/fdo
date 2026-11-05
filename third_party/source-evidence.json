@@ -1,0 +1,93 @@
+[
+  {
+    "name": "ace-builds",
+    "version": "1.39.1",
+    "tarball": "https://registry.npmjs.org/ace-builds/-/ace-builds-1.39.1.tgz",
+    "integrity": "sha512-HcJbBzx8qY66t9gZo/sQu7pi0wO/CFLdYn1LxQO1WQTfIkMfyc7LRnBpsp/oNCSSU/LL83jXHN1fqyOTuIhUjg==",
+    "archiveSha256": "e7360a1b2dd5828b53c3114b1ee4f3bcc43162e808880b6c5625aa7615e82fb6",
+    "licenses": [
+      {
+        "path": "package/LICENSE",
+        "sha256": "850f545c5254e8c08204edb2a6d50bbb72727c38a82982c17a84bebf6064cdf8"
+      }
+    ],
+    "verifiedFiles": 477,
+    "comparedFiles": 477
+  },
+  {
+    "name": "@fortawesome/fontawesome-free",
+    "version": "6.7.2",
+    "tarball": "https://registry.npmjs.org/@fortawesome/fontawesome-free/-/fontawesome-free-6.7.2.tgz",
+    "integrity": "sha512-JUOtgFW6k9u4Y+xeIaEiLr3+cjoUPiAuLXoyKOJSia6Duzb7pq+A76P9ZdPDoAoxHdHzq6gE9/jKBGXlZT8FbA==",
+    "archiveSha256": "794284b4ac7f3e30825bbeea1a073f542c45dff83f8146625f600f1015c9d52b",
+    "licenses": [
+      {
+        "path": "package/LICENSE.txt",
+        "sha256": "9b914eae88817d63b576eab5aafde7068c7a1abae125d7cdfb034f1da43a9afc"
+      }
+    ],
+    "verifiedFiles": 4,
+    "comparedFiles": 4
+  },
+  {
+    "name": "purecss",
+    "version": "3.0.0",
+    "tarball": "https://registry.npmjs.org/purecss/-/purecss-3.0.0.tgz",
+    "integrity": "sha512-IdYbGwbmuA7Hy9ACIO1q7ks4xGLcJSVHxJT2BXIz2c4Ve1aSrNU5bAzA1ILT4Gmdy5K59ruWoRPf9WvJZU5fbA==",
+    "archiveSha256": "5528ad3bff7af7d1d67608ac5ee0ca7621da7aff7ce189acf3cd1c9a89d827d4",
+    "licenses": [
+      {
+        "path": "package/LICENSE",
+        "sha256": "66fe80191874ef13229c0f0f87d28ac25f0942b32c002a1fe49d9cd331e6b3dc"
+      }
+    ],
+    "verifiedFiles": 1,
+    "comparedFiles": 1
+  },
+  {
+    "name": "notyf",
+    "version": "3.10.0",
+    "tarball": "https://registry.npmjs.org/notyf/-/notyf-3.10.0.tgz",
+    "integrity": "sha512-Mtnp+0qiZxgrH+TzVlzhWyZceHdAZ/UWK0/ju9U0HQeDpap1mZ8cC7H5wSI5mwgni6yeAjaxsTw0sbMK+aSuHw==",
+    "archiveSha256": "46242ced669e73239b20e0bc7bd5c0abd7ff3e27e59564b017c92a070296b52d",
+    "licenses": [
+      {
+        "path": "package/LICENSE.md",
+        "sha256": "f244bc8bb700ed2ba75800fd468a8ef9d3a75c233b82203b5b79a12183a802d2"
+      }
+    ],
+    "verifiedFiles": 1,
+    "comparedFiles": 1
+  },
+  {
+    "name": "@highlightjs/cdn-assets",
+    "version": "11.10.0",
+    "tarball": "https://registry.npmjs.org/@highlightjs/cdn-assets/-/cdn-assets-11.10.0.tgz",
+    "integrity": "sha512-vWXpu+Rdm0YMJmugFdUiL/9DmgYjEiV+d5DBqlXdApnGPSIeo6+LRS5Hpx6fvVsKkvR4RsLYD9rQ6DOLkj7OKA==",
+    "archiveSha256": "5df5f63aad9acb3660d0d008cd68bdf5a6b7121816f517e2434d1e2f027b220f",
+    "licenses": [
+      {
+        "path": "package/LICENSE",
+        "sha256": "6c081431591d9df696c82dc598fe1423765b8a299b200ed00b281afd0f64c490"
+      }
+    ],
+    "verifiedFiles": 0,
+    "comparedFiles": 1
+  },
+  {
+    "source": "https://codeload.github.com/vscode-icons/vscode-icons/tar.gz/abb2b8d5b0a6f04ad111f33a0d9cfe84a9a6d2dd",
+    "ref": "abb2b8d5b0a6f04ad111f33a0d9cfe84a9a6d2dd",
+    "archiveSha256": "a5f58866b82a102841884b34424ac43c1705e5ef5e5e0b193821a14db3fad031",
+    "licenseExcerpt": "## License\n\nThe source code is licensed under the [MIT](LICENSE) license.\n\nThe icons are licensed under the [Creative Commons - ShareAlike (CC BY-SA)](https://creativecommons.org/licenses/by-sa/4.0/) license.\n\nBranded icons are licensed under their copyright license.\n\n",
+    "verifiedFiles": 1373,
+    "comparedFiles": 1374,
+    "unmatchedFiles": [
+      {
+        "file": "src/assets/icons/vscode/file_type_npm.svg",
+        "sha256": "dc13a5aee76b1dae75df797e0dc1af439f854731eb8cd0078eaccaf278236c26",
+        "match": false,
+        "upstreamPath": "icons/file_type_npm.svg"
+      }
+    ]
+  }
+]

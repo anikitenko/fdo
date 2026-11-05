@@ -40,6 +40,7 @@ import {normalizeAndValidatePluginMetadata} from "../utils/plugins/runtime/plugi
 import {runPluginWorkspaceTests} from "../utils/plugins/runtime/pluginTestRunner";
 import {validatePluginWorkspaceSdkContract} from "../utils/sdk/pluginWorkspaceSdkContract";
 import {buildPluginInitPayload, resolveHostGrantedCapabilities} from "../utils/plugins/security/pluginRuntimeSecurity";
+import {buildPluginRuntimeAuthoringContext} from '../utils/plugins/authoring/pluginRuntimeAuthoringContext';
 import {HANDSHAKE_API_INCOMPATIBLE} from "../utils/sdk/pluginHandshakeCompatibility";
 import {
     executeHostPrivilegedAction,
@@ -767,6 +768,7 @@ async function getPluginLogTrace(pluginId, options = {}) {
     const capabilityIntent = diagnostics?.capabilities?.declaration || null;
     const capabilityIntentSummary = buildCapabilityDeclarationSummary(capabilityIntent || {});
     const runtimeStatus = {
+        runtimeContract:getPluginRuntimeAuthoringContext(pluginId),
         loading: !!PluginManager.loadingPlugins?.[pluginId],
         loaded: !!PluginManager.getLoadedPlugin(pluginId),
         ready: !!PluginManager.getLoadedPluginReady(pluginId),
@@ -817,6 +819,7 @@ async function getPluginLogTrace(pluginId, options = {}) {
     const runtimeText = [
         `Runtime status for "${pluginId}":`,
         `loading=${runtimeStatus.loading}; loaded=${runtimeStatus.loaded}; ready=${runtimeStatus.ready}; inited=${runtimeStatus.inited}`,
+        `Desktop runtime contract (public policy metadata; no environment values): ${JSON.stringify(runtimeStatus.runtimeContract)}`,
         runtimeStatus.lastUnload
             ? `lastUnload=${JSON.stringify(runtimeStatus.lastUnload)}`
             : "lastUnload=none",
@@ -867,6 +870,13 @@ async function getPluginLogTrace(pluginId, options = {}) {
         logTail: tail,
         combined,
     };
+}
+
+function getPluginRuntimeAuthoringContext(id,configuredCapabilities) {
+    const running=PluginManager.getLoadedPlugin(id)?.grantedCapabilities;
+    const configured=configuredCapabilities ?? new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(id)?.capabilities ?? [];
+    return buildPluginRuntimeAuthoringContext({grantedCapabilities:Array.isArray(running)?running:configured,
+        grantSource:Array.isArray(running)?'running-worker':'configured'});
 }
 
 export function registerPluginHandlers() {
@@ -1966,6 +1976,7 @@ export function registerPluginHandlers() {
                     : null;
                 return {
                     id,
+                    runtimeContract:getPluginRuntimeAuthoringContext(id,persistedCapabilities),
                     loading: !!PluginManager.loadingPlugins?.[id] && !PluginManager.getLoadedPluginReady(id) && !PluginManager.getLoadedPluginInited(id),
                     loaded: !!PluginManager.getLoadedPlugin(id),
                     ready: !!PluginManager.getLoadedPluginReady(id),

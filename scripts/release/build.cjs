@@ -50,18 +50,20 @@ function main(env = process.env) {
     const temp = fs.mkdtempSync(path.join(env.RUNNER_TEMP || os.tmpdir(), 'fdo-release-'));
     const childEnv = signingChildEnv({platform, signed, env, temp});
     try {
+        const verification=[];
         const file = path.join(temp, 'builder.json');fs.writeFileSync(file, JSON.stringify(config));
         // build.publish writes app-update.yml, blockmaps and latest*.yml. Upload waits until every platform is verified.
         run(process.execPath, ['node_modules/electron-builder/cli.js', '--config', file, `--${platform}`, `--${arch}`, '--publish', 'never'], {env: childEnv});
         if (platform === 'mac' && signed) {
             const root = path.resolve(output, arch === 'x64' ? 'mac' : `mac-${arch}`, `${metadata.build.executableName || metadata.build.productName}.app`);
             run('codesign', ['--verify', '--deep', '--strict', root]);run('xcrun', ['stapler', 'validate', root]);run('spctl', ['--assess', '--type', 'execute', root]);
+            verification.push({check:'codesign --verify --deep --strict',passed:true},{check:'xcrun stapler validate',passed:true},{check:'spctl --assess --type execute',passed:true});
         }
         if (platform === 'win' && signed) {
             const script = `$ErrorActionPreference='Stop'; $files=@(Get-ChildItem -LiteralPath $env:FDO_RELEASE_OUTPUT -Filter *.exe); $files+=Get-Item -LiteralPath $env:FDO_RELEASE_EXECUTABLE; foreach($file in $files){if((Get-AuthenticodeSignature -LiteralPath $file.FullName).Status -ne 'Valid'){throw 'Invalid Authenticode signature'}}`;
             run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {env: {...childEnv, FDO_RELEASE_OUTPUT: path.resolve(output), FDO_RELEASE_EXECUTABLE: path.resolve(output, 'win-unpacked', `${metadata.build.executableName || metadata.build.productName}.exe`)}});
         }
-        fs.writeFileSync(path.join(output, 'signing.json'), JSON.stringify({signed, notarized}));
+        fs.writeFileSync(path.join(output, 'signing.json'), JSON.stringify({signed, notarized,verification,node:process.version,electron:require('electron/package.json').version,platform,arch},null,2)+'\n');
     } finally {fs.rmSync(temp, {recursive: true, force: true});}
 }
 module.exports = {releaseConfig, signingChildEnv, main};

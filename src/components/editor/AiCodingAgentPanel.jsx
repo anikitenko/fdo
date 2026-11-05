@@ -3741,7 +3741,7 @@ Rules:
                     pluginId: currentPluginId,
                 })
                 : { context: "", traceResult: null };
-            const pluginLogsContext = !reviewRequest && (runtimeIntent.shouldProbe || runtimeIntent.wantsLogs)
+            const pluginLogsContext = !reviewRequest && (runtimeIntent.shouldProbe || runtimeIntent.wantsLogs || requestWantsFailureDiagnosis && getCurrentPluginId())
                 ? await getPluginLogsContext({
                     preloadedTraceResult: runtimeProbeResult?.traceResult || null,
                 })
@@ -3837,6 +3837,9 @@ Rules:
                 runtimeIntent,
             });
             const finalEnhancedContext = `${pluginRuntimeVerificationContext}${diagnosisContext}${enhancedContext}`;
+            // Single-file Fix/Edit and planning use the reference context, not
+            // the full workspace context. Preserve the same runtime diagnosis.
+            requestContexts.referenceContext = `${pluginRuntimeVerificationContext}${diagnosisContext}${requestContexts.referenceContext}`;
             const mainPluginFilePath = virtualFS.DEFAULT_FILE_MAIN || "/index.ts";
             const defaultPluginTargetFile = (
                 !effectiveSelectedCode

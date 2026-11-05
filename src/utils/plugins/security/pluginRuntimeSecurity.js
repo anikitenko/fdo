@@ -1028,6 +1028,11 @@ if (typeof globalThis.EventSource === "function") {
 }
 
 const originalLoad = Module._load;
+// Public plugin imports get guarded facades. Mutating Node's shared networking
+// exports also intercepts fetch's own TLS/DNS calls and incorrectly requires
+// raw socket grants for an otherwise permitted HTTPS request.
+const networkBuiltinNames = new Set(['net', 'http', 'https', 'http2', 'tls', 'dgram', 'dns', 'dns/promises']);
+const networkModuleViews = new Map();
 // SDK internals may load this module, but that must not provide raw execution
 // to a plugin without the explicit legacy sudo grant. Patch the shared exports
 // as well as the loader so builtin access and ESM cannot recover raw methods.
@@ -1053,7 +1058,13 @@ Module._load = function patchedLoad(request, parent, isMain) {
         deny(\`[host-policy] Import "\${request}" is denied by host capability policy.\`);
         }
     }
-    const loaded = originalLoad.call(this, request, parent, isMain);
+    let loaded = originalLoad.call(this, request, parent, isMain);
+    const networkName = request.replace(/^node:/, '');
+    if (networkBuiltinNames.has(networkName)) {
+        if (networkModuleViews.has(networkName)) return networkModuleViews.get(networkName);
+        loaded = {...loaded};
+        networkModuleViews.set(networkName, loaded);
+    }
 
     if (request === "net" || request === "node:net") {
         const originalConnect = typeof loaded?.connect === "function" ? loaded.connect.bind(loaded) : null;
@@ -1287,11 +1298,8 @@ if (typeof process.getBuiltinModule === 'function') {
     });
 }
 
-// ESM has its own loader and otherwise skips Module._load. Initialize shared
-// builtin exports through the guards before syncing their ESM named bindings.
-for (const name of ['net', 'http', 'https', 'http2', 'tls', 'dgram', 'dns', 'dns/promises']) {
-    guardedLoad('node:' + name, {filename: __filename + '/@anikitenko/fdo-sdk/bootstrap'}, false);
-}
+// Keep shared filesystem/process ESM exports guarded. Networking uses separate
+// facades below, so Node's internal HTTPS implementation retains its transport.
 Module.syncBuiltinESMExports();
 if (typeof Module.registerHooks !== 'function') {
     deny('[host-policy] This Node runtime does not support the required module policy hooks.');
@@ -1307,6 +1315,12 @@ Module.registerHooks({
         const parentPath = decodeURIComponent(context.parentURL || '').replace(/\\\\/g, '/');
         const sdkParent = parentPath.includes('/@anikitenko/fdo-sdk/');
         if (forbidden && !sdkParent) deny('[host-policy] Import "' + request + '" is denied by host capability policy.');
+        if (resolved.url.startsWith('node:') && networkBuiltinNames.has(bare) && !context.conditions.includes('require')) {
+            const names = Object.keys(originalLoad('node:' + bare)).filter(name => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) && name !== 'default');
+            const source = 'import {createRequire} from "node:module"; const view=createRequire(' + JSON.stringify(runtimeEntry) + ')(' + JSON.stringify('node:' + bare) + '); export default view;'
+                + names.map(name => 'export const ' + name + '=view[' + JSON.stringify(name) + '];').join('');
+            return {url:'data:text/javascript,' + encodeURIComponent(source),shortCircuit:true};
+        }
         return resolved;
     },
 });

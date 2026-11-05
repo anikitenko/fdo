@@ -68,6 +68,23 @@ test('assembles exactly nine unique installers, checksums and a source manifest'
         const [digest,name] = line.split('  ');expect(await sha256(path.join(destination,name))).toBe(digest);
     }
 });
+test('release assembly requires complete legal sidecars and detects tampering', async () => {
+    const source=await fixture(),version='1.0.0-rc.1';
+    await expect(assemble({source,destination:path.join(root,'missing-evidence'),version,commit,requireEvidence:true})).rejects.toThrow('legal release evidence');
+    const {evidenceNames}=require('../../scripts/release/legal-evidence.cjs');
+    for (const platform of Object.keys(platforms)) {
+        const directory=path.join(source,platform),manifestFile=path.join(directory,`${platform}.json`),manifest=JSON.parse(fs.readFileSync(manifestFile,'utf8'));
+        const names=evidenceNames(version,platform);
+        fs.writeFileSync(path.join(directory,names[0]),'legal archive');fs.writeFileSync(path.join(directory,names[1]),'sbom');
+        fs.writeFileSync(path.join(directory,names[2]),JSON.stringify({version,commit,platform,legalReleaseReady:false,legalArchiveSha256:await sha256(path.join(directory,names[0])),sbomSha256:await sha256(path.join(directory,names[1]))}));
+        for (const name of names) manifest.files.push({name,size:fs.statSync(path.join(directory,name)).size,sha256:await sha256(path.join(directory,name))});
+        manifest.evidence=names;fs.writeFileSync(manifestFile,JSON.stringify(manifest));
+    }
+    await assemble({source,destination:path.join(root,'with-evidence'),version,commit,requireEvidence:true});
+    expect(fs.readdirSync(path.join(root,'with-evidence'))).toHaveLength(23);
+    const name=evidenceNames(version,'linux-x64')[0];fs.appendFileSync(path.join(source,'linux-x64',name),'tamper');
+    await expect(assemble({source,destination:path.join(root,'tampered-evidence'),version,commit,requireEvidence:true})).rejects.toThrow('checksum mismatch');
+});
 test('staging reports the files electron-builder actually wrote when an inventory name is missing', async () => {
     const source = path.join(root,'linux');fs.mkdirSync(source);
     fs.writeFileSync(path.join(source,'fdo-1.0.0-rc.1-linux-x86_64.AppImage'),'image');

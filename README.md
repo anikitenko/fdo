@@ -487,4 +487,6 @@ current UI. Notification diagnostics redact common credential forms and private 
 
 ## License
 
-MIT
+Original FDO material is covered by the [MIT license](LICENSE). Dependencies, copied assets and bundled executables retain their own terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+The [licensing and provenance guide](docs/LICENSING_AND_PROVENANCE.md) documents the generated inventories, release evidence, verification commands and outstanding redistribution/publication reviews.

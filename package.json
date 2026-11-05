@@ -14,6 +14,9 @@
     "src/renderer_plugin_host.js"
   ],
   "scripts": {
+    "legal:generate": "node scripts/legal/inventory.cjs",
+    "legal:check": "node scripts/legal/inventory.cjs --release",
+    "legal:review": "node scripts/legal/inventory.cjs --review",
     "dev": "npm run clean:dist && concurrently \"npm run build:main:dev\" \"npm run build:preload:dev\" \"npm run build:renderer:dev\" \"wait-on dist/main/index.js dist/main/preload.js dist/renderer/index.html && electron .\"",
     "start": "npm run dev",
     "clean:dist": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
@@ -289,6 +292,7 @@
       "dist/**/*",
       "package.json",
       "!node_modules/**/*",
+      "!dist/legal/**/*",
       "!dist/main/git/**/*",
       "!dist/main/git-*/**/*",
       "!dist/**/test/**/*",
@@ -300,6 +304,10 @@
       "!dist/main/node_modules/@google/gemini-cli-core/**/*"
     ],
     "extraResources": [
+      {
+        "from": "dist/legal",
+        "to": "legal"
+      },
       {
         "from": "dist/main/git-${arch}",
         "to": "git"
@@ -439,7 +447,7 @@
       "category": "Utility"
     },
     "afterPack": "./scripts/fix-bundled-binary-permissions.js",
-    "beforePack": "./scripts/check-bundled-host-runtime.cjs"
+    "beforePack": "./scripts/prepare-package.cjs"
   },
   "engines": {
     "node": ">=24.11.0"

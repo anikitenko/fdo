@@ -1,6 +1,11 @@
 import {classifyAiCodingIssueScope, shouldIncludeIssueDiagnosis} from "../../src/components/editor/utils/aiCodingAgentIssueScope.js";
 
 describe("ai coding agent issue scope", () => {
+    test('runtime permission denials are not automatically blamed on plugin code or treated as requests for broader grants',()=>{
+        const result=classifyAiCodingIssueScope({prompt:'Fix the Hyperstack refresh',problemsContext:'fetch failed: [host-policy] Network access denied for "tls.connect". FDO_PLUGIN_PERMISSION_DENIED'});
+        expect(result.kind).toBe('permission-policy');expect(result.summary).toContain('does not need raw TCP/DNS grants');
+        expect(result.summary).toContain('possible host guard regression');
+    });
     test("classifies sdk-host runtime failures", () => {
         const result = classifyAiCodingIssueScope({
             prompt: `
@@ -91,6 +96,7 @@ at errorUIRenderer
     });
 
     test("injects diagnosis for troubleshooting prompts", () => {
+        expect(shouldIncludeIssueDiagnosis({prompt:'The HTTPS connection fails.',action:'fix'})).toBe(true);
         expect(shouldIncludeIssueDiagnosis({
             prompt: "Please diagnose why this plugin crashes with TypeError",
             action: "smart",
