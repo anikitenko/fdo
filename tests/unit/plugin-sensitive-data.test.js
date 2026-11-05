@@ -7,6 +7,22 @@ import {runSensitiveDataProbe, assertSensitiveDataProbe} from '../fixtures/plugi
 jest.mock('electron', () => ({app: {getPath: () => '/tmp'}}));
 import {buildPluginRuntimeBootstrapSource, buildPluginRuntimePolicy} from '../../src/utils/plugins/security/pluginRuntimeSecurity';
 
+test('plain Node policy probes never import the Electron npm package as a parent-port fallback',()=>{
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-node-parent-port-'));
+    try {
+        fs.mkdirSync(path.join(root,'node_modules/electron'),{recursive:true});
+        const marker=path.join(root,'electron-imported');
+        fs.writeFileSync(path.join(root,'node_modules/electron/index.js'),`require('node:fs').writeFileSync(${JSON.stringify(marker)},'unexpected');throw new Error('Electron installer must not run');`);
+        const bootstrap=path.join(root,'bootstrap.cjs'),entry=path.join(root,'entry.cjs');
+        fs.writeFileSync(bootstrap,buildPluginRuntimeBootstrapSource());fs.writeFileSync(entry,"process.stdout.write('plain-node-worker-ready');");
+        const env=buildPluginWorkerEnvironment({pluginHome:root,pluginCodeHome:root,runtimeEntry:entry,bootstrapEntry:bootstrap,nodeModulesPath:path.join(root,'node_modules'),runtimePolicy:buildPluginRuntimePolicy([]),hostEnv:{}});
+        fs.mkdirSync(env.TMPDIR,{recursive:true});
+        const result=spawnSync(process.execPath,[bootstrap],{encoding:'utf8',timeout:10000,env:{...env,FDO_PLUGIN_ALLOW_MISSING_PARENT_PORT:'1'}});
+        expect({status:result.status,stderr:result.stderr,stdout:result.stdout}).toEqual({status:0,stderr:'',stdout:'plain-node-worker-ready'});
+        expect(fs.existsSync(marker)).toBe(false);
+    } finally {fs.rmSync(root,{recursive:true,force:true});}
+});
+
 test('worker environment is allowlisted, redirects home/temp and excludes host secrets and loader injection', () => {
     const env = buildPluginWorkerEnvironment({pluginHome: '/data/plugin', pluginCodeHome: '/code/plugin', runtimeEntry: '/cache/plugin/index.cjs', bootstrapEntry: '/cache/plugin/bootstrap.cjs', nodeModulesPath: '/app/node_modules', runtimePolicy: {}, hostEnv: {
         HOME: '/users/real', PATH: '/users/real/bin', AWS_SECRET_ACCESS_KEY: 'synthetic', OPENAI_API_KEY: 'synthetic',

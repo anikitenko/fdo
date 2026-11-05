@@ -2,6 +2,7 @@
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const {execFileSync}=require('node:child_process');
 const {generate,checkAssets,checkReview,sha256}=require('../../scripts/legal/inventory.cjs');
 const {packageForResource}=require('../../scripts/legal/webpack-inventory.cjs');
 const {verifyLegalDirectory,createLegalEvidence,evidenceNames}=require('../../scripts/release/legal-evidence.cjs');
@@ -24,6 +25,23 @@ beforeEach(()=>{
     fs.mkdirSync(path.join(root,'dist/main/git-arm64'),{recursive:true});
 });
 afterEach(()=>fs.rmSync(root,{recursive:true,force:true}));
+test('Windows-style Git checkout preserves reviewed asset and license bytes',()=>{
+    write('.gitattributes',fs.readFileSync(path.resolve('.gitattributes'),'utf8'));
+    const samples={
+        'src/assets/line-endings.svg':Buffer.from('<svg>\nunchanged\n</svg>\n'),
+        'src/assets/upstream-crlf.js':Buffer.from('// upstream\r\nunchanged\r\n'),
+        'website/assets/example.svg':Buffer.from('<svg>\nwebsite\n</svg>\n'),
+        'third_party/licenses/NOTICE':Buffer.from('Copyright fixture\nPermission notice\n'),
+    };
+    for (const [name,bytes] of Object.entries(samples)) {fs.mkdirSync(path.dirname(path.join(root,name)),{recursive:true});fs.writeFileSync(path.join(root,name),bytes);}
+    write('ordinary.txt','line one\nline two\n');
+    const git=(args,autocrlf='false')=>execFileSync('git',['-c',`core.autocrlf=${autocrlf}`,'-c','core.safecrlf=false',...args],{cwd:root,stdio:['ignore','pipe','pipe']});
+    git(['init']);git(['add','.gitattributes','ordinary.txt',...Object.keys(samples)]);
+    git(['checkout-index','--all','--prefix=checkout/'],'true');
+    for (const [name,bytes] of Object.entries(samples)) expect(fs.readFileSync(path.join(root,'checkout',name))).toEqual(bytes);
+    // Confirm the checkout really exercises CRLF conversion for ordinary text.
+    expect(fs.readFileSync(path.join(root,'checkout/ordinary.txt'),'utf8')).toBe('line one\r\nline two\r\n');
+});
 test('captures bundled dev dependencies, original notices and explicit native coverage limits',()=>{
     const {inventory,status}=generate({root,platform:'darwin',arch:'arm64'});
     expect(inventory.packages.find(p=>p.name==='fixture').inclusions).toEqual(['compiled:export-runtime','compiled:renderer']);

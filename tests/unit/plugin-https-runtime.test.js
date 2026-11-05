@@ -51,6 +51,7 @@ test('clean workers perform real scoped HTTPS without exposing raw TLS/DNS throu
         const caps=['system.network','system.network.https','system.network.scope.public-web-secure'];
         const policy={...buildPluginRuntimePolicy(caps),networkScopes:[{allowedTransports:['fetch'],allowedSchemes:['https'],allowedHostPatterns:['127.0.0.1'],allowedPorts:[String(port)]}]};
         const env=buildPluginWorkerEnvironment({pluginHome:root,pluginCodeHome:root,runtimeEntry:entry,bootstrapEntry:bootstrap,nodeModulesPath:path.resolve('node_modules'),grantedCapabilities:caps,runtimePolicy:policy,hostEnv:{AWS_SECRET_ACCESS_KEY:'synthetic-private'}});
+        fs.mkdirSync(env.TMPDIR,{recursive:true});
         // Explicit fixture trust, not inherited host configuration. Normal worker environments exclude this variable.
         const {stdout,stderr}=await promisify(execFile)(process.execPath,[bootstrap],{timeout:15000,env:{...env,FDO_PLUGIN_ALLOW_MISSING_PARENT_PORT:'1',NODE_EXTRA_CA_CERTS:path.join(root,'ca.pem')}});
         expect(stderr).toBe('');expect(requests).toBe(2);
