@@ -98,7 +98,8 @@ process.stdout.write(result.renderView());`;
         expect(guide).toContain("A type assertion is not runtime validation");
         expect(guide).toContain("Bundling alone does not establish");
         expect(guide).not.toMatch(/jsonInspectorBound|category\/title|\/features\/seo/);
-        expect(guide.length).toBeLessThan(8000);
+        // Includes the shared desktop environment/permission diagnosis contract.
+        expect(guide.length).toBeLessThan(11000);
         expect(guide).toContain("never test typeof css.panel === 'string'");
         expect(guide).toContain('renderBody(dom)');
         expect(guide).toContain('emitted CSS');

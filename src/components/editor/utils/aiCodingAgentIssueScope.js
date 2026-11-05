@@ -11,6 +11,7 @@ export function shouldIncludeIssueDiagnosis({
     const normalizedPrompt = normalizeText(prompt);
     const normalizedAction = normalizeText(action);
     if(isSandboxedFormSubmissionError(normalizedPrompt))return true;
+    if(normalizedAction==='fix')return true;
     const looksLikeScaffoldIntent = /\b(create|build|generate|scaffold|implement|make)\b/.test(normalizedPrompt)
         || /plugin\s+like\b/.test(normalizedPrompt)
         || /\blike\s+https?:\/\//.test(normalizedPrompt);
@@ -54,6 +55,12 @@ export function classifyAiCodingIssueScope({
             kind: "none",
             summary: "",
         };
+    }
+
+    if (/\[host-policy]|\bfdo_plugin_permission_denied\b/.test(normalized)) {
+        const httpsTransport=/tls\.connect/.test(normalized) && /fetch|https/.test(normalized);
+        return {kind:'permission-policy',summary:'A runtime policy denial was reported. Compare the actual call site and running grants with the desktop runtime contract. '
+            +(httpsTransport?'Permitted HTTPS does not need raw TCP/DNS grants; verify a possible host guard regression before proposing plugin changes or additional permissions.':'Use the supported plugin service or plugin-owned paths where appropriate; declaration is not a grant, and permission approval belongs to the user/host.')};
     }
 
     const hasReportedError = /\b(?:[a-z]+)?error:|typeerror|referenceerror|unhandledpromiserejectionwarning|\bexception\b|\bcrash(?:ed|ing)?\b|plugin process stopped unexpectedly|\bstack trace\b|backend:\s*(?:error|failed)/.test(normalized);

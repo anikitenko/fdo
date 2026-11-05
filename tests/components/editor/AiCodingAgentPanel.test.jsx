@@ -3214,6 +3214,23 @@ describe('explicit coding action contracts', () => {
         };
     }
 
+    test('Fix attaches running policy and denial evidence without requesting logs or activating the plugin',async()=>{
+        window.location.hash=`#/editor?data=${encodeURIComponent(JSON.stringify({name:'hyperstack-fixture'}))}`;
+        const {editor}=editorFor('export const endpoint = "https://example.com";');
+        window.electron.plugin.getLogTrace.mockResolvedValue({success:true,combined:'Desktop runtime contract: {"grantSource":"running-worker","environment":{"inheritsHostEnvironment":false},"network":{"https":true,"tcp":false}}\nfetch failed: [host-policy] Network access denied for "tls.connect".'});
+        window.electron.aiCodingAgent.fixCode.mockImplementation(replyWith('No changes proposed: this evidence indicates a possible FDO host guard regression.'));
+        render(<TestHarness codeEditor={editor}/>);
+        fireEvent.change(await screen.findByLabelText('Action'),{target:{value:'fix'}});
+        fireEvent.change(screen.getByRole('textbox'),{target:{value:'The HTTPS connection fails.'}});
+        fireEvent.click(screen.getByRole('button',{name:'Submit'}));
+        await waitFor(()=>expect(window.electron.aiCodingAgent.fixCode).toHaveBeenCalled());
+        const payload=JSON.stringify(window.electron.aiCodingAgent.fixCode.mock.lastCall[0]);
+        expect(payload).toContain('running-worker');expect(payload).toContain('inheritsHostEnvironment');
+        expect(payload).toContain('tls.connect');expect(payload).toContain('possible host guard regression');
+        expect(window.electron.plugin.activate).not.toHaveBeenCalled();
+        expect(window.electron.plugin.init).not.toHaveBeenCalled();
+    });
+
     test('Explain uses the open file and forwards the user question without a selection', async () => {
         const {editor, model} = editorFor();
         window.electron.aiCodingAgent.explainCode.mockImplementation(replyWith('The value is initialized once.'));

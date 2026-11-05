@@ -14,7 +14,7 @@ import {runOsCredentialHelper, closeOsCredentialSessions} from './utils/persiste
 import './utils/system/installStdioErrorHandlers';
 import {registerAiUsageHandlers} from './ipc/ai_usage';
 import {registerAiCodingActivityHandlers} from './ipc/ai_coding_activity';
-import {app, BrowserWindow, dialog, Menu, nativeTheme, protocol, safeStorage} from 'electron';
+import {app, BrowserWindow, dialog, Menu, nativeTheme, protocol, safeStorage, shell} from 'electron';
 import {registerGitOpsHandlers} from './ipc/gitops';
 import {syncCollection, detachCollection, decideGitOpsUpdate} from './utils/gitops/syncCollection';
 import {readPluginRepository} from './utils/gitops/verifyRepository';
@@ -801,6 +801,15 @@ app.whenReady().then(async () => {
         {label: 'Edit', submenu: [{role: 'undo'}, {role: 'redo'}, {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'}]},
         {label: 'View', submenu: [{role: 'reload'}, {role: 'forceReload'}, {role: 'toggleDevTools'}, {type: 'separator'}, {role: 'resetZoom'}, {role: 'zoomIn'}, {role: 'zoomOut'}, {type: 'separator'}, {role: 'togglefullscreen'}]},
         {label: 'Window', submenu: [{role: 'minimize'}, {role: 'zoom'}, {role: 'front'}]},
+        {role: 'help', submenu: [{label: 'Third-party Licenses…', click: async () => {
+            const file = nodePath.join(app.isPackaged ? process.resourcesPath : nodePath.join(app.getAppPath(), 'dist'), 'legal', 'THIRD_PARTY_NOTICES.txt');
+            if (!existsSync(file)) {
+                dialog.showErrorBox('Licenses unavailable', 'Build and prepare the application to generate its third-party license inventory.');
+                return;
+            }
+            const error = await shell.openPath(file);
+            if (error) dialog.showErrorBox('Could not open licenses', error);
+        }}]},
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(appMenu));
     NotificationCenter.getAllNotifications().then(refreshNotificationMenuBadge).catch(error => console.error('Could not read the notification count:', error));

@@ -3,6 +3,7 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const webpack = require("webpack");
 const path = require("path");
+const {WebpackDependencyInventory} = require('./scripts/legal/webpack-inventory.cjs');
 
 /** @type {import("webpack").ResolveOptions["fallback"]} */
 const rendererFallbacks = {
@@ -153,6 +154,7 @@ module.exports = (_env, argv = {}) => ({
         moduleIds: 'deterministic', // Better long-term caching
     },
     plugins: [
+        new WebpackDependencyInventory('renderer'),
         new webpack.DefinePlugin({
             'global': 'globalThis',
             'global.TYPED_ARRAY_SUPPORT': true,

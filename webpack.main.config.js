@@ -2,6 +2,7 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const webpack = require("webpack");
 const path = require("path");
 const fs = require("node:fs");
+const {WebpackDependencyInventory} = require('./scripts/legal/webpack-inventory.cjs');
 module.exports = {
     /**
      * This is the main entry point for your application, it's the first file
@@ -51,6 +52,7 @@ module.exports = {
         __filename: false,
     },
     plugins: [
+        new WebpackDependencyInventory('main'),
         {
             apply(compiler) {
                 compiler.hooks.thisCompilation.tap('StandaloneWebExport', compilation => {
@@ -60,6 +62,7 @@ module.exports = {
                         const builder=require(builderPath);
                         const source=await builder.buildWebExportAssets(__dirname);
                         compilation.emitAsset('export-runtime/view.js',new compiler.webpack.sources.RawSource(Buffer.from(source)));
+                        compilation.emitAsset('export-runtime/dependencies.json',new compiler.webpack.sources.RawSource(JSON.stringify(builder.webExportDependencyInventory(),null,2)+'\n'));
                         compilation.emitAsset('export-runtime/runtime-sources.json',new compiler.webpack.sources.RawSource(JSON.stringify(builder.webExportRuntimeSources(__dirname))));
                     });
                 });

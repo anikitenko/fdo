@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const yaml = require('js-yaml');
 const {assetNames, platforms, sha256, readJson, parseVersion} = require('./common.cjs');
+const {evidenceNames,createLegalEvidence}=require('./legal-evidence.cjs');
 
 function run(command, args) {
     const result = spawnSync(command, args, {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']});
@@ -77,12 +78,13 @@ function verifyMacDistributables({source, version, platform, signed, notarized})
     }
 }
 
-async function stage({source, destination, version, commit, platform, signed = false, notarized = false, verifyPackaged = false}) {
+async function stage({source, destination, version, commit, platform, signed = false, notarized = false, verifyPackaged = false, legalDirectory, publishing=false, signing={signed,notarized}}) {
     parseVersion(version);
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('A full source commit is required.');
     if (verifyPackaged && platform.startsWith('mac-')) verifyMacDistributables({source, version, platform, signed, notarized});
     const files = [];
-    for (const name of assetNames(version, platform)) {
+    const evidence=legalDirectory ? await createLegalEvidence({directory:legalDirectory,destination:source,version,commit,platform,publishing,signing}) : [];
+    for (const name of [...assetNames(version, platform),...evidence]) {
         const file = path.join(source, name);
         let stat;
         try {stat = fs.lstatSync(file);}
@@ -97,13 +99,12 @@ async function stage({source, destination, version, commit, platform, signed = f
     const metadata = [];
     for (const name of updateMetadataNames(source)) {
         const targetName = name === 'latest-mac.yml' && platform.startsWith('mac-') ? `latest-${platform}.yml` : name;
-        const file = path.join(source, name);
         metadata.push({name: targetName, sourceName: name});
     }
     fs.mkdirSync(destination, {recursive: true});
     for (const file of files) fs.copyFileSync(path.join(source, file.name), path.join(destination, file.name), fs.constants.COPYFILE_EXCL);
     for (const file of metadata) fs.copyFileSync(path.join(source, file.sourceName), path.join(destination, file.name), fs.constants.COPYFILE_EXCL);
-    const manifest = {schemaVersion: 1, version, commit, platform, signed, notarized, files};
+    const manifest = {schemaVersion: 1, version, commit, platform, signed, notarized, files, ...(evidence.length?{evidence}: {})};
     fs.writeFileSync(path.join(destination, `${platform}.json`), JSON.stringify(manifest, null, 2) + '\n', {flag: 'wx'});
     return manifest;
 }
@@ -133,7 +134,7 @@ function walk(directory) {
         return entry.isDirectory() ? walk(file) : [file];
     });
 }
-async function assemble({source, destination, version, commit, publishing = false}) {
+async function assemble({source, destination, version, commit, publishing = false, requireEvidence=false}) {
     const downloaded = walk(source), byName = new Map();
     for (const file of downloaded) {
         const name = path.basename(file);
@@ -147,13 +148,23 @@ async function assemble({source, destination, version, commit, publishing = fals
         const manifest = readJson(byName.get(name));
         if (manifest.schemaVersion !== 1 || manifest.platform !== platform || manifest.version !== version || manifest.commit !== commit) throw new Error(`Mismatched build manifest: ${platform}`);
         if (publishing && platform.startsWith('mac-') && (manifest.signed !== true || manifest.notarized !== true)) throw new Error('Published macOS assets must be signed and notarized.');
-        const names = assetNames(version, platform);
+        const evidence=manifest.evidence || [];
+        if ((requireEvidence && evidence.length!==3) || (evidence.length && (evidence.length!==3 || evidence.some(name=>!evidenceNames(version,platform).includes(name)) || new Set(evidence).size!==3))) throw new Error(`Missing/invalid legal release evidence: ${platform}`);
+        const names = [...assetNames(version, platform),...evidence];
         if (!Array.isArray(manifest.files) || manifest.files.length !== names.length || new Set(manifest.files.map(file => file.name)).size !== names.length) throw new Error(`Invalid artifact inventory: ${platform}`);
         for (const asset of manifest.files) {
             if (!names.includes(asset.name) || !byName.has(asset.name)) throw new Error(`Missing/unexpected asset: ${asset.name}`);
             const file = byName.get(asset.name);
             if (fs.statSync(file).size !== asset.size || await sha256(file) !== asset.sha256) throw new Error(`Artifact checksum mismatch: ${asset.name}`);
             expected.add(asset.name);
+        }
+        if (evidence.length) {
+            const provenance=readJson(byName.get(evidenceNames(version,platform)[2]));
+            if (provenance.version!==version || provenance.commit!==commit || provenance.platform!==platform || publishing && provenance.legalReleaseReady!==true) throw new Error(`Mismatched/uncleared legal provenance: ${platform}`);
+            for (const [suffix,hash] of [['-legal.zip',provenance.legalArchiveSha256],['-sbom.cdx.json',provenance.sbomSha256]]) {
+                const name=evidence.find(name=>name.endsWith(suffix));
+                if (await sha256(byName.get(name))!==hash) throw new Error(`Legal evidence checksum mismatch: ${name}`);
+            }
         }
         builds.push(manifest);
     }
@@ -174,7 +185,7 @@ module.exports = {stage, assemble, verifyMacBundle, verifyMacDistributables};
 if (require.main === module) {
     const env = process.env;
     const operation = process.argv[2] === 'stage'
-        ? stage({source: 'release', destination: 'release-staging', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, platform: `${env.RELEASE_PLATFORM}-${env.RELEASE_ARCH}`, ...readJson('release/signing.json'), verifyPackaged: true})
-        : assemble({source: 'release-downloads', destination: 'release-assets', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, publishing: env.RELEASE_PUBLISH === 'true'});
+        ? stage({source: 'release', destination: 'release-staging', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, platform: `${env.RELEASE_PLATFORM}-${env.RELEASE_ARCH}`, ...readJson('release/signing.json'), signing:readJson('release/signing.json'), verifyPackaged: true,legalDirectory:'dist/legal',publishing:env.RELEASE_PUBLISH==='true'})
+        : assemble({source: 'release-downloads', destination: 'release-assets', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, publishing: env.RELEASE_PUBLISH === 'true',requireEvidence:true});
     operation.catch(error => {console.error(error.message);process.exitCode = 1;});
 }

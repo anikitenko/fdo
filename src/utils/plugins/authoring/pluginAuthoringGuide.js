@@ -1,8 +1,9 @@
 import {HOST_SERVICES_AUTHORING_SUMMARY} from './hostServicesAuthoringGuide';
 import {PLUGIN_ACTION_GUIDANCE} from './pluginActionGuidance';
+import {PLUGIN_RUNTIME_GUIDANCE} from './pluginRuntimeAuthoringContext';
 // Public plugin-facing authoring context. Keep this independent of FDO host
 // implementation details so every coding provider receives the same contract.
-export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.10.30";
+export const PLUGIN_AUTHORING_GUIDE_VERSION = "2026.11.05";
 
 export const PLUGIN_STYLE_RENDERING_GUIDANCE = "CSS entries are objects, not strings: never test typeof css.panel === 'string', stringify an entry, or fall back to literal selector names. Share one DOM across child renderers, register styles there and finish with dom.renderHTML(html). In SDK 1.6, collectStylesFrom() starts an isolated retained collector; attach helpers before styling. Legacy collection is shared and drained. DOMStyleMap supports nested rules and numbers without automatic units. Plugin render() must call this composition entry; an unused renderShell does not style the deployed UI. Register palette/custom-property styles on an ancestor of every styled region. For repairs, inspect the actual entry-to-render call chain, replace string-only style lookups, preserve state and handlers, and test the deployed render path and emitted CSS, not only class attributes or stylesheet text.";
 
@@ -94,6 +95,8 @@ WORKING METHOD
 - Return complete changed files. Distinguish evidence from assumptions; never claim unperformed build/test/visual checks.
 
 ${HOST_SERVICES_AUTHORING_SUMMARY}
+
+${PLUGIN_RUNTIME_GUIDANCE}
 
 PLUGIN CONTRACT
 - Use the plugin workspace and public SDK APIs, including backend secret storage. Host internals and arbitrary host paths are outside the task. Preserve declared lifecycle and registration contracts.

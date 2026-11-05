@@ -1,14 +1,27 @@
 const path=require('node:path');
 const fs=require('node:fs');
+const {packageForResource}=require('./legal/webpack-inventory.cjs');
 let browserPackages=[],serviceCore,toolSemver;
+const runtimePackages=new Map();
+function collectPackages(result,root) {
+    for(const file of Object.keys(result.metafile.inputs)) {
+        const pkg=packageForResource(path.resolve(root,file),root);
+        if(pkg)runtimePackages.set(pkg.root,pkg);
+    }
+}
+function webExportDependencyInventory() {
+    return {schemaVersion:1,compiler:'export-runtime',packages:[...runtimePackages.values()].sort((a,b)=>a.root.localeCompare(b.root))};
+}
 async function buildServiceCore(root) {
-    const result=await require('esbuild').build({entryPoints:[path.join(root,'src/utils/plugins/exporting/serviceCoreEntry.js')],bundle:true,platform:'node',format:'cjs',write:false,external:['ssh2','shell-quote'],plugins:[{name:'standalone-host',setup(build){
+    const result=await require('esbuild').build({entryPoints:[path.join(root,'src/utils/plugins/exporting/serviceCoreEntry.js')],bundle:true,platform:'node',format:'cjs',write:false,metafile:true,external:['ssh2','shell-quote'],plugins:[{name:'standalone-host',setup(build){
         build.onResolve({filter:/^@anikitenko\/fdo-sdk$/},()=>({path:'./contract.cjs',external:true}));
         build.onResolve({filter:/^electron$/},()=>({path:'./native.cjs',external:true}));
         build.onResolve({filter:/bundledGit\.cjs$/},()=>({path:'./systemGit.cjs',external:true}));
     }}]});
     serviceCore=result.outputFiles[0].text;
-    const versions=await require('esbuild').build({stdin:{contents:"exports.coerce=require('semver/functions/coerce');exports.satisfies=require('semver/functions/satisfies');",resolveDir:root},bundle:true,platform:'node',format:'cjs',write:false,minify:true});
+    collectPackages(result,root);
+    const versions=await require('esbuild').build({stdin:{contents:"exports.coerce=require('semver/functions/coerce');exports.satisfies=require('semver/functions/satisfies');",resolveDir:root},bundle:true,platform:'node',format:'cjs',write:false,minify:true,metafile:true});
+    collectPackages(versions,root);
     toolSemver=versions.outputFiles[0].text;
 }
 
@@ -25,6 +38,7 @@ window.__webReact={React,createRoot,flushSync};window.__webUi=ui;window.__create
 window.__installWebTerminal=target=>{const style=target.document.createElement('style');style.textContent=terminalCss;target.document.head.appendChild(style);installTerminalRenderer(target);};
 window.__installWebCharts=target=>installChartRenderer(target,()=>Promise.resolve(chartRenderer));`;
 async function buildWebExportAssets(root=path.resolve(__dirname,'..')) {
+    runtimePackages.clear();
     const result=await require('esbuild').build({stdin:{contents:source,resolveDir:root,sourcefile:'standalone-view.js'},bundle:true,platform:'browser',format:'iife',minify:true,write:false,metafile:true,legalComments:'inline',loader:{'.css':'text'},logLevel:'silent',define:{'process.env.NODE_ENV':'"production"'}});
     const roots=new Set();
     for(const file of Object.keys(result.metafile.inputs)) {
@@ -34,7 +48,9 @@ async function buildWebExportAssets(root=path.resolve(__dirname,'..')) {
         roots.add(path.resolve(root,normalized.slice(0,marker+'node_modules/'.length)+parts.slice(0,length).join('/')));
     }
     browserPackages=[...roots];
+    collectPackages(result,root);
     await buildServiceCore(root);
+    browserPackages=[...new Set([...browserPackages,...[...runtimePackages.keys()].map(name=>path.join(root,name))])];
     return result.outputFiles[0].contents;
 }
 function webExportRuntimeSources(root=path.resolve(__dirname,'..')) {
@@ -61,5 +77,5 @@ function webExportRuntimeSources(root=path.resolve(__dirname,'..')) {
     }
     return result;
 }
-if(require.main===module)buildWebExportAssets().then(value=>{const directory=path.resolve(__dirname,'../dist/main/export-runtime');fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(path.join(directory,'view.js'),value);fs.writeFileSync(path.join(directory,'runtime-sources.json'),JSON.stringify(webExportRuntimeSources()));}).catch(error=>{console.error(error.message);process.exitCode=1;});
-module.exports={buildWebExportAssets,webExportRuntimeSources};
+if(require.main===module)buildWebExportAssets().then(value=>{const directory=path.resolve(__dirname,'../dist/main/export-runtime');fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(path.join(directory,'view.js'),value);fs.writeFileSync(path.join(directory,'runtime-sources.json'),JSON.stringify(webExportRuntimeSources()));fs.writeFileSync(path.join(directory,'dependencies.json'),JSON.stringify(webExportDependencyInventory(),null,2)+'\n');}).catch(error=>{console.error(error.message);process.exitCode=1;});
+module.exports={buildWebExportAssets,webExportRuntimeSources,webExportDependencyInventory};

@@ -285,6 +285,14 @@ The AI Coding Agent supports the following actions:
 5. **Fix Code** - Debug and fix code with error messages
 6. **Plan Code (Plugin Scaffold)** - Generate complete plugin project structures with multiple files
 
+## Runtime permissions and environment troubleshooting
+
+The assistant receives the desktop worker contract for every provider: workers do not inherit the application's environment, and their home/configuration directories are plugin-private. API keys belong in the SDK backend secret service; nonsecret preferences belong in plugin-scoped storage. The assistant must not suggest dumping environment values, reading host credential files, or restoring environment inheritance as a repair.
+
+For an installed plugin, Fix and troubleshooting requests collect the existing plugin trace. The read-only investigation's `runtime` and `logs` tools also provide `runtimeContract`: capability names, network scopes, environment restrictions, and `grantSource`. `running-worker` describes the loaded worker record; `configured` describes saved policy and does not prove that a worker has restarted with those grants. Capability declarations and the installed SDK capability catalog are not permission grants. Policy metadata contains no environment values or credentials.
+
+For example, ask: **“Investigate Hyperstack's failed HTTPS refresh. Compare its running permissions with the runtime error and preserve credential isolation.”** The assistant can inspect evidence without activating the plugin or creating VMs. HTTPS requests use the HTTPS permission and a matching scope; Node's internal TLS/DNS should not require raw TCP/DNS permissions. A `tls.connect` denial beneath an otherwise permitted HTTPS fetch may indicate a host guard regression. The assistant should identify that boundary and recommend the FDO host fix/restart, rather than broaden grants or fabricate a plugin patch. A bare `fetch failed` message alone does not establish that cause.
+
 ## FDO SDK Integration
 
 The AI Coding Agent has built-in knowledge of the FDO SDK, including:
