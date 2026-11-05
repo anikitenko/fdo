@@ -108,7 +108,7 @@ function normalizeBackendBridgeMessage(type, data) {
 }
 
 let fallbackParentPort = null;
-if (!process.parentPort) {
+if (!process.parentPort && process.versions.electron) {
     try {
         const electron = require("electron");
         fallbackParentPort = electron?.parentPort || null;

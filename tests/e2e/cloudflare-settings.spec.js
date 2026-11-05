@@ -2,11 +2,31 @@ const {test, expect, _electron: electron} = require('@playwright/test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const esbuild = require('esbuild');
 const {launchElectronApp, closeElectronApp} = require('./helpers/electronApp');
 
 test('Cloudflare coding settings persist through native IPC, strict schema and app restart', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-cloudflare-settings-'));
     let app;
+    const fixtureRoot=path.resolve('artifacts/e2e-cloudflare-settings');
+    fs.mkdirSync(fixtureRoot,{recursive:true});
+    const fixtureDir=fs.mkdtempSync(path.join(fixtureRoot,'fixture-'));
+    const fixturePath=path.join(fixtureDir,'credentials.cjs');
+    await esbuild.build({stdin:{resolveDir:process.cwd(),contents:`
+        import Store from 'electron-store';
+        import {settings} from './src/utils/persistence/store';
+        import {PREFIX} from './src/utils/persistence/aiCredentialSettings.cjs';
+        export function inspect(id) {
+            const raw=new Store({cwd:process.env.FDO_E2E_USER_DATA_DIR,name:'settings',encryptionKey:'FDO-APPLICATION'});
+            const saved=raw.get('ai.coding',[]).find(item=>item.id===id);
+            return {
+                hostTokenWorks:settings.resolveAiAssistant('coding',{id}).apiKey==='test-only-token',
+                encryptedAtRest:typeof saved?.apiKey==='string' && saved.apiKey.startsWith(PREFIX),
+                noPlaintextInSettings:!JSON.stringify(raw.store).includes('test-only-token'),
+            };
+        }
+    `},bundle:true,platform:'node',format:'cjs',target:'node24',external:['electron'],outfile:fixturePath,logLevel:'silent'});
+    const inspectCredentials=id=>app.evaluate((_electron,{filename,id})=>process.mainModule.require(filename).inspect(id),{filename:fixturePath,id});
     const launch = async () => {
         app = await launchElectronApp(electron, {isolatedUserDataDir: true, env: {
             FDO_E2E_USER_DATA_DIR: directory, FDO_E2E_LIVE_AI: '0',
@@ -40,7 +60,9 @@ test('Cloudflare coding settings persist through native IPC, strict schema and a
             apiKey: ' test-only-token ', accountId: ` ${'a'.repeat(32)} `, baseUrl: 'http://localhost:11434', contextLength: 32768, firstResponseTimeoutMs: '420000'};
         await page.evaluate(data => window.electron.settings.ai.addAssistant(data), assistant);
         const stored = (await page.evaluate(() => window.electron.settings.ai.getAssistants())).find(item => item.name === assistant.name);
-        expect(stored).toMatchObject({provider: 'cloudflare', purpose: 'coding', accountId: 'a'.repeat(32), apiKey: 'test-only-token', firstResponseTimeoutMs: 420000});
+        expect(stored).toMatchObject({provider: 'cloudflare', purpose: 'coding', accountId: 'a'.repeat(32), apiKey: '', hasApiKey:true, credentialMigrationPending:false, firstResponseTimeoutMs: 420000});
+        expect(JSON.stringify(stored)).not.toContain('test-only-token');
+        expect(await inspectCredentials(stored.id)).toEqual({hostTokenWorks:true,encryptedAtRest:true,noPlaintextInSettings:true});
         expect(stored).not.toHaveProperty('baseUrl');
         expect(stored).not.toHaveProperty('contextLength');
         await expect(page.evaluate(data => window.electron.settings.ai.addAssistant(data), {...assistant, unexpectedSetting: true}))
@@ -57,9 +79,12 @@ test('Cloudflare coding settings persist through native IPC, strict schema and a
         page = await launch();
         const reloaded = await page.evaluate(() => window.electron.settings.ai.getAssistants());
         expect(reloaded.filter(item => item.name === assistant.name)).toEqual([expect.objectContaining({id: stored.id,
-            provider: 'cloudflare', accountId: 'a'.repeat(32), model: '@cf/test/model', apiKey: 'test-only-token', firstResponseTimeoutMs: 420000})]);
+            provider: 'cloudflare', accountId: 'a'.repeat(32), model: '@cf/test/model', apiKey: '', hasApiKey:true, credentialMigrationPending:false, firstResponseTimeoutMs: 420000})]);
+        expect(JSON.stringify(reloaded)).not.toContain('test-only-token');
+        expect(await inspectCredentials(stored.id)).toEqual({hostTokenWorks:true,encryptedAtRest:true,noPlaintextInSettings:true});
     } finally {
         if (app) await closeElectronApp(app);
         fs.rmSync(directory, {recursive: true, force: true});
+        fs.rmSync(fixtureDir, {recursive: true, force: true});
     }
 });

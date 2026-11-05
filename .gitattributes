@@ -1,0 +1,5 @@
+# These files have reviewed byte-level provenance hashes. Preserve upstream
+# bytes (including original line endings) on every checkout and platform.
+/src/assets/** -text
+/website/assets/** -text
+/third_party/licenses/** -text
