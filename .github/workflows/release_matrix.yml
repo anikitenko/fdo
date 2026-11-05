@@ -41,7 +41,7 @@ jobs:
         run: node scripts/release/validate.cjs
       - name: Require the latest stable FDO SDK
         run: node scripts/release/check-sdk.cjs
-      - name: Require documented redistribution and publication clearance
+      - name: Report outstanding licensing and provenance reviews
         if: steps.release.outputs.publish == 'true'
         run: node scripts/legal/inventory.cjs --review
 

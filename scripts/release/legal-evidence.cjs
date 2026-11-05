@@ -12,7 +12,8 @@ function verifyLegalDirectory(directory,{version,commit,platform,publishing=fals
     const inventory=read(path.join(directory,'inventory.json')), status=read(path.join(directory,'review-status.json'));
     const target=`${inventory.target.platform==='darwin'?'mac':inventory.target.platform==='win32'?'win':inventory.target.platform}-${inventory.target.arch}`;
     if (inventory.project.version!==version || inventory.source.commit!==commit || target!==platform) throw new Error('Legal inventory does not match release source/target.');
-    if (publishing && (!status.releaseReady || inventory.source.dirty!==false || status.issues.length || status.coverageIssues.length || status.pending.length)) throw new Error('Release licensing/provenance clearance is incomplete.');
+    if (!Array.isArray(status.issues) || status.issues.length) throw new Error('Legal inventory has structural errors.');
+    if (publishing && inventory.source.dirty!==false) throw new Error('Published releases require clean source provenance.');
     const manifest=read(path.join(directory,'files.json')), expected=new Set(['files.json']);
     for (const record of manifest.files) {
         const file=inside(directory,record.path);

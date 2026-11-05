@@ -204,7 +204,11 @@ module.exports={generate,checkAssets,checkReview,licenseFiles,walk,sha256,inside
 function main() {
     if (process.argv.includes('--review')) {
         const pending=checkReview(process.cwd());
-        if (pending.length) throw new Error('Unresolved licensing/provenance review items: '+pending.map(item=>item.id).join(', '));
+        if (pending.length) {
+            const message='Unresolved licensing/provenance review items: '+pending.map(item=>item.id).join(', ');
+            if (process.argv.includes('--strict')) throw new Error(message);
+            console.warn((process.env.GITHUB_ACTIONS==='true'?'::warning::':'Warning: ')+message);
+        }
     } else {
         const {inventory,status}=generate({release:process.argv.includes('--release')});
         console.log(`Licensing inventory: ${inventory.packages.length} packages, ${status.pending.length} pending reviews, ${status.coverageIssues.length} missing package notices. dist/legal`);

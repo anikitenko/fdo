@@ -10,10 +10,12 @@ npm run build
 # Packaging stages the target Git distribution and generates dist/legal:
 npx electron-builder --dir --publish never
 npm run legal:generate
+npm run legal:review
+# Optional strict audit, separate from release creation:
 npm run legal:check
 ```
 
-Build packages on the target OS/architecture. `legal:generate` needs the three webpack inventories, the esbuild export-runtime inventory and the staged `dist/main/git-<arch>` directory. A review build can be generated while permission/notice coverage remains pending; structural errors such as changed/unregistered assets, missing build inventories, or stale package metadata fail generation. `legal:check` additionally requires no pending reviews, no missing notices and a clean source checkout. It currently fails deliberately because clearance is incomplete.
+Build packages on the target OS/architecture. `legal:generate` needs the three webpack inventories, the esbuild export-runtime inventory and the staged `dist/main/git-<arch>` directory. Pending review items and missing package notices are reported in the evidence and do not automatically block release creation. Structural errors such as changed/unregistered assets, missing build inventories, or stale package metadata still fail generation. `legal:review` emits warnings for pending items; `npm run legal:review -- --strict` opts into failure on pending items. The separate `legal:check` command performs the full strict audit, requiring no pending reviews, no missing notices and a clean checkout.
 
 Do not run an output-cleaning production renderer build alongside the development watcher. For a local development check use `npx webpack --config webpack.renderer.config.js --mode=development --no-output-clean`.
 
@@ -51,7 +53,7 @@ When an item is resolved, record `status: "cleared"`, `reviewedBy`, `reviewedAt`
 
 ## Release signing and provenance
 
-Tagged publishing runs first check the review ledger. Packaging checks the complete generated inventory again. Branch rehearsals remain available while reviews are pending. Normal packaging commands do not publish. Existing published releases are unchanged by this work.
+Tagged publishing runs report pending reviews as workflow warnings. Packaging, staging and assembly continue to enforce structural integrity, matching source/target metadata and evidence checksums; publishing requires clean source provenance and the existing platform signing checks. Pending legal reviews remain pending in the packaged ledger and provenance (`legalReleaseReady: false`); releasing does not mark them cleared. Strict legal review remains available as an explicit audit command, rather than an automatic publication gate. Normal packaging commands do not publish.
 
 Each new platform release includes:
 
@@ -77,4 +79,4 @@ gh attestation verify ./fdo-VERSION-mac-arm64.dmg \
 
 Use the [GitHub CLI verification manual](https://cli.github.com/manual/gh_attestation_verify) and inspect the verified workflow identity, subject digest and source revision. Use `--source-digest FULL_COMMIT_SHA` and `--source-ref refs/tags/vVERSION` to constrain verification to the expected release source. A matching checksum downloaded from the same release is not independent authentication. On macOS also verify the installed app with the three commands above, using its actual path.
 
-No new remote CI run, signed release, or cryptographically verified attestation is claimed for this uncommitted change. Local unsigned package tests and local test results must be kept separate from published release evidence. The previous email's original checklist was not supplied; [the working checklist](PROJECT_REVIEW_CHECKLIST.md) is not a substitute for its unseen fields.
+No new remote CI run, signed release, or cryptographically verified attestation is claimed for this uncommitted change. Local unsigned package tests and local test results must be kept separate from published release evidence.

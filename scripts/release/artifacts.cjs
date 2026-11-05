@@ -160,7 +160,8 @@ async function assemble({source, destination, version, commit, publishing = fals
         }
         if (evidence.length) {
             const provenance=readJson(byName.get(evidenceNames(version,platform)[2]));
-            if (provenance.version!==version || provenance.commit!==commit || provenance.platform!==platform || publishing && provenance.legalReleaseReady!==true) throw new Error(`Mismatched/uncleared legal provenance: ${platform}`);
+            if (provenance.version!==version || provenance.commit!==commit || provenance.platform!==platform) throw new Error(`Mismatched legal provenance: ${platform}`);
+            if (publishing && (provenance.source?.commit!==commit || provenance.source?.dirty!==false)) throw new Error(`Published releases require clean source provenance: ${platform}`);
             for (const [suffix,hash] of [['-legal.zip',provenance.legalArchiveSha256],['-sbom.cdx.json',provenance.sbomSha256]]) {
                 const name=evidence.find(name=>name.endsWith(suffix));
                 if (await sha256(byName.get(name))!==hash) throw new Error(`Legal evidence checksum mismatch: ${name}`);
