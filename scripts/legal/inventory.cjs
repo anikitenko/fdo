@@ -72,7 +72,7 @@ function sourceContext(root) {
         return {commit:git(['rev-parse','HEAD']),dirty:!!git(['status','--porcelain','--untracked-files=normal'])};
     } catch {return {commit:null,dirty:null};}
 }
-function generate({root=process.cwd(), platform=process.platform, arch=process.arch, output=path.join(root,'dist/legal'), release=false}={}) {
+function generate({root=process.cwd(), platform=process.platform, arch=process.arch, output=path.join(root,'dist/legal'), release=false, electronNoticesPath}={}) {
     root = path.resolve(root);output = path.resolve(output);
     const metadata = json(path.join(root,'package.json')), lock = json(path.join(root,'package-lock.json'));
     const assets = checkAssets(root), pending = checkReview(root), issues = [...assets.issues], coverageIssues = [], packages = new Map();
@@ -169,7 +169,7 @@ function generate({root=process.cwd(), platform=process.platform, arch=process.a
         for (const name of group.licenseFiles) notices.push(fs.readFileSync(path.join(root,'third_party/licenses',name),'utf8'));
     }
     for (const file of walk(path.join(root,'third_party/licenses'))) copyNotice(file,portable(path.relative(root,file)));
-    const electronNotices=path.join(root,'node_modules/electron/dist/LICENSES.chromium.html');
+    const electronNotices=electronNoticesPath || path.join(root,'node_modules/electron/dist/LICENSES.chromium.html');
     if (!fs.existsSync(electronNotices)) issues.push('Electron/Chromium third-party notices are missing.');
     else {fs.copyFileSync(electronNotices,path.join(output,'LICENSES.chromium.html'));notices.push('\nElectron/Chromium: see LICENSES.chromium.html, reproduced alongside these notices.');}
     const gitFile=path.join(root,'node_modules/dugite/script/embedded-git.json');

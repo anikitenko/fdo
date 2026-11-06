@@ -7,15 +7,16 @@ FDO now generates distributable notices and evidence from its build inputs. Comp
 ```sh
 npm ci
 npm run build
-# Packaging stages the target Git distribution and generates dist/legal:
+# Packaging stages Git, extracts the target Electron runtime and generates dist/legal:
 npx electron-builder --dir --publish never
-npm run legal:generate
 npm run legal:review
 # Optional strict audit, separate from release creation:
 npm run legal:check
 ```
 
-Build packages on the target OS/architecture. `legal:generate` needs the three webpack inventories, the esbuild export-runtime inventory and the staged `dist/main/git-<arch>` directory. Pending review items and missing package notices are reported in the evidence and do not automatically block release creation. Structural errors such as changed/unregistered assets, missing build inventories, or stale package metadata still fail generation. `legal:review` emits warnings for pending items; `npm run legal:review -- --strict` opts into failure on pending items. The separate `legal:check` command performs the full strict audit, requiring no pending reviews, no missing notices and a clean checkout.
+Build packages on the target OS/architecture. The `beforePack` hook stages host dependencies and Git. The `afterExtract` hook generates `dist/legal` using the three webpack inventories, the esbuild export-runtime inventory and the notices from the actual target Electron distribution. This happens before application files and legal resources are copied. It does not require a prior UI launch or an Electron binary in `node_modules/electron/dist`; fresh Electron npm installations may download their binary only on first use. Missing target notices remain a structural error. The standalone `legal:generate` and `legal:check` commands instead require an installed Electron distribution for their notice source.
+
+Pending review items and missing package notices are reported in the evidence and do not automatically block release creation. Structural errors such as changed/unregistered assets, missing build inventories, or stale package metadata still fail generation. `legal:review` emits warnings for pending items; `npm run legal:review -- --strict` opts into failure on pending items. The separate `legal:check` command performs the full strict audit, requiring no pending reviews, no missing notices and a clean checkout.
 
 Do not run an output-cleaning production renderer build alongside the development watcher. For a local development check use `npx webpack --config webpack.renderer.config.js --mode=development --no-output-clean`.
 
@@ -54,6 +55,8 @@ When an item is resolved, record `status: "cleared"`, `reviewedBy`, `reviewedAt`
 ## Release signing and provenance
 
 Tagged publishing runs report pending reviews as workflow warnings. Packaging, staging and assembly continue to enforce structural integrity, matching source/target metadata and evidence checksums; publishing requires clean source provenance and the existing platform signing checks. Pending legal reviews remain pending in the packaged ledger and provenance (`legalReleaseReady: false`); releasing does not mark them cleared. Strict legal review remains available as an explicit audit command, rather than an automatic publication gate. Normal packaging commands do not publish.
+
+Before creating another release tag, push the fixes to `main` and use **Actions → Release Matrix → Run workflow** on `main`. This branch run is an unsigned rehearsal: it exercises all four platform packaging jobs and artifact assembly without publishing a release. Create the release tag after that rehearsal passes. Rerunning an older tagged run continues to use the older source and workflow.
 
 Each new platform release includes:
 
