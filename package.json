@@ -447,6 +447,7 @@
       "category": "Utility"
     },
     "afterPack": "./scripts/fix-bundled-binary-permissions.js",
+    "afterExtract": "./scripts/prepare-package-legal.cjs",
     "beforePack": "./scripts/prepare-package.cjs"
   },
   "engines": {

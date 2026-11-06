@@ -25,6 +25,26 @@ beforeEach(()=>{
     fs.mkdirSync(path.join(root,'dist/main/git-arm64'),{recursive:true});
 });
 afterEach(()=>fs.rmSync(root,{recursive:true,force:true}));
+test.each([['darwin','arm64'],['darwin','x64'],['linux','x64'],['win32','x64']])('afterExtract inventories %s/%s target notices without an installed Electron binary',async(platform,arch)=>{
+    fs.unlinkSync(path.join(root,'node_modules/electron/dist/LICENSES.chromium.html'));
+    fs.mkdirSync(path.join(root,`dist/main/git-${arch}`),{recursive:true});
+    const appOutDir=path.join(root,'release',platform+'-'+arch);
+    const relative=platform==='darwin'?'Electron.app/Contents/Resources/LICENSES.chromium.html':'LICENSES.chromium.html';
+    const target=path.join(appOutDir,relative);
+    fs.mkdirSync(path.dirname(target),{recursive:true});
+    const notices=`<html>Exact ${platform}/${arch} target notices</html>`;
+    fs.writeFileSync(target,notices);
+    const afterExtract=require('../../scripts/prepare-package-legal.cjs');
+    const result=await afterExtract({appOutDir,electronPlatformName:platform,arch,packager:{info:{appDir:root,framework:{distMacOsAppName:'Electron.app'}}}});
+    expect(result.inventory.target).toEqual({platform,arch});
+    expect(fs.readFileSync(path.join(root,'dist/legal/LICENSES.chromium.html'),'utf8')).toBe(notices);
+    const manifest=JSON.parse(fs.readFileSync(path.join(root,'dist/legal/files.json'),'utf8'));
+    expect(manifest.files.find(file=>file.path==='LICENSES.chromium.html').sha256).toBe(sha256(notices));
+});
+test('afterExtract refuses missing target notices even when another Electron distribution is installed',()=>{
+    const afterExtract=require('../../scripts/prepare-package-legal.cjs');
+    expect(()=>afterExtract({appDir:root,appOutDir:path.join(root,'missing-target'),electronPlatformName:'linux',arch:'arm64'})).toThrow('Electron/Chromium third-party notices are missing');
+});
 test('Windows-style Git checkout preserves reviewed asset and license bytes',()=>{
     write('.gitattributes',fs.readFileSync(path.resolve('.gitattributes'),'utf8'));
     const samples={
