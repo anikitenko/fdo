@@ -182,11 +182,18 @@ async function assemble({source, destination, version, commit, publishing = fals
     fs.writeFileSync(path.join(destination, 'SHA256SUMS'), inventory.map(file => `${file.sha256}  ${file.name}\n`).join(''), {flag: 'wx'});
     return {version, commit, builds};
 }
-module.exports = {stage, assemble, verifyMacBundle, verifyMacDistributables};
+function stageOptionsFromEnvironment(env,signing) {
+    // Signing evidence also contains platform/arch/runtime metadata. It must
+    // never overwrite the validated release target or other staging options.
+    return {source:'release',destination:'release-staging',version:env.RELEASE_VERSION,commit:env.RELEASE_COMMIT,
+        platform:`${env.RELEASE_PLATFORM}-${env.RELEASE_ARCH}`,signed:signing.signed,notarized:signing.notarized,
+        signing,verifyPackaged:true,legalDirectory:'dist/legal',publishing:env.RELEASE_PUBLISH==='true'};
+}
+module.exports = {stage, assemble, verifyMacBundle, verifyMacDistributables,stageOptionsFromEnvironment};
 if (require.main === module) {
     const env = process.env;
     const operation = process.argv[2] === 'stage'
-        ? stage({source: 'release', destination: 'release-staging', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, platform: `${env.RELEASE_PLATFORM}-${env.RELEASE_ARCH}`, ...readJson('release/signing.json'), signing:readJson('release/signing.json'), verifyPackaged: true,legalDirectory:'dist/legal',publishing:env.RELEASE_PUBLISH==='true'})
+        ? stage(stageOptionsFromEnvironment(env,readJson('release/signing.json')))
         : assemble({source: 'release-downloads', destination: 'release-assets', version: env.RELEASE_VERSION, commit: env.RELEASE_COMMIT, publishing: env.RELEASE_PUBLISH === 'true',requireEvidence:true});
     operation.catch(error => {console.error(error.message);process.exitCode = 1;});
 }

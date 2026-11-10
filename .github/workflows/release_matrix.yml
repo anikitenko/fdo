@@ -101,6 +101,14 @@ jobs:
       - run: npm run check:dependencies
       - run: npm run check:host-contract
       - run: npm run build
+      # Hosted Intel runners can drop Apple's HTTP/3 ticket requests. Force
+      # HTTPS/TCP on this ephemeral runner; keep notarization and validation on.
+      # https://github.com/actions/runner-images/issues/14924
+      - name: Use TCP for Apple ticket delivery on Intel macOS
+        if: matrix.platform == 'mac' && matrix.arch == 'x64' && needs.validate.outputs.publish == 'true'
+        run: |
+          printf '%s\n' 'block return out quick proto udp from any to any port 443' | sudo pfctl -f -
+          sudo pfctl -E
       - name: Build and verify signing (builder publishing disabled)
         run: node scripts/release/build.cjs
         env: *signing
