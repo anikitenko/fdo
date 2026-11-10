@@ -11,7 +11,7 @@ function evidenceNames(version,platform) {
 function verifyLegalDirectory(directory,{version,commit,platform,publishing=false}) {
     const inventory=read(path.join(directory,'inventory.json')), status=read(path.join(directory,'review-status.json'));
     const target=`${inventory.target.platform==='darwin'?'mac':inventory.target.platform==='win32'?'win':inventory.target.platform}-${inventory.target.arch}`;
-    if (inventory.project.version!==version || inventory.source.commit!==commit || target!==platform) throw new Error('Legal inventory does not match release source/target.');
+    if (inventory.project.version!==version || inventory.source.commit!==commit || target!==platform) throw new Error(`Legal inventory does not match release source/target. Expected version=${version}, commit=${commit}, target=${platform}; found version=${inventory.project.version}, commit=${inventory.source.commit}, target=${target}.`);
     if (!Array.isArray(status.issues) || status.issues.length) throw new Error('Legal inventory has structural errors.');
     if (publishing && inventory.source.dirty!==false) throw new Error('Published releases require clean source provenance.');
     const manifest=read(path.join(directory,'files.json')), expected=new Set(['files.json']);

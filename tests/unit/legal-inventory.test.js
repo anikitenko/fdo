@@ -6,6 +6,8 @@ const {execFileSync,spawnSync}=require('node:child_process');
 const {generate,checkAssets,checkReview,sha256}=require('../../scripts/legal/inventory.cjs');
 const {packageForResource}=require('../../scripts/legal/webpack-inventory.cjs');
 const {verifyLegalDirectory,createLegalEvidence,evidenceNames}=require('../../scripts/release/legal-evidence.cjs');
+const {stage,stageOptionsFromEnvironment}=require('../../scripts/release/artifacts.cjs');
+const {assetNames}=require('../../scripts/release/common.cjs');
 let root;
 const write=(name,value)=>{const file=path.join(root,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,typeof value==='string'?value:JSON.stringify(value));};
 beforeEach(()=>{
@@ -25,7 +27,11 @@ beforeEach(()=>{
     fs.mkdirSync(path.join(root,'dist/main/git-arm64'),{recursive:true});
 });
 afterEach(()=>fs.rmSync(root,{recursive:true,force:true}));
-test.each([['darwin','arm64'],['darwin','x64'],['linux','x64'],['win32','x64']])('afterExtract inventories %s/%s target notices without an installed Electron binary',async(platform,arch)=>{
+test.each([['darwin','arm64'],['darwin','x64'],['linux','x64'],['win32','x64']])('afterExtract and release CLI staging retain %s/%s identity without an installed Electron binary',async(platform,arch)=>{
+    write('.gitignore','dist/\nnode_modules/\nrelease/\nrelease-staging/\n');
+    const git=args=>execFileSync('git',['-c','commit.gpgSign=false','-c',`core.hooksPath=${path.join(root,'empty-hooks')}`,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid',...args],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+    git(['init']);git(['add','.']);git(['commit','-m','Fixture source']);
+    const commit=git(['rev-parse','HEAD']);
     fs.unlinkSync(path.join(root,'node_modules/electron/dist/LICENSES.chromium.html'));
     fs.mkdirSync(path.join(root,`dist/main/git-${arch}`),{recursive:true});
     const appOutDir=path.join(root,'release',platform+'-'+arch);
@@ -40,6 +46,27 @@ test.each([['darwin','arm64'],['darwin','x64'],['linux','x64'],['win32','x64']])
     expect(fs.readFileSync(path.join(root,'dist/legal/LICENSES.chromium.html'),'utf8')).toBe(notices);
     const manifest=JSON.parse(fs.readFileSync(path.join(root,'dist/legal/files.json'),'utf8'));
     expect(manifest.files.find(file=>file.path==='LICENSES.chromium.html').sha256).toBe(sha256(notices));
+    const releasePlatform=platform==='darwin'?'mac':platform==='win32'?'win':platform;
+    const signing={platform:releasePlatform,arch,signed:platform==='darwin',notarized:platform==='darwin',node:'24.22.2',electron:'45.2.1',verification:[]};
+    const releaseEnv={RELEASE_PLATFORM:releasePlatform,RELEASE_ARCH:arch,RELEASE_VERSION:'1.0.0',RELEASE_COMMIT:commit,RELEASE_PUBLISH:'true'};
+    const options=stageOptionsFromEnvironment(releaseEnv,signing);
+    expect(options.platform).toBe(`${releasePlatform}-${arch}`);expect(options.verifyPackaged).toBe(true);
+    const source=path.join(root,'release');fs.mkdirSync(source,{recursive:true});
+    for(const name of assetNames('1.0.0',options.platform))fs.writeFileSync(path.join(source,name),'synthetic installer');
+    let staged;
+    if(platform==='darwin') {
+        // Synthetic installers cannot pass native codesign/DMG validation.
+        staged=await stage({...options,source,destination:path.join(root,'release-staging'),legalDirectory:path.join(root,'dist/legal'),verifyPackaged:false});
+    } else {
+        // Execute the same CLI command as CI with the extended signing.json.
+        write('release/signing.json',signing);
+        const execution=spawnSync(process.execPath,[path.resolve('scripts/release/artifacts.cjs'),'stage'],{cwd:root,env:{...process.env,...releaseEnv},encoding:'utf8',timeout:15000});
+        expect({status:execution.status,stderr:execution.stderr}).toEqual({status:0,stderr:''});
+        staged=JSON.parse(fs.readFileSync(path.join(root,'release-staging',options.platform+'.json'),'utf8'));
+    }
+    expect(staged.platform).toBe(`${releasePlatform}-${arch}`);expect(staged.evidence).toHaveLength(3);
+    const provenance=JSON.parse(fs.readFileSync(path.join(source,staged.evidence.find(name=>name.endsWith('-provenance.json'))),'utf8'));
+    expect(provenance).toMatchObject({platform:options.platform,commit,source:{commit,dirty:false},signing});
 });
 test('afterExtract refuses missing target notices even when another Electron distribution is installed',()=>{
     const afterExtract=require('../../scripts/prepare-package-legal.cjs');

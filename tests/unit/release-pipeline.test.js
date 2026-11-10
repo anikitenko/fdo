@@ -150,6 +150,13 @@ test('workflow contracts gate publication and freeze action versions', () => {
     expect(workflow.jobs.assemble.steps.find(step=>step.uses?.startsWith('actions/download-artifact')).with.pattern).toBe('release-build-*');
     for(const job of Object.values(workflow.jobs))for(const step of job.steps||[])if(step.uses)expect(step.uses).toMatch(/@[a-f0-9]{40}$/);
     expect(workflow.jobs.build.steps.filter(step=>step.env?.MAC_CSC_LINK)).toHaveLength(2);
+    const tcpIndex=workflow.jobs.build.steps.findIndex(step=>step.name==='Use TCP for Apple ticket delivery on Intel macOS');
+    const signingIndex=workflow.jobs.build.steps.findIndex(step=>step.run==='node scripts/release/build.cjs');
+    expect(tcpIndex).toBeGreaterThan(-1);expect(tcpIndex).toBeLessThan(signingIndex);
+    const tcp=workflow.jobs.build.steps[tcpIndex];
+    expect(tcp.if).toBe("matrix.platform == 'mac' && matrix.arch == 'x64' && needs.validate.outputs.publish == 'true'");
+    expect(tcp.run).toContain('block return out quick proto udp from any to any port 443');
+    expect(tcp.run).toContain('sudo pfctl -E');
 });
 
 test('resumes a matching draft, skips byte-identical uploaded assets and refuses foreign drafts', async () => {

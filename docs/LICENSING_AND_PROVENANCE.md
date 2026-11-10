@@ -70,7 +70,11 @@ SHA256SUMS
 
 Staging verifies the legal directory's source version, commit, target and file hashes before archiving it. Assembly requires all three sidecars for all four platforms, checks hashes and their provenance references, and includes them in `SHA256SUMS`. The existing GitHub OIDC build-attestation step covers all released files, including these sidecars. A JSON provenance record alone is not a signed attestation.
 
+The staging target comes from validated release variables, for example `mac-arm64` or `linux-x64`. `signing.json` is retained as signing evidence; its runtime `platform`/`arch` fields must not replace that release identity. Mismatch errors report both expected and recorded identities to make failures actionable.
+
 Native input hashes are taken **before** packaging and signing. Code signing can change binary bytes; use the final installer hashes for distributed artifacts. The macOS release build runs `codesign --verify --deep --strict`, `xcrun stapler validate` and `spctl --assess`, recording successful checks in the provenance sidecar. Those checks establish signing/notarization status, not ownership of every bundled component. Windows releases remain unsigned under the current release configuration.
+
+Published Intel macOS jobs apply GitHub's temporary [runner networking workaround](https://github.com/actions/runner-images/issues/14924) before signing: block outbound UDP 443 on the ephemeral hosted runner so Apple's ticket delivery falls back from HTTP/3 to HTTPS over TCP. This addresses the reported stapler error 68; notarization, stapling and all final verification remain required. The rule is not applied to a developer's computer, other platforms or unsigned rehearsals.
 
 To verify a downloaded release, first compare it with `SHA256SUMS` using `shasum -a 256` (macOS) or `sha256sum` (Linux). Check the manifest's source commit, platform, and provenance sidecar. Then verify the GitHub attestation for the exact installer using GitHub CLI:
 
