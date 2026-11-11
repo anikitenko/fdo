@@ -1,3 +1,4 @@
+import {isCapability as isSharedLogicCapability} from '../runtime/sharedLogicContracts.cjs';
 import {getGrantedNetworkScopePolicies, isNetworkScopeCapabilityId} from "./networkScopeRegistry";
 import HOST_SERVICE_CAPABILITIES from '../../hostServices/capabilities.json';
 
@@ -28,6 +29,8 @@ const CANONICAL_TO_ALIAS = Object.freeze(
 );
 
 export const PLUGIN_CAPABILITY_DEFINITIONS = Object.freeze({
+    'plugins.shared.provide': Object.freeze({description: 'Export named plugin services for explicitly approved consumers.'}),
+    'plugins.shared.use': Object.freeze({description: 'Discover public exported services; calls additionally require an exact provider/service/version grant.'}),
     ...Object.fromEntries(HOST_SERVICE_CAPABILITIES.map(id => [id, Object.freeze({description: `Host-managed ${id}. Requires explicit base and operation grants.`})])),
     "system.tray": Object.freeze({
         description: "Allows a plugin-owned system tray icon and menu actions while the plugin is running.",
@@ -126,6 +129,7 @@ export function normalizeCapabilityList(input) {
     )];
     return unique.filter((capability) => (
         KNOWN_PLUGIN_CAPABILITIES.includes(capability)
+        || isSharedLogicCapability(capability)
         || capability.startsWith("system.fs.scope.")
         || capability.startsWith("system.process.scope.")
         || isNetworkScopeCapabilityId(capability)

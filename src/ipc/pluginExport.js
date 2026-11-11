@@ -39,7 +39,8 @@ export function registerPluginExportHandlers({getPlugin}) {
                 fs.readFile(path.join(assets,'view.js')),
                 fs.readFile(path.join(assets,'runtime-sources.json'),'utf8').then(JSON.parse),
             ]);
-            const prepared=await prepareWebApplicationExport({snapshot,plugin,sdkSource,viewLibrary,runtimeSources,esbuild:loadHostEsbuild(nodeModules),port});
+            const prepared=await prepareWebApplicationExport({snapshot,plugin,sdkSource,viewLibrary,runtimeSources,esbuild:loadHostEsbuild(nodeModules),port,
+                resolveSharedProvider:async providerId=>{const provider=readPlugin(providerId);return {plugin:provider,snapshot:await inspectPluginFolder(provider.home)};}});
             if(event.sender.isDestroyed())return {success:false,error:'The export window closed.'};
             const token=randomUUID(),expires=Date.now()+10*60*1000;
             previews.set(owner,{id,token,expires,prepared});
@@ -64,6 +65,10 @@ export function registerPluginExportHandlers({getPlugin}) {
                 if(!current || current.id!==id || current.token!==options.token || current.expires<Date.now())return {success:false,error:'Review this plugin again before exporting. The previous review expired.'};
                 const snapshot=await inspectPluginFolder(plugin.home);
                 if(exportFingerprint(snapshot.virtual,plugin)!==current.prepared.report.sourceFingerprint)return {success:false,error:'Plugin source or permissions changed. Review the current version before exporting.'};
+                for(const dependency of current.prepared.report.sharedLogic?.providers || []) {
+                    const provider=readPlugin(dependency.id),providerSnapshot=await inspectPluginFolder(provider.home);
+                    if(exportFingerprint(providerSnapshot.virtual,provider)!==dependency.sourceFingerprint)return {success:false,error:'Shared provider source, permissions or service bindings changed. Review the current version before exporting.'};
+                }
                 report=current.prepared.report;
                 if(options.format==='web') {
                     if(report.blockers.length || !current.prepared.files)return {success:false,error:'Resolve the conversion blockers before exporting a web application.'};

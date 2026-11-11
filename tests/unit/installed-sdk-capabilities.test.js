@@ -3,6 +3,27 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {installedSdkCapabilities, readSkillFingerprint, stampSkillFingerprint} from '../../src/utils/sdk/installedSdkCapabilities';
+test('inventories installed registration decorator signatures and options without invoking export getters', () => {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-decorator-capabilities-'));
+    try {
+        fs.mkdirSync(path.join(root,'dist/@types/decorators'),{recursive:true});
+        const pkg=path.join(root,'package.json'),entry=path.join(root,'dist/sdk.js');
+        fs.writeFileSync(pkg,JSON.stringify({version:'test',types:'dist/@types/index.d.ts'}));
+        fs.writeFileSync(entry,'module.exports = {};');
+        fs.writeFileSync(path.join(root,'dist/@types/index.d.ts'),'export {handler,sharedFunction} from "./decorators/Registration";export type {SharedFunctionOptions} from "./decorators/Registration";');
+        fs.writeFileSync(path.join(root,'dist/@types/decorators/Registration.d.ts'),`export type SharedFunctionOptions={service:string;version:number;description:string;method?:string};
+        export declare function handler(name?:string):MethodDecorator;
+        export declare function sharedFunction(options:SharedFunctionOptions):MethodDecorator;`);
+        const requireSdk=Object.assign(name=>require(name),{resolve:name=>name==='@anikitenko/fdo-sdk'?entry:name==='@anikitenko/fdo-sdk/package.json'?pkg:require.resolve(name)});
+        const getter=jest.fn(()=>{throw new Error('Do not invoke SDK getters');});
+        const sdk={sharedFunction(){}};Object.defineProperty(sdk,'handler',{get:getter});
+        const capabilities=installedSdkCapabilities(requireSdk,sdk);
+        expect(capabilities.registrationDecorators.handler.available).toBe(true);
+        expect(capabilities.registrationDecorators.sharedFunction.signature).toContain('SharedFunctionOptions');
+        expect(capabilities.registrationDecorators.optionsDeclaration).toContain('service:string');
+        expect(getter).not.toHaveBeenCalled();
+    }finally {fs.rmSync(root,{recursive:true,force:true});}
+});
 test('fingerprints change with declarations and stamping replaces older contract metadata', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-sdk-contract-'));
     try {

@@ -213,3 +213,61 @@ test('retains safe Git audit diagnostics and assigns distinct IDs without comman
     expect(first.error.code).toBe('CONNECTION_FAILED');
     expect(JSON.stringify(first)).not.toContain('SECRET_');
 });
+
+
+describe("PluginManager resource diagnostics", () => {
+    test("keeps resource counters and uses a host descriptor measurement", async () => {
+        const manager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        const worker = {ready: true, sessionId: 'resource-session', instance: {pid: null}};
+        manager.loadedPlugins = {resources: worker};
+        const send = jest.spyOn(manager, 'postPluginUiMessageAndAwaitResult').mockResolvedValue({
+            resources: {logging: {stderrFallbacks: 1}, storage: {pendingWrites: 2}, fileDescriptors: {count: 9000}},
+        });
+        const trace = jest.spyOn(manager, 'tracePluginEvent').mockImplementation(() => {});
+        try {
+            const result = await manager.refreshPluginDiagnostics('resources');
+            expect(result.resources).toMatchObject({logging: {stderrFallbacks: 1}, storage: {pendingWrites: 2},
+                fileDescriptors: {count: null, status: 'unavailable'}});
+            expect(trace).toHaveBeenCalledWith('resources', 'diagnostics.refreshed', expect.objectContaining({resources: result.resources}));
+        } finally { send.mockRestore(); trace.mockRestore(); }
+    });
+
+    test("does not cache a resource response from a replaced worker", async () => {
+        const manager = require("../../src/utils/plugins/runtime/PluginManager").default;
+        manager.loadedPlugins = {resources: {ready: true, sessionId: 'old', instance: {}}};
+        const send = jest.spyOn(manager, 'postPluginUiMessageAndAwaitResult').mockImplementation(async () => {
+            manager.loadedPlugins.resources = {ready: true, sessionId: 'new', instance: {}};
+            return {resources: {}};
+        });
+        try { expect(await manager.refreshPluginDiagnostics('resources')).toBeNull(); }
+        finally { send.mockRestore(); }
+    });
+});
+
+
+test('restart is session-bound and coalesces duplicate requests', async () => {
+    const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+    const worker = {sessionId: 'restart-session'};
+    manager.loadedPlugins = {'restart-fixture': worker};
+    let drain;
+    const unload = jest.spyOn(manager, 'unLoadPlugin').mockImplementation(() => new Promise(resolve => {drain = resolve;}));
+    const load = jest.spyOn(manager, 'loadPlugin').mockResolvedValue({success: true});
+    try {
+        await expect(manager.restartPlugin('restart-fixture', 'stale')).resolves.toMatchObject({code: 'PLUGIN_BACKEND_STALE_SESSION'});
+        const one = manager.restartPlugin('restart-fixture', 'restart-session');
+        const two = manager.restartPlugin('restart-fixture', 'restart-session');
+        await Promise.resolve();
+        expect(unload).toHaveBeenCalledTimes(1);
+        drain();
+        await expect(one).resolves.toEqual({success: true});
+        await expect(two).resolves.toEqual({success: true});
+        expect(load).toHaveBeenCalledTimes(1);
+    } finally {unload.mockRestore(); load.mockRestore();}
+});
+
+test('a window destroyed during an asynchronous reply cannot crash the host', () => {
+    const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+    manager.mainWindow = {isDestroyed: () => false, webContents: {isDestroyed: () => false, send() {throw new Error('destroyed');}}};
+    expect(manager.sendToMainWindow('reply', {})).toBe(false);
+    manager.mainWindow = null;
+});

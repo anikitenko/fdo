@@ -21,10 +21,35 @@ let viewLibrary;
 beforeAll(async()=>{viewLibrary=await buildWebExportAssets();},30000);
 const prepare=(files=fixture(),owner=plugin,options={})=>prepareWebApplicationExport({snapshot:{virtual:files,sourceEntry:'index.ts'},plugin:owner,esbuild,sdkSource,viewLibrary,runtimeSources:webExportRuntimeSources(),...options});
 
+test('desktop-provided browser libraries are supported as globals and through window aliases or globalThis',()=>{
+    const files=fixture();files['/index.ts']+=`\nfunction frontend(){const ui=window;new ui.Notyf();new window.Notyf();new Notyf();ui['ReactDOM'].createRoot(null);window._.sum([1,2]);Split({});globalThis.hljs.highlight('const n=1',{language:'javascript'});goober.css({color:'red'});React.createElement('span');ReactDOM.createRoot(null);lodash.sum([1]);_.sum([2]);new Terminal();ace.edit('editor');window.ace.edit('editor');}`;
+    const report=analyzeWebExport(files,plugin);
+    expect(report.blockers).toEqual([]);
+    expect(report.adapters).toContainEqual(expect.objectContaining({id:'browser-libraries',status:'supported'}));
+    expect(report.locations).toContainEqual(expect.objectContaining({adapter:'browser-libraries',symbol:'Notyf'}));
+    expect(report.locations).toContainEqual(expect.objectContaining({adapter:'browser-libraries',symbol:'ace'}));
+    const notices=webExportRuntimeSources().thirdPartyNotices;
+    expect(notices).toContain('Notyf');expect(notices).toContain('highlight.js');expect(notices).toContain('Split Grid');expect(notices).toContain('Ace (Ajax.org B.V.)');
+});
+
+test('unbundled frontend libraries retain an actionable blocker without confusing local objects with window',()=>{
+    const files=fixture();files['/index.ts']+=`\nfunction frontend(){const ui=window;new ui.Chart();window.moment();window.dayjs();} function local(window){window.Chart();}`;
+    const report=analyzeWebExport(files,plugin);
+    expect(report.blockers.filter(value=>value.includes('browser library'))).toHaveLength(3);
+    expect(report.blockers.join(' ')).toContain('Use window.FDOCharts');
+});
+
+test('unbundled frontend libraries used as globals are blocked without flagging local bindings',()=>{
+    const files=fixture();files['/index.ts']+=`\nfunction frontend(){new Chart();moment();dayjs();ace.edit('code');} function local(Chart){new Chart();}`;
+    const report=analyzeWebExport(files,plugin);
+    expect(report.blockers.filter(value=>value.includes('browser library'))).toHaveLength(3);
+    expect(report.blockers.join(' ')).toContain('Use window.FDOCharts');
+});
+
 test('the independent conversion contract covers every host capability and all scope families',()=>{
     for(const capability of KNOWN_PLUGIN_CAPABILITIES)expect(WEB_EXPORT_CONTRACT.adapters[capabilityAdapter(capability)]).toBeDefined();
     for(const capability of ['system.fs.scope.custom','system.process.scope.custom','system.network.scope.custom'])expect(capabilityAdapter(capability)).toBeDefined();
-    expect(WEB_EXPORT_CONTRACT.contractVersion).toBe('2.1.1');
+    expect(WEB_EXPORT_CONTRACT.contractVersion).toBe('2.3.0');
 });
 
 test('pure helpers are compiled without loading the SDK registry or communicator',()=>{

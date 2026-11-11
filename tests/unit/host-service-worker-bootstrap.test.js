@@ -94,18 +94,19 @@ const {EventEmitter}=require('node:events');const port=new EventEmitter();proces
 port.postMessage=message=>{if(message.type==='HOST_STORAGE_SHUTDOWN_REPLY_V1')process.stdout.write('RESULT:'+JSON.stringify({success:message.success,...global.__snapshot()}));};
 `);
         fs.writeFileSync(path.join(root,'entry.cjs'),`
-const {PluginRegistry}=require('@anikitenko/fdo-sdk');let flushed=false,disposed=false;
+const {PluginRegistry}=require('@anikitenko/fdo-sdk');let flushed=false,disposed=false,closing=false;
 PluginRegistry.registerStore('fixture',{get(){},set(){},delete(){},clear(){},has(){return false;},
- async flush(){await new Promise(resolve=>setTimeout(resolve,20));flushed=true;if(${failure})throw new Error('private disk provider message');},
+ beginShutdown(){closing=true;},
+ async flush(){if(!closing)throw new Error('shutdown gate missing');await new Promise(resolve=>setTimeout(resolve,20));flushed=true;if(${failure})throw new Error('private disk provider message');},
  async dispose(){disposed=true;}});
-PluginRegistry.useStore('fixture');global.__snapshot=()=>({flushed,disposed});
+PluginRegistry.useStore('fixture');global.__snapshot=()=>({flushed,disposed,closing});
 process.parentPort.emit('message',{data:{message:'HOST_STORAGE_SHUTDOWN_V1',content:{requestId:'fixture'}}});
 `);
         const result=spawnSync(process.execPath,['-r',path.join(root,'parent.cjs'),path.join(root,'bootstrap.cjs')],{
             encoding:'utf8',timeout:10000,env:{...process.env,FDO_PLUGIN_RUNTIME_ENTRY:path.join(root,'entry.cjs'),FDO_PLUGIN_NODE_PATH:path.resolve('node_modules'),FDO_PLUGIN_POLICY_JSON:JSON.stringify({blockedModules:[]}),FDO_PLUGIN_CAPABILITIES:'',PLUGIN_HOME:root,PLUGIN_CODE_HOME:path.join(root,'code'),FDO_SDK_LOG_ROOT:path.join(root,'logs')},
         });
         expect(result.status).toBe(0);
-        expect(JSON.parse(result.stdout.split('RESULT:').at(-1))).toEqual({success:!failure,flushed:true,disposed:!failure});
+        expect(JSON.parse(result.stdout.split('RESULT:').at(-1))).toEqual({success:!failure,flushed:true,disposed:true,closing:true});
         expect(result.stdout+result.stderr).not.toContain('private disk provider message');
     }finally{fs.rmSync(root,{recursive:true,force:true});}
 });

@@ -14,6 +14,14 @@ function requireApprovedRuntime(result) {
     if(!result.success)throw new Error(`The approved update could not start: ${result.error||'unknown error'}`);
 }
 
+async function assertCandidateCompatibility(candidate) {
+    const [packageText, bundle] = await Promise.all([
+        readFile(path.join(candidate.home, 'package.json'), 'utf8'),
+        readFile(path.join(candidate.home, candidate.entry), 'utf8'),
+    ]);
+    assertPluginCompatibility(inspectPluginCompatibility(packageText, bundle));
+}
+
 const BUILD_PIPELINE_VERSION = 3;
 
 export const managedPluginId = (sourceId, name) => `gitops_${sourceId}_${name}`;
@@ -108,11 +116,15 @@ export async function syncCollection({source, secret, pluginsDir, registryFile, 
         const staged=previous?.gitops?.pendingUpdate?.candidate;
         if(matches(staged)) {
             const verified=await verifySignature(staged.home);
-            if(verified.success&&verified.signer?.label==='root') {prepared.push({...staged,gitops:{...staged.gitops,targetRevision:declaration.targetRevision}});return;}
+            if(verified.success&&verified.signer?.label==='root') {
+                await assertCandidateCompatibility(staged);
+                prepared.push({...staged,gitops:{...staged.gitops,targetRevision:declaration.targetRevision}});return;
+            }
         }
         const existingSignature = previous?.gitops?.buildPipelineVersion === BUILD_PIPELINE_VERSION && previous.gitops.commit === snapshot.commit && previous.gitops.repository === url && previous.gitops.path === declaration.path
             ? await verifySignature(previous.home) : null;
         if (existingSignature?.success && existingSignature.signer?.label === 'root') {
+            await assertCandidateCompatibility(previous);
             const {pendingUpdate,declinedUpdate,...gitops}=previous.gitops;
             prepared.push({...previous, gitops: {...gitops, targetRevision: declaration.targetRevision}});
             return;
@@ -275,6 +287,9 @@ export async function decideGitOpsUpdate({source,sourceId,pluginName,reviewId,de
     if(pending.inspectionError)throw new Error(pending.inspectionError);
     const verified=await verifySignature(candidate.home);
     if(!verified.success||verified.signer?.label!=='root')throw new Error('The staged plugin signature changed or is invalid. Check for updates again before approving.');
+    // Host/SDK versions may differ from those used when this review was staged.
+    // Validate before stopping the approved runtime or changing its registry.
+    await assertCandidateCompatibility(candidate);
     const inspected=inspectGitOpsCapabilities(await readFile(path.join(candidate.home,candidate.entry),'utf8'));
     if(inspected.error||JSON.stringify(inspected.capabilities)!==JSON.stringify(candidate.gitops.requestedCapabilities))throw new Error('The staged capability declaration changed. Check for updates and review it again.');
     data=await registry(registryFile);

@@ -85,7 +85,7 @@ const allowedNetworkScopes = Array.isArray(runtimePolicy?.networkScopes) ? runti
 const backendBridgePending = new Map();
 const hostServicePending = new Map();
 let hostServicesClosed = false;
-const hostServiceCodes = new Set(['ACCESS_DENIED','UNAVAILABLE','LOCKED','TIMEOUT','CANCELLED','HOST_KEY_REJECTED','CONNECTION_FAILED','INVALID_REQUEST','BACKPRESSURE','SESSION_CLOSED','IDLE_TIMEOUT','SESSION_LIMIT','X11_UNSUPPORTED','X11_UNAVAILABLE','X11_AUTH_UNAVAILABLE','X11_FORWARDING_DENIED']);
+const hostServiceCodes = new Set(['ACCESS_DENIED','UNAVAILABLE','LOCKED','TIMEOUT','CANCELLED','HOST_KEY_REJECTED','CONNECTION_FAILED','INVALID_REQUEST','BACKPRESSURE','SESSION_CLOSED','IDLE_TIMEOUT','SESSION_LIMIT','X11_UNSUPPORTED','X11_UNAVAILABLE','X11_AUTH_UNAVAILABLE','X11_FORWARDING_DENIED', 'NOT_FOUND', 'CONFLICT', 'SERVICE_ERROR']);
 const hostServiceError = code => Object.assign(new Error('Host service request failed.'), {code: hostServiceCodes.has(code) ? code : 'UNAVAILABLE'});
 const backendBridgeResponseType = "HOST_BACKEND_RESPONSE";
 const backendBridgeRequestType = "HOST_BACKEND_REQUEST";
@@ -150,15 +150,32 @@ process.once('exit', closeHostServiceTransport);
 // Service replies are private to the adapter, outside SDK lifecycle/UI dispatch
 // and its diagnostics logger. Never send response bodies through that path.
 const originalParentOn = parentPort.on.bind(parentPort);
-parentPort.on = function(event, listener) {
-        return originalParentOn(event, event === 'message' ? message => {
-            const data = message && typeof message === 'object' && 'data' in message ? message.data : message;
-            if (data?.message !== 'HOST_SERVICE_RESPONSE_V1' && data?.message !== backendBridgeResponseType && data?.message !== 'HOST_STORAGE_SHUTDOWN_V1') listener(message);
-        } : listener);
+originalParentOn('message', event => {
+    const data = event && typeof event === 'object' && 'data' in event ? event.data : event;
+    if (data?.message !== 'HOST_PLUGIN_HEARTBEAT_V1') return;
+    const requestId = data.content?.requestId;
+    if (typeof requestId !== 'string' || requestId.length > 80) return;
+    try { parentPort.postMessage({type: 'HOST_PLUGIN_HEARTBEAT_REPLY_V1', requestId}); } catch {}
+});
+const wrappedParentListeners = new WeakMap();
+const originalParentRemove = typeof (parentPort.off || parentPort.removeListener) === 'function'
+    ? (parentPort.off || parentPort.removeListener).bind(parentPort) : () => parentPort;
+parentPort.off = parentPort.removeListener = function(event, listener) {
+    return originalParentRemove(event, wrappedParentListeners.get(listener) || listener);
 };
+parentPort.on = function(event, listener) {
+    if (event !== 'message') return originalParentOn(event, listener);
+    const wrapped = message => {
+        const data = message && typeof message === 'object' && 'data' in message ? message.data : message;
+        if (!['HOST_SERVICE_RESPONSE_V1', backendBridgeResponseType, 'HOST_STORAGE_SHUTDOWN_V1', 'HOST_PLUGIN_HEARTBEAT_V1', 'HOST_SHARED_INVOKE_V1', 'HOST_SHARED_CANCEL_V1'].includes(data?.message)) listener(message);
+    };
+    wrappedParentListeners.set(listener, wrapped);
+    return originalParentOn(event, wrapped);
+};
+
 function requestHostService(request) {return sendHostServiceMessage({request});}
 function sendHostServiceMessage(body) {
-    if (hostServicesClosed || hostServicePending.size >= (['terminal.close','terminal.cancel','terminal.eof'].includes(body.operation)?32:24)) return Promise.reject(hostServiceError('UNAVAILABLE'));
+    if (hostServicesClosed || hostServicePending.size >= ((body.request?.action === 'plugins.shared' && ['cancel','unregister'].includes(body.request?.payload?.op)) ? 48 : ['terminal.close','terminal.cancel','terminal.eof'].includes(body.operation)?32:24)) return Promise.reject(hostServiceError('UNAVAILABLE'));
     return new Promise((resolve, reject) => {
         const requestId = require('node:crypto').randomUUID();
         const timer = setTimeout(() => {hostServicePending.delete(requestId); reject(hostServiceError('TIMEOUT'));}, body.operation==='terminal.open'?50000:body.operation==='terminal.result'?3700000:body.operation==='terminal.next'?310000:body.operation?.startsWith('terminal.')?25000:140000);
@@ -1207,15 +1224,18 @@ Module._load = function patchedLoad(request, parent, isMain) {
         const registry = loaded.PluginRegistry;
         const stores=new Set();
         const useStore=registry.useStore.bind(registry);
-        registry.useStore=function(...args){const store=useStore(...args);stores.add(store);return store;};
+        registry.useStore=function(...args){const store=useStore(...args);if(typeof registry.shutdown!=='function')stores.add(store);return store;};
         let storageClosing;
         originalParentOn('message',event=>{
             const data=event && typeof event==='object' && 'data' in event?event.data:event;
             if(data?.message!=='HOST_STORAGE_SHUTDOWN_V1')return;
-            storageClosing ||= Promise.allSettled([...stores].map(async store=>{await store.flush?.();await store.dispose?.();}));
+            storageClosing ||= Promise.allSettled([
+                ...(typeof registry.shutdown === 'function' ? [Promise.resolve().then(() => registry.shutdown(4500))] : []),
+                ...[...stores].map(async store=>{store.beginShutdown?.();try{await store.flush?.();}finally{await store.dispose?.();}})
+            ]);
             void storageClosing.then(results=>{
                 const success=results.every(result=>result.status==='fulfilled');
-                if(!success)console.error('[FDO_STORAGE_FLUSH_FAILED] Persistent plugin settings could not be saved during shutdown.');
+                if(!success)console.error('[FDO_STORAGE_FLUSH_FAILED] Plugin resource cleanup or persistent storage shutdown failed.');
                 try{parentPort.postMessage({type:'HOST_STORAGE_SHUTDOWN_REPLY_V1',requestId:data.content?.requestId,success});}catch{}
             });
         });
@@ -1226,6 +1246,29 @@ Module._load = function patchedLoad(request, parent, isMain) {
             return configure({...configuration, granted: trayGranted ? [...new Set([...granted, "system.tray"])] : granted});
         };
         Object.defineProperty(registry, "__fdoTrayPolicyConfigured", {value: true});
+        if (typeof registry.configureSharedLogic === 'function') {
+            registry.configureSharedLogic({request: payload => sendHostServiceMessage({request: {action: 'plugins.shared', payload}})});
+            originalParentOn('message', event => {
+                const data = event && typeof event === 'object' && 'data' in event ? event.data : event;
+                if (data?.message === 'HOST_SHARED_CANCEL_V1') {
+                    if (typeof data.content?.callId === 'string') registry.cancelSharedLogicInvocation(data.content.callId);
+                    return;
+                }
+                if (data?.message !== 'HOST_SHARED_INVOKE_V1') return;
+                const invocation = data.content;
+                if (!invocation || typeof invocation.callId !== 'string' || typeof invocation.registrationId !== 'string') return;
+                // Start dispatch synchronously so a following cancel message can
+                // abort it even when native IPC delivers both in one read batch.
+                let sharedWork;
+                try { sharedWork = registry.dispatchSharedLogic(invocation); }
+                catch { sharedWork = Promise.reject(new Error('Shared dispatch failed.')); }
+                Promise.resolve(sharedWork).then(reply => {
+                    try { parentPort.postMessage({type: 'HOST_SHARED_REPLY_V1', callId: invocation.callId, registrationId: invocation.registrationId, ...reply}); } catch {}
+                }).catch(() => {
+                    try { parentPort.postMessage({type: 'HOST_SHARED_REPLY_V1', callId: invocation.callId, registrationId: invocation.registrationId, error: 'SERVICE_ERROR'}); } catch {}
+                });
+            });
+        }
         if (typeof registry.configureHostServices === 'function') {
             registry.configureHostServices({request: requestHostService,watchSSHStatus:watchHostSSHStatus,startSSHExecution:startHostSSHExecution,openSSHTerminal:openHostSSHTerminal});
             const clearPlugin = registry.clearPlugin.bind(registry);
@@ -1252,7 +1295,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
                 return:(...args)=>backendCall(()=>iterator.return(...args)),
                 [Symbol.asyncIterator]() {return this;},
             });
-            for (const [Type,names] of [[loaded.SecretStore,['set','get','delete','list']], [loaded.SSHClient,['exec','listProfiles','start','watchStatus','openTerminal']]]) {
+            for (const [Type,names] of [[loaded.SharedLogic,['register','list','call','requestAccess']], [loaded.SecretStore,['set','get','delete','list']], [loaded.SSHClient,['exec','listProfiles','start','watchStatus','openTerminal']]]) {
                 if(!Type)continue;
                 for(const name of names) {
                     const original=Type.prototype[name];if(typeof original!=='function')continue;

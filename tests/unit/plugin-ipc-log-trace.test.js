@@ -422,3 +422,28 @@ describe("plugin IPC log trace", () => {
         }));
     });
 });
+
+
+test('Plugin Doctor UI requests receive host-measured resources while retaining raw SDK diagnostics', async () => {
+    jest.resetModules();
+    const {EventEmitter} = require('node:events');
+    const {ipcMain} = require('electron');
+    const {PluginChannels} = require('../../src/ipc/channels');
+    const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+    const child = new EventEmitter();
+    const raw = {pluginId: 'trace-plugin', health: {status: 'healthy'}, resources: {fileDescriptors: {count: 9999}}};
+    child.postMessage = jest.fn(() => queueMicrotask(() => child.emit('message', {type: 'UI_MESSAGE', response: raw})));
+    const worker = {ready: true, sessionId: 'resource-ui', instance: child};
+    manager.getLoadedPlugin.mockReturnValue(worker);
+    manager.getPluginDiagnostics.mockResolvedValue(null);
+    const measured = {fileDescriptors: {count: 22, deltaSinceStart: 0, status: 'ok'}};
+    manager.collectPluginResources = jest.fn(async () => measured);
+    const {registerPluginHandlers} = require('../../src/ipc/plugin');
+    ipcMain.handle.mockClear();
+    registerPluginHandlers();
+    const handler = ipcMain.handle.mock.calls.find(([name]) => name === PluginChannels.UI_MESSAGE)[1];
+    const result = await handler({}, 'trace-plugin', {handler: '__sdk.getDiagnostics', content: {}});
+    expect(manager.collectPluginResources).toHaveBeenCalledWith('trace-plugin', raw.resources, worker);
+    expect(result).toEqual({...raw, resources: measured});
+    expect(child.listenerCount('message')).toBe(0);
+});

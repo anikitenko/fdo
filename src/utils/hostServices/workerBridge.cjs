@@ -11,7 +11,7 @@ function attachHostServiceBridge(child, endpoint) {
         if (message?.type !== REQUEST || closed) return;
         const id = message.requestId;
         if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(id)) return;
-        if (Object.keys(message).some(key => !['type', 'requestId', 'request', 'operation', 'payload'].includes(key)) || pending.has(id) || pending.size >= (['terminal.close','terminal.cancel','terminal.eof'].includes(message.operation)?32:24)) {
+        if (Object.keys(message).some(key => !['type', 'requestId', 'request', 'operation', 'payload'].includes(key)) || pending.has(id) || pending.size >= ((message.request?.action === 'plugins.shared' && ['cancel','unregister'].includes(message.request?.payload?.op)) ? 48 : ['terminal.close','terminal.cancel','terminal.eof'].includes(message.operation)?32:24)) {
             send({message: RESPONSE, content: {requestId: id, error: 'INVALID_REQUEST'}}); return;
         }
         pending.add(id);
@@ -28,11 +28,13 @@ function attachHostServiceBridge(child, endpoint) {
         Promise.resolve(response).then(result => {
             send({message: RESPONSE, content: {requestId: id, result}});
         }, error => send({message: RESPONSE, content: {requestId: id, error: failure(error?.code).code}}))
-            .finally(() => pending.delete(id));
+            .finally(() => pending.delete(id)).catch(() => {});
     };
     function close() {
         if (closed) return;
-        closed = true; endpoint.close(); pending.clear();
+        closed = true;
+        try { Promise.resolve(endpoint.close()).catch(() => {}); } catch {}
+        pending.clear();
         child.removeListener('message', onMessage); child.removeListener('exit', close); child.removeListener('error', close);
     }
     child.on('message', onMessage); child.once('exit', close); child.once('error', close);

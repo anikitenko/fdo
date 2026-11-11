@@ -71,4 +71,32 @@ describe("SideBar", () => {
             }
         }
     });
+
+    test("shows the Capabilities and built-in Editor actions for the active plugin", async () => {
+        const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", {configurable: true, get: () => 500});
+        try {
+            const click = jest.fn();
+            const {container} = render(<SideBar position="left" activeItemId="plugin-a" click={click} menuItems={[{
+                id: "plugin-a",
+                name: "Plugin A",
+                icon: "cog",
+                popupActions: [
+                    {id: "plugin-capabilities", name: "Capabilities"},
+                    {id: "plugin-open-builtin-editor", name: "Open in built-in Editor"},
+                ],
+            }]}/>);
+
+            fireEvent.click(container.querySelector('[data-plugin-sidebar-item="plugin-a"] button'));
+            fireEvent.click(await screen.findByText("Capabilities"));
+            expect(click).toHaveBeenLastCalledWith("plugin-a", "plugin-capabilities");
+
+            fireEvent.click(container.querySelector('[data-plugin-sidebar-item="plugin-a"] button'));
+            fireEvent.click(await screen.findByText("Open in built-in Editor"));
+            expect(click).toHaveBeenLastCalledWith("plugin-a", "plugin-open-builtin-editor");
+        } finally {
+            if (originalClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+            else delete HTMLElement.prototype.clientHeight;
+        }
+    });
 });

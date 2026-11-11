@@ -1,5 +1,5 @@
 import React from 'react';
-import {render, screen, fireEvent, waitFor} from '@testing-library/react';
+import {act, render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {HotkeysProvider} from '@blueprintjs/core';
 import {SnapshotProvider, SnapshotSwitchConfirmDialog} from '../../../src/components/editor/snapshots/SnapshotContext.jsx';
 import SnapshotToolbarActions from '../../../src/components/editor/snapshots/SnapshotToolbarActions.jsx';
@@ -162,6 +162,7 @@ describe('SnapshotToolbarActions', () => {
     const monaco = require('monaco-editor');
     const model = monaco.editor.createModel('A', 'plaintext', monaco.Uri.file('/a.ts'));
     virtualFS.createFile('/a.ts', model);
+    virtualFS.fs.create('', [], {quiet: true});
     const addToQueueSpy = jest.spyOn(virtualFS.notifications, 'addToQueue');
 
     render(<Wrapper><SnapshotToolbarActions /></Wrapper>);
@@ -178,5 +179,26 @@ describe('SnapshotToolbarActions', () => {
         quiet: true,
       }));
     });
+  });
+
+  test('clears the unsaved warning when Monaco content is restored to the snapshot', async () => {
+    const monaco = require('monaco-editor');
+    const model = monaco.editor.createModel('original', 'typescript', monaco.Uri.file('/index.ts'));
+    virtualFS.createFile('/index.ts', model);
+    virtualFS.fs.create('', [], {quiet: true});
+
+    render(<Wrapper><SnapshotToolbarActions /></Wrapper>);
+    const snapshotButton = screen.getByRole('button', {name: /Snapshot/i});
+    const recentButton = screen.getByRole('button', {name: /Recent/i});
+    expect(snapshotButton).toHaveClass('bp6-intent-success');
+    expect(recentButton).toHaveClass('bp6-intent-primary');
+
+    act(() => model.setValue('temporary edit'));
+    expect(snapshotButton).toHaveClass('bp6-intent-warning');
+    expect(recentButton).toHaveClass('bp6-intent-warning');
+
+    act(() => model.setValue('original'));
+    expect(snapshotButton).toHaveClass('bp6-intent-success');
+    expect(recentButton).toHaveClass('bp6-intent-primary');
   });
 });

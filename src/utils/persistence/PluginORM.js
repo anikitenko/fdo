@@ -1,5 +1,8 @@
 import JSONORM from "./JSONORM";
 import {normalizeCapabilityList} from "../plugins/security/pluginCapabilities";
+import {randomUUID} from 'node:crypto';
+import fs from 'node:fs';
+import {target as validateSharedTarget, capability as sharedCapability, targetFromCapability} from '../plugins/runtime/sharedLogicContracts.cjs';
 
 export default class PluginORM extends JSONORM {
     constructor(filePath) {
@@ -62,6 +65,113 @@ export default class PluginORM extends JSONORM {
         });
         this._save();
         return {success: true, capabilities: normalized};
+    }
+
+    requestSharedLogicAccess(pluginId, target) {
+        validateSharedTarget(target);
+        const plugin = this.data.plugins.find(item => item.id === pluginId);
+        if (!plugin) throw new Error(`Consumer plugin "${pluginId}" is not installed. Save or deploy it before requesting shared-service access.`);
+        const capability = sharedCapability(target);
+        const resolvedCapability = sharedCapability(this.resolveSharedLogicTarget(pluginId, target));
+        if (plugin.capabilities?.includes('plugins.shared.use') && plugin.capabilities.includes(capability) && plugin.capabilities.includes(resolvedCapability)) return {state:'approved', capability};
+        const requests = plugin.sharedLogicRequests || [];
+        const existing = requests.find(item => item.capability === capability);
+        if (existing) return {state:'pending', request:existing};
+        if (requests.length >= 32) throw new Error('Review existing shared-service requests before creating more.');
+        const request = {id:randomUUID(), ...target, capability, createdAt:new Date().toISOString()};
+        plugin.sharedLogicRequests = [...requests, request];
+        this.saveSharedLogicState();
+        return {state:'pending', request, created:true};
+    }
+
+    rememberSharedLogicExport(service) {
+        if (!service) return;
+        const plugin = this.data.plugins.find(item => item.id === service.providerId);
+        if (!plugin) return;
+        const exports = (plugin.sharedLogicExports || []).filter(item => item.name !== service.name || item.version !== service.version);
+        if (exports.length >= 16) exports.shift();
+        plugin.sharedLogicExports = [...exports, service];
+        this.saveSharedLogicState();
+    }
+
+    setSharedLogicBinding(pluginId, target, installedProviderId) {
+        validateSharedTarget(target);
+        validateSharedTarget({...target, providerId: installedProviderId});
+        const plugin = this.data.plugins.find(item => item.id === pluginId);
+        if (!plugin) throw new Error(`Consumer plugin "${pluginId}" is not installed.`);
+        if (installedProviderId !== target.providerId && !this.isInstalled(installedProviderId)) throw new Error(`Provider "${installedProviderId}" is not installed.`);
+        const key = sharedCapability(target);
+        plugin.sharedLogicBindings = (plugin.sharedLogicBindings || []).filter(binding => sharedCapability(binding) !== key);
+        if (installedProviderId !== target.providerId) plugin.sharedLogicBindings.push({...target, installedProviderId});
+        this.saveSharedLogicState();
+    }
+
+    resolveSharedLogicTarget(pluginId, target) {
+        const key = sharedCapability(target);
+        let binding = this.getPlugin(pluginId)?.sharedLogicBindings?.find(item => sharedCapability(item) === key);
+        if (!binding && !this.isInstalled(target.providerId)) {
+            this.repairApprovedSharedLogicBindings(pluginId);
+            binding = this.getPlugin(pluginId)?.sharedLogicBindings?.find(item => sharedCapability(item) === key);
+        }
+        return binding ? {...target, providerId: binding.installedProviderId} : target;
+    }
+
+    getApprovedSharedLogicProviders(pluginId, target) {
+        validateSharedTarget(target);
+        const grants = this.getPlugin(pluginId)?.capabilities || [];
+        if (!grants.includes('plugins.shared.use') || !grants.includes(sharedCapability(target))) return [];
+        return this.getAllPlugins().filter(plugin => plugin.id !== target.providerId
+            && plugin.capabilities.includes('plugins.shared.provide')
+            && grants.includes(sharedCapability({...target, providerId: plugin.id}))
+            && Array.isArray(plugin.sharedLogicExports)
+            && plugin.sharedLogicExports.some(service => service.name === target.name && service.version === target.version));
+    }
+
+    // Older approvals saved both exact grants without the routing binding.
+    // Recover only from already-approved, uniquely matching installed exports.
+    // Existing bindings and real installed target IDs are never redirected.
+    repairApprovedSharedLogicBindings(pluginId) {
+        const repaired = [];
+        for (const plugin of this.data.plugins) {
+            if (pluginId && plugin.id !== pluginId) continue;
+            const grants = Array.isArray(plugin.capabilities) ? plugin.capabilities : [];
+            if (!grants.includes('plugins.shared.use')) continue;
+            for (const value of grants) {
+                const target = targetFromCapability(value);
+                if (!target || this.isInstalled(target.providerId)) continue;
+                if (plugin.sharedLogicBindings?.some(binding => sharedCapability(binding) === value)) continue;
+                const providers = this.getApprovedSharedLogicProviders(plugin.id, target);
+                if (providers.length !== 1) continue;
+                const binding = {...target, installedProviderId: providers[0].id};
+                plugin.sharedLogicBindings = [...(plugin.sharedLogicBindings || []), binding];
+                repaired.push({consumerId: plugin.id, ...binding});
+            }
+        }
+        if (repaired.length) this.saveSharedLogicState();
+        return repaired;
+    }
+
+    dismissGrantedSharedLogicRequests(pluginId, capabilities) {
+        const plugin = this.data.plugins.find(item => item.id === pluginId);
+        if (!plugin) return;
+        plugin.sharedLogicRequests = (plugin.sharedLogicRequests || []).filter(request => !capabilities.includes(request.capability));
+        this.saveSharedLogicState();
+    }
+
+    dismissSharedLogicRequest(pluginId, requestId) {
+        const plugin = this.data.plugins.find(item => item.id === pluginId);
+        if (!plugin?.sharedLogicRequests?.some(item => item.id === requestId)) throw new Error('This request is no longer pending.');
+        plugin.sharedLogicRequests = plugin.sharedLogicRequests.filter(item => item.id !== requestId);
+        this.saveSharedLogicState();
+    }
+
+    saveSharedLogicState() {
+        const temporary = `${this.filePath}.${randomUUID()}.tmp`;
+        try {
+            fs.writeFileSync(temporary, JSON.stringify(this.data,null,4), {mode:0o600});
+            fs.renameSync(temporary,this.filePath);
+        } finally {fs.rmSync(temporary,{force:true});}
+        this.emit('update',this.data);
     }
 
     getPluginCustomProcessScopes(pluginName) {

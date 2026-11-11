@@ -75,6 +75,10 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
                 </Callout>
                 {reviewing && <div role="status" style={{display:'flex',gap:12,alignItems:'center',padding:16}}><Spinner size={20}/>Checking conversion and building the application…</div>}
                 {report && <>
+                    {!!report.sharedLogic?.providers?.length && <Callout icon="exchange" title="Included shared providers" style={{marginBottom:12}}>
+                        <p>These providers run inside the container with their own permissions and storage. Their desktop processes do not need to be running.</p>
+                        <ul>{report.sharedLogic.providers.map(provider=><li key={provider.id}>{provider.name} <code>{provider.id}</code></li>)}</ul>
+                    </Callout>}
                     <Callout intent={blocked?'warning':'success'} title={blocked?'Web migration required':'Application conversion prepared'}>
                         {blocked?recovery.summary:'Includes Dockerfile, docker-compose.yml, frontend and backend. Extract the ZIP and run sh start.sh. Review service credentials and volume mappings for your deployment.'}
                     </Callout>

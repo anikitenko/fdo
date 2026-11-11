@@ -1,4 +1,8 @@
+import {createSharedLogicBroker} from './sharedLogicBroker.cjs';
+import {configureSharedLogicAuthoringCatalog} from '../../sdk/sharedLogicAuthoringCatalog';
+import {sharedLogicAuthoringCatalog} from '../../sdk/sharedLogicAuthoring';
 import {randomUUID} from 'node:crypto';
+import {samplePluginFileDescriptors, sanitizePluginResources} from './pluginResources';
 import {installedPluginCompatibility} from '../../sdk/pluginCompatibilityHost';
 import {assertPluginCompatibility} from '../../sdk/pluginCompatibility';
 import {auditFailureDetails} from '../security/privilegedAuditDiagnostics';
@@ -6,7 +10,11 @@ import {runGitWithProfiles, invalidateHostServices} from '../../hostServices/run
 import {failureNotification, pluginDisplayName} from '../../desktop/notificationContent';
 import {createHostServiceEndpoint} from '../../hostServices/runtime';
 import {attachHostServiceBridge, drainWorkerStorage} from '../../hostServices/workerBridge.cjs';
-import {enqueuePluginUiBridge} from './pluginUiMessageQueue';
+import {cancelPluginUiBridge} from './pluginUiMessageQueue';
+import {requestPluginUiMessage, postPluginMessage} from './pluginUiRequest';
+import {watchPluginWorker, createPluginRestartLimiter} from './pluginWatchdog';
+const allowPluginRestart = createPluginRestartLimiter();
+const restartingPlugins = new Map();
 import UserORM from "../../persistence/UserORM";
 import {pluginTray, PLUGIN_TRAY_HANDLER} from './pluginTray';
 import {app, dialog, shell, utilityProcess} from "electron";
@@ -62,7 +70,57 @@ const BACKEND_BRIDGE_RESPONSE = "HOST_BACKEND_RESPONSE";
 const SDK_DIAGNOSTICS_HANDLER = "__sdk.getDiagnostics";
 const SDK_PRIVILEGED_ACTION_HANDLER = "requestPrivilegedAction";
 
+let sharedLogicBroker;
+function notifySharedLogic(notice) {
+    try { void Promise.resolve(NotificationCenter.addNotification(notice)).catch(() => {}); }
+    catch { /* Notifications must not break permission requests or shared calls. */ }
+}
+function getSharedLogicBroker() {
+    return sharedLogicBroker ||= createSharedLogicBroker({
+        getWorker: id => PluginManager.loadedPlugins[id],
+        getGrants: id => new PluginORM(PluginManager.pluginConfigFile).getPlugin(id)?.capabilities || [],
+        resolveTarget: (id, target) => new PluginORM(PluginManager.pluginConfigFile).resolveSharedLogicTarget(id, target),
+        audit: event => PluginManager.tracePluginEvent(event.consumerId, event.event, event),
+        registered: service => new PluginORM(PluginManager.pluginConfigFile).rememberSharedLogicExport(service),
+        unavailable: target => {
+            const registry = new PluginORM(PluginManager.pluginConfigFile);
+            const provider = registry.getPlugin(target.providerId);
+            const running = !!PluginManager.loadedPlugins[target.providerId];
+            const missingBinding = !provider;
+            const candidates = missingBinding ? registry.getApprovedSharedLogicProviders?.(target.consumerId, target) || [] : [];
+            notifySharedLogic({source:'plugins',type:'warning',
+                groupKey:`shared-unavailable:${target.consumerId}:${target.providerId}:${target.name}:v${target.version}`,
+                title:missingBinding ? 'Shared provider binding needs attention' : running ? 'Shared service is unavailable' : 'Shared provider is not running',
+                message:`${pluginDisplayName(registry.getPlugin(target.consumerId) || {id:target.consumerId})} needs ${pluginDisplayName(provider || {id:target.providerId})}: ${target.name} v${target.version}. `
+                    + (missingBinding ? (candidates.length > 1 ? 'Multiple approved providers export this service. Choose the intended binding in the consumer’s Shared-service access panel.'
+                        : 'This target ID is not installed. Select the installed provider in the consumer’s Shared-service access panel, or install the exact target ID.')
+                        : running ? 'The provider is running but has not exported this service. Review its permissions and service version in Manage Plugins.'
+                            : 'Start the provider in Manage Plugins, then try again.'),
+                actions:[{kind:'manage-plugin',pluginId:missingBinding ? target.consumerId : target.providerId}],
+            });
+        },
+    });
+}
+
 const PluginManager = {
+    requestSharedLogicAccess(id, target) {
+        const result = new PluginORM(this.pluginConfigFile).requestSharedLogicAccess(id, target);
+        if (result.created) notifySharedLogic({source:'plugins',type:'warning',
+            groupKey:`shared-access:${id}:${result.request.capability}`,title:'Shared-service access needs approval',
+            message:`Review ${target.name} v${target.version} from ${target.providerId} for ${id} in Manage Plugins. No permission has been granted.`,
+            actions:[{kind:'manage-plugin',pluginId:id}]});
+        return result;
+    },
+    getSharedLogicCatalog() {
+        const registry = new PluginORM(this.pluginConfigFile);
+        const services = new Map(registry.getAllPlugins().flatMap(plugin => (Array.isArray(plugin.sharedLogicExports) ? plugin.sharedLogicExports : [])
+            .filter(service => service && typeof service === 'object')
+            .map(service => [JSON.stringify([plugin.id,service.name,service.version]),{...service,providerId:plugin.id,available:false}])));
+        for (const service of getSharedLogicBroker().catalog()) services.set(JSON.stringify([service.providerId,service.name,service.version]), {...service,available:true});
+        return sharedLogicAuthoringCatalog([...services.values()]).map(service => ({...service,
+            providerName: pluginDisplayName(registry.getPlugin(service.providerId) || {id: service.providerId})}));
+    },
+    invalidateSharedLogic(id) { getSharedLogicBroker().invalidate(id); },
     mainWindow: null,
     userConfigFile: "",
     pluginConfigFile: "",
@@ -89,6 +147,8 @@ const PluginManager = {
     },
     setPluginsRegistryFile(pluginConfigFile) {
         this.pluginConfigFile = pluginConfigFile;
+        try { new PluginORM(pluginConfigFile).repairApprovedSharedLogicBindings?.(); }
+        catch (error) { console.warn('[SHARED_LOGIC_BINDING_REPAIR_FAILED]', error.message); }
     },
     setPluginLoading(id, loading) {
         const pluginId = String(id || "").trim();
@@ -228,6 +288,7 @@ const PluginManager = {
         return {
             pluginId: typeof diagnostics?.pluginId === "string" ? diagnostics.pluginId : String(pluginId || ""),
             runtimeSessionId,
+            resources: sanitizePluginResources(diagnostics?.resources),
             apiVersion: typeof diagnostics?.apiVersion === "string" ? diagnostics.apiVersion : "",
             health: {
                 status: typeof diagnostics?.health?.status === "string" ? diagnostics.health.status : "",
@@ -258,38 +319,20 @@ const PluginManager = {
         if (!child || typeof child.postMessage !== "function" || typeof child.on !== "function" || typeof child.off !== "function") {
             return null;
         }
-        return enqueuePluginUiBridge(pluginId, expectedSessionId, () => new Promise((resolve) => {
-            let settled = false;
-            let timeoutHandle = null;
+        return requestPluginUiMessage(child, pluginId, expectedSessionId, content, {
+            timeoutMs,
+            isCurrent: () => this.getLoadedPluginSessionId(pluginId) === expectedSessionId,
+        });
+    },
 
-            const finish = (payload) => {
-                if (settled) return;
-                settled = true;
-                if (timeoutHandle) clearTimeout(timeoutHandle);
-                child.off("message", onMessage);
-                resolve(payload);
-            };
-
-            const onMessage = (message) => {
-                if (!message || message.type !== "UI_MESSAGE") {
-                    return;
-                }
-                if (expectedSessionId && this.getLoadedPluginSessionId(pluginId) !== expectedSessionId) {
-                    finish(null);
-                    return;
-                }
-                finish(message.response);
-            };
-
-            child.on("message", onMessage);
-            timeoutHandle = setTimeout(() => finish(null), timeoutMs);
-
-            try {
-                child.postMessage(createHostPluginMessage("UI_MESSAGE", content));
-            } catch (_) {
-                finish(null);
-            }
-        }));
+    async collectPluginResources(pluginId, workerResources, expectedPlugin = this.loadedPlugins?.[pluginId]) {
+        if (!expectedPlugin || this.loadedPlugins?.[pluginId] !== expectedPlugin) return null;
+        const descriptors = await samplePluginFileDescriptors(expectedPlugin.instance?.pid, expectedPlugin.resourceDescriptorBaseline);
+        if (this.loadedPlugins?.[pluginId] !== expectedPlugin) return null;
+        if (descriptors.count !== null && !Number.isSafeInteger(expectedPlugin.resourceDescriptorBaseline)) {
+            expectedPlugin.resourceDescriptorBaseline = descriptors.count;
+        }
+        return {...sanitizePluginResources(workerResources), fileDescriptors: descriptors};
     },
     async refreshPluginDiagnostics(pluginId, options = {}) {
         const id = String(pluginId || "").trim();
@@ -310,7 +353,11 @@ const PluginManager = {
         if (!response || typeof response !== "object") {
             return this.pluginDiagnosticsByPlugin?.[id] || null;
         }
+        if (this.loadedPlugins?.[id] !== loadedPlugin) return null;
+        const resources = await this.collectPluginResources(id, response.resources, loadedPlugin);
+        if (!resources) return null;
         const sanitized = this.sanitizePluginDiagnostics(id, response);
+        sanitized.resources = resources;
         this.pluginDiagnosticsByPlugin = {
             ...this.pluginDiagnosticsByPlugin,
             [id]: sanitized,
@@ -320,12 +367,14 @@ const PluginManager = {
             : "refresh";
         this.tracePluginEvent(id, "diagnostics.refreshed", {
             reason,
+            resources: sanitized.resources,
             runtimeSessionId: sanitized.runtimeSessionId || "",
             registeredHandlers: sanitized?.capabilities?.registeredHandlers || [],
         });
         console.info("[PLUGIN_HANDLER_REGISTRY]", JSON.stringify({
             pluginId: id,
             reason,
+            resources: sanitized.resources,
             runtimeSessionId: sanitized.runtimeSessionId || "",
             registeredHandlers: sanitized?.capabilities?.registeredHandlers || [],
         }));
@@ -685,7 +734,23 @@ const PluginManager = {
                 env: workerEnv,
             });
             child.__drainStorage = () => drainWorkerStorage(child);
-            const closeHostBridge = attachHostServiceBridge(child, createHostServiceEndpoint(id));
+            const hostEndpoint = createHostServiceEndpoint(id);
+            const sharedEndpoint = getSharedLogicBroker().bind(id, child, sessionId);
+            const closeHostBridge = attachHostServiceBridge(child, {
+                ...hostEndpoint,
+                request(value, requestId) {
+                    if (value?.action === 'plugins.shared') {
+                        if (Object.keys(value).some(key => !['action', 'payload'].includes(key))) return Promise.reject(Object.assign(new Error('Invalid shared logic request.'), {code: 'INVALID_REQUEST'}));
+                        if (value.payload?.op === 'requestAccess') {
+                            if (Object.keys(value.payload).some(key => !['op','target'].includes(key))) return Promise.reject(new Error('Invalid shared-access request.'));
+                            return Promise.resolve(PluginManager.requestSharedLogicAccess(id, value.payload.target));
+                        }
+                        return sharedEndpoint.request(value.payload);
+                    }
+                    return hostEndpoint.request(value, requestId);
+                },
+                close() { sharedEndpoint.close(); hostEndpoint.close(); },
+            });
             child.__closeHostServices = () => {invalidateHostServices(id); closeHostBridge();};
 
             const appendRuntimeOutput = (kind, chunk) => {
@@ -716,6 +781,9 @@ const PluginManager = {
             attachOutputStream(child.stderr, "stderr");
 
             const cleanup = (payload = {}) => {
+                child.__stopWatchdog?.();
+                this.sendToMainWindow(PluginChannels.on_off.RESPONSIVENESS, {id, sessionId, status: 'stopped'});
+                cancelPluginUiBridge(id, sessionId);
                 closeHostBridge();
                 if (this.pluginProcessEpoch[id] !== epoch) {
                     return;
@@ -904,8 +972,9 @@ const PluginManager = {
                             correlationId,
                             sessionId,
                         });
-                        Promise.resolve(this.resolveBackendBridgeResponse(id, payload, correlationId)).then((response) => {
-                            child.postMessage(createHostPluginMessage(BACKEND_BRIDGE_RESPONSE, {
+                        Promise.resolve().then(() => this.resolveBackendBridgeResponse(id, payload, correlationId)).then((response) => {
+                            if (this.loadedPlugins[id]?.instance !== child) return;
+                            postPluginMessage(child, createHostPluginMessage(BACKEND_BRIDGE_RESPONSE, {
                                 requestId,
                                 response,
                             }));
@@ -917,13 +986,14 @@ const PluginManager = {
                                 sessionId,
                             });
                         }).catch((error) => {
+                            if (this.loadedPlugins[id]?.instance !== child) return;
                             const failure = {
                                 ok: false,
                                 correlationId,
                                 error: error?.message || String(error),
                                 code: error?.code || "HOST_ACTION_FAILED",
                             };
-                            child.postMessage(createHostPluginMessage(BACKEND_BRIDGE_RESPONSE, {
+                            postPluginMessage(child, createHostPluginMessage(BACKEND_BRIDGE_RESPONSE, {
                                 requestId,
                                 response: failure,
                             }));
@@ -934,7 +1004,7 @@ const PluginManager = {
                                 error: failure.error,
                                 sessionId,
                             });
-                        });
+                        }).catch(() => {});
                     }
                 });
 
@@ -1018,6 +1088,16 @@ const PluginManager = {
         if (!this.loadedPlugins[id]) return;
         this.loadedPlugins[id].ready = true;
         this.loadedPlugins[id].readyAt = Date.now();
+        const worker = this.loadedPlugins[id];
+        if (!worker.instance.__stopWatchdog && typeof worker.instance.on === 'function' && typeof worker.instance.off === 'function') {
+            worker.responsiveness = {status: 'responsive', missed: 0, checkedAt: Date.now()};
+            worker.instance.__stopWatchdog = watchPluginWorker(worker.instance, status => {
+                if (this.loadedPlugins[id] !== worker) return;
+                worker.responsiveness = status;
+                this.tracePluginEvent(id, 'worker.responsiveness', {...status, sessionId: worker.sessionId});
+                this.sendToMainWindow(PluginChannels.on_off.RESPONSIVENESS, {id, sessionId: worker.sessionId, ...status});
+            });
+        }
         this.setPluginLoading(id, false);
     },
     setPluginInited(id) {
@@ -1040,6 +1120,22 @@ const PluginManager = {
     },
     getLoadedPluginInited(id) {
         return this.loadedPlugins[id]?.inited;
+    },
+    async restartPlugin(id, expectedSessionId) {
+        if (restartingPlugins.has(id)) return restartingPlugins.get(id);
+        const worker = this.loadedPlugins[id];
+        if (!worker || !expectedSessionId || worker.sessionId !== expectedSessionId) {
+            return {success: false, code: 'PLUGIN_BACKEND_STALE_SESSION', error: 'Plugin session changed. Refresh its status before restarting.'};
+        }
+        if (!allowPluginRestart(id)) return {success: false, code: 'PLUGIN_RESTART_LIMIT', error: 'Restart limit reached (3 attempts per 10 minutes).'};
+        const work = Promise.resolve().then(async () => {
+            if (this.loadedPlugins[id] !== worker) return {success: false, code: 'PLUGIN_BACKEND_STALE_SESSION', error: 'Plugin session changed before restart.'};
+            await this.unLoadPlugin(id, {force: true, reason: 'unresponsive_restart'});
+            return await this.loadPlugin(id);
+        }).catch(() => ({success: false, error: 'Plugin restart failed. Review runtime output.'}))
+            .finally(() => restartingPlugins.delete(id));
+        restartingPlugins.set(id, work);
+        return work;
     },
     unLoadPlugins() {
         for(const id in this.loadedPlugins) {
@@ -1081,11 +1177,14 @@ const PluginManager = {
                 ? [...this.pluginDiagnosticsByPlugin[id].capabilities.registeredHandlers]
                 : [];
             const child = this.loadedPlugins[id]?.instance;
+            child?.__stopWatchdog?.();
+            this.sendToMainWindow(PluginChannels.on_off.RESPONSIVENESS, {id, sessionId, status: 'stopped'});
+            cancelPluginUiBridge(id, sessionId);
             if(child?.__drainStorage) {
                 const draining=child.__drainStorage().then(result=>{
                     if(!result.success) {
                         this.tracePluginEvent(id,'storage.flush_failed',{code:'STORAGE_FLUSH_FAILED'});
-                        console.error('[FDO_STORAGE_FLUSH_FAILED]',id,'Plugin storage shutdown was not acknowledged. Check plugin diagnostics.');
+                        console.error('[FDO_STORAGE_FLUSH_FAILED]',id,'Plugin resource cleanup or storage shutdown was not acknowledged. Check plugin diagnostics.');
                     }
                 }).catch(()=>{console.error('[FDO_STORAGE_FLUSH_FAILED]',id);}).finally(()=>{
                     child.kill();if(this.drainingPlugins[id]===draining)delete this.drainingPlugins[id];
@@ -1160,15 +1259,16 @@ const PluginManager = {
         return events.slice(-limit);
     },
     sendToMainWindow(type, ...data) {
-        if (
-            this.mainWindow &&
-            !this.mainWindow.isDestroyed() &&
-            this.mainWindow.webContents &&
-            !this.mainWindow.webContents.isDestroyed()
-        ) {
-            this.mainWindow.webContents.send(type, ...data);
-        }
+        try {
+            if (this.mainWindow && !this.mainWindow.isDestroyed()
+                && this.mainWindow.webContents && !this.mainWindow.webContents.isDestroyed()) {
+                this.mainWindow.webContents.send(type, ...data);
+                return true;
+            }
+        } catch { /* Window destruction can race an asynchronous worker reply. */ }
+        return false;
     },
 }
 
+configureSharedLogicAuthoringCatalog(() => PluginManager.getSharedLogicCatalog());
 export default PluginManager

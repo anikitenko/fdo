@@ -1,0 +1,42 @@
+.popover {
+    max-width: calc(100vw - 16px);
+}
+
+.menu {
+    box-sizing: border-box;
+    width: 280px;
+    max-width: calc(100vw - 16px);
+    max-height: min(72vh, 560px);
+    overflow: auto;
+    padding: 6px;
+}
+
+.menu :global(.bp6-menu-item) {
+    min-height: 32px;
+    border-radius: 5px;
+    font-size: 13px;
+}
+
+.menu :global(.bp6-menu-divider) {
+    margin: 3px 0;
+}
+
+.menu :global(.bp6-menu-header) {
+    padding: 2px 8px 1px;
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+    line-height: 1.1;
+}
+
+.path {
+    display: block;
+    max-width: 128px;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

@@ -8,9 +8,11 @@ const EVALUATION_SDK_DECLARATIONS = [
     'index.d.ts', 'PluginRegistry.d.ts', 'FDOInterface.d.ts',
     'types.d.ts', 'ambient/fdo-host.d.ts', 'utils/renderOnLoad.d.ts',
 ];
+const OPTIONAL_SDK_DECLARATIONS = ['SharedLogic.d.ts','PluginScope.d.ts','decorators/ErrorHandler.d.ts','decorators/Registration.d.ts'];
 function readEvaluationSdkContext(typesRoot) {
-    return EVALUATION_SDK_DECLARATIONS.map(file =>
+    const files = [...EVALUATION_SDK_DECLARATIONS,...OPTIONAL_SDK_DECLARATIONS.filter(file => fs.existsSync(path.join(typesRoot,file)))];
+    return files.map(file =>
         `SDK declaration: ${file}\n${fs.readFileSync(path.join(typesRoot, file), 'utf8')}\nEND SDK DECLARATION`
     ).join('\n\n');
 }
-module.exports = {readEvaluationSdkContext, EVALUATION_SDK_DECLARATIONS};
+module.exports = {readEvaluationSdkContext, EVALUATION_SDK_DECLARATIONS, OPTIONAL_SDK_DECLARATIONS};

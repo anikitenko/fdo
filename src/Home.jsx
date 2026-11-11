@@ -1700,6 +1700,39 @@ export const Home = () => {
         };
     }, [plugin, state.activePlugins, pluginInitStatus]);
 
+    useEffect(() => {
+        let disposed = false;
+        const notices = new Map();
+        const unsubscribe = window.electron.plugin.onResponsiveness?.(status => {
+            void Promise.resolve(AppToaster).then(toaster => {
+                if (disposed) return;
+                const key = JSON.stringify([status.id, status.sessionId]);
+                if (status.status !== 'unresponsive') {
+                    const notice = notices.get(key);
+                    if (notice) toaster.dismiss(notice);
+                    notices.delete(key);
+                    return;
+                }
+                if (notices.has(key)) return;
+                const notice = toaster.show({
+                    intent: 'warning', timeout: 0,
+                    message: `${getPluginDisplayName(status.id)} is not responding. Restarting may interrupt unfinished work.`,
+                    action: {text: 'Restart plugin', onClick: () => {
+                        void window.electron.plugin.restart(status.id, status.sessionId).then(async result => {
+                            if (!result?.success) (await AppToaster).show({intent: 'danger', message: result?.error || 'Plugin restart failed.'});
+                        }).catch(() => { void Promise.resolve(AppToaster).then(current => current.show({intent: 'danger', message: 'Plugin restart failed.'})).catch(() => {}); });
+                    }},
+                });
+                notices.set(key, notice);
+            }).catch(() => {});
+        });
+        return () => {
+            disposed = true;
+            unsubscribe?.();
+            void Promise.resolve(AppToaster).then(toaster => {for (const key of notices.values()) toaster.dismiss(key);}).catch(() => {});
+        };
+    }, [getPluginDisplayName]);
+
     const isProcessingPluginFromEditor = useRef(false);
     const isUnloading = useRef(false);
     const expectedManualUnloadRef = useRef(new Set());
@@ -2221,7 +2254,10 @@ export const Home = () => {
                 requestId: `${Date.now()}`,
                 pluginId: newPlugin,
                 capabilityIds: [],
+                focusSection: "capabilities",
             });
+        } else if (actionId === "plugin-open-builtin-editor") {
+            window.electron.system.openEditorWindow({name: newPlugin});
         }
     };
 
@@ -2735,6 +2771,11 @@ export const Home = () => {
                     icon: "shield",
                     name: "Capabilities",
                     labelElement: capabilityNeedsAttention ? <Tag variant="minimal" intent={statusChip.intent || "primary"}>Review</Tag> : null,
+                },
+                {
+                    id: "plugin-open-builtin-editor",
+                    icon: "code",
+                    name: "Open in built-in Editor",
                 },
                 {
                     id: "plugin-audit",
@@ -3483,6 +3524,21 @@ export const Home = () => {
                                         <p className="bp6-text-muted">No raw diagnostics returned from the plugin runtime.</p>
                                     )}
                                 </>
+                            )}
+                            {runtimeValidationDialog.diagnostics?.resources && (
+                                <section aria-label="Plugin resource usage" style={{marginBottom: "16px"}}>
+                                    <h4>Resource usage</h4>
+                                    <p className="bp6-text-small">
+                                        Open file descriptors: <strong>{runtimeValidationDialog.diagnostics.resources.fileDescriptors?.count ?? "Unavailable"}</strong>
+                                        {" | "}Change since first sample: <strong>{runtimeValidationDialog.diagnostics.resources.fileDescriptors?.deltaSinceStart ?? "Unavailable"}</strong>
+                                        {" | "}Pending storage writes: <strong>{runtimeValidationDialog.diagnostics.resources.storage?.pendingWrites ?? "Unavailable"}</strong>
+                                        {" | "}Failed storage writes: <strong>{runtimeValidationDialog.diagnostics.resources.storage?.writeFailures ?? "Unavailable"}</strong>
+                                    </p>
+                                    {runtimeValidationDialog.diagnostics.resources.logging?.stderrFallbacks > 0 && (
+                                        <p className="bp6-text-small">File logging is unavailable. Logs are being sent to runtime output until the plugin restarts.</p>
+                                    )}
+                                    <p className="bp6-text-small bp6-text-muted">Measured when diagnostics are refreshed. Descriptor counts include files, sockets and pipes; inspection is unavailable on some platforms.</p>
+                                </section>
                             )}
                             <div className="bp6-text-small bp6-text-muted" style={{marginBottom: "10px"}}>
                                 Privileged runtime evidence below comes from host audit events. Failures there are not automatically capability-denial issues.

@@ -1,6 +1,33 @@
 import {EsbuildVirtualFsPlugin} from "../../src/utils/esbuild/plugins/virtual-fs.js";
 
 describe("esbuild virtual-fs plugin", () => {
+    test.each([
+        ['/shared/website-check-ui.ts', 'export const createWebsiteCheckUI = () => 1;'],
+        ['//shared/website-check-ui.ts', 'export const createWebsiteCheckUI = () => 1;'],
+        ['shared/website-check-ui.ts', 'export const createWebsiteCheckUI = () => 1;'],
+        ['/shared/website-check-ui.ts', ''],
+    ])('resolves a nested helper stored at %s, including empty files', (filePath, source) => {
+        const handlers = [], loaders = [];
+        EsbuildVirtualFsPlugin({[filePath]: source}).setup({
+            initialOptions: {},
+            onResolve: (options, callback) => handlers.push({options, callback}),
+            onLoad: (options, callback) => loaders.push({options, callback}),
+        });
+        const resolver = handlers.find(({options}) => options.filter.test('./shared/website-check-ui'));
+        expect(resolver.callback({path: './shared/website-check-ui', importer: '/index.ts'}))
+            .toEqual({path: '/shared/website-check-ui.ts', namespace: 'virtual'});
+        const loader = loaders.find(({options}) => options.filter.test('/shared/website-check-ui.ts'));
+        return expect(loader.callback({path: '/shared/website-check-ui.ts'}))
+            .resolves.toEqual({contents: source, loader: 'ts'});
+    });
+
+    test('rejects conflicting path aliases instead of silently replacing a source file', () => {
+        expect(() => EsbuildVirtualFsPlugin({
+            '/shared/ui.ts': 'export const a = 1;',
+            '//shared/ui.ts': 'export const a = 2;',
+        })).toThrow('Conflicting workspace files resolve to /shared/ui.ts');
+    });
+
     test('CSS loader exports grouped styles and imported media rules on registerable entries', async () => {
         const handlers = [];
         EsbuildVirtualFsPlugin({

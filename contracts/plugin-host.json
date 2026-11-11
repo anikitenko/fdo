@@ -1,6 +1,6 @@
 {
   "contractVersion": "1.0.0",
-  "apiVersion": "1.0.0",
+  "apiVersion": "1.1.0",
   "capabilitySchemaVersion": "1.0.0",
   "pluginManifestSchemaVersion": 1,
   "supportedPluginManifestSchemaVersions": [1],
@@ -12,7 +12,9 @@
     "privilegedActionTransportPipeline": true,
     "renderOnLoadModuleAuthoring": true,
     "renderOnLoadDeclarativeActions": true,
-    "editorSupportBundle": true
+    "editorSupportBundle": true,
+    "sharedPluginLogicRequests": true,
+    "sharedPluginLogicContracts": true
   },
   "requiredSdkFeatureFlags": ["pluginDoctorReport"]
 }

@@ -7,18 +7,25 @@ export function applicationRuntime() {
     fs.mkdirSync(root,{recursive:true,mode:0o700});
     process.env.FDO_SDK_STORAGE_ROOT=path.join(root,'storage');
     process.env.FDO_SDK_LOG_ROOT=path.join(root,'logs');
-    const abi={...require(path.join(__dirname,'contract.cjs'))},registry=abi.PluginRegistry,stores=new Set(),handlers=new Set(),backend=new AsyncLocalStorage(),view=new AsyncLocalStorage();
+    const abi={...require(path.join(__dirname,'contract.cjs'))},registry=abi.PluginRegistry,stores=new Set(),handlers=new Set(),backend=new AsyncLocalStorage(),view=new AsyncLocalStorage(),invocation=new AsyncLocalStorage();
     const services=require(path.join(__dirname,'services.cjs')).create({configuration,root,view});
     registry.configureStorage({rootDir:process.env.FDO_SDK_STORAGE_ROOT});
     registry.configureCapabilities({granted:configuration.capabilities.filter(id=>id!=='system.tray')});
     registry.assertHostApiCompatibility(configuration.hostContract.apiVersion);
     registry.configureHostServices(services.hostServices);
+    const shared=require(path.join(__dirname,'shared.cjs')).connect({configuration,root,registry,
+        run:(callback,viewId)=>view.run(viewId,()=>backend.run(true,callback)),getView:()=>view.getStore()});
     const useStore=registry.useStore.bind(registry);
     registry.useStore=(...args)=>{const store=useStore(...args);stores.add(store);return store;};
     // Fail closed if a plugin attempts to replace the deployment-owned grants or transports.
     registry.configureCapabilities=()=>{throw new Error('Deployment capability grants are host-owned.');};
     registry.configureHostServices=()=>{throw new Error('Deployment service transports are host-owned.');};
-    const registerHandler=registry.registerHandler.bind(registry);registry.registerHandler=(name,fn)=>{handlers.add(name);return registerHandler(name,fn);};
+    const registerHandler=registry.registerHandler.bind(registry);registry.registerHandler=(name,fn)=>{handlers.add(name);return registerHandler(name,async(...args)=>{
+        try{return await fn(...args);}catch(error){
+            if (/^Capability "plugins\.shared\./.test(error?.message || '')) error=Object.assign(new Error('Access to this shared service is not approved.'),{code:'ACCESS_DENIED',name:'SharedLogicError'});
+            const active=invocation.getStore();if(active?.handler===name){active.failed=true;active.error=error;}throw error;
+        }
+    });};
     let instance;
     const register=registry.registerPlugin.bind(registry);
     registry.registerPlugin=value=>{instance=value;return register(value);};
@@ -38,20 +45,27 @@ export function applicationRuntime() {
         if(handler.startsWith('fdo.'))return services.dispatch(handler,content);
         if(handler.startsWith('__host.'))throw new Error('Unknown host operation.');
         if(!handlers.has(handler))throw Object.assign(new Error('Unknown application handler.'),{code:'NOT_FOUND'});
-        return registry.callHandler(handler,content);
+        // Preserve registry diagnostics while surfacing errors to HTTP callers:
+        // the SDK's desktop callHandler otherwise logs and converts them to null.
+        return invocation.run({handler},async()=>{
+            const result=await backend.run(true,()=>registry.callHandler(handler,content));
+            const active=invocation.getStore();if(active.failed)throw active.error;return result;
+        });
     });
     globalThis.__FDO_AI={listAssistants:content=>services.dispatch('fdo.ai.assistants.list.v1',content),request:content=>services.dispatch('fdo.ai.request.v1',content)};
     globalThis.__FDO_AUTH_BROKER={start:content=>services.dispatch('fdo.auth.start.v1',content),refresh:content=>services.dispatch('fdo.auth.refresh.v1',content),logout:content=>services.dispatch('fdo.auth.logout.v1',content)};
     globalThis.__FDO_SESSION_REQUEST={request:content=>services.dispatch('fdo.session.request.v1',content)};
     abi.runWithSudo=async(command,options)=>{abi.requireCapability('sudo.prompt');return services.elevate(command,options);};
-    return {abi,WebRegistry:registry,WebApplication:abi.FDO_SDK,WebSecretStore:abi.SecretStore,requireCapability:abi.requireCapability,invoke,menu:services.menu,
+    return {abi,WebRegistry:registry,WebApplication:abi.FDO_SDK,WebSecretStore:abi.SecretStore,requireCapability:abi.requireCapability,invoke,menu:services.menu,runBackend:callback=>backend.run(true,callback),
         async initialize(){
             if(!instance)throw new Error('The plugin did not register an instance.');
             const declared=instance.declareCapabilities?.() || [];
             if(!Array.isArray(declared) || declared.some(id=>!configuration.capabilities.includes(id==='system.hosts.write'?'system.host.write':id)))throw new Error('The plugin capability declaration differs from its reviewed export.');
-            await instance.init();
+            await shared.start();
+            await backend.run(true,()=>registry.callInit());
+            shared.verify();
         },
         async render(){const value=registry.callRenderer();return {html:JSON.parse(value.render),onLoad:JSON.parse(value.onLoad)};},
-        async shutdown(){for(const store of stores){await store.flush?.();await store.dispose?.();}await services.close();},
+        async shutdown(){await backend.run(true,()=>instance?.lifecycle?.dispose?.());await shared.close();for(const store of stores){await store.flush?.();await store.dispose?.();}await services.close();},
     };
 }

@@ -26,6 +26,7 @@ jest.mock("../../src/components/plugin/ValidatePlugin", () => ({
 }));
 
 const mockSetPluginCapabilities = jest.fn(() => ({success: true, capabilities: ["system.hosts.write"]}));
+const mockDismissSharedLogicRequest = jest.fn();
 const mockGetPluginCustomProcessScopes = jest.fn(() => []);
 const mockSetPluginCustomProcessScopes = jest.fn((_pluginId, scopes) => ({success: true, scopes}));
 const mockGetPlugin = jest.fn(() => ({
@@ -37,6 +38,10 @@ const mockGetPlugin = jest.fn(() => ({
 jest.mock("../../src/utils/persistence/PluginORM", () => ({
     __esModule: true,
     default: class PluginORMMock {
+        isInstalled() {return false;}
+        setSharedLogicBinding() {}
+        dismissGrantedSharedLogicRequests(id, capabilities) {mockDismissSharedLogicRequest(id, capabilities);}
+        dismissSharedLogicRequest(...args) {return mockDismissSharedLogicRequest(...args);}
         setPluginCapabilities(...args) {
             return mockSetPluginCapabilities(...args);
         }
@@ -107,6 +112,25 @@ jest.mock("../../src/utils/plugins/runtime/pluginMetadataContract", () => ({norm
 jest.mock("../../src/utils/plugins/runtime/pluginTestRunner", () => ({runPluginWorkspaceTests: jest.fn(async () => ({success: true}))}));
 
 describe("plugin IPC capability settings", () => {
+    test('approves an exact future provider without requiring installation or starting it', async () => {
+        jest.resetModules();
+        const {ipcMain} = require('electron');
+        const {registerPluginHandlers} = require('../../src/ipc/plugin');
+        const {PluginChannels} = require('../../src/ipc/channels');
+        const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+        manager.getLoadedPlugin.mockReturnValue(undefined);
+        const request = {id: 'pending', providerId: 'not-installed', name: 'checks', version: 1};
+        const capabilities = ['plugins.shared.use', 'plugins.shared.call.not-installed.checks.v1'];
+        mockGetPlugin.mockReturnValue({id: 'consumer', capabilities, sharedLogicRequests: [request]});
+        mockSetPluginCapabilities.mockReturnValueOnce({success: true, capabilities});
+        ipcMain.handle.mockClear();registerPluginHandlers();
+        const review = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.SHARED_LOGIC_REVIEW)[1];
+        expect(await review({}, 'consumer', 'pending', 'approve')).toMatchObject({success: true, capabilities});
+        expect(mockDismissSharedLogicRequest).toHaveBeenCalledWith('consumer', capabilities);
+        expect(manager.loadPlugin).not.toHaveBeenCalled();
+        mockGetPlugin.mockReset();
+        mockGetPlugin.mockReturnValue({id: 'plugin-a', metadata: {name: 'Plugin A'}, capabilities: ['system.hosts.write']});
+    });
     test("returns scope policies and persists capability updates", async () => {
         jest.resetModules();
         const {ipcMain, BrowserWindow} = require("electron");

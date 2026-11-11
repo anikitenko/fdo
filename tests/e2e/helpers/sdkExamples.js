@@ -314,6 +314,7 @@ async function deploySdkExample(window, entry, options = {}) {
   if (!result?.success) {
     throw new Error(`Failed to deploy SDK example ${entry.relativePath}: ${result?.error || "unknown error"}`);
   }
+  if (options.deferActivation) return {pluginName};
   const activation = await activatePlugin(window, pluginName);
   if (!activation?.success) {
     throw new Error(`Failed to activate SDK example ${entry.relativePath}: ${activation?.error || "unknown error"}`);

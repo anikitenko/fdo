@@ -15,12 +15,15 @@ import {packageDefaultContent} from "./utils/packageDefaultContent";
 import FileBrowserComponent from "./FileBrowserComponent";
 import FileTabs from "./FileTabComponent";
 import MarkdownEditorSurface from './MarkdownEditorSurface';
+import MonacoEditorContextMenu from './MonacoEditorContextMenu';
 import FileDialogComponent from "./FileDialogComponent";
 import CodeDeployActions from "./CodeDeployActions";
 import SnapshotToolbarMount from "./snapshots/SnapshotMount.jsx";
 import SidebarSection from "../common/SidebarSection.jsx";
 import codeEditorActions from "./utils/codeEditorActions";
 import EditorStyle from "./monaco/EditorStyle";
+import {installSharedLogicMonaco} from './utils/sharedLogicMonaco';
+import {installWorkspaceDiagnostics} from './utils/workspaceDiagnostics';
 import BuildOutputTerminalComponent from "./BuildOutputTerminalComponent";
 import generatePluginName from "./utils/generatePluginName";
 import {
@@ -283,7 +286,11 @@ export const EditorPage = () => {
 
     useEffect(() => {
         document.title = "Plugin Editor";
+        const sharedLogic = installSharedLogicMonaco(monaco, () => window.electron?.plugin?.listSharedLogic?.());
+        const workspaceDiagnostics = installWorkspaceDiagnostics(monaco, virtualFS);
         return () => {
+            workspaceDiagnostics.dispose();
+            sharedLogic.dispose();
             activeCodeEditor = null;
         };
     }, []);
@@ -667,6 +674,9 @@ export const EditorPage = () => {
 
         window.__editorTestApi = {
             getState,
+            getEditorLocation() {
+                return {uri: activeCodeEditor?.getModel?.()?.uri?.toString(), selection: activeCodeEditor?.getSelection?.()};
+            },
             createFile(filePath, content, language = "typescript") {
                 const uri = monaco.Uri.file(filePath);
                 let model = monaco.editor.getModel(uri);
@@ -984,10 +994,12 @@ export const EditorPage = () => {
             if (jumpTo.id && codeEditor) {
                 if (!virtualFS.getModel(jumpTo.id)) return
                 virtualFS.setTreeObjectItemBool(jumpTo.id, "isSelected")
-                setTimeout(() => {
+                const timer = setTimeout(() => {
+                    if (codeEditor.getModel() !== virtualFS.getModel(jumpTo.id)) return;
                     codeEditor.setSelection(jumpTo.options.selection);
                     codeEditor.revealLine(jumpTo.options.selection.startLineNumber)
                 }, 200)
+                return () => clearTimeout(timer);
             }
         }
     }, [codeEditor, jumpTo]);
@@ -1056,6 +1068,7 @@ export const EditorPage = () => {
             }
             codeEditor?.focus()
         });
+        const unsubscribeRevealLocation = virtualFS.notifications.subscribe("revealLocation", setJumpTo);
         const unsubscribeFileRemoved = virtualFS.notifications.subscribe("fileRemoved", (fileID) => {
             virtualFS.tabs.removeById(fileID)
             virtualFS.tabs.switchToLast()
@@ -1103,7 +1116,7 @@ export const EditorPage = () => {
         let unsubscribeEditorReload;
 
         const handleBeforeUnload = (event) => {
-            if (suppressBeforeUnloadPromptRef.current) {
+            if (suppressBeforeUnloadPromptRef.current || !virtualFS.hasUnsavedChanges()) {
                 return;
             }
             event.preventDefault()
@@ -1117,7 +1130,8 @@ export const EditorPage = () => {
                 return;
             }
             closeInProgressRef.current = true;
-            const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
+            const userConfirmed = !virtualFS.hasUnsavedChanges() ||
+                window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
                 suppressBeforeUnloadPromptRef.current = true;
@@ -1135,7 +1149,8 @@ export const EditorPage = () => {
                 return;
             }
             reloadInProgressRef.current = true;
-            const userConfirmed = window.confirm('Changes will be discarded unless a snapshot is created!');
+            const userConfirmed = !virtualFS.hasUnsavedChanges() ||
+                window.confirm('Changes will be discarded unless a snapshot is created!');
             
             if (userConfirmed) {
                 suppressBeforeUnloadPromptRef.current = true;
@@ -1164,6 +1179,7 @@ export const EditorPage = () => {
             }
             unsubscribe()
             unsubscribeFileRemoved()
+            unsubscribeRevealLocation()
             unsubscribeFileTabs()
             unsubscribeFileCreated()
             unsubscribeTabSwitched()
@@ -1319,8 +1335,9 @@ export const EditorPage = () => {
                                                         if (!editorModelPath) return;
                                                         applyFdoCapabilityDiagnostics(editorModelPath, e);
                                                     }}
-                                                    defaultValue={packageDefaultContent(pluginName)}
-                                                    path={editorModelPath}
+                                                    defaultValue={virtualFS.getFileContent(editorModelPath) ?? packageDefaultContent(pluginName)}
+                                                    path={monaco.Uri.file(editorModelPath).toString()}
+                                                    keepCurrentModel={true}
                                                     className={styles["editor-container"]}
                                                     onMount={(editor) => {
                                                         setCodeEditor(editor)
@@ -1351,6 +1368,7 @@ export const EditorPage = () => {
                                                         automaticLayout: true,
                                                         fixedOverflowWidgets: true,
                                                         scrollBeyondLastLine: false,
+                                                        contextmenu: false,
                                                     }}
                                             />
                                             </MarkdownEditorSurface>
@@ -1411,6 +1429,7 @@ export const EditorPage = () => {
             )}
             </div>
             )}
+            <MonacoEditorContextMenu editor={codeEditor}/>
             <FileDialogComponent/>
         </div>
     );

@@ -1,17 +1,7 @@
+import {normalizeVirtualWorkspacePath} from '../../../utils/plugins/virtualWorkspacePaths';
+
 export const getFullPathOfFileFolder = (path, type, same = false) => {
-    if (type === "folder") {
-        if (path.endsWith("/")) {
-            if (same) {
-                path = path.trimEnd("/")
-                return path.split("/").slice(0, -1).join("/") + "/"
-            }
-            return path + "/"
-        }
-        if (same) {
-            return path.split("/").slice(0, -1).join("/") + "/"
-        }
-        return path + "/"
-    } else {
-        return path.split("/").slice(0, -1).join("/") + "/"
-    }
-}
+    const normalized = normalizeVirtualWorkspacePath(path);
+    if (type === 'folder' && !same) return normalized === '/' ? '/' : `${normalized}/`;
+    return normalized.slice(0, normalized.lastIndexOf('/') + 1);
+};

@@ -4,20 +4,22 @@ import build from "./build";
 
 const codeEditorActions = (codeEditor, {onCompile} = {}) => {
     if (!codeEditor) return;
+    const registrations = [];
+    const addAction = action => registrations.push(codeEditor.addAction(action));
     codeEditor.updateOptions({
         padding: {
             top: 10,
             bottom: 150
         }
     });
-    codeEditor.addAction({
+    addAction({
         // A unique identifier of the contributed action.
         id: "editor-go-fullscreen",
         // A label of the action that will be presented to the user.
         label: "Open in fullscreen",
         // An optional array of keybindings for the action.
         keybindings: [
-            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, // CTRL/CMD + Shift + F
+            monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, // CTRL/CMD + Alt + F
         ],
         // A precondition for this action.
         precondition: null,
@@ -37,7 +39,7 @@ const codeEditorActions = (codeEditor, {onCompile} = {}) => {
             }
         },
     });
-    codeEditor.addAction({
+    addAction({
         // A unique identifier of the contributed action.
         id: "new-file",
         // A label of the action that will be presented to the user.
@@ -57,10 +59,10 @@ const codeEditorActions = (codeEditor, {onCompile} = {}) => {
         // @param editor The editor instance is passed in as a convenience
         run: function (ed) {
             ed.focus()
-            virtualFS.openFileDialog({})
+            virtualFS.openFileDialog({node: virtualFS.getTreeObjectItemById(virtualFS.tabs.getActiveTabId())})
         },
     });
-    codeEditor.addAction({
+    addAction({
         // A unique identifier of the contributed action.
         id: "compile-plugin",
         // A label of the action that will be presented to the user.
@@ -84,7 +86,7 @@ const codeEditorActions = (codeEditor, {onCompile} = {}) => {
             await build()
         },
     });
-    codeEditor.addAction({
+    addAction({
         // A unique identifier of the contributed action.
         id: "switch-tab-left",
         // A label of the action that will be presented to the user.
@@ -109,7 +111,7 @@ const codeEditorActions = (codeEditor, {onCompile} = {}) => {
             }, 50)
         },
     });
-    codeEditor.addAction({
+    addAction({
         // A unique identifier of the contributed action.
         id: "switch-tab-right",
         // A label of the action that will be presented to the user.
@@ -134,6 +136,21 @@ const codeEditorActions = (codeEditor, {onCompile} = {}) => {
             }, 50)
         },
     });
+    addAction({
+        id: 'new-directory', label: 'New directory',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
+        run: () => virtualFS.openFileDialog({node: virtualFS.getTreeObjectItemById(virtualFS.tabs.getActiveTabId()), type: 'folder'}),
+    });
+    addAction({
+        id: 'rename-project-file', label: 'Rename file and update imports',
+        keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F6],
+        run: () => {
+            const node = virtualFS.getTreeObjectItemById(virtualFS.tabs.getActiveTabId());
+            if (node && !/^\/(?:node_modules|dist)(?:\/|$)/.test(node.id) && node.id !== '/package.json') virtualFS.openFileDialog({node, action: 'rename'});
+        },
+    });
+    return () => registrations.forEach(registration => registration?.dispose?.());
+
 }
 
 export default codeEditorActions

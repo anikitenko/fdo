@@ -1,8 +1,11 @@
 import path from "node:path";
 import fs from "node:fs";
 import {compileCssStyleModule} from './cssStyleModule';
+import {normalizeVirtualWorkspaceContent} from '../../plugins/virtualWorkspacePaths';
 
 export function EsbuildVirtualFsPlugin(latestContent) {
+    latestContent = normalizeVirtualWorkspaceContent(latestContent);
+    const hasFile = filePath => Object.hasOwn(latestContent, filePath);
     const normalizeVirtualPath = (targetPath = "", {preserveRelative = false} = {}) => {
         const normalized = String(targetPath || "")
             .replace(/^virtual:/, "")
@@ -74,12 +77,12 @@ export function EsbuildVirtualFsPlugin(latestContent) {
                 let moduleBase = `/node_modules/${args.path}`;
                 let packageJsonPath = `${moduleBase}/package.json`;
 
-                if (latestContent[packageJsonPath]) {
+                if (hasFile(packageJsonPath)) {
                     const packageJson = JSON.parse(latestContent[packageJsonPath]);
                     let entryFile = packageJson.module || packageJson.main || "index.js";
 
                     // Ensure the resolved file exists
-                    if (!latestContent[`${moduleBase}/${entryFile}`]) {
+                    if (!hasFile(`${moduleBase}/${entryFile}`)) {
                         entryFile = "index.js"; // Fallback
                     }
 
@@ -146,7 +149,7 @@ export function EsbuildVirtualFsPlugin(latestContent) {
                     `${normalizedBasePath}/index.mts`,
                     `${normalizedBasePath}/index.cts`,
                 ];
-                return possibleFiles.find(p => latestContent[p]) || null;
+                return possibleFiles.find(hasFile) || null;
             };
 
             build.onResolve({filter: /^(\.\/|\.\.|\/)/}, (args) => {

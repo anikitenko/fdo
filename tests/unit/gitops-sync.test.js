@@ -8,6 +8,8 @@ import {X509CertificateGenerator, BasicConstraintsExtension} from '@peculiar/x50
 import {syncCollection, managedPluginId, detachCollection, decideGitOpsUpdate} from '../../src/utils/gitops/syncCollection';
 import {Certs} from '../../src/utils/system/certs';
 import {certificateStorage} from '../../src/utils/persistence/certificateStorage';
+import * as authoringHost from '../../src/utils/sdk/pluginAuthoringContract';
+import {pluginCompatibilityBanner} from '../../src/utils/sdk/pluginCompatibility';
 
 jest.mock('../../src/utils/persistence/certificateStorage', () => ({certificateStorage: {list: jest.fn(), privateKey: jest.fn(), update: jest.fn()}}));
 jest.mock('../../src/utils/desktop/NotificationCenter', () => ({NotificationCenter: {addNotification: jest.fn()}}));
@@ -46,7 +48,7 @@ beforeEach(async () => {
         activatedIds: () => [], removeActivated: jest.fn(),
     };
 });
-afterEach(async () => {await rm(root, {recursive: true, force: true});});
+afterEach(async () => {jest.restoreAllMocks();await rm(root, {recursive: true, force: true});});
 
 test('builds, automatically signs with root, verifies, and installs under a stable alias without auto-activation', async () => {
     await writeFile(options.registryFile, JSON.stringify({plugins: [{id: 'example', metadata: {name: 'Local'}, home: '/local'}]}));
@@ -330,4 +332,64 @@ test('uninspectable declarations stage for maintainer attention and cannot silen
  const pending=(await readRegistry()).plugins[0].gitops.pendingUpdate;
  await expect(decide(pending,'approve',[])).rejects.toThrow('could not be inspected');expect((await readRegistry()).plugins[0].home).toBe(old.home);
  await detachCollection(options.registryFile,options.source.id);await expect(access(pending.candidate.home)).rejects.toThrow();
+});
+
+test.each(['fdo', 'sdk'])('an update requiring a newer %s leaves the installed code and runtime untouched', async key => {
+ await syncCollection(options);
+ const before=await readFile(options.registryFile,'utf8'),old=(await readRegistry()).plugins[0];
+ const snapshot=files('incompatible'),pkg=JSON.parse(snapshot[0].content.toString());
+ pkg.fdo={compatibility:{fdo:'*',[key]:'>=99.0.0'}};
+ snapshot[0].content=Buffer.from(JSON.stringify(pkg));
+ options.fetchPlugin.mockResolvedValue({commit:'b'.repeat(40),files:snapshot});
+ options.activatedIds=()=>[old.id];
+ await expect(syncCollection(options)).rejects.toMatchObject({code:'PLUGIN_HOST_INCOMPATIBLE'});
+ expect(await readFile(options.registryFile,'utf8')).toBe(before);
+ expect(await readdir(options.pluginsDir)).toEqual([path.basename(old.home)]);
+ expect(options.runtime.unLoadPlugin).not.toHaveBeenCalled();
+ expect(options.runtime.loadPlugin).not.toHaveBeenCalled();
+});
+
+test('compiled artifact requirements cannot be weakened by package declarations', async () => {
+ const host=authoringHost.pluginAuthoringHost();
+ const banner=pluginCompatibilityBanner({fdo:'*',sdk:'>=99.0.0'},{...host,sdk:'99.0.0'});
+ options.build.mockResolvedValue({outputFiles:[{text:banner+'\nmodule.exports = {};'}]});
+ await expect(syncCollection(options)).rejects.toMatchObject({code:'PLUGIN_HOST_INCOMPATIBLE'});
+ await expect(access(options.registryFile)).rejects.toThrow();
+ expect(await readdir(options.pluginsDir)).toEqual([]);
+ expect(options.sign).not.toHaveBeenCalled();
+});
+
+test.each(['fdo','sdk'])('cached staged updates and approval revalidate the current %s before touching the installed plugin',async key=>{
+ const host=authoringHost.pluginAuthoringHost();
+ const requirements={fdo:'>='+host.fdo,sdk:'>='+host.sdk};
+ const banner=pluginCompatibilityBanner(requirements,host);
+ options.build.mockResolvedValue({outputFiles:[{text:banner+'\n'+compiledSSH(false)}]});
+ await syncCollection(options);
+ const saved=await readRegistry(),old=saved.plugins[0];
+ old.capabilities=[...old.gitops.requestedCapabilities];await writeFile(options.registryFile,JSON.stringify(saved));
+ options.activatedIds=()=>[old.id];
+ options.fetchPlugin.mockResolvedValue({commit:'b'.repeat(40),files:files('monitoring')});
+ options.build.mockResolvedValue({outputFiles:[{text:banner+'\n'+compiledSSH(true)}]});
+ await syncCollection(options);
+ const pending=(await readRegistry()).plugins[0].gitops.pendingUpdate;
+ const before=await readFile(options.registryFile,'utf8');
+ jest.spyOn(authoringHost,'pluginAuthoringHost').mockReturnValue({...host,[key]:'0.0.1'});
+ await expect(syncCollection(options)).rejects.toMatchObject({code:'PLUGIN_HOST_INCOMPATIBLE'});
+ await expect(decide(pending)).rejects.toMatchObject({code:'PLUGIN_HOST_INCOMPATIBLE'});
+ expect(await readFile(options.registryFile,'utf8')).toBe(before);
+ expect(options.runtime.unLoadPlugin).not.toHaveBeenCalled();
+ expect(options.runtime.loadPlugin).not.toHaveBeenCalled();
+ await expect(access(old.home)).resolves.toBeUndefined();
+ await expect(access(pending.candidate.home)).resolves.toBeUndefined();
+});
+
+test('an unchanged installed commit is revalidated against the current host',async()=>{
+ const host=authoringHost.pluginAuthoringHost();
+ options.build.mockResolvedValue({outputFiles:[{text:pluginCompatibilityBanner(undefined,host)+'\nmodule.exports = {};'}]});
+ await syncCollection(options);
+ const before=await readFile(options.registryFile,'utf8');
+ jest.spyOn(authoringHost,'pluginAuthoringHost').mockReturnValue({...host,sdk:'0.0.1'});
+ await expect(syncCollection(options)).rejects.toMatchObject({code:'PLUGIN_HOST_INCOMPATIBLE'});
+ expect(await readFile(options.registryFile,'utf8')).toBe(before);
+ expect(options.build).toHaveBeenCalledTimes(1);
 });
