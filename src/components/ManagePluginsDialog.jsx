@@ -40,6 +40,8 @@ import {
     hasCapabilitySelectionChanges
 } from "../utils/plugins/security/pluginCapabilitySelection";
 import {getCapabilityPresentation} from "../utils/presentation/capabilityPresentation";
+import SharedLogicAccessReview from './plugin/SharedLogicAccessReview';
+import {targetFromCapability} from '../utils/plugins/runtime/sharedLogicContracts.cjs';
 import {
     hasCapability as hasGrantedCapability,
     HOST_WRITE_CAPABILITY,
@@ -514,6 +516,24 @@ export const ManagePluginsDialog = ({
                                         pendingPluginScopeSuggestions,
                                         onPendingPluginScopeSuggestionResolved,
                                     }) => {
+    const [sharedLogicServices, setSharedLogicServices] = useState([]);
+    useEffect(() => {
+        if (!show) return;
+        let disposed = false;
+        let pending = false;
+        const load = async () => {
+            if (pending) return;
+            pending = true;
+            try {
+                const result = await window.electron?.plugin?.listSharedLogic?.();
+                if (!disposed && result?.success) setSharedLogicServices(Array.isArray(result.services) ? result.services : []);
+            } catch {} finally { pending = false; }
+        };
+        void load();
+        const timer = setInterval(load, 10000);
+        return () => { disposed = true; clearInterval(timer); };
+    }, [show]);
+
     const [selectedTabId, setSelectedTabId] = useState(null);
     useEffect(() => {
         if (initialPluginRequest?.pluginId) setSelectedTabId(initialPluginRequest.pluginId);
@@ -718,7 +738,7 @@ export const ManagePluginsDialog = ({
                                      }}
                                      panelClassName={styles["panel"]}
                                      panel={
-                                         <SelectPluginPanel plugin={plugin} activePlugins={activePlugins}
+                                         <SelectPluginPanel sharedLogicServices={sharedLogicServices} plugin={plugin} activePlugins={activePlugins}
                                                             selectPlugin={selectPlugin}
                                                             deselectPlugin={deselectPlugin} removePlugin={removePlugin}
                                                             setSelectedTabId={setSelectedTabId}
@@ -787,6 +807,7 @@ ManagePluginsDialog.propTypes = {
 }
 
 const SelectPluginPanel = ({
+                               sharedLogicServices = [],
                                plugin,
                                activePlugins,
                                deselectPlugin,
@@ -836,6 +857,8 @@ const SelectPluginPanel = ({
         requireConfirmation: true,
     };
     const BASE_PRIVILEGED_CAPABILITIES = [
+        'plugins.shared.provide',
+        'plugins.shared.use',
         'secrets.use',
         'ssh.use',
         STORAGE_CAPABILITY,
@@ -902,6 +925,7 @@ const SelectPluginPanel = ({
     const [suppressSuggestedScopeAutoOpen, setSuppressSuggestedScopeAutoOpen] = useState(false);
     const pluginScopesCardRef = useRef(null);
     const capabilitiesCardRef = useRef(null);
+    const sharedLogicReviewRef = useRef(null);
     const [customFilesystemScopes, setCustomFilesystemScopes] = useState([]);
     const [customFilesystemScopesLoaded, setCustomFilesystemScopesLoaded] = useState(false);
     const [showCustomFilesystemScopeEditor, setShowCustomFilesystemScopeEditor] = useState(false);
@@ -994,6 +1018,10 @@ const SelectPluginPanel = ({
     }, [plugin?.id]);
 
     const hasCapability = (capability) => hasGrantedCapability(capabilitiesDraft, capability);
+    const sharedAccessRequestButton = capability => targetFromCapability(capability) && !hasCapability(capability)
+        ? <Button size="small" icon="add" onClick={() => sharedLogicReviewRef.current?.createForCapability(capability)}>
+            Add shared-service access
+        </Button> : null;
     const effectiveFocusRequest = persistedFocusRequest || focusRequest || null;
 
     useEffect(() => {
@@ -1385,6 +1413,22 @@ const SelectPluginPanel = ({
         });
     };
 
+    const sharedLogicChildren = useMemo(() => {
+        const entries = new Map(sharedLogicServices.filter(service => service.providerId !== plugin?.id).map(service => [service.capability, {
+            allowedExecutables: [], allowedRoots: [], allowedCwdRoots: [], allowedEnvKeys: [], allowedOperationTypes: [],
+            id: service.capability, title: `${service.name} v${service.version} — ${service.providerName || service.providerId}`,
+            kind: 'capability', category: 'Shared plugin logic', capability: service.capability, baseCapability: 'plugins.shared.use',
+            description: `${service.description} Exports: ${service.methods.join(', ')}. Runs with the provider's permissions.`,
+        }]));
+        for (const capability of capabilitiesDraft) {
+            if (typeof capability === 'string' && capability.startsWith('plugins.shared.call.') && !entries.has(capability)) {
+                entries.set(capability, {allowedExecutables: [], allowedRoots: [], allowedCwdRoots: [], allowedEnvKeys: [], allowedOperationTypes: [], id: capability, title: capability.slice('plugins.shared.call.'.length),
+                    kind: 'capability', category: 'Shared plugin logic', capability, baseCapability: 'plugins.shared.use',
+                    description: 'Provider is not currently exporting this service. Start the provider to discover it. Remove this grant to revoke access.'});
+            }
+        }
+        return [...entries.values()];
+    }, [sharedLogicServices, capabilitiesDraft, plugin?.id]);
     const scopeCapabilities = useMemo(() => buildScopeCapabilities(scopePolicies), [scopePolicies]);
     const availableScopeCapabilityIds = useMemo(
         () => new Set(scopeCapabilities.map((item) => item.capability)),
@@ -1614,7 +1658,9 @@ const SelectPluginPanel = ({
         return BASE_PRIVILEGED_CAPABILITIES.reduce((groups, baseCapability) => {
             const scopeChildren = scopeCapabilitiesByBase[baseCapability] || [];
             const extraChildren = (
-                baseCapability === 'secrets.use' || baseCapability === 'ssh.use'
+                baseCapability === 'plugins.shared.use'
+                    ? sharedLogicChildren
+                    : baseCapability === 'secrets.use' || baseCapability === 'ssh.use'
                     ? hostServiceCapabilityChildren.filter(item => item.baseCapability === baseCapability)
                     : baseCapability === HOST_WRITE_CAPABILITY
                     ? clipboardCapabilityChildren
@@ -1629,7 +1675,7 @@ const SelectPluginPanel = ({
             groups[baseCapability] = [...scopeChildren, ...extraChildren];
             return groups;
         }, {});
-    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, aiCapabilityChildren, networkCapabilityChildren, hostServiceCapabilityChildren]);
+    }, [BASE_PRIVILEGED_CAPABILITIES, scopeCapabilitiesByBase, clipboardCapabilityChildren, storageCapabilityChildren, aiCapabilityChildren, networkCapabilityChildren, hostServiceCapabilityChildren, sharedLogicChildren]);
     const unresolvedGrantedScopeCapabilities = useMemo(
         () => [...new Set((Array.isArray(capabilitiesDraft) ? capabilitiesDraft : [])
             .map((capability) => String(capability || "").trim())
@@ -1909,6 +1955,11 @@ const SelectPluginPanel = ({
         if (!effectiveFocusRequest?.requestId) return;
         if (effectiveFocusRequest.focusSection === "capabilities" || effectiveFocusRequest.focusSection === "pluginScopes") {
             setShowCapabilitiesPanel(true);
+        }
+        if (effectiveFocusRequest.focusSection === "capabilities") {
+            window.setTimeout(() => {
+                capabilitiesCardRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+            }, 120);
         }
         if (effectiveFocusRequest.focusSection === "pluginScopes") {
             if (!customProcessScopesLoaded) {
@@ -2835,9 +2886,10 @@ const SelectPluginPanel = ({
                                         {values.map((capability) => {
                                             const presentation = getCapabilityPresentation(capability, scopePolicies);
                                             return (
-                                                <Tag key={`${label}-${capability}`} variant="minimal" intent={intent}>
-                                                    {presentation.title} <code>{capability}</code>
-                                                </Tag>
+                                                <span key={`${label}-${capability}`} style={{display:'inline-flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                                                    <Tag variant="minimal" intent={intent}>{presentation.title} <code>{capability}</code></Tag>
+                                                    {label === 'Missing for full feature set' && sharedAccessRequestButton(capability)}
+                                                </span>
                                             );
                                         })}
                                     </div>
@@ -2857,6 +2909,7 @@ const SelectPluginPanel = ({
                                             <div style={{display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap"}}>
                                                 <Tag variant="minimal" intent="warning">{item.label || item.capability}</Tag>
                                                 {item.capability ? <code>{item.capability}</code> : null}
+                                                {sharedAccessRequestButton(item.capability)}
                                             </div>
                                             {item.description ? (
                                                 <div className={classNames("bp6-text-small", "bp6-text-muted")} style={{marginTop: "6px"}}>
@@ -3637,6 +3690,11 @@ const SelectPluginPanel = ({
                 </div>
             </Dialog>
             <Card ref={capabilitiesCardRef} style={{marginTop: "15px", marginBottom: "15px", border: "1px solid #d4d5d7"}}>
+                <SharedLogicAccessReview ref={sharedLogicReviewRef} pluginId={plugin.id} declaredCapabilities={capabilityIntent?.declared || []} disabled={hasUnsavedCapabilityChanges} onApproved={async result => {
+                    setCapabilitiesDraft(result.capabilities || []);
+                    await refreshPluginsState?.();
+                    await refreshRuntimeStatuses?.([plugin.id]);
+                }}/>
                 <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
                     <div>
                         <div className={"bp6-heading"} style={{fontSize: "0.95rem"}}>Capabilities & Privileged Access</div>
@@ -3908,7 +3966,10 @@ const SelectPluginPanel = ({
                                                     return leftTitle.localeCompare(rightTitle);
                                                 })
                                                 .map((scopeItem) => {
-                                                const presentation = getCapabilityPresentation(scopeItem.capability, scopePolicies);
+                                                const basePresentation = getCapabilityPresentation(scopeItem.capability, scopePolicies);
+                                                const presentation = baseCapability === 'plugins.shared.use'
+                                                    ? {...basePresentation, title: scopeItem.title, description: `${scopeItem.description} ${basePresentation.description}`}
+                                                    : basePresentation;
                                                 const scopeSummary = buildScopeSummary(scopeItem);
                                                 const hasArgumentPolicy = Boolean(normalizeArgumentPolicyForDisplay(scopeItem));
                                                 return (
@@ -3926,6 +3987,7 @@ const SelectPluginPanel = ({
                                                         {highlightedSet.has(scopeItem.capability) ? (
                                                             <Tag intent="warning" variant="minimal" style={{marginBottom: "8px"}}>Missing required capability</Tag>
                                                         ) : null}
+                                                        {sharedAccessRequestButton(scopeItem.capability)}
                                                         <Checkbox
                                                             checked={hasCapability(scopeItem.capability)}
                                                             disabled={!baseEnabled}
@@ -4016,7 +4078,9 @@ const SelectPluginPanel = ({
                             {baseEnabled && allScopesForBase.length > 0 && (selectedScopeCapabilitiesByBase[baseCapability] || []).length === 0 ? (
                                 <Card style={{border: "1px solid #f6d667", background: "#fff8db", marginTop: "8px"}}>
                                     <div className={classNames("bp6-text-small")}>
-                                        {baseCapability === 'ssh.use'
+                                        {baseCapability === 'plugins.shared.use'
+                                            ? 'Select the exact shared services this plugin may call. Start a provider plugin to discover its exported services. No service access is granted automatically.'
+                                            : baseCapability === 'ssh.use'
                                             ? 'Choose at least one SSH operation: run remote SSH commands or list SSH profiles. Git over SSH requires Run remote SSH commands. SSH access alone cannot be saved.'
                                             : baseCapability === 'secrets.use' ? 'Choose at least one secret operation, such as credential consumption for SSH or Git.'
                                             : baseCapability === "system.process.exec"

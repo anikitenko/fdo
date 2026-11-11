@@ -7,6 +7,7 @@ import {installPluginGlobalEvents} from './utils/pluginGlobalEvents';
 import {createPluginElementWaiter} from './utils/pluginElementWaiter';
 import {createPluginRequestBridge} from './utils/pluginRequestBridge';
 import {pluginOnLoadInvocation} from './utils/pluginOnLoadInvocation';
+import {pluginSourceMapConnectSources} from './utils/pluginSourceMapPolicy';
 import {createSdkUiViewRuntime} from './utils/sdkUiViewRuntime';
 import {
     isTrustedParentPluginEvent,
@@ -65,6 +66,7 @@ export const PluginPage = () => {
             allowHttp ? "http:" : "",
             allowWebSocket ? "wss:" : "",
             allowWebSocket ? "ws:" : "",
+            ...pluginSourceMapConnectSources(iframeDocument, process.env.NODE_ENV === 'development'),
         ].filter(Boolean);
         if (head) {
             const meta = iframeDocument.createElement("meta");

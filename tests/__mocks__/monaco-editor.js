@@ -33,6 +33,7 @@ const monaco = {
     _models: models,
     getModel: (uri) => models.get(uri.toString()) || null,
     createModel: (value, _lang, uri) => {
+      const contentListeners = new Set();
       const model = {
         uri,
         _value: String(value || ''),
@@ -49,6 +50,11 @@ const monaco = {
             throw new Error('Model is disposed!');
           }
           this._value = String(v);
+          contentListeners.forEach(listener => listener());
+        },
+        onDidChangeContent(listener) {
+          contentListeners.add(listener);
+          return {dispose: () => contentListeners.delete(listener)};
         },
         isDisposed() { return this._disposed; },
         dispose() {

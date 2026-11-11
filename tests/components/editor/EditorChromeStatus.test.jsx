@@ -6,11 +6,6 @@ import virtualFS from "../../../src/components/editor/utils/VirtualFS";
 import * as monaco from "monaco-editor";
 
 jest.mock("../../../src/components/editor/context_menu/CONTEXT_MENU", () => () => null);
-jest.mock("react-contexify", () => ({
-    useContextMenu: () => ({
-        show: jest.fn(),
-    }),
-}));
 
 function resetVirtualFs() {
     virtualFS.files = {};

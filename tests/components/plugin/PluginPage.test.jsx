@@ -204,6 +204,26 @@ describe("PluginPage host contract", () => {
         window.fetch = originalFetch;
     });
 
+    test('development CSP permits only bundled source maps while ungranted website requests stay blocked', () => {
+        const previousMode = process.env.NODE_ENV;
+        process.env.NODE_ENV = 'development';
+        const script = document.createElement('script');
+        script.src = 'static://host/plugin_host.abc123.js';
+        document.head.appendChild(script);
+        let unmount;
+        try {
+            ({unmount} = render(<PluginPage />));
+            const policy = document.head.querySelector("meta[http-equiv='Content-Security-Policy']").content;
+            expect(policy).toContain('connect-src static://host/plugin_host.abc123.js.map;');
+            expect(policy).not.toContain('connect-src static:;');
+            expect(policy).not.toMatch(/connect-src [^;]*https:/);
+            expect(() => window.fetch('https://example.com')).toThrow(/system\.network\.https/);
+        } finally {
+            unmount?.();
+            process.env.NODE_ENV = previousMode;
+        }
+    });
+
     test("enforces destination scope checks for browser network primitives", () => {
         const meta = document.createElement("meta");
         meta.setAttribute("name", "fdo-plugin-capabilities");

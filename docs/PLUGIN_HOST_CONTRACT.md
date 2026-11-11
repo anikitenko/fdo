@@ -120,8 +120,10 @@ describes reader compatibility, not patch/minor arithmetic.
 
 Changing FDO's application version, pinning a newer SDK, updating the AI prompt,
 or improving a Live UI control does **not** automatically bump the runtime API,
-handshake or capability schema. This authoring integration leaves those versions
-at **1.0.0** because it adds no incompatible plugin wire behavior.
+handshake or capability schema. The optional shared-service review operation and
+contract catalogue use runtime API **1.1.0**, advertised by
+`sharedPluginLogicRequests` and `sharedPluginLogicContracts`. The handshake and
+capability schema stay at **1.0.0**; the new SDK features remain optional for older plugins.
 
 ## Rules for host changes
 

@@ -1,7 +1,10 @@
 {
-  "contractVersion": "2.1.1",
+  "contractVersion": "2.3.0",
+  "browserGlobals": ["Notyf", "Split", "hljs", "goober", "React", "ReactDOM", "lodash", "_", "Terminal", "ace"],
   "applicationApiVersion": "1.1.0",
   "capabilities": {
+    "plugins.shared.provide": "shared-logic",
+    "plugins.shared.use": "shared-logic",
     "storage": "persistent-storage",
     "storage.json": "persistent-storage",
     "secrets.use": "encrypted-secrets",
@@ -34,11 +37,20 @@
     "sudo.prompt": "elevation"
   },
   "scopeFamilies": {
+    "plugins.shared.call.": "shared-logic",
     "system.network.scope.": "network",
     "system.fs.scope.": "filesystem",
     "system.process.scope.": "process"
   },
   "adapters": {
+    "browser-libraries": {
+      "status": "supported",
+      "description": "Bundled frontend libraries and their styles run locally in the sandboxed application iframe. No desktop asset URLs or CDN access are required."
+    },
+    "shared-logic": {
+      "status": "supported",
+      "description": "Approved installed providers are included as separate backend processes with their own grants, policies and storage. Exact provider/service/version bindings, cancellation and call limits are retained. Desktop processes and pending access requests are not used by the container."
+    },
     "charts": {
       "status": "supported",
       "description": "The data-only chart API is compiled into the standalone browser bundle; charts do not require the desktop host."

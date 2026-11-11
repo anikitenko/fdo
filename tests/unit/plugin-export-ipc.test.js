@@ -83,3 +83,17 @@ test('blocked conversions allow saving a report but never a runnable web archive
     expect((await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'report',token:review.token})).success).toBe(true);
     expect(JSON.parse(await fs.readFile(output,'utf8')).blockers).toEqual(['Requires terminal gateway']);
 });
+
+test('provider source or approvals changing after review invalidate the Docker export',async()=>{
+    const provider={id:'provider',name:'Provider',home:path.join(root,'provider'),capabilities:['plugins.shared.provide']};
+    registerPluginExportHandlers({getPlugin:id=>id===plugin.id?plugin:id===provider.id?provider:null});
+    handlers=Object.fromEntries(ipcMain.handle.mock.calls);
+    prepareWebApplicationExport.mockResolvedValue({filename:'app.zip',files:{'README.md':'application'},report:{blockers:[],sourceFingerprint:'fingerprint',sharedLogic:{providers:[{id:'provider',sourceFingerprint:'reviewed-provider'}]}}});
+    exportFingerprint.mockImplementation((_files,owner)=>owner.id===provider.id?'changed-provider':'fingerprint');
+    const review=await handlers[PluginChannels.EXPORT_PREVIEW](event,plugin.id,{providers:[{home:'/tmp/untrusted'}]});
+    const resolver=prepareWebApplicationExport.mock.calls.at(-1)[0].resolveSharedProvider;
+    expect((await resolver(provider.id)).plugin).toMatchObject({id:'provider',home:provider.home});
+    await expect(resolver('untrusted')).rejects.toThrow('installed plugin');
+    expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'web',token:review.token})).toMatchObject({success:false,error:expect.stringContaining('Shared provider source, permissions or service bindings changed')});
+    expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+});

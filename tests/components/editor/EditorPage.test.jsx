@@ -634,6 +634,7 @@ describe("EditorPage baseline snapshot", () => {
         const previousNodeEnv = process.env.NODE_ENV;
         process.env.NODE_ENV = "development";
         const addEventListenerSpy = jest.spyOn(window, "addEventListener");
+        window.electron.system.confirmEditorCloseApproved.mockClear();
         const removeEventListenerSpy = jest.spyOn(window, "removeEventListener");
         const pluginData = encodeURIComponent(JSON.stringify({
             name: "Test Plugin",
@@ -650,6 +651,7 @@ describe("EditorPage baseline snapshot", () => {
         await waitFor(() => {
             expect(virtualFS.fs.list()).toHaveLength(1);
         });
+        virtualFS.fs.create("", [], {quiet: true});
 
         expect(window.electron.system.on.confirmEditorClose).toHaveBeenCalledTimes(1);
         expect(window.electron.system.on.confirmEditorReload).toHaveBeenCalledTimes(1);
@@ -661,8 +663,14 @@ describe("EditorPage baseline snapshot", () => {
         const preventDefault = jest.fn();
         const event = { preventDefault, returnValue: undefined };
         beforeUnloadHandler(event);
-        expect(preventDefault).toHaveBeenCalledTimes(1);
-        expect(event.returnValue).toBe("");
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(event.returnValue).toBeUndefined();
+
+        virtualFS.getModel("/index.ts").setValue("export const hello = 'changed';");
+        const dirtyEvent = {preventDefault: jest.fn(), returnValue: undefined};
+        beforeUnloadHandler(dirtyEvent);
+        expect(dirtyEvent.preventDefault).toHaveBeenCalledTimes(1);
+        expect(dirtyEvent.returnValue).toBe("");
 
         const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
         closeHandler();
@@ -684,6 +692,46 @@ describe("EditorPage baseline snapshot", () => {
         addEventListenerSpy.mockRestore();
         removeEventListenerSpy.mockRestore();
         process.env.NODE_ENV = previousNodeEnv;
+    });
+
+    test("approves closing a clean workspace without showing a discard warning", async () => {
+        const previousNodeEnv = process.env.NODE_ENV;
+        process.env.NODE_ENV = "development";
+        const addEventListenerSpy = jest.spyOn(window, "addEventListener");
+        window.electron.system.confirmEditorCloseApproved.mockClear();
+        const pluginData = encodeURIComponent(JSON.stringify({
+            name: "Test Plugin",
+            template: "blank",
+            dir: "sandbox",
+        }));
+        const {unmount} = render(
+            <MemoryRouter initialEntries={[`/editor?data=${pluginData}`]}>
+                <EditorPage />
+            </MemoryRouter>
+        );
+        let confirmSpy;
+
+        try {
+            await waitFor(() => expect(virtualFS.fs.list()).toHaveLength(1));
+            virtualFS.fs.create("", [], {quiet: true});
+            const closeHandler = window.electron.system.on.confirmEditorClose.mock.calls[0][0];
+            confirmSpy = jest.spyOn(window, "confirm");
+            const beforeUnloadHandler = addEventListenerSpy.mock.calls.find(([name]) => name === "beforeunload")?.[1];
+            const event = {preventDefault: jest.fn(), returnValue: undefined};
+
+            expect(beforeUnloadHandler).toBeDefined();
+            beforeUnloadHandler(event);
+            closeHandler();
+
+            expect(event.preventDefault).not.toHaveBeenCalled();
+            expect(confirmSpy).not.toHaveBeenCalled();
+            expect(window.electron.system.confirmEditorCloseApproved).toHaveBeenCalledTimes(1);
+        } finally {
+            unmount();
+            confirmSpy?.mockRestore();
+            addEventListenerSpy.mockRestore();
+            process.env.NODE_ENV = previousNodeEnv;
+        }
     });
 
     test("registers quick-fix provider with Monaco textEdit payloads", async () => {

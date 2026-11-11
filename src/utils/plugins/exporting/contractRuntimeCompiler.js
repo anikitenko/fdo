@@ -9,6 +9,16 @@ export function compileWebContractRuntime(source) {
     const ast=parse(source,{sourceType:'script'}),edits=[];
     traverse(ast,{CallExpression(p){if(p.node.callee.name==='require' && p.node.arguments[0]?.value==='electron')edits.push({start:p.node.arguments[0].start,end:p.node.arguments[0].end,value:JSON.stringify('./native.cjs')});}});
     let entry,transport,baseFound=false;
+    traverse(ast,{ClassMethod(p){
+        if(p.node.key?.name!=='callInit' || p.parentPath.parentPath.node.id?.name!=='PluginRegistry')return;
+        // The standalone initializer awaits async initialization and retains the
+        // SDK's decorated handler/shared-function registration and diagnostics.
+        if(!p.node.async)edits.push({start:p.node.key.start,end:p.node.key.start,value:'async '});
+        p.traverse({ExpressionStatement(statement){
+            const call=statement.node.expression;
+            if(call.type==='CallExpression' && call.callee.type==='MemberExpression' && call.callee.property.name==='assertSynchronousInit')edits.push({start:statement.node.start,end:statement.node.end,value:'await '+source.slice(call.arguments[0].start,call.arguments[0].end)+';'});
+        }});
+    }});
     traverse(ast,{ClassDeclaration(p){
         if(p.node.id?.name==='Communicator')transport=p.findParent(parent=>parent.isObjectMethod() || parent.isObjectProperty());
         if(p.node.id?.name!=='FDO_SDK')return;

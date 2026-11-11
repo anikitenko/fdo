@@ -83,16 +83,36 @@ export const SnapshotProvider = ({children}) => {
   const pendingVersionRef = useRef(null);
   const contentDisposersRef = useRef([]);
 
-  // Subscribe to FS events
+  const refreshUnsavedChanges = useCallback(() => {
+    setHasUnsavedChanges(virtualFS.hasUnsavedChanges());
+  }, []);
+  const disposeModelChangeListeners = useCallback(() => {
+    contentDisposersRef.current.forEach(disposable => disposable?.dispose?.());
+    contentDisposersRef.current = [];
+  }, []);
+  const bindModelChangeListeners = useCallback(() => {
+    disposeModelChangeListeners();
+    virtualFS.listModels().forEach(model => {
+      if (model?.onDidChangeContent) {
+        contentDisposersRef.current.push(model.onDidChangeContent(refreshUnsavedChanges));
+      }
+    });
+    refreshUnsavedChanges();
+  }, [disposeModelChangeListeners, refreshUnsavedChanges]);
+
+  useEffect(() => { bindModelChangeListeners(); }, [bindModelChangeListeners]);
+
+  const resetUnsaved = refreshUnsavedChanges;
+
   useEffect(() => {
-    const unsubA = virtualFS.notifications.subscribe("treeVersionsUpdate", (v) => setVersions(v));
-    const unsubB = virtualFS.notifications.subscribe("treeLoading", (l) => setLoading(l));
-    const unsubRestore = virtualFS.notifications.subscribe("restoreLoading", (l) => setRestoreLoading(l));
+    const unsubA = virtualFS.notifications.subscribe("treeVersionsUpdate", setVersions);
+    const unsubB = virtualFS.notifications.subscribe("treeLoading", setLoading);
+    const unsubRestore = virtualFS.notifications.subscribe("restoreLoading", setRestoreLoading);
     const unsubSnapshotSaved = virtualFS.notifications.subscribe("snapshotSaved", () => {
       resetUnsaved();
       setCurrent(virtualFS.fs.version());
     });
-    const unsubC = virtualFS.notifications.subscribe("snapshotError", async (payload) => {
+    const unsubC = virtualFS.notifications.subscribe("snapshotError", async payload => {
       (await AppToaster).show({message: operationError("The workspace snapshot operation failed", payload?.message, "Keep the editor open and retry the snapshot operation."), intent: "danger"});
       console.error("snapshotError", payload);
       setCreating(false);
@@ -100,10 +120,7 @@ export const SnapshotProvider = ({children}) => {
       pendingVersionRef.current = null;
     });
     const unsubD = virtualFS.notifications.subscribe("fileSelected", () => setCurrent(virtualFS.fs.version()));
-    const unsubE = virtualFS.notifications.subscribe("treeUpdate", () => {
-      // Models likely recreated; rebind listeners
-      bindModelChangeListeners();
-    });
+    const unsubE = virtualFS.notifications.subscribe("treeUpdate", bindModelChangeListeners);
     return () => {
       unsubA();
       unsubB();
@@ -114,28 +131,7 @@ export const SnapshotProvider = ({children}) => {
       unsubE();
       disposeModelChangeListeners();
     };
-  }, []);
-
-  // Bind to monaco models to detect unsaved edits
-  const disposeModelChangeListeners = () => {
-    try { contentDisposersRef.current.forEach((d) => d && d.dispose && d.dispose()); } catch(_) {}
-    contentDisposersRef.current = [];
-  };
-  const bindModelChangeListeners = useCallback(() => {
-    disposeModelChangeListeners();
-    try {
-      const models = virtualFS.listModels ? virtualFS.listModels() : [];
-      models.forEach((m) => {
-        if (!m || !m.onDidChangeContent) return;
-        const d = m.onDidChangeContent(() => setHasUnsavedChanges(true));
-        contentDisposersRef.current.push(d);
-      });
-    } catch (_) {}
-  }, []);
-
-  useEffect(() => { bindModelChangeListeners(); }, [bindModelChangeListeners]);
-
-  const resetUnsaved = () => setHasUnsavedChanges(false);
+  }, [bindModelChangeListeners, disposeModelChangeListeners, resetUnsaved]);
 
   const openRenameDialog = useCallback((fromId) => {
     if (!fromId) return;

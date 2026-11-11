@@ -62,6 +62,7 @@ export async function setupVirtualWorkspace(name, displayName, template, dir) {
                 : [];
 
             if (data?.success && files.length > 0) {
+                for (const directory of data.directories || []) virtualFS.createFolder(directory);
                 for (const file of files) {
                     createVirtualFile(file.path, file.content || "")
                 }

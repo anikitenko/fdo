@@ -1,4 +1,5 @@
 import {parse} from "@babel/parser";
+import {validateRegistrationDecorators} from '../plugins/validation/registrationDecoratorValidation';
 import traverseModule from "@babel/traverse";
 
 const traverse = traverseModule.default || traverseModule;
@@ -201,6 +202,7 @@ export function validatePluginWorkspaceSdkContract(workspace = {}, {runtimeExpor
         }
     }
     for (const file of [...entries.filter(isPluginSourceFile), ...examples]) {
+        errors.push(...validateRegistrationDecorators(file, {runtimeExports}));
         errors.push(...collectDomTextErrors(file));
         errors.push(...collectActionSourceErrors(file, createActionSource));
         for (const imported of collectRuntimeSdkImports(file, file.path === '/SKILL.md')) {

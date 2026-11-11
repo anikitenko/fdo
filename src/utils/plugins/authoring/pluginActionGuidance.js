@@ -3,12 +3,12 @@ export const isSandboxedFormSubmissionError = text => /blocked form submission|s
 export const PLUGIN_ACTION_GUIDANCE = `
 - UI interactions use defineRenderOnLoadActions({lifecycleKey, strict:true, handlers, bindings}), returned from renderOnLoad(); createRenderOnLoadActionsSource is for source-text interfaces. Commands use type="button", event="click". Guard Enter through conditional SDK keydown handling or use non-submitting groups. No native submits, submit listeners, onclick, or manual user-event listeners, even in setup. Never add allow-forms to the host sandbox.
 - Handlers are self-contained serialized functions; use their document/element/window context for DOM mutations and loading/error states. setup initializes state/widgets and returns cleanup. Documented SDK callbacks such as onConfirm and lifecycle/resize cleanup remain supported.
-- Backend mutations use PluginRegistry.registerHandler in init(), requested by an SDK handler through window.createBackendReq('UI_MESSAGE',{handler,content}). Preserve permissions, confirmations and result/error handling; bindings grant no permissions. Test actual click dispatch, duplicate-click prevention and cleanup. Migrate changed wiring; preserve unrelated legacy code.`;
+- Backend mutations use verified installed @handler() instance methods or manual PluginRegistry.registerHandler in init(), requested by an SDK browser handler through window.createBackendReq('UI_MESSAGE',{handler,content}). Decorated methods register before init(); do not register them twice. If the installed SDK lacks decorators, use manual registration. Preserve permissions, confirmations and result/error handling; bindings grant no permissions. Test actual click dispatch, duplicate-click prevention and cleanup. Migrate changed wiring; preserve unrelated legacy code.`;
 
 export const PLUGIN_ACTION_EXAMPLE = `import {defineRenderOnLoadActions} from '@anikitenko/fdo-sdk';
 // The renderer creates a type="button" control with data-action="run",
 // an input with data-input="value", and a passive data-output="result" node.
-// init() registers the matching 'run' backend handler with PluginRegistry.
+// Register the matching 'run' backend handler with the installed SDK's supported mechanism.
 // renderOnLoad() returns createViewActions(); do not serialize this factory.
 export function createViewActions() {
   return defineRenderOnLoadActions({

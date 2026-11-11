@@ -29,6 +29,14 @@ test('exported SDK-free application serves browser actions and retains encrypted
             dom.createElement('input',{id:'enabled',type:'checkbox',checked:true,'aria-label':'Enable checks'}),`);
         files['/index.ts']=files['/index.ts'].replace("{handler:'counter.increment',content:{}}", "{handler:'counter.increment',content:{note:document.getElementById('note').value,enabled:document.getElementById('enabled').checked}}");
         files['/index.ts']=files['/index.ts'].replace("strict:true,handlers:",`strict:true,setup:async()=>{
+            const toast=new window.Notyf({duration:0,dismissible:true});toast.success('Standalone notifications work');
+            const utilities=document.createElement('output');utilities.id='browser-libraries';document.querySelector('section').appendChild(utilities);
+            const local=window;const terminal=new local.Terminal({cols:90});
+            utilities.textContent=JSON.stringify({sum:window._.sum([2,3]),split:typeof local.Split,highlight:local.hljs.highlight('const n = 1',{language:'javascript'}).value.includes('hljs-keyword'),style:typeof local.goober.css({color:'red'}),columns:terminal.cols});terminal.dispose();
+            const aceHost=document.createElement('div');aceHost.id='ace-editor';aceHost.style.height='120px';document.querySelector('section').appendChild(aceHost);
+            const aceEditor=window.ace.edit(aceHost);aceEditor.session.setMode('ace/mode/javascript');aceEditor.setTheme('ace/theme/monokai');aceEditor.setValue('const standaloneAce = true;',-1);
+            const reactRoot=document.createElement('div');reactRoot.id='extra-react';document.querySelector('section').appendChild(reactRoot);
+            local.ReactDOM.flushSync(()=>local.ReactDOM.createRoot(reactRoot).render(local.React.createElement('span',{},'Standalone React root')));
             const plot=document.createElement('div');plot.id='chart';plot.style.width='400px';document.querySelector('section').appendChild(plot);
             await window.FDOCharts.create(plot,{type:'bar',label:'Standalone chart',xKey:'day',data:[{day:'Monday',value:3}],series:[{key:'value'}],height:160});
         },handlers:`);
@@ -61,9 +69,16 @@ test('exported SDK-free application serves browser actions and retains encrypted
         let url=await start();
         expect((await fetch(url+'/api/view')).status).toBe(401);
         context=await browser.newContext({httpCredentials:{username:'engineer',password}});
-        const page=await context.newPage();await page.goto(url);
+        const page=await context.newPage(),consoleErrors=[];page.on('console',message=>{if(message.type()==='error')consoleErrors.push(message.text());});await page.goto(url);
         const frame=page.frameLocator('iframe[title="Application"]');
         await expect(frame.getByRole('heading',{name:'Standalone counter'})).toBeVisible();
+        await expect(frame.locator('.notyf__message').filter({hasText:'Standalone notifications work'})).toBeVisible();
+        await expect(frame.getByText('Standalone React root',{exact:true})).toBeVisible();
+        await expect(frame.locator('#browser-libraries')).toHaveText(JSON.stringify({sum:5,split:'function',highlight:true,style:'string',columns:90}));
+        await expect(frame.locator('#ace-editor .ace_text-layer')).toContainText('const standaloneAce = true;');
+        expect(await frame.locator('#ace-editor').evaluate(element=>element.classList.contains('ace-monokai'))).toBe(true);
+        expect(consoleErrors.filter(message=>/worker|content security policy/i.test(message))).toEqual([]);
+        expect(await frame.locator('.notyf').evaluate(element=>getComputedStyle(element).position)).toBe('fixed');
         await expect(frame.getByRole('figure',{name:'Standalone chart'}).locator('svg').first()).toBeVisible();
         const note=frame.getByLabel('Deployment note'),enabled=frame.getByRole('checkbox',{name:'Enable checks'});
         await expect(note).toHaveValue('Initial value');await expect(enabled).toBeChecked();

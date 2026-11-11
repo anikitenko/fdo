@@ -20,12 +20,13 @@ import {inspectGitOpsCapabilities} from '../../gitops/inspectCapabilities';
 import {runtimeSourceGraph} from './runtimeSourceGraph';
 import {attachWebExportRecovery} from './webExportRecovery';
 import {normalizeExportPort} from './exportOptions';
+import {prepareSharedWebExport} from './sharedWebExport';
 const traverse=Reflect.get(traverseModule,'default') || traverseModule;
 
 export function exportFingerprint(files,plugin) {
     const hash=createHash('sha256');
     for(const file of Object.keys(files).sort())hash.update(file).update('\0').update(files[file]).update('\0');
-    hash.update(JSON.stringify([plugin.id,[...(plugin.capabilities || [])].sort(),plugin.customProcessScopes || [],plugin.customFilesystemScopes || []]));
+    hash.update(JSON.stringify([plugin.id,[...(plugin.capabilities || [])].sort(),plugin.customProcessScopes || [],plugin.customFilesystemScopes || [],plugin.sharedLogicBindings || []]));
     return hash.digest('hex');
 }
 const authoring="module.exports=require('./application.cjs').abi;\n";
@@ -35,9 +36,13 @@ const projectName=value=>{
     return name.slice(0,32).replace(/-+$/,'');
 };
 
-export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSource,viewLibrary,runtimeSources,port=8080}) {
+export async function prepareWebApplicationExport(options) {
+    return prepareSharedWebExport(options, prepareSingleWebApplicationExport);
+}
+
+async function prepareSingleWebApplicationExport({snapshot,plugin,esbuild,sdkSource,viewLibrary,runtimeSources,port=8080}) {
     port=normalizeExportPort(port);
-    for(const key of ['toolRuntime','toolSemver','serviceCore','workerLiveSource','gitSshHelper','applicationRuntime','installApplicationNetworkPolicy','backendWorker','webServer','webFrontend','iframeRuntime','createWebServices','deploymentSetup','thirdPartyNotices','azureDeploymentDocumentation','awsDeploymentDocumentation','gcpDeploymentDocumentation'])if(typeof runtimeSources?.[key]!=='string' || !runtimeSources[key])throw new Error('The standalone runtime assets are incomplete. Rebuild or update FDO before exporting ('+key+').');
+    for(const key of ['toolRuntime','toolSemver','serviceCore','workerLiveSource','gitSshHelper','applicationRuntime','sharedWebRuntime','sharedLogicBroker','sharedLogicContracts','sharedLogicTypeContract','installApplicationNetworkPolicy','backendWorker','webServer','webFrontend','iframeRuntime','createWebServices','deploymentSetup','thirdPartyNotices','azureDeploymentDocumentation','awsDeploymentDocumentation','gcpDeploymentDocumentation'])if(typeof runtimeSources?.[key]!=='string' || !runtimeSources[key])throw new Error('The standalone runtime assets are incomplete. Rebuild or update FDO before exporting ('+key+').');
     const selectedEntry=snapshot.sourceEntry || snapshot.runtimeEntry;
     let declaration,metafile;
     if(selectedEntry)try {
@@ -116,6 +121,10 @@ export async function prepareWebApplicationExport({snapshot,plugin,esbuild,sdkSo
         'runtime/tools.cjs':'module.exports=('+runtimeSources.toolRuntime+')();\n',
         'tools.cjs':"const tools=require('./runtime/tools.cjs');(async()=>{const command=process.argv[2] || 'check';if(!['check','install'].includes(command))throw new Error('Usage: node tools.cjs check|install');const result=command==='install'?await tools.install():tools.check();console.log(JSON.stringify(result,null,2));if(!result.ok)process.exitCode=1;})().catch(error=>{console.error(error.message);process.exitCode=1;});\n",
         'runtime/application.cjs':'module.exports=('+runtimeSources.applicationRuntime+')();\n',
+        'runtime/shared.cjs':'exports.connect='+runtimeSources.sharedWebRuntime+';\n',
+        'runtime/sharedLogicBroker.cjs':runtimeSources.sharedLogicBroker,
+        'runtime/sharedLogicContracts.cjs':runtimeSources.sharedLogicContracts,
+        'runtime/sharedLogicTypeContract.cjs':runtimeSources.sharedLogicTypeContract,
         'runtime/network.cjs':'exports.install='+runtimeSources.installApplicationNetworkPolicy+';\n',
         'runtime/helpers.cjs':"module.exports=require('./contract.cjs');\n",'runtime/authoring.cjs':authoring,
         'runtime/contract.cjs':contractRuntime,'runtime/service-core.cjs':runtimeSources.serviceCore,

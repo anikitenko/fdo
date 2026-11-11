@@ -6,6 +6,8 @@ import {sanitizeVirtualWorkspacePath} from '../../components/editor/utils/aiCodi
 import {workspaceTsCompilerOptions} from '../plugins/validation/workspaceTsCompilerOptions';
 import {PLUGIN_CSS_TYPES, PLUGIN_UI_TYPES} from './pluginCssTypes';
 import {loadTypeScriptRuntime} from './typeScriptRuntime';
+import {sharedLogicDeclarations} from './sharedLogicAuthoring';
+import {getSharedLogicAuthoringCatalog} from './sharedLogicAuthoringCatalog';
 
 // All candidate sources stay in memory. Do not load candidate tsconfig plugins,
 // execute workspace code, or modify live editor models to obtain diagnostics.
@@ -15,6 +17,7 @@ export function typecheckPluginWorkspace(latestContent, nodeModules = getHostPlu
     const normalize = name => path.resolve(name).replace(/\\/g, '/');
     const root = normalize(path.join(nodeModules, '..', '.fdo-typecheck-candidate'));
     const sources = new Map();
+    sources.set(root + '/__fdo_shared_logic__.d.ts', sharedLogicDeclarations(getSharedLogicAuthoringCatalog()));
     for (const [name, content] of Object.entries(latestContent || {})) {
         if (sanitizeVirtualWorkspacePath(name) !== name || name.startsWith('/node_modules/') || name.startsWith('/dist/')) continue;
         if (typeof content === 'string') sources.set(root + name, content);

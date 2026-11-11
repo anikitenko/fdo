@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 
-export async function getAllFilesWithIgnorance(dir, include, baseDir = dir) {
+export async function getAllFilesWithIgnorance(dir, include, baseDir = dir, onDirectory = () => {}) {
     try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         let files = [];
@@ -13,7 +13,8 @@ export async function getAllFilesWithIgnorance(dir, include, baseDir = dir) {
             if (!include(relativePath)) continue;
 
             if (entry.isDirectory()) {
-                const subFiles = await getAllFilesWithIgnorance(fullPath, include, baseDir);
+                onDirectory(fullPath);
+                const subFiles = await getAllFilesWithIgnorance(fullPath, include, baseDir, onDirectory);
                 files = files.concat(subFiles);
             } else if (entry.isFile()) {
                 files.push(fullPath);

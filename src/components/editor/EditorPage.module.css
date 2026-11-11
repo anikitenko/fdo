@@ -848,85 +848,10 @@
     min-height: 0;
 }
 
-.file-dialog-component {
-    background: var(--menu-border);
-}
-
-.file-dialog-component :global(.bp6-input-group) {
-    margin-top: 10px;
-    margin-bottom: 5px;
-}
-
-.file-dialog-component :global(input) {
-    border: none;
-    outline: none;
-    border-radius: 0;
-    box-shadow: initial;
-    background: var(--menu-border);
-    color: white;
-    padding-left: 37px !important;
-    font-size: 1.1rem;
-}
-
-.file-dialog-component :global(input):focus {
-    outline: none 0 !important;
-    -moz-outline-radius: 0;
-}
-
-.file-dialog-component :global(input)::placeholder {
-    color: #aaa;
-}
-
-.file-dialog-component .new-file-options-list {
-    list-style: none;
-    padding-left: 0;
-    margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.6rem;
-    cursor: pointer;
-    overflow-y: auto;
-    max-height: 100px;
-}
-
-.file-dialog-component .new-file-option {
-    color: white;
-}
-
-.file-dialog-component .new-file-option.selected {
-    background-color: var(--menu-hover-bg);
-}
-
-.alert-delete {
-    background: var(--menu-border);
-}
-
 .versions-scrollable-dropdown {
     max-height: 300px; /* Adjust as needed */
     overflow-y: auto;
 }
-
-.contexify_theme-dark {
-    --contexify-menu-bgColor: #c5c2c2;
-    --contexify-separator-color: #aaaaaa;
-    --contexify-item-color: #fff;
-    --contexify-activeItem-color: #fff;
-    --contexify-activeItem-bgColor: var(--menu-hover-bg);
-    --contexify-rightSlot-color: #ffffff;
-    --contexify-activeRightSlot-color: #fff;
-    --contexify-arrow-color: #ffffff;
-    --contexify-activeArrow-color: #fff;
-    font-size: 0.8rem;
-    --contexify-menu-radius: 4px;
-    --contexify-menu-padding: 4px;
-    --contexify-menu-minWidth: 150px;
-}
-
-
-:global(.contexify_submenu) {
-    max-height: 250px;
-    overflow-y: auto;
-}
-
 
 /** Compact mode adjustments: applied when root container has .compact */
 .compact .editor-header {
@@ -995,3 +920,11 @@
     min-height: 0;
     height: auto;
 }
+
+/* Project tools keep file operations next to the tree and keyboard accessible. */
+.projectExplorer { display: flex; flex-direction: column; gap: 8px; padding: 4px 8px 12px; min-width: 0; }
+.projectToolbar { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; padding-bottom: 4px; border-bottom: 1px solid #363940; }
+.projectExplorer .file-tree :global(.bp6-tree-node-content) { height: 28px; font-size: 12px; border-radius: 4px; }
+.fileTypeChoices { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+.fileDestination { overflow-wrap: anywhere; margin: 14px 0; }
+.quickFileResults { max-height: 360px; overflow: auto; margin-top: 12px; }

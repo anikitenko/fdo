@@ -36,6 +36,36 @@ describe('VirtualFS snapshots', () => {
     return model;
   };
 
+  test('restores legacy double-slash and relative snapshot paths at canonical Monaco paths', () => {
+    virtualFS.fs.versions.legacy = {
+      version: 'legacy',
+      tabs: [{id: '//shared/website-check-ui.ts', active: true}],
+      content: [
+        {id: '//shared/website-check-ui.ts', content: 'export const ui = 1;', state: {scrollTop: 12}},
+        {id: 'index.ts', content: 'import {ui} from "./shared/website-check-ui";'},
+      ],
+    };
+    const result = virtualFS.fs.set('legacy');
+    expect(virtualFS.getLatestContent()['/shared/website-check-ui.ts']).toBe('export const ui = 1;');
+    expect(virtualFS.getLatestContent()['/index.ts']).toContain('./shared/website-check-ui');
+    expect(virtualFS.files['//shared/website-check-ui.ts']).toBeUndefined();
+    expect(virtualFS.getModel('/shared/website-check-ui.ts').uri.path).toBe('/shared/website-check-ui.ts');
+    expect(virtualFS.getModelState('/shared/website-check-ui.ts')).toEqual({scrollTop: 12});
+    expect(result.tabs).toEqual([{id: '/shared/website-check-ui.ts', active: true}]);
+    expect(virtualFS.getTreeObjectItemSelected()?.id).toBe('/shared/website-check-ui.ts');
+  });
+
+  test('conflicting snapshot path aliases leave the current workspace intact', () => {
+    createModel('/index.ts', 'current source');
+    virtualFS.fs.versions.conflict = {content: [
+      {id: '/shared/ui.ts', content: 'first'},
+      {id: '//shared/ui.ts', content: 'second'},
+    ]};
+    expect(() => virtualFS.fs.set('conflict')).toThrow('Conflicting snapshot files');
+    expect(virtualFS.getFileContent('/index.ts')).toBe('current source');
+    expect(virtualFS.fs.getRestoreLoading()).toBe(false);
+  });
+
   test('exact rollback deletion preserves files sharing the generated path prefix', () => {
     createModel('/new.ts', 'partial');
     createModel('/new.tsx', 'retained');
@@ -58,6 +88,23 @@ describe('VirtualFS snapshots', () => {
     const unpacked = JSON.parse(LZString.decompress(stored));
     expect(unpacked.versions[result.version]).toBeTruthy();
     expect(unpacked.version_current).toBe(result.version);
+  });
+
+  test('detects changes relative to the active snapshot, including directories', () => {
+    createModel('/src/index.ts', 'original');
+    virtualFS.createFolder('/src/empty');
+    const snapshot = virtualFS.fs.create('', [], {quiet: true});
+
+    expect(virtualFS.hasUnsavedChanges()).toBe(false);
+    virtualFS.setFileContent('/src/index.ts', 'edited');
+    expect(virtualFS.hasUnsavedChanges()).toBe(true);
+    virtualFS.setFileContent('/src/index.ts', 'original');
+    expect(virtualFS.hasUnsavedChanges()).toBe(false);
+
+    virtualFS.createFolder('/src/new');
+    expect(virtualFS.hasUnsavedChanges()).toBe(true);
+    virtualFS.fs.create(snapshot.version, [], {quiet: true});
+    expect(virtualFS.hasUnsavedChanges()).toBe(false);
   });
 
   test('list() returns newest-first ordering', () => {

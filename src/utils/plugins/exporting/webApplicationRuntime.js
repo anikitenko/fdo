@@ -6,7 +6,7 @@ export function backendWorker() {
     const runtime=load('runtime/application.cjs');
     load('runtime/network.cjs').install(load('deployment/application.json').networkPolicy);
     // Converted application code registers its own instance and API handlers.
-    load('backend/app.cjs');
+    runtime.runBackend(()=>load('backend/app.cjs'));
     process.on('message',async request=>{
         const {id,operation,content}=request || {};
         if(!operation)return;
@@ -21,7 +21,11 @@ export function backendWorker() {
             } else if(operation==='invoke')result=await runtime.invoke(content.handler,content.content,content.viewId);
             else if(operation==='shutdown'){await runtime.shutdown();result=true;}
             process.send?.({id,result});
-        }catch(error){console.error('[web-backend]',operation,'failed');process.send?.({id,error:operation==='render' || ['CONFIGURATION_REQUIRED','LOCKED','NOT_FOUND','ACCESS_DENIED'].includes(error.code)?error.message:'Application operation failed.',code:error.code});}
+        }catch(error){
+            console.error('[web-backend]',operation,'failed');
+            const sharedErrors={UNAVAILABLE:'A shared provider is unavailable. Restart the application and check its backend logs.',ACCESS_DENIED:'Access to this shared service is not approved. Review capabilities in FDO and export again.',TIMEOUT:'The shared service timed out.',CANCELLED:'The shared service call was cancelled.',BACKPRESSURE:'The shared service is busy. Try again shortly.',NOT_FOUND:'The shared service or method was not found.',SERVICE_ERROR:'The shared service could not complete the operation.'};
+            process.send?.({id,error:error.name==='SharedLogicError' && sharedErrors[error.code] || (operation==='render' || ['CONFIGURATION_REQUIRED','LOCKED','NOT_FOUND','ACCESS_DENIED'].includes(error.code)?error.message:'Application operation failed.'),code:error.code});
+        }
     });
     process.on('disconnect',()=>process.exit(0));
     process.send?.({ready:true});
@@ -74,7 +78,8 @@ export function webServer() {
         });
         return run().finally(()=>{queued--;});
     };
-    const startupTimer=setTimeout(()=>{bootReject(new Error('Backend startup timed out.'));child.kill('SIGKILL');},20000);
+    const startupBudget=Math.min(300000,20000+(manifest.sharedLogic?.providers?.length || 0)*15000);
+    const startupTimer=setTimeout(()=>{bootReject(new Error('Backend startup timed out.'));child.kill('SIGKILL');},startupBudget);
     void boot.then(()=>call('initialize')).then(()=>{ready=true;clearTimeout(startupTimer);console.log('Application backend ready.');},()=>{clearTimeout(startupTimer);child.kill();console.error('Application initialization failed.');});
     const send=(response,status,value,type='application/json')=>{
         response.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'});

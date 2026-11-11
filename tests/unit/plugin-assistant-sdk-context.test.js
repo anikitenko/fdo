@@ -21,3 +21,18 @@ test('missing installed declaration fails instead of silently providing incomple
         expect(() => readEvaluationSdkContext(root)).toThrow('PluginRegistry.d.ts');
     } finally {fs.rmSync(root, {recursive: true, force: true});}
 });
+
+test('new SDK decorator declarations are included when installed without requiring them from older SDKs', () => {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-sdk-decorator-evidence-'));
+    try {
+        for(const name of EVALUATION_SDK_DECLARATIONS) {
+            const file=path.join(root,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'export {};');
+        }
+        expect(readEvaluationSdkContext(root)).not.toContain('SDK declaration: decorators/Registration.d.ts');
+        fs.mkdirSync(path.join(root,'decorators'),{recursive:true});
+        fs.writeFileSync(path.join(root,'decorators/Registration.d.ts'),'export declare function handler(name?:string):MethodDecorator;');
+        const context=readEvaluationSdkContext(root);
+        expect(context).toContain('SDK declaration: decorators/Registration.d.ts');
+        expect(context).toContain('handler(name?:string):MethodDecorator');
+    }finally {fs.rmSync(root,{recursive:true,force:true});}
+});

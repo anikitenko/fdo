@@ -25,6 +25,8 @@ const CAPABILITY_RISK_LEVELS = Object.freeze({
 });
 
 export const CAPABILITY_PRESENTATION = Object.freeze({
+    'plugins.shared.provide': Object.freeze({id: 'plugins.shared.provide', title: 'Export shared plugin logic', description: 'Allow this plugin to export named methods to separately approved consumers.', risk: CAPABILITY_RISK_LEVELS.high, dependsOn: Object.freeze([]), category: 'shared-logic'}),
+    'plugins.shared.use': Object.freeze({id: 'plugins.shared.use', title: 'Use shared plugin logic', description: 'Discover exported services. Approve each provider, service and major version separately before calling it.', risk: CAPABILITY_RISK_LEVELS.high, dependsOn: Object.freeze([]), category: 'shared-logic'}),
     [STORAGE_CAPABILITY]: Object.freeze({
         id: STORAGE_CAPABILITY,
         title: "Persistent plugin storage",
@@ -346,6 +348,11 @@ export function buildScopeCapabilityPresentation(scopePolicy = {}) {
 
 export function getCapabilityPresentation(capabilityId, scopePolicies = []) {
     const normalizedCapabilityId = toCanonicalCapabilityId(capabilityId);
+    if (normalizedCapabilityId.startsWith('plugins.shared.call.')) {
+        return {id: normalizedCapabilityId, title: `Shared service: ${normalizedCapabilityId.slice('plugins.shared.call.'.length)}`,
+            description: 'Allows calls to the exported methods in this exact provider/service/major version. Code runs with the provider plugin’s permissions and may perform actions or return sensitive data. Private handlers and credentials are not automatically exposed.',
+            risk: CAPABILITY_RISK_LEVELS.high, dependsOn: ['plugins.shared.use'], category: 'shared-logic'};
+    }
     if (/^(secrets\.(use|set|get|delete|list|consume)|ssh\.(use|exec|profiles\.list|status\.watch|terminal\.open|x11\.forward))$/.test(normalizedCapabilityId)) {
         const descriptions = {
             'secrets.use': ['Secret store access', 'Base permission only. Pair with each approved secret operation.'],

@@ -69,6 +69,16 @@ test('conversion blockers keep web export disabled while the report can still be
     fireEvent.click(screen.getByRole('button',{name:'Save conversion report'}));
     await waitFor(()=>expect(window.electron.plugin.exportAs).toHaveBeenCalledWith('plugin-a',{format:'report',token:'blocked-review'}));
 });
+
+test('Docker review identifies the shared providers that will be packaged',async()=>{
+    window.electron.plugin.previewExport.mockResolvedValue({success:true,token:'shared-review',report:{...report,sharedLogic:{providers:[{id:'provider-1',name:'Website Availability Provider'}]}}});
+    render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    fireEvent.change(screen.getByLabelText('Export format'),{target:{value:'web'}});
+    expect(await screen.findByText('Included shared providers')).toBeVisible();
+    expect(screen.getByText('Website Availability Provider')).toBeVisible();
+    expect(screen.getByText('provider-1')).toBeVisible();
+    expect(screen.getByRole('button',{name:'Export web application'})).toBeEnabled();
+});
 test('failed saves and canceled native dialogs retain the chosen format for retry',async()=>{
     window.electron.plugin.exportAs.mockResolvedValueOnce({success:false,error:'Plugin source changed. Review again.'}).mockResolvedValueOnce({success:true,canceled:true});
     render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);

@@ -316,6 +316,16 @@ contextBridge.exposeInMainWorld('electron', {
         deleteCustomProcessScope: (scopeId) => ipcRenderer.invoke(PluginChannels.DELETE_SHARED_PROCESS_SCOPE, scopeId),
         getRuntimeStatus: (ids) => ipcRenderer.invoke(PluginChannels.GET_RUNTIME_STATUS, ids),
         getActivated: () => ipcRenderer.invoke(PluginChannels.GET_ACTIVATED),
+        listSharedLogic: () => ipcRenderer.invoke(PluginChannels.SHARED_LOGIC_CATALOG),
+        reviewSharedLogicAccess: (pluginId, requestId, decision, installedProviderId) => ipcRenderer.invoke(PluginChannels.SHARED_LOGIC_REVIEW, pluginId, requestId, decision, installedProviderId),
+        grantSharedLogicAccess: (pluginId, target, installedProviderId) => ipcRenderer.invoke(PluginChannels.SHARED_LOGIC_GRANT, pluginId, target, installedProviderId),
+        requestSharedLogicAccess: (pluginId, target) => ipcRenderer.invoke(PluginChannels.SHARED_LOGIC_REQUEST, pluginId, target),
+        restart: (id, sessionId) => ipcRenderer.invoke(PluginChannels.RESTART, id, sessionId),
+        onResponsiveness: callback => {
+            const listener = (_event, payload) => callback(payload);
+            ipcRenderer.on(PluginChannels.on_off.RESPONSIVENESS, listener);
+            return () => ipcRenderer.removeListener(PluginChannels.on_off.RESPONSIVENESS, listener);
+        },
         activate: (id) => ipcRenderer.invoke(PluginChannels.ACTIVATE, id),
         deactivate: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE, id),
         deactivateUsers: (id) => ipcRenderer.invoke(PluginChannels.DEACTIVATE_USERS, id),

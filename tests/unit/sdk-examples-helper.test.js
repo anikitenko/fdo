@@ -110,6 +110,13 @@ describe('SDK fixture signing preflight', () => {
     }};
   });
   const deployFixture = () => deploySdkExample(page, {slug: 'signing', relativePath: 'fixtures/signing.ts'}, {compiledContent: 'fixture'});
+  test('can stage a release-candidate plugin before loading its required SDK', async () => {
+    deploy.mockResolvedValue({success:true});
+    await expect(deploySdkExample(page,{slug:'decorators',relativePath:'decorators.ts'},
+      {compiledContent:'fixture',deferActivation:true})).resolves.toEqual({pluginName:'sdk-e2e-decorators'});
+    expect(deploy).toHaveBeenCalledTimes(1);
+    // The fixture intentionally has no activate API; loading must be deferred.
+  });
 
   test('reports credential-store failure before attempting deployment', async () => {
     const error = new Error('Certificate private keys require an available OS credential store.');

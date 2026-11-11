@@ -28,7 +28,7 @@ export function attachWebExportRecovery(report) {
             capabilities:requirements.map(item=>item.capability),locations:(report.locations || []).filter(item=>item.adapter===adapter.id),
             message:adapter.description,reviewWhen:'After a real adapter is implemented and enabled in the conversion contract, or the plugin source uses an already supported standalone service.'});
     }
-    const permissionMessages=[...remaining].filter(message=>message.includes('is declared but is not approved'));
+    const permissionMessages=[...remaining].filter(message=>message.includes('is declared but is not approved') || message.includes('needs approved plugins.shared.use') || message.includes('lacks approved plugins.shared.provide'));
     if(permissionMessages.length) {
         permissionMessages.forEach(message=>remaining.delete(message));
         add({kind:'permission',owner:'Plugin engineer',title:'Review requested capability grants',message:permissionMessages.join(' '),

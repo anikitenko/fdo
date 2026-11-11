@@ -277,7 +277,8 @@ const CodeDeployActions = ({
                 metadata,
                 dir: pluginDirectory,
                 rootCert: selectedLabel,
-                content
+                content,
+                directories: virtualFS.getDirectories(),
             })
             if (!result.success) {
                 (await AppToaster).show({message: operationError(`Could not save ${await workspaceNotificationName(virtualFS)}`, result.error, "Review the plugin metadata and signer, then try again."), intent: "danger"});
@@ -501,7 +502,7 @@ const CodeDeployActions = ({
                 loading={isLoadingSwitch}
                 onCancel={() => setIsOpenSwitch(false)}
                 onConfirm={handleConfirmSwitch}
-                className={styles["alert-delete"]}
+                className="bp6-dark"
             >
                 <p style={{color: "white"}}>
                     Make sure to <b>create snapshot</b> before switching between versions. Unsaved changes will be

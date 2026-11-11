@@ -7,6 +7,7 @@ import {pluginCompatibilityBanner, readPluginBuildCompatibility, evaluatePluginC
 import {inspectPluginCompatibility, installedPluginCompatibility, pluginCompatibilityHost} from '../../src/utils/sdk/pluginCompatibilityHost';
 import {packageJsonContent} from '../../src/components/editor/utils/packageJsonContent';
 import {getSdkHandshake} from '@anikitenko/fdo-sdk';
+import {HOST_REQUIRED_SDK_FEATURE_FLAGS} from '../../src/utils/sdk/pluginHostContract';
 
 const host = {fdo: '1.4.0', sdk: '1.8.3', api: '1.0.0', features: {pluginDoctorReport: true}};
 const evaluate = (declaration, overrides = {}) => evaluatePluginCompatibility({declaration}, {...host, ...overrides});
@@ -78,9 +79,14 @@ test('starter projects tell engineers which FDO and SDK versions they target', (
     expect(inspectPluginCompatibility(JSON.stringify(pkg)).status).toBe('compatible');
 });
 
-test('host feature declarations agree with the bundled SDK contract', () => {
+test('the bundled SDK satisfies required host features while new host operations stay optional', () => {
     const runtime = pluginCompatibilityHost();
     const handshake = getSdkHandshake();
     expect(handshake.apiVersion.split('.')[0]).toBe(runtime.api.split('.')[0]);
-    for (const flag of Object.keys(runtime.features)) expect(handshake.featureFlags[flag]).toBe(true);
+    for (const flag of HOST_REQUIRED_SDK_FEATURE_FLAGS) expect(handshake.featureFlags[flag]).toBe(true);
+    for (const flag of Object.keys(handshake.featureFlags)) {
+        if (handshake.featureFlags[flag]) expect(runtime.features[flag]).toBe(true);
+    }
+    expect(runtime.features.sharedPluginLogicRequests).toBe(true);
+    expect(runtime.features.sharedPluginLogicContracts).toBe(true);
 });

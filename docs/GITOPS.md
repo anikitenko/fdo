@@ -50,6 +50,30 @@ the saved configuration and refreshes its collection snapshot and commit.
 Verification establishes read access, not the identity of an account: public
 repositories may accept requests even when the provided credentials are invalid.
 
+## Plugin version requirements
+
+Each plugin can declare supported host versions in its own `package.json`:
+
+```json
+{"fdo":{"compatibility":{"fdo":">=1.0.6 <2.0.0","sdk":">=1.8.3 <2.0.0"}}}
+```
+
+GitOps checks both the package declaration and any compatibility header in the
+compiled plugin against the FDO version and the SDK bundled with FDO. These
+example ranges describe the format, not a recommendation for future plugins;
+set the minimum versions to the first releases containing the APIs and fixes
+your plugin needs. The SDK version in a plugin's dependency list alone is not
+this host compatibility declaration.
+
+An incompatible update is rejected before replacing the installed plugin or
+stopping its runtime. Its error appears in Settings → GitOps; other plugins can
+continue synchronizing. Fetching and building a candidate may still occur to
+inspect it. Cached candidates, unchanged installed commits, and permission
+approvals are checked again against the current host. Editing package requirements
+cannot weaken a compiled compatibility header. Legacy plugins without either
+declaration remain allowed with unverified compatibility; an SDK range is enforced
+only when declared or recorded in the build header.
+
 ## Manifest format
 
 ```yaml

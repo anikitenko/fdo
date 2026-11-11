@@ -18,6 +18,8 @@ import {
 import {resolveMonacoTypeScriptApi} from "./monacoTypeScriptApi";
 import {PLUGIN_CSS_TYPES, PLUGIN_UI_TYPES} from '../../../utils/sdk/pluginCssTypes';
 import {registerNodeBuiltinEditorTypes} from './nodeBuiltinEditorTypes';
+import {normalizeVirtualWorkspacePath} from '../../../utils/plugins/virtualWorkspacePaths';
+import {isPathWithin, isEditableWorkspacePath, validateWorkspaceDestination, planWorkspaceRename} from './workspaceFileOperations';
 
 function getMonacoTypeScriptApi() {
     return resolveMonacoTypeScriptApi(monaco);
@@ -565,6 +567,7 @@ const virtualFS = {
             this.versions[latest] = {
                 tabs: tabs,
                 content: content,
+                directories: this.parent.getDirectories(),
                 version: latest,
                 prev: replaceVersion ? this.versions[replaceVersion].prev : prevVersion,
                 ...(liveUiGroup ? {liveUiGroup} : {}),
@@ -623,6 +626,17 @@ const virtualFS = {
             return { version: latest, date: date, prev: prevVersion, error: persistError };
         },
         set(version) {
+            // Recover paths written by the old root-folder dialog (//shared/...).
+            // Check aliases before clearing the current workspace, preserving
+            // both sources if an old snapshot contains conflicting entries.
+            const restoredFiles = new Map();
+            for (const file of this.versions[version].content) {
+                const id = normalizeVirtualWorkspacePath(file.id);
+                if (restoredFiles.has(id) && restoredFiles.get(id).content !== file.content) {
+                    throw new Error(`Conflicting snapshot files resolve to ${id}. Restore a different snapshot or rename the conflicting file.`);
+                }
+                restoredFiles.set(id, {...file, id});
+            }
             this.snapshotSwitchRevision = (this.snapshotSwitchRevision || 0) + 1;
             this.parent.notifications.addToQueue("snapshotSwitched", {
                 from: this.version_current, to: version, revision: this.snapshotSwitchRevision,
@@ -631,7 +645,7 @@ const virtualFS = {
             this.setRestoreLoading()
             this.setRestorePhase("clearing-models")
             for (const key of Object.keys(this.parent.files)) {
-                tsDefaults?.addExtraLib("", key);
+                this.parent.__removeExtraLib(key);
                 const model = monaco.editor.getModel(monaco.Uri.file(`${key}`))
                 if (model) {
                     model.dispose()
@@ -651,10 +665,12 @@ const virtualFS = {
                      width="20" height="20" alt="icon"/>;
 
             this.setRestorePhase("restoring-models")
-            for (const file of this.versions[version].content) {
+            for (const dir of this.versions[version].directories || []) {
+                this.parent.__createTreeObjectItem(normalizeVirtualWorkspacePath(dir), true, {suppressDefaultSelection: true});
+            }
+            for (const file of restoredFiles.values()) {
                 const uri = monaco.Uri.file(`${file.id}`)
                 const fileContent = file.content
-                tsDefaults?.addExtraLib(fileContent, file.id)
                 let model = {}
                 model = monaco.editor.getModel(uri)
                 if (!model) {
@@ -691,7 +707,9 @@ const virtualFS = {
             } catch (e) {
                 this.parent.notifications.addToQueue("snapshotError", { message: "Failed to persist current version.", error: String(e) });
             }
-            const savedTabs = this.versions[version].tabs || [];
+            const savedTabs = (this.versions[version].tabs || []).map(tab => ({
+                ...tab, id: normalizeVirtualWorkspacePath(tab.id),
+            }));
             const activeSavedTabId =
                 savedTabs.find((tab) => tab?.active)?.id ||
                 savedTabs[0]?.id ||
@@ -1140,15 +1158,17 @@ const virtualFS = {
             this.removeById(tab.id)
         },
         removeById(id) {
-            const index = this.list.findIndex((t) => t.id === id)
-            if (index > -1) {
-                this.list.splice(index, 1)
+            const index = this.list.findIndex(tab => tab.id === id);
+            if (index < 0) return;
+            const wasActive = this.list[index].active;
+            this.list.splice(index, 1);
+            this.parent.notifications.addToQueue('fileTabs', this.get());
+            if (wasActive) {
+                this.parent.notifications.addToQueue('tabClosed', id);
+                const next = this.list[Math.min(index, this.list.length - 1)];
+                if (next) this.setActiveTab(next);
+                else this.parent.notifications.addToQueue('tabSwitched', null);
             }
-            this.parent.notifications.addToQueue("fileTabs", this.get())
-            if (this.isActiveById(id)) {
-                this.parent.notifications.addToQueue("tabClosed", id);
-            }
-            this.switchToLast()
         },
         get() {
             return [...this.list]
@@ -1252,6 +1272,18 @@ const virtualFS = {
             language: nextLanguage,
             state: entry.state || {},
         };
+        if (model && (entry.model !== model || !entry.contentSubscription)) {
+            entry.contentSubscription?.dispose?.();
+            entry.disposeSubscription?.dispose?.();
+            const remember = () => {
+                if (this.files[fileName]?.model !== model) return;
+                try {this.files[fileName].content = model.getValue();} catch {}
+            };
+            this.files[fileName].contentSubscription = model.onDidChangeContent?.(() => {
+                remember();this.notifications.addToQueue('fileContentChanged', fileName);
+            });
+            this.files[fileName].disposeSubscription = model.onWillDispose?.(remember);
+        }
         return this.files[fileName];
     },
     __ensureLiveModel(fileName) {
@@ -1309,6 +1341,38 @@ const virtualFS = {
                 return [key, this.files[key]?.content ?? ""];
             })
         )
+    },
+    hasUnsavedChanges() {
+        const currentContent = Object.fromEntries(
+            Object.entries(this.getLatestContent()).filter(([id]) => isEditableWorkspacePath(id))
+        );
+        const snapshot = this.fs.versions[this.fs.version_current];
+        if (!snapshot) {
+            return Object.keys(currentContent).length > 0 || this.getDirectories().length > 0;
+        }
+
+        const snapshotContent = Object.fromEntries(
+            (Array.isArray(snapshot.content) ? snapshot.content : [])
+                .filter(file => file?.id && isEditableWorkspacePath(file.id))
+                .map(file => [normalizeVirtualWorkspacePath(file.id), file.content ?? ""])
+        );
+        const currentFiles = Object.keys(currentContent).sort();
+        const snapshotFiles = Object.keys(snapshotContent).sort();
+        if (currentFiles.length !== snapshotFiles.length ||
+            currentFiles.some((id, index) => id !== snapshotFiles[index] || currentContent[id] !== snapshotContent[id])) {
+            return true;
+        }
+
+        const snapshotDirectories = Array.isArray(snapshot.directories)
+            ? snapshot.directories.filter(isEditableWorkspacePath)
+            : [...new Set(snapshotFiles.flatMap(id => {
+                const parts = id.split('/').filter(Boolean);
+                return parts.slice(0, -1).map((_, index) => `/${parts.slice(0, index + 1).join('/')}`);
+            }))];
+        const currentDirectories = this.getDirectories().sort();
+        snapshotDirectories.sort();
+        return currentDirectories.length !== snapshotDirectories.length ||
+            currentDirectories.some((id, index) => id !== snapshotDirectories[index]);
     },
     getTreeObjectItemById(id) {
         const stack = [...this.treeObject];
@@ -1419,6 +1483,11 @@ const virtualFS = {
             // Best-effort sync only.
         }
     },
+    __removeExtraLib(filePath) {
+        for (const defaults of [getMonacoTypeScriptDefaults(), getMonacoJavaScriptDefaults()]) {
+            for (const key of [filePath, monaco.Uri.file(filePath).toString()]) defaults?.addExtraLib?.('', key)?.dispose?.();
+        }
+    },
 
     updateModelState(filePath, state) {
         if (this.files[filePath]) {
@@ -1432,29 +1501,12 @@ const virtualFS = {
     },
 
     removeTreeObjectItemById(id) {
-        if (this.__removeTreeObjectItemById(this.treeObject, id, true))
-            this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
-    },
-
-    __removeTreeObjectItemById(nodes, id, isDirectDeletion) {
-        if (!nodes || nodes.length === 0) return [];
-
-        return nodes.filter(node => {
-            if (node.id === id) {
-                return false; // Remove this node
-            }
-
-            if (node.childNodes && node.childNodes.length > 0) {
-                node.childNodes = this.__removeTreeObjectItemById(node.childNodes, id, false);
-
-                // Only delete the folder if *it was directly deleted*
-                if (isDirectDeletion && node.type === "folder" && node.childNodes.length === 0) {
-                    return false;
-                }
-            }
-
-            return true; // Keep this node
+        const remove = nodes => nodes.filter(node => node.id !== id).map(node => {
+            if (node.childNodes) node.childNodes = remove(node.childNodes);
+            return node;
         });
+        this.treeObject = remove(this.treeObject);
+        this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
     },
 
     // Method to create or update a file
@@ -1483,6 +1535,7 @@ const virtualFS = {
     },
 
     createFolder(name) {
+        name = normalizeVirtualWorkspacePath(name);
         if (this.__createTreeObjectItem(name, true))
             this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
@@ -1552,32 +1605,20 @@ const virtualFS = {
         return true;
     },
     deleteFile(fileName, {exact = false} = {}) {
-        const tsDefaults = getMonacoTypeScriptDefaults();
-        const fileIDs = []
-        for (const key of Object.keys(this.files)) {
-            if (exact ? key === fileName : key.startsWith(fileName)) {
-                fileIDs.push(key)
-                tsDefaults?.addExtraLib("", key);
-                const model = monaco.editor.getModel(monaco.Uri.file(`${key}`));
-                if (model) {
-                    model.dispose(); // Remove it from Monaco
-                }
-                if (key.endsWith(".ts") || key.endsWith(".tsx")) {
-                    monaco.editor.setModelMarkers(model, "typescript", []);
-                }
-                this.files[key].model.dispose();
-                delete this.files[key]
-            }
+        fileName = normalizeVirtualWorkspacePath(fileName);
+        if (fileName === '/') throw new Error('The project root cannot be deleted.');
+        const fileIDs = Object.keys(this.files).filter(key => exact ? key === fileName : isPathWithin(key, fileName));
+        for (const id of fileIDs) {
+            const model = this.files[id]?.model;
+            if (model) monaco.editor.setModelMarkers(model, "typescript", []);
+            model?.dispose?.();
+            this.__removeExtraLib(id);
+            delete this.files[id];
+            this.tabs.removeById(id);
+            this.notifications.addToQueue('fileRemoved', id);
         }
-
-        fileIDs.forEach((id) => {
-            this.notifications.addToQueue("fileRemoved", id);
-        });
-        tsDefaults?.setCompilerOptions({
-            ...(tsDefaults.getCompilerOptions?.() || {})
-        });
-        this.removeTreeObjectItemById(fileName)
-        this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc());
+        this.removeTreeObjectItemById(fileName);
+        this.__refreshMonacoProjectGraph();
     },
     restoreTreeObjectItemsIcon(tree) {
         const stack = [...tree];
@@ -1651,46 +1692,106 @@ const virtualFS = {
         return Object.keys(this.files).map(key => this.files[key].model)
     },
 
-    rename(node, newFile) {
-        const tsDefaults = getMonacoTypeScriptDefaults();
-        if (this.getTreeObjectItemById(newFile)) return
-        const object = _.cloneDeep(this.getTreeObjectItemById(node.id))
-        if (!object) return;
-
-        if (object.type === "file") {
-            const uri = monaco.Uri.file(`${newFile}`);
-            const fileContent = this.files[node.id].model.getValue()
-            this.deleteFile(node.id)
-            const model = monaco.editor.createModel(fileContent, getLanguage(newFile), uri);
-            this.createFile(newFile, model)
-            this.setTreeObjectItemBool(newFile, "isSelected")
-        } else {
-            const fileContent = []
-            for (const key of Object.keys(this.files)) {
-                if (key.startsWith(node.id)) {
-                    console.log(key.replace(node.id, newFile))
-                    fileContent.push({
-                        uri: monaco.Uri.file(`${key.replace(node.id, newFile)}`),
-                        content: this.files[key].model.getValue(),
-                        path: key.replace(node.id, newFile),
-                        oldPath: node.id
-                    })
-                }
-            }
-            if (fileContent.length === 0) {
-                this.deleteFile(node.id)
-                this.createFolder(newFile)
-            } else {
-                for (const file of fileContent) {
-                    this.deleteFile(file.oldPath)
-                    const model = monaco.editor.createModel(file.content, getLanguage(file.path), file.uri);
-                    this.createFile(file.path, model)
-                }
-            }
-        }
-        tsDefaults?.setCompilerOptions({
-            ...(tsDefaults.getCompilerOptions?.() || {})
+    getDirectories() {
+        const directories = [];
+        const visit = nodes => nodes.forEach(node => {
+            if (node.type === 'folder' && node.id !== '/' && isEditableWorkspacePath(node.id)) directories.push(node.id);
+            if (node.childNodes) visit(node.childNodes);
         });
+        visit(this.treeObject);
+        return directories;
+    },
+    checkpointFileOperation() {
+        if (!this.sandboxName || !this.initWorkspace) return;
+        const saved = this.fs.create(this.fs.version_current, this.tabs.get().map(tab => ({id: tab.id, active: !!tab.active})), {quiet: true});
+        if (saved.error) throw new Error('Could not save a recovery snapshot. Free local storage before changing project files.');
+    },
+    assertAvailablePath(filePath) {
+        if (this.getTreeObjectItemById(filePath) || this.files[filePath]) throw new Error(`A file or directory already exists at ${filePath}.`);
+        const parts = filePath.split('/').filter(Boolean);
+        for (let i = 1; i < parts.length; i++) {
+            const parent = '/' + parts.slice(0, i).join('/');
+            if (this.files[parent]) throw new Error(`${parent} is a file. Choose a directory as the parent.`);
+        }
+    },
+    rename(node, destination, {updateImports = true} = {}) {
+        const oldPath = normalizeVirtualWorkspacePath(node.id);
+        const newPath = validateWorkspaceDestination(destination);
+        if (!isEditableWorkspacePath(oldPath)) throw new Error('Dependencies, build output and the project root cannot be renamed.');
+        if (oldPath === newPath) return;
+        if (node.type === 'folder' && isPathWithin(newPath, oldPath)) throw new Error('A directory cannot be moved inside itself.');
+        this.assertAvailablePath(newPath);
+        const previous = this.getLatestContent();
+        const plan = planWorkspaceRename(previous, oldPath, newPath, node.type === 'folder', updateImports);
+        this.checkpointFileOperation();
+        const directories = this.getDirectories().map(plan.remap);
+        const expanded = new Set();
+        const collect = nodes => nodes.forEach(item => {if (item.isExpanded) expanded.add(plan.remap(item.id)); if (item.childNodes) collect(item.childNodes);});
+        collect(this.treeObject);
+        const savedTabs = this.tabs.get().map(tab => ({id: plan.remap(tab.id), active: !!tab.active}));
+        const staged = [];
+        let stagingComplete = false;
+        try {
+            for (const oldId of Object.keys(previous)) {
+                const id = plan.remap(oldId);
+                if (oldId === id) continue;
+                if (monaco.editor.getModel(monaco.Uri.file(id))) throw new Error(`An editor model already exists at ${id}. Close it before moving this file.`);
+                const model = monaco.editor.createModel(plan.content[id], getLanguage(id), monaco.Uri.file(id));
+                staged.push({oldId, id, model, state: this.files[oldId]?.state});
+            }
+            stagingComplete = true;
+        } finally {
+            if (!stagingComplete) staged.forEach(file => file.model.dispose());
+        }
+        for (const {oldId, id, model, state} of staged) {
+            this.files[oldId]?.model?.dispose?.();
+            delete this.files[oldId];
+            this.__removeExtraLib(oldId);
+            this.__rememberModelState(id, model);
+            this.files[id].state = state;
+        }
+        for (const [id, content] of Object.entries(plan.content)) {
+            if (this.getFileContent(id) === content) continue;
+            const model = this.getModel(id);
+            if (model?.pushEditOperations && model?.getFullModelRange) {
+                model.pushEditOperations([], [{range: model.getFullModelRange(), text: content}], () => null);
+                this.__rememberModelState(id, model);
+            } else this.setFileContent(id, content);
+        }
+        this.treeObject[0].childNodes = [];
+        for (const directory of directories) this.__createTreeObjectItem(directory, true, {suppressDefaultSelection: true});
+        for (const id of Object.keys(this.files)) this.__createTreeObjectItem(id, false, {suppressDefaultSelection: true});
+        for (const id of expanded) this.__updateTreeObjectItem(this.treeObject, id, {isExpanded: true});
+        this.revealPath(newPath);
+        this.notifications.addToQueue('treeUpdate', this.getTreeObjectSortedAsc());
+        this.tabs.replaceFromSaved(savedTabs);
+        this.selectProjectPath(newPath);
+        this.__refreshMonacoProjectGraph();
+        this.notifications.addToQueue('workspacePathsChanged', {oldPath, newPath});
+    },
+    duplicate(node, destination) {
+        const target = validateWorkspaceDestination(destination);
+        if (!isEditableWorkspacePath(node.id)) throw new Error('Only project source can be duplicated.');
+        if (node.type === 'folder' && isPathWithin(target, node.id)) throw new Error('Choose a destination outside the source directory.');
+        this.assertAvailablePath(target);
+        const files = Object.entries(this.getLatestContent()).filter(([id]) => node.type === 'folder' ? isPathWithin(id, node.id) : id === node.id);
+        const directories = this.getDirectories().filter(id => isPathWithin(id, node.id));
+        for (const dir of directories) this.createFolder(target + dir.slice(node.id.length));
+        for (const [id, content] of files) createVirtualFile(target + id.slice(node.id.length), content);
+        this.revealPath(target);
+        const first = node.type === 'file' ? target : files[0] && target + files[0][0].slice(node.id.length);
+        if (first) this.setTreeObjectItemBool(first, 'isSelected');
+    },
+    revealPath(filePath) {
+        const parts = normalizeVirtualWorkspacePath(filePath).split('/').filter(Boolean);
+        this.__updateTreeObjectItem(this.treeObject, '/', {isExpanded: true});
+        for (let i = 1; i < parts.length; i++) this.__updateTreeObjectItem(this.treeObject, '/' + parts.slice(0, i).join('/'), {isExpanded: true});
+        this.restoreTreeObjectItemsIcon(this.treeObject);
+        this.notifications.addToQueue('treeUpdate', this.getTreeObjectSortedAsc());
+    },
+    selectProjectPath(filePath) {
+        this.setTreeObjectItemSelectedSilent(filePath);
+        this.notifications.addToQueue('projectSelection', filePath);
     },
 
     init() {

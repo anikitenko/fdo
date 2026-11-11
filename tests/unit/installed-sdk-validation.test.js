@@ -1,10 +1,11 @@
 /** @jest-environment node */
 import {createInstalledSdkValidator} from '../../src/utils/sdk/installedSdkValidation';
+import {HOST_PLUGIN_API_VERSION} from '../../src/utils/sdk/pluginHostContract';
 
 test('staged generation preserves the support policy and fingerprints the host contract', () => {
     const validate = createInstalledSdkValidator([{path: '/package.json', content: JSON.stringify({fdo: {compatibility: {fdo: '^1'}}})}]);
     expect(validate({path: '/package.json', content: '{}'}).join('\n')).toContain('AI cannot remove fdo.compatibility');
-    expect(validate.capabilities.hostTarget.contract.apiVersion).toBe('1.0.0');
+    expect(validate.capabilities.hostTarget.contract.apiVersion).toBe(HOST_PLUGIN_API_VERSION);
     expect(validate.capabilities.hostTarget.compatibility.declared).toBe(true);
 });
 jest.mock('../../src/utils/plugins/runtime/pluginRuntimeBundle', () => ({

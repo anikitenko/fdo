@@ -244,6 +244,51 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(document.querySelector('[data-capability-id="secrets.consume"] input')).not.toBeChecked();
     });
 
+    test('discovers an exported website check and saves only explicitly selected service grants', async () => {
+        const capability = 'plugins.shared.call.website-provider.website-availability.v1';
+        window.electron.plugin.listSharedLogic = jest.fn().mockResolvedValue({success: true, services: [{
+            providerId: 'website-provider', providerName: 'Website Availability', name: 'website-availability', version: 1,
+            description: 'Reusable website availability checks', methods: ['check'], capability,
+        }]});
+        renderDialog();
+        fireEvent.click(await screen.findByRole('button', {name: 'Expand'}));
+        await waitFor(() => expect(document.querySelector(`[data-capability-id="${capability}"]`)).toBeInTheDocument());
+        const base = document.querySelector('[data-capability-id="plugins.shared.use"] input');
+        const service = document.querySelector(`[data-capability-id="${capability}"] input`);
+        expect(base).not.toBeChecked();
+        expect(service).not.toBeChecked();
+        expect(service).toBeDisabled();
+        fireEvent.click(base);
+        expect(service).not.toBeDisabled();
+        expect(service).not.toBeChecked();
+        fireEvent.click(service);
+        const save = screen.getAllByRole('button', {name: /Save capabilities/i})[0];
+        fireEvent.click(save);
+        await waitFor(() => expect(window.electron.plugin.setCapabilities).toHaveBeenCalledWith('plugin-a', expect.arrayContaining(['plugins.shared.use', capability])));
+        const saved = window.electron.plugin.setCapabilities.mock.calls.at(-1)[1];
+        expect(saved).not.toContain('plugins.shared.provide');
+    });
+
+    test('prepares direct access from a missing capability without creating a plugin request', async () => {
+        const target={providerId:'provider.with.dots',name:'website-availability',version:12};
+        const capability='plugins.shared.call.provider.with.dots.website-availability.v12';
+        window.electron.plugin.listSharedLogic=jest.fn(async()=>({success:true,services:[]}));
+        window.electron.plugin.getRuntimeStatus.mockResolvedValue({success:true,statuses:[{id:'plugin-a',capabilityIntent:{
+            available:true,hasDeclaration:true,declared:[capability],granted:[],missingDeclared:[capability],undeclaredGranted:[],missingDiagnostics:[{capability}],remediations:[],
+        }}]});
+        window.electron.plugin.getAll=jest.fn(async()=>({plugins:[{id:'plugin-a',capabilities:[],sharedLogicRequests:[]}]}));
+        window.electron.plugin.requestSharedLogicAccess=jest.fn();
+        window.electron.plugin.grantSharedLogicAccess=jest.fn(async()=>({success:true,capabilities:['plugins.shared.use',capability]}));
+        renderDialog();
+        fireEvent.click(await screen.findByRole('button',{name:'Show details',exact:true}));
+        fireEvent.click((await screen.findAllByRole('button',{name:'Add shared-service access',exact:true}))[0]);
+        expect(screen.getByLabelText('Shared provider plugin ID')).toHaveValue('provider.with.dots');
+        expect(window.electron.plugin.requestSharedLogicAccess).not.toHaveBeenCalled();
+        expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+        fireEvent.click(screen.getByTestId('shared-logic-access-review').querySelector('button.bp6-intent-primary'));
+        await waitFor(()=>expect(window.electron.plugin.grantSharedLogicAccess).toHaveBeenCalledWith('plugin-a',target,'provider.with.dots'));
+    });
+
     test("shows friendly labels with technical IDs", async () => {
         renderDialog();
 
@@ -301,6 +346,21 @@ describe("ManagePluginsDialog capability UX", () => {
         expect(recommendedNetworkSetup).toBeInTheDocument();
         expect(recommendedNetworkSetup.compareDocumentPosition(httpsRequests) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(screen.getByRole("button", {name: "Enable Secure Public Web"})).toBeInTheDocument();
+    });
+
+    test("scrolls the expanded Capabilities section into view when requested", async () => {
+        renderDialog({}, {
+            requestId: "sidebar-capabilities-1",
+            pluginId: "plugin-a",
+            focusSection: "capabilities",
+            capabilityIds: [],
+        });
+
+        await waitFor(() => expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+            behavior: "smooth",
+            block: "start",
+        }));
+        expect(screen.getByRole("button", {name: "Collapse"})).toBeInTheDocument();
     });
 
     test('explains why GitOps plugins cannot be deleted locally', async () => {

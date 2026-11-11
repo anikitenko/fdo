@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {loadTypeScriptRuntime} from './typeScriptRuntime';
+import {readRegistrationDecoratorContract} from './installedRegistrationDecorators';
 export function installedSdkCapabilities(requireSdk, sdk, {methodSignatures = new Map()} = {}) {
     const entry = requireSdk.resolve('@anikitenko/fdo-sdk');
     const root = path.dirname(path.dirname(entry));
@@ -99,6 +100,7 @@ export function installedSdkCapabilities(requireSdk, sdk, {methodSignatures = ne
             return (target.flags & SymbolFlags.Type) && !(target.flags & SymbolFlags.Value);
         }).map(symbol => symbol.name).sort() : [];
         return {typeExports, schemaVersion: 1, sdkVersion: manifest.version, fingerprint: hash.digest('hex'), api,
+            registrationDecorators:readRegistrationDecoratorContract(requireSdk,Object.getOwnPropertyNames(sdk)),
             workspace: {paths: 'virtual absolute paths only', writes: 'approved plan or diagnostic repair scope'},
             permissions: 'Determined by the host runtime; this inventory grants none.'};
     } finally {snapshot?.dispose(); compilerApi.close();}

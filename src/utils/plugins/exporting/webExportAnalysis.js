@@ -12,7 +12,7 @@ const helperAdapters={createProcessCapabilityBundle:'process',createScopedProces
 function isBrowserWindow(node,scope,seen=new Set()) {
     while(node && ['TSAsExpression','TSSatisfiesExpression','TSNonNullExpression','ParenthesizedExpression'].includes(node.type))node=node.expression;
     if(node?.type!=='Identifier')return false;
-    if(node.name==='window')return !scope.getBinding(node.name);
+    if(['window','globalThis'].includes(node.name))return !scope.getBinding(node.name);
     if(seen.has(node.name) || seen.size>12)return false;
     seen.add(node.name);const binding=scope.getBinding(node.name);
     return !!binding?.constant && binding.path.isVariableDeclarator() && isBrowserWindow(binding.path.node.init,binding.path.scope,seen);
@@ -75,8 +75,18 @@ export function analyzeWebExport(files,plugin={},declarationOverride) {
                 if(name==='ssh' && p.node.object.type==='ThisExpression'){services.add('ssh');location(file,p.node,'ssh','this.ssh');}
                 if(name==='secrets' && p.node.object.type==='ThisExpression'){services.add('encrypted-secrets');location(file,p.node,'encrypted-secrets','this.secrets');}
                 if(['electron','ipcRenderer','parentPort'].includes(name))blockers.push(`${file}:${p.node.loc.start.line}: desktop messaging must be replaced with a web operation.`);
-                if(isBrowserWindow(p.node.object,p.scope) && ['Notyf','Chart','Terminal','ReactDOM','lodash','_','dayjs','moment'].includes(name))blockers.push(`${file}:${p.node.loc.start.line}: browser library ${name} needs a standalone frontend bundle or replacement with supported UI helpers.`);
+                if(isBrowserWindow(p.node.object,p.scope) && contract.browserGlobals.includes(name)){services.add('browser-libraries');location(file,p.node,'browser-libraries',name);}
+                if(isBrowserWindow(p.node.object,p.scope) && ['Chart','dayjs','moment'].includes(name))blockers.push(`${file}:${p.node.loc.start.line}: browser library ${name} is not bundled in the standalone runtime. ${name==='Chart'?'Use window.FDOCharts for supported charts.':'Bundle the library and its required assets in a standalone frontend module.'}`);
                 if(isBrowserWindow(p.node.object,p.scope) && name==='FDOCharts'){services.add('charts');location(file,p.node,'charts','FDOCharts');}
+            },
+            ReferencedIdentifier(p) {
+                const name=p.node.name;
+                if(p.scope.getBinding(name))return;
+                if(contract.browserGlobals.includes(name)) {
+                    services.add('browser-libraries');
+                    location(file,p.node,'browser-libraries',name);
+                }
+                if(['Chart','dayjs','moment'].includes(name))blockers.push(`${file}:${p.node.loc.start.line}: browser library ${name} is not bundled in the standalone runtime. ${name==='Chart'?'Use window.FDOCharts for supported charts.':'Bundle the library and its required assets in a standalone frontend module.'}`);
             },
             CallExpression(p) {
                 const node=p.node;
