@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 
-test("1.0.5 product tour works with keyboard, full-size images and clipboard", async ({
+test("1.0.6 product tour works with keyboard, full-size images and clipboard", async ({
   page,
   context,
 }) => {
@@ -12,7 +12,7 @@ test("1.0.5 product tour works with keyboard, full-size images and clipboard", a
   });
   await page.goto("/");
   await expect(
-    page.getByRole("link", { name: /AVAILABLE NOW FDO 1.0.5/ }),
+    page.getByRole("link", { name: /AVAILABLE NOW FDO 1.0.6/ }),
   ).toBeVisible();
   await expect(page.getByText(/preparing for its first release/)).toHaveCount(
     0,
@@ -140,7 +140,7 @@ test("product requirements, template sources, history guide and SEO metadata are
     await page.locator('script[type="application/ld+json"]').textContent(),
   )["@graph"];
   const app = graph.find((item) => item["@type"] === "SoftwareApplication");
-  expect(app.softwareVersion).toBe("1.0.5");
+  expect(app.softwareVersion).toBe("1.0.6");
   expect(app.operatingSystem).toEqual(["macOS", "Windows", "Linux"]);
   expect(app.aggregateRating).toBeUndefined();
   await expect(page.locator("#questions")).toContainText(

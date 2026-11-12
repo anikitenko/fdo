@@ -104,7 +104,7 @@ describe('Semver Helpers', () => {
     });
     
     test('validates version against tilde constraint', () => {
-      expect(satisfiesConstraint('1.0.5', '~1.0.0')).toBe(true);
+      expect(satisfiesConstraint('1.0.6', '~1.0.0')).toBe(true);
       expect(satisfiesConstraint('1.1.0', '~1.0.0')).toBe(false);
     });
     

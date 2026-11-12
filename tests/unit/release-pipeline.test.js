@@ -102,8 +102,8 @@ test('rejects missing platforms, tampered bytes, duplicate assets and unsigned s
     await expect(assemble({source:stable,destination:path.join(root,'missing'),version:'1.0.0',commit})).rejects.toThrow('Missing build manifest');
 });
 test('release history excludes drafts, non-ancestors and prereleases for stable comparisons', () => {
-    const releases = [{tag_name:'v1.0.0',draft:false,prerelease:false},{tag_name:'v1.1.0-rc.1',draft:false,prerelease:true},{tag_name:'v1.0.5',draft:false,prerelease:false},{tag_name:'v1.0.9',draft:true}];
-    const ancestor = tag => tag !== 'v1.0.5';
+    const releases = [{tag_name:'v1.0.0',draft:false,prerelease:false},{tag_name:'v1.1.0-rc.1',draft:false,prerelease:true},{tag_name:'v1.0.6',draft:false,prerelease:false},{tag_name:'v1.0.9',draft:true}];
+    const ancestor = tag => tag !== 'v1.0.6';
     expect(previousRelease(releases,'1.1.0',ancestor)).toBe('v1.0.0');
     expect(previousRelease(releases,'1.1.0-rc.2',ancestor)).toBe('v1.1.0-rc.1');
     const body = notes({generated:'## Changes\nPR #1',history:[{sha:commit,subject:'fix: <unsafe> [text]'}],repository:'owner/repo',tag:'v1.0.0-rc.1',manifest:{commit,builds:[{platform:'mac-x64',signed:false}]}});
