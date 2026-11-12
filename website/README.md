@@ -31,7 +31,7 @@ layouts, the full-size screenshot link, the CLI guide navigation, and the copy
 button when changing the UI. The homepage and social preview use the user's
 supplied Azure FinOps & Resource Manager screenshot, preserved unmodified as
 assets/fdo-azure-finops.png (3438×1944). Its demo-mode notice remains visible.
-The supporting product screenshots are unaltered captures from the 1.0.5 checkout
+The supporting product screenshots are unaltered captures from the 1.0.6 checkout
 using the Dashboard starter in an isolated profile. No production metrics or AI
 output were manufactured.
 
@@ -106,7 +106,7 @@ another row; items are not hidden according to their position or page.
 
 ## Content maintenance
 
-The current release badge and platform cards point to v1.0.5's release page,
+The current release badge and platform cards point to v1.0.6's release page,
 without guessing asset filenames. Update these links and the visible version
 together for the next release. GitHub Releases remains the source of checksums
 and signing status. Platform formats follow the native release matrix. The MIT label links
