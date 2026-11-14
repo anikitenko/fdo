@@ -1,3 +1,4 @@
+import {HOST_PLUGIN_API_VERSION} from "../../src/utils/sdk/pluginHostContract";
 jest.mock("electron", () => ({
     app: {
         isPackaged: false,
@@ -162,13 +163,13 @@ describe("plugin IPC init host contract", () => {
         expect(postMessage).toHaveBeenCalledWith({
             message: "PLUGIN_INIT",
             content: {
-                apiVersion: "1.0.0",
+                apiVersion: HOST_PLUGIN_API_VERSION,
                 capabilities: [],
             },
             data: {
                 message: "PLUGIN_INIT",
                 content: {
-                    apiVersion: "1.0.0",
+                    apiVersion: HOST_PLUGIN_API_VERSION,
                     capabilities: [],
                 },
             },
@@ -190,7 +191,7 @@ describe("plugin IPC init host contract", () => {
         expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
             message: "PLUGIN_INIT",
             content: expect.objectContaining({
-                apiVersion: "1.0.0",
+                apiVersion: HOST_PLUGIN_API_VERSION,
                 capabilities: ["storage.json"],
             }),
         }));
@@ -212,7 +213,7 @@ describe("plugin IPC init host contract", () => {
         expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
             message: "PLUGIN_INIT",
             content: expect.objectContaining({
-                apiVersion: "1.0.0",
+                apiVersion: HOST_PLUGIN_API_VERSION,
                 capabilities: ["storage.json"],
             }),
         }));
@@ -274,7 +275,7 @@ describe("plugin IPC init host contract", () => {
         PluginManager.getPluginDiagnostics.mockResolvedValue({
             handshake: {
                 sdkVersion: "1.2.3",
-                apiVersion: "1.0.0",
+                apiVersion: HOST_PLUGIN_API_VERSION,
                 capabilitySchemaVersion: "2.0.0",
                 featureFlags: {pluginDoctor: true},
             },

@@ -10,8 +10,8 @@ test('installed SDK JSON save acknowledges atomic flush, rejects missing setup/w
  const sdk=path.resolve('node_modules/@anikitenko/fdo-sdk');
  const invoke=source=>{
   const entry=path.join(root,'fixture.cjs');fs.writeFileSync(entry,source);
-  const result=spawnSync(process.execPath,[entry],{encoding:'utf8',timeout:10000,env:{...process.env,FDO_SDK_LOG_ROOT:path.join(root,'logs'),FDO_SDK_STORAGE_ROOT:''}});
-  expect(result.status).toBe(0);return JSON.parse(result.stdout.split('RESULT:').at(-1));
+  const result=spawnSync(process.execPath,[entry],{encoding:'utf8',timeout:10000,cwd:root,env:{...process.env,FDO_SDK_LOG_ROOT:path.join(root,'logs'),FDO_SDK_STORAGE_ROOT:''}});
+  expect(result.stderr).toBe('');expect(result.status).toBe(0);return JSON.parse(result.stdout.split('RESULT:').at(-1));
  };
  try {
   const storage=path.join(root,'storage');
@@ -22,8 +22,8 @@ const fs=require('node:fs'),path=require('node:path');const {PluginRegistry}=req
  PluginRegistry.configureCapabilities({granted:[]});try{PluginRegistry.useStore('json');}catch{missingGrants=true;}
  PluginRegistry.configureCapabilities({granted:['storage','storage.json']});try{PluginRegistry.useStore('json');}catch{missingRoot=true;}
  fs.writeFileSync(${JSON.stringify(storage)},'blocked root');PluginRegistry.configureStorage({rootDir:${JSON.stringify(storage)}});
- const store=PluginRegistry.useStore('json');store.set('setting','not acknowledged');try{await store.flush();}catch{rejected=true;}
- fs.unlinkSync(${JSON.stringify(storage)});store.set('setting','recovered');await store.flush();
+ let store;try{store=PluginRegistry.useStore('json');store.set('setting','not acknowledged');await store.flush();}catch{rejected=true;}
+ fs.unlinkSync(${JSON.stringify(storage)});store=store||PluginRegistry.useStore('json');store.set('setting','recovered');await store.flush();
  const mkdir=fs.promises.mkdir;fs.promises.mkdir=async()=>{throw Object.assign(new Error('fixture disk full'),{code:'ENOSPC'});};
  store.set('setting','disk full snapshot');try{await store.flush();}catch{diskFull=true;}
  fs.promises.mkdir=mkdir;store.set('setting','persisted');await store.flush();await store.dispose();

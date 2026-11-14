@@ -4,11 +4,11 @@
     "src/contexts/release-processing/infrastructure/scanners/archive-common.ts": "80cecf6384511c8bafdcfddc847b21d5bafd411c135acd903ed8528b9f391b41",
     "src/contexts/release-processing/infrastructure/scanners/archive-path.ts": "90c438249fb0ebfe1bb4f1aa1d21b59b201eb67db0c06b0c299d0d067a4d4427",
     "src/contexts/release-processing/infrastructure/scanners/fdo-metadata.ts": "0c5bbfa00ed13c03e6d4925b87163fd5349b3d31fb59c04be12672f3a342e89b",
-    "src/contexts/release-processing/infrastructure/scanners/fdo-capabilities.ts": "879e4c1ead95baf7140e8f175b2061bbd4307febb2f03b302436d9a5d421d0a0",
+    "src/contexts/release-processing/infrastructure/scanners/fdo-capabilities.ts": "d7c0083e71c12069d7f2fb605dd4ef4a2e0b36b978804b69732086833c5b94dc",
     "src/contexts/release-processing/infrastructure/scanners/fdo-source-package.ts": "fc769b08bb2fb46fcab5e704d86cd7110cf09a73553d9b7387358538140a27e9",
     "src/contexts/release-processing/infrastructure/scanners/source-archive.ts": "3b62074efa8ef489b0db59869e631481543960deda3e655ee18746d678881d5e",
     "src/contexts/release-processing/infrastructure/scanners/release-archive.ts": "ab72f1376260be4b4d9fb624f6c9f77c03f4808757dd5d177a2487920bde0c60",
-    "src/contexts/release-processing/infrastructure/scanners/typescript-security.ts": "709d8994f3e5826c6c9c9b11ec832c062fef9de5e979fb2aeb256419f3c27947",
+    "src/contexts/release-processing/infrastructure/scanners/typescript-security.ts": "5fdb5a5ded18fc43a1dd71c29415af13e838284127337f7d77553e3250b45e30",
     "src/contexts/catalog/domain/plugin-id.ts": "49a4cb9a424f64e63ef34faea95f6d535afb149bab143348411220c241bd93e8",
     "src/contexts/identity/infrastructure/embedded-plugin-signature.ts": "ec204ca949996adbfbeb9ce9d9fc16c88193a9b336a690008fcbd244c581ba5c"
   }

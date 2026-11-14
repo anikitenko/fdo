@@ -248,3 +248,11 @@ const response = requestScopedProcessExec("internal-runner", { args: ["status"],
         expect(results[0].path).toMatch(/OPERATOR_PLUGIN_PATTERNS|09-operator-plugin/);
     });
 });
+
+test('chunking keeps a top-level type declaration and its doc comment together', () => {
+    const filler = Array.from({length: 40}, (_, i) => `export type Filler${i} = {\n    value${i}: string;\n};`).join('\n');
+    const target = '/** Safe host metadata. */\nexport type SshSummary = {\n    id: string;\n    host?: string;\n    trustedHostKey?: string;\n};';
+    const index = buildFdoSdkKnowledgeIndex([{path: 'types.d.ts', content: `${filler}\n${target}\n${filler}`}]);
+    expect(index.length).toBeGreaterThan(1);
+    expect(index.some(chunk => chunk.content.includes(target))).toBe(true);
+});

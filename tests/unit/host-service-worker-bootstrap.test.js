@@ -73,7 +73,7 @@ PluginRegistry.configureCapabilities({granted:['secrets.use','secrets.set','secr
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1;});
 `);
         const result = spawnSync(process.execPath, ['-r', path.join(root, 'parent.cjs'), path.join(root, 'bootstrap.cjs')], {
-            encoding: 'utf8', timeout: 10000,
+            encoding: 'utf8', timeout: 10000, cwd: root,
             env: {...process.env, FDO_PLUGIN_RUNTIME_ENTRY: path.join(root, 'entry.cjs'), FDO_PLUGIN_NODE_PATH: path.resolve('node_modules'),
                 FDO_PLUGIN_POLICY_JSON: JSON.stringify({blockedModules: []}), FDO_PLUGIN_CAPABILITIES: '', FDO_SDK_STORAGE_ROOT: root, FDO_SDK_LOG_ROOT: path.join(root, 'logs'), PLUGIN_HOME: root, PLUGIN_CODE_HOME: path.join(root, 'code')},
         });
@@ -103,7 +103,7 @@ PluginRegistry.useStore('fixture');global.__snapshot=()=>({flushed,disposed,clos
 process.parentPort.emit('message',{data:{message:'HOST_STORAGE_SHUTDOWN_V1',content:{requestId:'fixture'}}});
 `);
         const result=spawnSync(process.execPath,['-r',path.join(root,'parent.cjs'),path.join(root,'bootstrap.cjs')],{
-            encoding:'utf8',timeout:10000,env:{...process.env,FDO_PLUGIN_RUNTIME_ENTRY:path.join(root,'entry.cjs'),FDO_PLUGIN_NODE_PATH:path.resolve('node_modules'),FDO_PLUGIN_POLICY_JSON:JSON.stringify({blockedModules:[]}),FDO_PLUGIN_CAPABILITIES:'',PLUGIN_HOME:root,PLUGIN_CODE_HOME:path.join(root,'code'),FDO_SDK_LOG_ROOT:path.join(root,'logs')},
+            encoding:'utf8',timeout:10000,cwd:root,env:{...process.env,FDO_PLUGIN_RUNTIME_ENTRY:path.join(root,'entry.cjs'),FDO_PLUGIN_NODE_PATH:path.resolve('node_modules'),FDO_PLUGIN_POLICY_JSON:JSON.stringify({blockedModules:[]}),FDO_PLUGIN_CAPABILITIES:'',PLUGIN_HOME:root,PLUGIN_CODE_HOME:path.join(root,'code'),FDO_SDK_LOG_ROOT:path.join(root,'logs')},
         });
         expect(result.status).toBe(0);
         expect(JSON.parse(result.stdout.split('RESULT:').at(-1))).toEqual({success:!failure,flushed:true,disposed:true,closing:true});

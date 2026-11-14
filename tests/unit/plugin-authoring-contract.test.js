@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import {HOST_PLUGIN_API_VERSION} from '../../src/utils/sdk/pluginHostContract';
 import {workspaceAuthoringContract, validateAiCompatibilityChanges, pluginAuthoringInstructions} from '../../src/utils/sdk/pluginAuthoringContract';
 const host = {fdo: '1.4.0', sdk: '1.8.3', api: '1.0.0', features: {pluginDoctorReport: true}};
 const pkg = compatibility => JSON.stringify({name: 'tools', ...(compatibility === undefined ? {} : {fdo: {compatibility}})});
@@ -8,7 +9,7 @@ test('missing support declarations are build targets, not verified old-host supp
     const context = workspaceAuthoringContract({'/package.json': pkg()}, host);
     expect(context.compatibility).toMatchObject({declared: false, supportedFdo: '>=1.4.0 <2.0.0'});
     expect(context.compatibility.summary).toContain('does not verify older FDO');
-    expect(context.contract).toMatchObject({apiVersion: '1.0.0', contractVersion: '1.0.0', capabilitySchemaVersion: '1.0.0'});
+    expect(context.contract).toMatchObject({apiVersion: HOST_PLUGIN_API_VERSION, contractVersion: '1.0.0', capabilitySchemaVersion: '1.0.0'});
 });
 
 test('AI instructions include host facts and the target policy without claiming permission grants', () => {
