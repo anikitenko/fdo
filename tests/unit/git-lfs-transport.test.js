@@ -22,7 +22,7 @@ test('bundled LFS transfers binary objects through pinned SSH without an externa
     await fs.writeFile(path.join(root,'seed','.gitattributes'),'*.bin filter=lfs diff=lfs merge=lfs -text\n');
     run(['-c','filter.lfs.clean=','-c','filter.lfs.required=false','add','.'],path.join(root,'seed'));
     run(['-c','user.name=Fixture','-c','user.email=fixture@example.test','commit','-m','LFS pointer'],path.join(root,'seed'));
-    run(['push',path.join(root,'remote.git'),'HEAD:refs/heads/main'],path.join(root,'seed'));run(['symbolic-ref','HEAD','refs/heads/main'],path.join(root,'remote.git'));
+    run(['push',path.join(root,'remote.git'),'HEAD:refs/heads/main'],path.join(root,'seed'));run(['--git-dir',path.join(root,'remote.git'),'symbolic-ref','HEAD','refs/heads/main']);
     const server=new Server({hostKeys:[hostKey.private]},connection=>{
         connections.add(connection);connection.on('error',()=>{});connection.once('close',()=>connections.delete(connection));
         connection.on('authentication',ctx=>ctx.method==='password'&&ctx.password==='fixture'?ctx.accept():ctx.reject());

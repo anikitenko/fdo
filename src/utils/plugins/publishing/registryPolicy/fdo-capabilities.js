@@ -5,6 +5,7 @@ import { createStaticResolver } from './fdo-metadata';
 const SDK = '@anikitenko/fdo-sdk';
 const OPERATOR_PRESETS = ['docker-cli', 'kubectl', 'helm', 'terraform', 'ansible', 'aws-cli', 'gcloud', 'azure-cli', 'podman', 'kustomize', 'gh', 'git', 'vault', 'nomad'];
 const SECRET_OPERATIONS = ['set', 'get', 'delete', 'list', 'consume', 'use'];
+const NETWORK_TRANSPORTS = ['https', 'http', 'websocket', 'tcp', 'udp', 'dns'];
 const AI_OPERATIONS = ['assistants.list', 'request'];
 // Mirrors the SDK helpers' pure output so declarations can be derived without running the SDK.
 const normalizeScope = (value) => value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -84,18 +85,19 @@ const resolveCapabilityCall = (node, { evaluate, fail, checker }) => {
             return `plugins.shared.call.${providerId}.${name}.v${version}`;
         }
         case 'createNetworkCapabilityBundle': {
-            const config = node.arguments.length === 1 && ts.isObjectLiteralExpression(node.arguments[0]) ? options(arg(0)) : undefined;
-            if (!config)
-                return fail(node, 'createNetworkCapabilityBundle() needs one inline options object with literal transports and scopeId.');
-            const { transports, scopeId } = config;
-            if (!Array.isArray(transports) || typeof scopeId !== 'string')
-                return fail(node, 'Network capabilities need constant transports and a constant scopeId.');
-            const schemes = transports.map((transport) => typeof transport === 'string' && ['http', 'https'].includes(transport) ? transport : fail(node, 'Only HTTP/HTTPS transports are supported.'));
-            if (!schemes.length || new Set(schemes).size !== schemes.length)
-                return fail(node, 'Network transports must be unique and non-empty.');
-            if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(scopeId))
-                return fail(node, 'Network scopeId is not a valid capability scope.');
-            return ['system.network', ...schemes.map((scheme) => `system.network.${scheme}`), `system.network.scope.${scopeId}`];
+            const input = node.arguments.length ? arg(0) : ['https'];
+            const config = Array.isArray(input) ? { transports: input } : options(input);
+            const transports = config.transports === undefined ? ['https'] : config.transports;
+            const normalized = list(transports, undefined, 'transports').map(normalizeScope);
+            if (!normalized.length)
+                return fail(node, 'createNetworkCapabilityBundle() needs at least one transport.');
+            const unsupported = normalized.find((transport) => !NETWORK_TRANSPORTS.includes(transport));
+            if (unsupported)
+                return fail(node, `Unsupported network transport "${unsupported}". Supported: ${NETWORK_TRANSPORTS.join(', ')}.`);
+            const scopeId = config.scopeId;
+            if (scopeId !== undefined && typeof scopeId !== 'string')
+                return fail(node, 'createNetworkCapabilityBundle() scopeId must be a constant string.');
+            return bundle(['system.network', ...normalized.map((transport) => `system.network.${transport}`), ...(scopeId?.trim() ? [`system.network.scope.${scope(scopeId, 'scopeId')}`] : [])]);
         }
         default: return undefined;
     }

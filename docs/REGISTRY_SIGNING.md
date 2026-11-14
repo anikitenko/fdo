@@ -56,6 +56,21 @@ and server-side scans remain authoritative; a local pass does not promise upload
 acceptance. Fix one reported metadata/package error and re-run to reveal the next.
 Keep a publishing copy when development scripts or dependencies are needed locally.
 
+`declareCapabilities()` is derived statically; plugin and SDK code never run. Accepted
+values are string literals, `const`/readonly constants, spreads of those, and SDK
+helpers imported from `@anikitenko/fdo-sdk` with constant arguments (for example
+`createCapabilityBundle`, `create*CapabilityBundle`, `create*ScopeCapability`,
+`createOperatorToolCapabilityPreset`, `sharedLogicCapability`). The body may hold only
+`const` declarations followed by one `return`. `createNetworkCapabilityBundle` accepts
+the no-argument form, a transport array, or `{transports, scopeId}` with any SDK
+transport (`https`, `http`, `websocket`, `tcp`, `udp`, `dns`).
+
+Network access in source needs `system.network`, the transport capability and a
+`system.network.scope.<id>` capability: `fetch` (http/https) and `WebSocket`
+(websocket) outside UI handlers, and imports of `net`/`tls` (tcp), `dgram` (udp),
+`dns` (dns), `http` (http) and `https`/`http2` (https). Other Node built-ins stay
+blocked. Failed checks list numbered "How to fix" steps for these cases.
+
 The coding agent receives the public publishing workflow for generic and publishing
 requests. For supplied workspaces it also receives concrete source-policy diagnostics,
 without profile data or signing keys. Those diagnostics are advisory for generic

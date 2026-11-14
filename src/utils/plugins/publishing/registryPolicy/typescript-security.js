@@ -7,6 +7,17 @@ const ALLOWED = new Set([
     'react-dom',
     'react/jsx-runtime',
 ]);
+// Node network modules the host runtime wraps and scope-checks; each needs its transport capability.
+const NETWORK_MODULE_TRANSPORT = {
+    net: 'tcp',
+    tls: 'tcp',
+    dgram: 'udp',
+    dns: 'dns',
+    'dns/promises': 'dns',
+    http: 'http',
+    https: 'https',
+    http2: 'https',
+};
 const DANGEROUS = new Set([
     'eval',
     'Function',
@@ -39,12 +50,16 @@ const DANGEROUS = new Set([
 export function scanTypeScript(archive) {
     const findings = [];
     const capabilities = archive.manifest?.capabilities;
-    const scopedFetch = Array.isArray(capabilities) &&
+    const hasScope = Array.isArray(capabilities) &&
         capabilities.includes('system.network') &&
-        (capabilities.includes('system.network.https') ||
-            capabilities.includes('system.network.http')) &&
         capabilities.some((value) => typeof value === 'string' &&
             /^system\.network\.scope\.[a-z0-9][a-z0-9-]*$/.test(value));
+    // The host runtime enforces the declared network scope on these globals.
+    const scopedGlobals = new Set();
+    if (hasScope && (capabilities.includes('system.network.https') || capabilities.includes('system.network.http')))
+        scopedGlobals.add('fetch');
+    if (hasScope && capabilities.includes('system.network.websocket'))
+        scopedGlobals.add('WebSocket');
     const add = (code, file, message, node) => {
         const position = node?.getSourceFile().getLineAndCharacterOfPosition(node.getStart());
         const location = position ? `:${position.line + 1}:${position.character + 1}` : '';
@@ -165,6 +180,12 @@ export function scanTypeScript(archive) {
             add('EXTERNAL_TYPE_REFERENCE', name, 'Triple-slash references are not accepted.');
         const checkImport = (specifier) => {
             if (!specifier.startsWith('.')) {
+                const transport = NETWORK_MODULE_TRANSPORT[specifier.replace(/^node:/, '')];
+                if (transport) {
+                    if (!hasScope || !capabilities.includes(`system.network.${transport}`))
+                        add('UNAPPROVED_IMPORT', name, `Import ${JSON.stringify(specifier)} requires the capabilities system.network, system.network.${transport} and a system.network.scope.<id>.`);
+                    return;
+                }
                 if (!ALLOWED.has(specifier))
                     add('UNAPPROVED_IMPORT', name, `Import ${JSON.stringify(specifier)} is not a host-provided module.`);
                 return;
@@ -198,7 +219,7 @@ export function scanTypeScript(archive) {
             if (ts.isIdentifier(node) &&
                 DANGEROUS.has(node.text) &&
                 !permittedUiReference(node) &&
-                !(node.text === 'fetch' && scopedFetch && !inUiHandler(node)))
+                !(scopedGlobals.has(node.text) && !inUiHandler(node)))
                 add('DANGEROUS_RUNTIME_API', name, `Reference to ${node.text} is forbidden.`, node);
             if (ts.isStringLiteralLike(node) &&
                 DANGEROUS.has(node.text) &&

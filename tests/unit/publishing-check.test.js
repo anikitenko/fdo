@@ -107,3 +107,27 @@ export class ReleaseConsole { declareCapabilities() { return [...createOperatorT
     const report = checkPublishingFiles(files);
     expect(report.proposal.capabilities).toEqual(['system.process.exec', 'system.process.scope.git', 'system.network']);
 });
+
+describe('network access in the publishing check', () => {
+    const entry = (capabilities) => `import * as net from 'node:net';
+export class ReleaseConsole { declareCapabilities() { return ${capabilities}; } }
+export const socket = net;`;
+    const check = (capabilities) => {
+        const files = publishingFixture();
+        files['index.ts'] = entry(capabilities);
+        return checkPublishingFiles(files);
+    };
+    test('accepts a Node network module with its transport and scope', () => {
+        expect(check(`['system.network', 'system.network.tcp', 'system.network.scope.lan']`).valid).toBe(true);
+    });
+    test('explains which capabilities a network import needs', () => {
+        const text = check(`['system.network']`).errors.join('\n');
+        expect(text).toContain('requires the capabilities system.network, system.network.tcp');
+        expect(text).toContain('How to fix:');
+    });
+    test('explains blocked non-network imports', () => {
+        const files = publishingFixture();
+        files['index.ts'] = `import * as fs from 'node:fs';\nexport const x = fs;\nexport class ReleaseConsole { declareCapabilities() { return []; } }`;
+        expect(checkPublishingFiles(files).errors.join('\n')).toContain('SDK scope helpers');
+    });
+});

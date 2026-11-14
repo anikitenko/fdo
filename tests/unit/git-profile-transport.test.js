@@ -43,7 +43,7 @@ test('Git CLI uses different encrypted keys per repository, streams real clone/f
     }
     git(['init', 'seed']); await fs.writeFile(path.join(root, 'seed', 'binary.dat'), Buffer.from(Array.from({length: 524288}, (_, index) => index % 256)));
     git(['add', '.'], path.join(root, 'seed')); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-m', 'binary fixture'], path.join(root, 'seed'));
-    for (const id of ['work', 'personal']) {git(['push', path.join(root, id, 'repo.git'), 'HEAD:refs/heads/main'], path.join(root, 'seed')); git(['symbolic-ref', 'HEAD', 'refs/heads/main'], path.join(root, id, 'repo.git'));}
+    for (const id of ['work', 'personal']) {git(['push', path.join(root, id, 'repo.git'), 'HEAD:refs/heads/main'], path.join(root, 'seed')); git(['--git-dir', path.join(root, id, 'repo.git'), 'symbolic-ref', 'HEAD', 'refs/heads/main'], root);}
     const server = new Server({hostKeys: [hostKey.private]}, connection => {
         connections.add(connection); connection.on('error', () => {}); connection.on('close', () => connections.delete(connection)); let identity;
         connection.on('authentication', ctx => {

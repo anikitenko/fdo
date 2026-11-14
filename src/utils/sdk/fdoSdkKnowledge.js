@@ -160,22 +160,40 @@ export function extractSdkSymbols(content = "") {
     return Array.from(symbols);
 }
 
+const DECLARATION_START = /^(?:\/\*\*|export\s|declare\s|type\s|interface\s|class\s|function\s|const\s|enum\s|#{1,6}\s)/;
+const LEADING_COMMENT = /^\s*(?:\/\*\*.*\*\/|\*\/|\/\/)/;
+
+// Split at top-level declarations so a type is not cut in half; fall back to a
+// hard split once a chunk reaches twice the soft limit.
 function chunkFileContent(content = "", maxChars = 1800) {
     const lines = String(content || "").split("\n");
     const chunks = [];
     let current = [];
     let currentLength = 0;
+    const lastBoundary = () => {
+        for (let i = current.length - 1; i > 0; i--) {
+            if (DECLARATION_START.test(current[i]) && !LEADING_COMMENT.test(current[i - 1])) return i;
+        }
+        return 0;
+    };
 
     for (const line of lines) {
         const nextLength = currentLength + line.length + 1;
         if (current.length > 0 && nextLength > maxChars) {
-            chunks.push(current.join("\n"));
-            current = [line];
-            currentLength = line.length + 1;
-        } else {
-            current.push(line);
-            currentLength = nextLength;
+            const boundary = DECLARATION_START.test(line) && !LEADING_COMMENT.test(current[current.length - 1]) ? 0 : lastBoundary();
+            if (nextLength > maxChars * 2 || boundary === 0) {
+                chunks.push(current.join("\n"));
+                current = [line];
+                currentLength = line.length + 1;
+                continue;
+            }
+            chunks.push(current.slice(0, boundary).join("\n"));
+            current = [...current.slice(boundary), line];
+            currentLength = current.reduce((total, item) => total + item.length + 1, 0);
+            continue;
         }
+        current.push(line);
+        currentLength = nextLength;
     }
 
     if (current.length > 0) {

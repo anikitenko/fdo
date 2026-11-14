@@ -6,7 +6,7 @@ import {scanTypeScript} from './registryPolicy/typescript-security';
 
 const CAPABILITY_FORMS = [
     "Supported forms: string literals, constants (const / readonly fields), spreads of those, and SDK helpers imported from '@anikitenko/fdo-sdk' called with constant arguments.",
-    "Helpers: createFilesystemScopeCapability, createProcessScopeCapability, createNetworkScopeCapability, create{Capability,Filesystem,Process,Workflow,Storage,AI,Secrets,SSH}CapabilityBundle, createOperatorToolCapabilityPreset, createAICapabilityPreset, createStorageCapabilityPreset, sharedLogicCapability, and createNetworkCapabilityBundle({transports: ['https'], scopeId: 'my-scope'}).",
+    "Helpers: createFilesystemScopeCapability, createProcessScopeCapability, createNetworkScopeCapability, create{Capability,Filesystem,Process,Workflow,Storage,AI,Secrets,SSH}CapabilityBundle, createOperatorToolCapabilityPreset, createAICapabilityPreset, createStorageCapabilityPreset, sharedLogicCapability, and createNetworkCapabilityBundle(['https']) or createNetworkCapabilityBundle({transports: ['https'], scopeId: 'my-scope'}).",
 ];
 const GUIDANCE = [
     [/Cannot resolve FDO capabilities/, [
@@ -19,8 +19,17 @@ const GUIDANCE = [
         'Move conditional logic out: declare every capability the plugin may need; the host still decides what is granted.']],
     [/one statically inspectable declareCapabilities/, [
         'Declare declareCapabilities() exactly once as a class method with a body in the plugin entry file.']],
-    [/Network capabilities|HTTP\/HTTPS transports|Network transports|Network scopeId|createNetworkCapabilityBundle/, [
-        "Call createNetworkCapabilityBundle with an inline object: transports: ['http' | 'https'] (unique, non-empty) and scopeId: a lowercase string matching [a-z0-9-], max 63 chars."]],
+    [/network transport|createNetworkCapabilityBundle|scopeId/i, [
+        "Pass createNetworkCapabilityBundle a constant array or {transports, scopeId} object. Transports: https, http, websocket, tcp, udp, dns (at least one). scopeId is optional and must be a constant string with a letter or digit."]],
+    [/requires the capabilities system\.network/, [
+        "Declare 'system.network', the transport capability for that module and a scope, e.g. createNetworkCapabilityBundle({transports: ['tcp'], scopeId: 'my-scope'}).",
+        'Transports by module: net/tls = tcp, dgram = udp, dns = dns, http = http, https/http2 = https.']],
+    [/Reference to (fetch|WebSocket) is forbidden/, [
+        "Use fetch with 'system.network' + 'system.network.http' or 'system.network.https', or WebSocket with 'system.network.websocket'; either also needs a 'system.network.scope.<id>' capability (see createNetworkCapabilityBundle).",
+        'Network calls are only allowed in backend code, not inside UI action handlers; move them into a plugin method.']],
+    [/Import ".*" is not a host-provided module/, [
+        "Import only '@anikitenko/fdo-sdk', 'react', 'react-dom', your own relative files, or Node network modules (net, tls, dgram, dns, http, https, http2) with matching network capabilities.",
+        'File, process and shell access must use the SDK scope helpers instead of node:fs or node:child_process.']],
     [/metadata or complete package metadata is required/, ['Add the missing fields (e.g. author, description) to package.json, or declare them in the plugin metadata.']],
     [/ambiguous metadata declarations/, ['Declare each FDO metadata field (name, version, author, etc.) once, using constant values.']],
     [/package\.json name cannot be converted/, ['Set a package.json "name" containing letters or digits, e.g. "my-company-plugin".']],
@@ -61,7 +70,7 @@ export function checkPublishingFiles(files) {
             const archive = validateSourceFiles(Buffer.alloc(0), text, undefined, true);
             proposal = archive.proposal;
             const security = scanTypeScript({...archive, manifest: {...archive.manifest, capabilities: proposal?.capabilities || []}});
-            errors.push(...security.findings.map(finding => `${finding.code}: ${finding.message}`));
+            errors.push(...security.findings.map(finding => explainPublishingError(`${finding.code}: ${finding.message}`)));
         }
         catch (error) {errors.push(explainPublishingError(error.message));}
     }
