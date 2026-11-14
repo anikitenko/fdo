@@ -180,13 +180,26 @@ fdo dev ./my-plugin
 fdo test ./my-plugin --json
 fdo validate ./my-plugin
 fdo compile ./my-plugin
+fdo validate ./my-plugin --publishing --json
+fdo sign import-root ./shared-root.crt
+fdo sign import-developer ./developer-chain.pem ./developer.key
 fdo sign list
+fdo sign archive ./publishing-source --certificate 'registry:<id>' --output ./release.zip
 fdo sign plugin ./my-plugin --label root
 fdo deploy ./my-plugin --dry-run --json
 fdo deploy ./my-plugin --label root
 fdo sdk migrate --target ./my-plugin
 fdo sdk migrate --target ./my-plugin --write
 ```
+
+`validate <path> --publishing` checks the source copy with the registry's static
+source-policy validators, without building or accessing signing keys. It returns
+nonzero with actionable errors and supports `--json`. `sign import-root` and
+`sign import-developer` reuse Settings certificate imports. `sign list` prints the
+selector to reuse with `--label` (local signing/deployment) or `--certificate`
+(publishing archives). `sign archive` checks, signs and creates a new source-only
+ZIP using the same service as Export As; it never overwrites an existing output
+or uploads a release. See [registry signing](docs/REGISTRY_SIGNING.md).
 
 `test <path>` runs the same workspace test runner as the editor, with TypeScript
 and CSS support and structured results under `--json`. It returns nonzero for

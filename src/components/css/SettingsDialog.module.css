@@ -227,3 +227,86 @@
 .unrestricted-command-access { margin: 12px 0; padding: 12px; border: 1px solid #cd4246; border-radius: 4px; }
 .unrestricted-command-access > :global(.bp6-checkbox) { color: #cd4246; font-weight: 600; }
 .unrestricted-command-access > p { margin-bottom: 8px; font-size: 12px; }
+
+.certificate-empty-state {
+    height: auto;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 12px 4px;
+    margin: 4px 0 12px;
+    text-align: left;
+}
+.certificate-empty-state:global(.bp6-non-ideal-state.bp6-non-ideal-state-horizontal) > * {
+    margin: 0;
+}
+.certificate-empty-state :global(.bp6-non-ideal-state-text) {
+    max-width: none;
+    min-width: 0;
+    flex-shrink: 1;
+    font-size: 12px;
+    line-height: 18px;
+}
+.certificate-empty-state :global(.bp6-heading) {
+    padding: 0;
+    margin: 0 0 4px;
+    font-size: 14px;
+    line-height: 20px;
+}
+
+.certificateHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.certificateHeader > h2 {
+    flex: 1 0 100%;
+}
+.certificateHeader :global(.bp6-button) {
+    max-width: 100%;
+    white-space: normal;
+}
+.certificateDetails {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+.certificateDetails > :global(.bp6-icon) {
+    flex-shrink: 0;
+}
+.certificateBody {
+    flex: 1;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.certificateName {
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+.certificateBody :global(.bp6-editable-text),
+.certificateBody :global(.bp6-editable-text-content) {
+    max-width: 100%;
+    white-space: normal;
+}
+.certificateTechnicalDetails {
+    margin-top: 6px;
+    font-size: 12px;
+}
+.certificateTechnicalDetails > summary {
+    cursor: pointer;
+    opacity: 0.7;
+}
+.certificateTechnicalDetails code {
+    white-space: normal;
+    word-break: break-all;
+}
+
+:global(.bp6-card-list) > .registryCertificateCard:global(.bp6-card) { display: block; padding: 16px; }
+.registryCertificateRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px; }
+.registryCertificateIssue { margin-top: 14px; width: 100%; overflow-wrap: anywhere; }
+.registryCertificateIssue p { margin-top: 0; }
+@media (max-width: 480px) {
+    .registryCertificateRow { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .registryCertificateRow > button { justify-self: start; }
+}

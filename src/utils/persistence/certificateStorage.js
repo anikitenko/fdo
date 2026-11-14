@@ -67,11 +67,16 @@ export const certificateStorage = {
 };
 export function closeCertificateStorage() {database?.close(); database = undefined;}
 
-export function previewSigningCertificates() {
+export function previewSigningCertificates({includeRegistry = false} = {}) {
     const saved = readCertificateMetadata(path.join(path.dirname(settings.path), 'certificates.sqlite'), 'root');
     const legacy = settings.get('certificates')?.root ?? [];
     if (!Array.isArray(legacy)) throw new Error('Invalid existing certificate collection');
     const byId = new Map(saved.map(entry => [entry.id, entry]));
     for (const {key, ...entry} of legacy) byId.set(entry.id, {...entry, hasPrivateKey: typeof key === 'string' && !!key});
-    return [...byId.values()];
+    const roots = [...byId.values()];
+    if (!includeRegistry) return roots;
+    const registry = readCertificateMetadata(path.join(path.dirname(settings.path), 'certificates.sqlite'), 'registry');
+    const known = new Set(registry.map(entry => entry.id));
+    return [...roots, ...registry.filter(entry => entry.kind === 'developer'),
+        ...legacyCertificates('registry').filter(entry => entry.kind === 'developer' && !known.has(entry.id))];
 }

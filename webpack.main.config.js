@@ -38,6 +38,7 @@ module.exports = {
     externals: {
         ssh2: 'commonjs ssh2',
         typescript: "commonjs typescript",
+        "registry-typescript": "commonjs registry-typescript",
         esbuild: "commonjs esbuild",
         "@cursor/sdk": "commonjs @cursor/sdk",
         "@anikitenko/fdo-sdk": "commonjs @anikitenko/fdo-sdk",
@@ -100,7 +101,7 @@ module.exports = {
                 ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client', 'zod'].map(name => ({
                     from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
                 })),
-                ...['typescript', '@typescript', '@types/node', 'undici-types'].map(name => ({
+                ...['typescript', 'registry-typescript', '@typescript', '@types/node', 'undici-types'].map(name => ({
                     from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
                 })),
                 {

@@ -72,7 +72,10 @@
     "test:handles": "node scripts/run-jest.cjs --detectOpenHandles --runInBand",
     "website:dev": "node --watch scripts/website/site.cjs serve",
     "website:check": "node scripts/website/site.cjs check",
-    "website:nav": "node scripts/website/navigation.cjs --write"
+    "website:nav": "node scripts/website/navigation.cjs --write",
+    "registry:sync-trust": "node scripts/sync-registry-trust.cjs",
+    "registry:sync-policy": "node scripts/sync-registry-policy.cjs",
+    "registry:check-policy": "node scripts/sync-registry-policy.cjs --check"
   },
   "devDependencies": {
     "@babel/core": "^8.0.7",
@@ -208,6 +211,7 @@
     "react-split-grid": "^1.0.4",
     "recharts": "^3.10.1",
     "reflect-metadata": "^0.2.2",
+    "registry-typescript": "file:packages/registry-typescript",
     "semver": "7.8.5",
     "shell-quote": "1.12.0",
     "split-grid": "^1.0.11",
@@ -216,7 +220,8 @@
     "typescript": "7.0.2",
     "unique-names-generator": "^4.7.1",
     "uuid": "^14.0.3",
-    "vscode-icons-js": "^11.6.1"
+    "vscode-icons-js": "^11.6.1",
+    "yauzl": "^3.4.0"
   },
   "overrides": {
     "deepmerge": "$@fdo/jest-deepmerge",
@@ -277,7 +282,8 @@
       "dist/main/node_modules/@connectrpc/**/*",
       "dist/main/node_modules/@statsig/**/*",
       "dist/main/node_modules/zod/**/*",
-      "dist/main/node_modules/@typescript/**/*"
+      "dist/main/node_modules/@typescript/**/*",
+      "dist/main/node_modules/registry-typescript/**/*"
     ],
     "compression": "maximum",
     "buildDependenciesFromSource": false,

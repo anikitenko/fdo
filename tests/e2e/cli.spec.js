@@ -408,3 +408,57 @@ test('CLI tests, profile discovery, rollback, concurrent deploys and log followi
         if(closed)await closed;fs.rmSync(root,{recursive:true,force:true});
     }
 });
+
+test('CLI publishing preflight reports the registry policy before any signing or upload', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-cli-publishing-'));
+    const profile = path.join(root,'profile'), project=path.join(root,'source');
+    try {
+        workspace(project);
+        const file=path.join(project,'package.json');
+        const pkg=JSON.parse(fs.readFileSync(file,'utf8'));
+        pkg.fdo={compatibility:{fdo:'*',sdk:'*',api:'*'}};
+        pkg.scripts={build:'tsc'};
+        fs.writeFileSync(file,JSON.stringify(pkg));
+        const blocked=await cli(['validate',project,'--publishing','--json'],profile);
+        expect(blocked.code,blocked.stderr).toBe(1);
+        expect(JSON.parse(blocked.stdout).data.errors.join('\n')).toContain('scripts');
+        delete pkg.scripts;fs.writeFileSync(file,JSON.stringify(pkg));
+        fs.appendFileSync(path.join(project,'index.ts'), `\nimport {defineRenderOnLoadActions} from '@anikitenko/fdo-sdk';
+            defineRenderOnLoadActions(({handlers: {check: ({element, document, window}) => {
+                const node = document.querySelector('#status');
+                if (node) node.textContent = 'Ready';
+                window.createBackendReq('UI_MESSAGE', {});
+            }}} satisfies object));`);
+        const valid=await cli(['validate',project,'--publishing','--json'],profile);
+        expect(valid.code,JSON.stringify(valid)).toBe(0);
+        expect(JSON.parse(valid.stdout).data).toMatchObject({valid:true,proposal:{pluginId:'cli-release-fixture',capabilities:['storage']}});
+        expect(fs.existsSync(path.join(project,'fdo.signature'))).toBe(false);
+        expect(fs.existsSync(path.join(project,'dist'))).toBe(false);
+        const missing=await cli(['sign','archive',project,'--json'],profile);
+        expect(missing.code).not.toBe(0);
+        expect(JSON.parse(missing.stdout).ok).toBe(false);
+    } finally {fs.rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('CLI imports a shared root and reuses it for existing directory signing', async () => {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-cli-import-root-'));
+    const profile=path.join(root,'profile'), project=path.join(root,'source');
+    try {
+        workspace(project);
+        const identity=await require('../helpers/certificateFixture.cjs').certificateFixture('shared');
+        const file=path.join(root,'shared.pem');fs.writeFileSync(file,identity.cert+'\n'+identity.key);
+        const imported=await cli(['sign','import-root',file,'--json'],profile);
+        expect(imported.code,JSON.stringify(imported)).toBe(0);
+        const listed=await cli(['sign','list','--json'],profile);
+        expect(listed.code,listed.stderr).toBe(0);
+        const entries=JSON.parse(listed.stdout).data;
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).toMatchObject({label:'Certificate Storage Test',scope:'root',hasPrivateKey:true});
+        expect(entries[0]).not.toHaveProperty('key');expect(entries[0]).not.toHaveProperty('cert');
+        const signed=await cli(['sign','plugin',project,'--label',entries[0].selector,'--json'],profile);
+        expect(signed.code,JSON.stringify(signed)).toBe(0);
+        expect(JSON.parse(fs.readFileSync(path.join(project,'fdo.meta.json'),'utf8')).signedBy).toBe('root');
+        expect(fs.readFileSync(path.join(project,'fdo.signature')).length).toBeGreaterThan(0);
+    } finally {fs.rmSync(root,{recursive:true,force:true});}
+});

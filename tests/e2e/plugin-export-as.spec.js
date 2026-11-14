@@ -27,6 +27,11 @@ test('Manage Plugins reviews and saves a standalone web archive through Export A
         await window.getByRole('button',{name:'Export As…',exact:true}).click();
         const dialog=window.getByRole('dialog',{name:'Export As · Web counter',exact:true});
         await expect(dialog).toBeVisible();
+        await expect(dialog.getByLabel('Export format',{exact:true})).toHaveValue('archive');
+        await expect(dialog.getByRole('option')).toHaveCount(2);
+        await expect(dialog.getByRole('textbox')).toHaveCount(0);
+        await expect(dialog.getByRole('button',{name:'Export plugin archive',exact:true})).toBeEnabled();
+        await dialog.screenshot({path:test.info().outputPath('plugin-archive-export.png'),animations:'disabled'});
         await dialog.getByLabel('Export format',{exact:true}).selectOption('web');
         await expect(dialog.getByText('Application conversion prepared',{exact:true})).toBeVisible();
         await expect(dialog.getByRole('button',{name:'Azure deployment guide',exact:true})).toBeVisible();

@@ -1,3 +1,6 @@
+import {Certs} from '../utils/system/certs';
+import {certificateStorage} from '../utils/persistence/certificateStorage';
+import {createRegistryArchive} from '../utils/plugins/publishing/registryArchive';
 import {app,BrowserWindow,dialog,ipcMain} from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -54,12 +57,46 @@ export function registerPluginExportHandlers({getPlugin}) {
         try {
             if(!['archive','web','report','migration'].includes(options.format))return {success:false,error:'Choose a supported export format.'};
             const plugin=readPlugin(id);
-            let filename,files,report;
+            let filename,files,report,signingIdentity,localSigner,archiveBuffer;
             if(options.format==='archive') {
+                const identities = certificateStorage.list('registry').filter(entry => entry.kind === 'developer' && entry.hasPrivateKey);
+                const roots = certificateStorage.list('root').filter(entry => entry.hasPrivateKey);
+                if (options.signerId?.startsWith('registry:')) {
+                    signingIdentity = identities.find(entry => entry.id === options.signerId.slice('registry:'.length));
+                } else if (options.signerId) {
+                    localSigner = roots.find(entry => entry.label === options.signerId);
+                }
+                if (options.signerId && !signingIdentity && !localSigner)
+                    return {success: false, error: 'The selected signing certificate is no longer available. Reopen Export As.'};
+                if (!options.signerId && (identities.length || roots.length))
+                    return {success: false, error: 'Choose the signing certificate for this export.'};
                 filename=(String(plugin.name || 'plugin').replace(/[^\w.-]+/g,'-') || 'plugin')+'.zip';
-                const ignore=await getIgnoreInstance(plugin.home,[],{includeDist:true});
-                const paths=await getAllFilesWithIgnorance(plugin.home,relative=>!ignore.ignores(relative));
-                files=Object.fromEntries(await Promise.all(paths.map(async file=>[path.relative(plugin.home,file).split(path.sep).join('/'),await fs.readFile(file)])));
+                if (signingIdentity) {
+                    const prepared = await createRegistryArchive(plugin.home, signingIdentity.id);
+                    archiveBuffer = prepared.archive;
+                    signingIdentity = {...signingIdentity, id: prepared.signerId};
+                } else {
+                    const ignore = await getIgnoreInstance(plugin.home, [], {includeDist: true});
+                    const paths = await getAllFilesWithIgnorance(plugin.home, relative => !ignore.ignores(relative));
+                    files = Object.fromEntries(await Promise.all(paths.map(async file => [path.relative(plugin.home, file).split(path.sep).join('/'), await fs.readFile(file)])));
+                }
+                if (localSigner) {
+                    // Sign an isolated copy with the same signer as the editor, leaving
+                    // the installed plugin and its existing signature untouched.
+                    const staging = await fs.mkdtemp(path.join(app.getPath('temp'), 'fdo-export-sign-'));
+                    try {
+                        for (const [name, content] of Object.entries(files)) {
+                            const target = path.join(staging, name);
+                            await fs.mkdir(path.dirname(target), {recursive: true});
+                            await fs.writeFile(target, content);
+                        }
+                        const result = await Certs.signWithCertificate(staging, localSigner.label);
+                        if (!result.success) return {success: false, error: result.error};
+                        for (const name of ['fdo.meta.json', 'fdo.signature', '.fdoignore'])
+                            files[name] = await fs.readFile(path.join(staging, name));
+                    } finally {await fs.rm(staging, {recursive: true, force: true});}
+                }
+
             } else {
                 const current=previews.get(event.sender.id);
                 if(!current || current.id!==id || current.token!==options.token || current.expires<Date.now())return {success:false,error:'Review this plugin again before exporting. The previous review expired.'};
@@ -78,13 +115,16 @@ export function registerPluginExportHandlers({getPlugin}) {
                     filename=(String(plugin.name || 'plugin').replace(/[^\w.-]+/g,'-') || 'plugin')+'-web-migration.zip';
                 } else filename='web-conversion-report.json';
             }
+            const isJson=options.format==='report';
             const window=BrowserWindow.fromWebContents(event.sender);
-            const selection=await dialog.showSaveDialog(window || undefined,{title:options.format==='report'?'Save conversion report':'Export As',defaultPath:path.join(app.getPath('downloads'),filename),filters:[{name:options.format==='report'?'Conversion report':'ZIP archive',extensions:[options.format==='report'?'json':'zip']}]});
+            const selection=await dialog.showSaveDialog(window || undefined,{title:isJson?'Save conversion report':'Export As',defaultPath:path.join(app.getPath('downloads'),filename),filters:[{name:isJson?'Conversion report':'ZIP archive',extensions:[isJson?'json':'zip']}]});
             if(selection.canceled || !selection.filePath)return {success:true,canceled:true};
-            const content=options.format==='report'?JSON.stringify(report,null,2)+'\n':await exportArchive(files);
+            const content=isJson?JSON.stringify(report,null,2)+'\n':archiveBuffer || await exportArchive(files);
+            if(signingIdentity && content.length>10*1024*1024)return {success:false,error:'Registry source ZIP exceeds 10 MiB.'};
             const temporary=selection.filePath+'.'+randomUUID()+'.tmp';
             try{await fs.writeFile(temporary,content,{flag:'wx',mode:0o600});await fs.rename(temporary,selection.filePath);}
             finally{await fs.rm(temporary,{force:true});}
+            if(signingIdentity)certificateStorage.update(signingIdentity.id,{lastUsedAt:new Date().toISOString()},'registry');
             return {success:true,path:selection.filePath};
         }catch(error){return {success:false,error:error.message};}
     });

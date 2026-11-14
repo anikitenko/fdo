@@ -1,5 +1,7 @@
 import {Button, Card, Checkbox, Dialog, DialogBody} from "@blueprintjs/core";
 import React from "react";
+import {signingCertificateValue} from "../../../utils/system/certificateDisplay";
+import CertificateDetails from "../../settings/panels/CertificateDetails";
 
 import PropTypes from "prop-types";
 
@@ -38,26 +40,24 @@ export const RootCertificateSelectionComponent = ({show, setShow, rootCertificat
                     setOnRootSelectedCert(null);
                 }
             }}
-            title="Select Root Certificate"
+            title="Select Signing Certificate"
         >
             <DialogBody>
                 {rootCertificates.map((cert) => (
-                    <Card key={cert.label} style={{ marginBottom: "10px" }}>
+                    <Card key={signingCertificateValue(cert)} style={{ marginBottom: "10px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "5px" }}>
-                            <div>
-                                <div style={{ fontWeight: 600 }}>{cert.label}</div>
-                                <div style={{ fontSize: "12px", color: "#5C7080" }}>{cert.identity}</div>
-                            </div>
+                            <CertificateDetails cert={cert}/>
                             <Button
+                                style={{flexShrink: 0}}
                                 intent="primary"
                                 text="Use"
                                 onClick={() => {
                                     setShow(false);
                                     if (rememberRef.current) {
-                                        setRememberRootCert(cert.label);
+                                        setRememberRootCert(signingCertificateValue(cert));
                                     }
                                     if (onRootSelectedCert) {
-                                        onRootSelectedCert(cert.label);
+                                        onRootSelectedCert(signingCertificateValue(cert));
                                         setOnRootSelectedCert(null);
                                     }
                                 }}
@@ -70,7 +70,7 @@ export const RootCertificateSelectionComponent = ({show, setShow, rootCertificat
                 </p>
                 <div style={{ marginTop: "12px" }}>
                     <Checkbox
-                        defaultChecked={false}
+                        defaultChecked={rememberRef.current}
                         onChange={(e) => {
                             rememberRef.current = e.currentTarget.checked;
                         }}

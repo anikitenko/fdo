@@ -1,3 +1,4 @@
+import {signingCertificateValue} from './certificateDisplay';
 import {withCliLock} from './cliLock';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -97,12 +98,14 @@ export function assertCliDeployAllowed(file, directory) {
     requirePluginDirectory(directory);
     const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'));
     const id = typeof manifest.name === 'string' ? generatePluginName(manifest.name) : '';
+    if (readCliRegistry(file).plugins.some(plugin => plugin.id === id && plugin.registry)) throw new Error('This plugin is managed by the registry. Install a registry release or export a separate source copy for local development.');
     if (readCliRegistry(file).plugins.some(plugin => plugin.id === id && plugin.gitops)) throw new Error('This plugin is managed by GitOps. Update its repository or detach the subscription first.');
 }
 
 export function registerCliPlugin(file, directory, compiled) {
     const registry = readCliRegistry(file);
     const existing = registry.plugins.find(plugin => plugin.id === compiled.name);
+    if (existing?.registry) throw new Error('This plugin is managed by the registry. Install a registry release or export a separate source copy for local development.');
     if (existing?.gitops) throw new Error('This plugin is managed by GitOps. Update its repository or detach the subscription first.');
     const plugin = {...existing, id: compiled.name, metadata: compiled.metadata, home: directory, entry: compiled.entryPoint,
         capabilities: existing?.capabilities || [], customProcessScopes: existing?.customProcessScopes || [], customFilesystemScopes: existing?.customFilesystemScopes || []};
@@ -121,7 +124,7 @@ export async function planCliDeployment(directory, label, {registryFile, profile
     assertCliDeployAllowed(registryFile, directory);
     const plugin = await validate(directory);
     const existing = readCliRegistry(registryFile).plugins.find(item => item.id === plugin.name);
-    const certificate = listCertificates().find(item => item.label === label);
+    const certificate = listCertificates().find(item => signingCertificateValue(item) === label);
     let signer;
     if (!certificate) {
         if (label !== 'root') throw new Error(`Signing certificate not found: ${label}. Create or import it in Settings → Certificates.`);

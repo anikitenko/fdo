@@ -1,10 +1,11 @@
+import RegistryCertificates from './RegistryCertificates';
 import {operationError} from '../../../utils/desktop/notificationContent';
 import React, {useEffect, useState} from "react";
-import {differenceInDays, formatDistanceToNow} from "date-fns";
+import CertificateDetails from './CertificateDetails';
+import {certificateDisplayName} from '../../../utils/system/certificateDisplay';
 import * as styles from "../../css/SettingsDialog.module.css";
-import {Button, Card, CardList, EditableText, H2, Icon, NonIdealState} from "@blueprintjs/core";
+import {Button, Card, CardList, EditableText, H2, NonIdealState} from "@blueprintjs/core";
 import {AppToaster} from "../../AppToaster";
-import {CertificateValidComponent} from "../../editor/utils/CertificateValidComponent";
 
 export const CertificatePanel = () => {
     const [rootCertificates, setRootCertificates] = useState([]);
@@ -24,28 +25,15 @@ export const CertificatePanel = () => {
         }).catch(error => AppToaster.show({message: operationError('Could not rename this certificate', error), intent: 'danger'}))
     }, []);
 
-    const showColoredLastUsed = (lastUsed) => {
-        const lastUsedDate = new Date(lastUsed);
-        const daysAgo = differenceInDays(new Date(), lastUsedDate);
-
-        const usageClass = daysAgo < 7 ? styles["text-green"] : styles["text-red"];
-
-        return (
-            <span className={`bp6-text-muted ${usageClass}`}>
-                Last used {formatDistanceToNow(lastUsedDate, {addSuffix: true})}
-            </span>
-        )
-    }
-
     useEffect(() => {
         updateCertificates()
     }, []);
     return (
         <Card className={styles["card-panel"]}>
-            <div className={styles["card-setting-header"]}>
-                <H2 style={{margin: 0}}>Root certificates</H2>
+            <div className={`${styles["card-setting-header"]} ${styles.certificateHeader}`}>
+                <H2 style={{margin: 0, fontSize: 16}}>Root certificates</H2>
                 <Button intent={"success"} text="New root certificate" loading={generateRootCertProgress}
-                        style={{marginLeft: "auto", borderRadius: "6px"}} onClick={() => {
+                        style={{borderRadius: "6px"}} onClick={() => {
                     setGenerateRootCertProgress(true)
                     const label = rootCertificates.some(cert => cert.label === 'root')
                         ? `Signing-${(Math.random() + 1).toString(36).substring(2)}` : 'root';
@@ -54,27 +42,29 @@ export const CertificatePanel = () => {
                     }).catch(error => AppToaster.show({message: operationError('Could not create a signing certificate', error, 'Try again and choose Allow if macOS asks FDO to use the Keychain.'), intent: 'danger'}))
                         .finally(() => setGenerateRootCertProgress(false))
                 }}/>
-                <Button intent={"primary"} text="Import" icon={"import"} loading={importRootCertProgress}
-                        style={{marginLeft: "5px", borderRadius: "6px"}} onClick={async () => {
+                <Button intent={"primary"} text="Import root certificate" icon={"import"} loading={importRootCertProgress}
+                        style={{borderRadius: "6px"}} onClick={async () => {
                     setImportRootCertProgress(true)
-                    const file = await window.electron.system.openFileDialog({
-                        title: 'Select root certificate',
-                        buttonLabel: 'Upload',
-                        properties: ['openFile'],
-                        filters: [
-                            {name: 'Certificates', extensions: ['cert', 'crt', 'pem', 'ca']},
-                        ],
-                    })
-                    if (file) {
-                        window.electron.settings.certificates.import(file).then(async (response) => {
-                            if (response.success) {
-                                updateCertificates()
-                            } else {
-                                (AppToaster).show({message: operationError("Could not import the selected certificate", response.error, "Use a valid PEM certificate with a matching private key if signing is required."), intent: "danger"});
-                            }
-                        }).catch(error => AppToaster.show({message: operationError('Could not import the selected certificate', error), intent: 'danger'}))
+                    try {
+                        const file = await window.electron.system.openFileDialog({
+                            title: 'Select root certificate',
+                            buttonLabel: 'Import', properties: ['openFile'],
+                            filters: [{name: 'Certificates', extensions: ['cert', 'crt', 'pem', 'ca']}],
+                        });
+                        if (!file) return;
+                        const response = await window.electron.settings.certificates.import(file);
+                        if (!response.success) {
+                            AppToaster.show({message: operationError('Could not import the selected certificate', new Error(response.error)), intent: 'danger'});
+                            return;
+                        }
+                        if (!response.canceled) {
+                            updateCertificates();
+                        }
+                    } catch (error) {
+                        AppToaster.show({message: operationError('Could not import the selected certificate', error), intent: 'danger'});
+                    } finally {
+                        setImportRootCertProgress(false);
                     }
-                    setImportRootCertProgress(false)
                 }}/>
             </div>
             <p>
@@ -101,47 +91,10 @@ export const CertificatePanel = () => {
                                     gap: "5px"
                                 }}
                             >
-                                <div style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "12px",
-                                    flex: "1",
-                                    minWidth: "0",
-                                    width: "0"
-                                }}>
-                                    <Icon icon="id-number" size={32}/>
-                                    <div className={"bp6-text-overflow-ellipsis"}>
-                                        <div style={{padding: "3px"}}>
-                                            {cert.label === "root" ? (
-                                                <strong style={{color: "#2d72d2"}}>{cert.label}</strong>
-                                            ) : (
-                                                <strong><EditableText intent="primary" selectAllOnFocus={true}
-                                                                      placeholder={cert.label} defaultValue={cert.label}
-                                                                      onConfirm={(value) => {
-                                                                          handleRootCertLabelChange(cert.id, value)
-                                                                      }}/></strong>
-                                            )}
-                                        </div>
-                                        {cert.imported !== true && (
-                                            <div><strong>{cert.identity}</strong></div>
-                                        )}
-                                        <div>
-                                            <code className={"bp6-monospace-text"} style={{
-                                                overflowWrap: "anywhere",
-                                                fontSize: "12px"
-                                            }}>{cert.id}</code>
-                                        </div>
-                                        <CertificateValidComponent cert={cert}/>
-                                        <div>
-                                <span className={"bp6-text-muted"}>
-                                    Added {formatDistanceToNow(new Date(cert.createdAt), {addSuffix: true})}
-                                </span>
-                                        </div>
-                                        <div>
-                                            {showColoredLastUsed(cert.lastUsedAt)}
-                                        </div>
-                                    </div>
-                                </div>
+                                <CertificateDetails cert={cert} label={cert.label === 'root'
+                                    ? <strong style={{color: '#2d72d2'}}>{cert.label}</strong>
+                                    : <strong><EditableText intent="primary" selectAllOnFocus placeholder={certificateDisplayName(cert.label)}
+                                        defaultValue={certificateDisplayName(cert.label)} onConfirm={value => handleRootCertLabelChange(cert.id, value)}/></strong>}/>
                                 <div style={{display: "flex", flexDirection: "column", gap: "6px"}}>
                                     {cert.imported !== true && (
                                         <Button size={"small"} variant={"outlined"} intent="warning"
@@ -200,30 +153,24 @@ export const CertificatePanel = () => {
                     ))}
                 </CardList>
             ) : (
-                <div style={{padding: "20px"}}>
-                    <NonIdealState
+                <div>
+                    <NonIdealState iconSize={24} className={styles["certificate-empty-state"]}
                         icon="shield"
                         title="No certificates found"
                         description="Root certificates will appear here once they are created."
-                        layout="vertical"
+                        layout="horizontal"
                     />
                 </div>
             )}
+            <RegistryCertificates/>
             <div className={styles["card-setting-header"]}>
-                <H2 style={{margin: 0}}>Registry certificates</H2>
-            </div>
-            <p>
-                Registry certificates are used to verify the identity and integrity of plugin registries.
-                Only registries signed with trusted certificates will be accepted. These certificates
-                help ensure that plugins come from secure and authenticated sources.
-            </p>
-            <div className={styles["card-setting-header"]}>
-                <H2 style={{margin: 0}}>Organization certificates</H2>
+                <H2 style={{margin: 0, fontSize: 16}}>Organization certificates</H2>
             </div>
             <p>
                 Organization certificates are issued by a trusted Root CA to individual developers or teams.
                 These certificates are used to sign plugins and establish trust within your organization.
             </p>
+            <NonIdealState iconSize={24} className={styles["certificate-empty-state"]} icon="office" title="No organization certificates" description="Organization certificates will appear here once they are imported." layout="horizontal"/>
         </Card>
     )
 }

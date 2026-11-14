@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { HashRouter, Route, Routes } from 'react-router-dom';
 
 import {Home} from './Home.jsx';
+import RegistryInstallDialog from './components/plugin/RegistryInstallDialog';
 const EditorPage = lazy(() => import('./components/editor/EditorPage.jsx').then(m => ({ default: m.EditorPage })));
 const LiveUI = lazy(() => import('./components/live-ui/LiveUI.jsx').then(m => ({ default: m.LiveUI })));
 
@@ -12,7 +13,7 @@ function App() {
                 <Routes>
                     <Route path="/live-ui" element={<LiveUI />} />
                     <Route path="/editor" element={<EditorPage />} />
-                    <Route path="/" exact element={<Home />} />
+                    <Route path="/" exact element={<><Home /><RegistryInstallDialog /></>} />
                 </Routes>
             </Suspense>
         </HashRouter>

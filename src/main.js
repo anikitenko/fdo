@@ -1,3 +1,9 @@
+import {createRegistryInstallStore} from './utils/plugins/importing/registryInstallStore';
+import {createDeepLinkQueue} from './utils/system/deepLinks';
+import {installRegistryRelease} from './utils/plugins/importing/registryInstall';
+import {importRootCertificate, importDeveloperCertificateFiles} from './utils/system/certificateImports';
+import {checkPublishingDirectory, writeRegistryArchive} from './utils/plugins/publishing/registryArchive';
+import {startRegistryLifecycleMonitor} from './utils/system/registryLifecycleMonitor';
 import {cliProfile} from './utils/system/cliProfile';
 import {checkForFdoUpdate} from './utils/system/updateChecker';
 import {applyLocalMacSignature, assessCurrentMacApp, installMacAutoUpdate} from './utils/system/macAutoUpdate';
@@ -20,7 +26,7 @@ import {syncCollection, detachCollection, decideGitOpsUpdate} from './utils/gito
 import {readPluginRepository} from './utils/gitops/verifyRepository';
 import {normalizeAndValidatePluginMetadata} from './utils/plugins/runtime/pluginMetadataContract';
 import UserORM from './utils/persistence/UserORM';
-import {NotificationChannels, SettingsChannels} from './ipc/channels';
+import {NotificationChannels, SettingsChannels, RegistryInstallChannels} from './ipc/channels';
 import {installAssistantWindowPolicy} from './utils/desktop/assistantWindowPolicy';
 import nodeUrl from 'node:url';
 import PluginManager from "./utils/plugins/runtime/PluginManager";
@@ -246,7 +252,7 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
                 const created = await Certs.generateRootCA('root', false, {notify: false, onlyIfMissing: true});
                 if (created) (cliArgs.includes('--json') ? console.error : console.log)('Created the default root signing certificate in OS-protected storage.');
             }
-            const signed = Certs.signPlugin(directory, label);
+            const signed = await Certs.signWithCertificate(directory, label);
             if (!signed?.success) throw new Error(signed?.error || 'Plugin signing failed.');
         };
         const withCertificateLock = operation => withCliLock(nodePath.join(getUserDataRoot(), 'certificates.sqlite'), operation);
@@ -284,8 +290,12 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
                 return untilQuit(signal => watchPluginDirectory(directory, {deploy: target => deploy(target, label), signal}));
             },
             planDeployment: (directory, label) => planCliDeployment(directory, label, {registryFile: PLUGINS_REGISTRY_FILE, profile: getUserDataRoot(), validate,
-                listCertificates: previewSigningCertificates}),
-            listCertificates: () => certificateStorage.list('root'),
+                listCertificates: () => previewSigningCertificates({includeRegistry: true})}),
+            listCertificates: () => certificateStorage.list().filter(entry => entry.scope === 'root' || entry.scope === 'registry' && entry.kind === 'developer'),
+            importRootCertificate: file => withCertificateLock(() => importRootCertificate(file)),
+            importDeveloperCertificate: files => withCertificateLock(() => importDeveloperCertificateFiles(files)),
+            checkPublishing: checkPublishingDirectory,
+            signArchive: (directory, signerId, output) => withCliLock(directory, () => withCertificateLock(() => writeRegistryArchive(directory, signerId, output))),
             inspectPlugins: id => inspectCliPlugins({registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE, verifyPlugin: directory => Certs.verifyPlugin(directory)}, id),
             doctor: () => diagnoseCli({version: app.getVersion(), profile: getUserDataRoot(), registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE,
                 installation: inspectCliInstallation, listCertificates: () => certificateStorage.list('root'),
@@ -326,6 +336,72 @@ if (process.defaultApp) {
     app.setAsDefaultProtocolClient('fdo-fiddle')
 }
 
+let mainWindowCreation;
+const ensureMainWindow = async () => {
+    const window = PluginManager.mainWindow;
+    if (window && !window.isDestroyed()) return window;
+    if (!mainWindowCreation) mainWindowCreation = createWindow().finally(() => {mainWindowCreation = null;});
+    return mainWindowCreation;
+};
+let registryInstallStatus = {phase: 'idle', revision: 0};
+const publishRegistryInstall = progress => {
+    registryInstallStatus = {...registryInstallStatus, ...progress, revision: registryInstallStatus.revision + 1};
+    const window = PluginManager.mainWindow;
+    if (window && !window.isDestroyed()) {
+        try {window.webContents.send(RegistryInstallChannels.PROGRESS, registryInstallStatus);}
+        catch (error) {debugLog(`[MAIN] Installation progress delivery failed: ${error.message}`);}
+    }
+};
+ipcMain.handle(RegistryInstallChannels.STATUS, () => registryInstallStatus);
+const deepLinks = createDeepLinkQueue({
+    onQueued: (release, count) => {
+        if (count === 1) publishRegistryInstall({...release, name: null, phase: 'queued', error: null, errorCode: null, action: null, installedVersion: null, needsCapabilityReview: false, active: false});
+    },
+    report: error => NotificationCenter.addNotification({source: 'plugins', type: 'danger',
+        title: 'Plugin installation could not be completed', message: error.message}),
+    handle: async release => {
+        publishRegistryInstall({...release, name: null, phase: 'preparing', error: null, errorCode: null, action: null, installedVersion: null, needsCapabilityReview: false, active: false});
+        try {
+            let window = PluginManager.mainWindow;
+            if (!window || window.isDestroyed()) window = await ensureMainWindow();
+            if (window.isMinimized()) window.restore();
+            window.show(); window.focus();
+            const result = await installRegistryRelease(release, {
+                pluginsDir: PLUGINS_DIR, store: createRegistryInstallStore(PLUGINS_REGISTRY_FILE),
+                runtime: PluginManager, isActivated: id => new UserORM(USER_CONFIG_FILE).getActivatedPlugins().includes(id),
+                setActivated: async (id, active) => {
+                    const user = new UserORM(USER_CONFIG_FILE), config = user.get('config');
+                    const plugins = config.plugins.filter(value => value !== id);
+                    if (active) plugins.push(id);
+                    user.set('config', {...config, plugins});
+                    if (new UserORM(USER_CONFIG_FILE).getActivatedPlugins().includes(id) !== active) throw new Error('Could not persist the plugin activation state.');
+                },
+                normalizeMetadata: normalizeAndValidatePluginMetadata, build: buildUsingEsbuild,
+                onProgress: publishRegistryInstall,
+                confirm: async ({id, version, metadata, capabilities, action, installedVersion, needsCapabilityReview}) => {
+                    const verb = {install: 'Install', update: 'Update', downgrade: 'Downgrade', repair: 'Repair'}[action] || 'Install';
+                    const answer = await dialog.showMessageBox(window, {type: 'question',
+                        title: 'Install registry plugin', message: `${verb} ${metadata.name}${installedVersion ? ` from v${installedVersion} to` : ''} v${version}?`,
+                        detail: `Registry ID: ${id}\nPublisher: ${metadata.author}\n\n${metadata.description}\n\nDeclared capabilities: ${capabilities.join(', ') || 'None'}\n\n${installedVersion ? 'Plugin data is preserved. Only previously granted capabilities can be retained.' : 'The plugin will be installed inactive with no capabilities granted.'}${needsCapabilityReview ? '\nNew capabilities require review. The plugin will stay inactive until you approve them in Manage Plugins.' : installedVersion ? '\nIts current activation state will be preserved.' : ' Review and activate it in Manage Plugins.'}`,
+                        buttons: ['Cancel', verb], defaultId: 0, cancelId: 0, noLink: true});
+                    return answer.response === 1;
+                },
+            });
+            publishRegistryInstall({phase: result.cancelled ? 'cancelled' : result.action === 'already-installed' ? 'already-installed' : 'complete', action: result.action, active: result.active, needsCapabilityReview: result.needsCapabilityReview});
+            if (!result.success || result.action === 'already-installed') return;
+            PluginManager.sendToMainWindow(PluginChannels.on_off.DEPLOY_FROM_EDITOR, result.id);
+            await NotificationCenter.addNotification({source: 'plugins', type: 'success',
+                title: `${registryInstallStatus.name || 'Plugin'} ${{install: 'installed', update: 'updated', downgrade: 'downgraded', repair: 'repaired'}[result.action] || 'installed'}`, message: result.needsCapabilityReview ? 'New capabilities require review in Manage Plugins. The plugin remains inactive.' : result.active ? 'The new release is installed and running. Plugin data and approved capabilities were preserved.' : 'Installed inactive. Review capabilities in Manage Plugins before activation.',
+                actions: [{kind: 'manage-plugin', pluginId: result.id}]}).catch(error => debugLog(`[MAIN] Registry installation notification failed: ${error.message}`));
+        } catch (error) {
+            publishRegistryInstall({phase: error.code === 'REGISTRY_RELEASE_INACTIVE' ? 'blocked' : 'error', error: error.message, errorCode: error.code});
+            throw error;
+        }
+    },
+});
+app.on('open-url', (event, url) => {event.preventDefault(); deepLinks.enqueue(url);});
+for (const argument of process.argv) if (/^fdo-fiddle:/i.test(argument)) deepLinks.enqueue(argument);
+
 const pendingCliDeployments = new Set();
 let cliDeploymentReady = false;
 const refreshCliDeployment = async id => {
@@ -348,10 +424,12 @@ const reloadCliDeployment = async id => {
     }
 };
 app.on('second-instance', (_event, _commandLine, _workingDirectory, additionalData) => {
+    for (const argument of _commandLine) if (/^fdo-fiddle:/i.test(argument)) deepLinks.enqueue(argument);
+    if (!app.isReady()) return;
     void (async () => {
         let mainWindow = PluginManager.mainWindow;
         if (!mainWindow || mainWindow.isDestroyed()) {
-            try {await createWindow();}
+            try {await ensureMainWindow();}
             catch (error) {debugLog(`[MAIN] second-instance window recreate failed: ${error.message}`); return;}
         } else {
             if (mainWindow.isMinimized()) mainWindow.restore();
@@ -534,6 +612,9 @@ app.whenReady().then(async () => {
         app.exit(1);
         return;
     }
+
+    const stopRegistryLifecycle = startRegistryLifecycleMonitor({onError: error => console.warn('[Registry lifecycle]', error.message)});
+    app.once('before-quit', stopRegistryLifecycle);
 
     try {await initializeObservabilityStorage();}
     catch (error) {
@@ -823,14 +904,10 @@ app.whenReady().then(async () => {
     // dock icon is clicked and there are no other windows open.
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            mainWindow = createWindow();
-            PluginManager.setMainWindow(mainWindow)
+            void ensureMainWindow().catch(error => debugLog(`[MAIN] Window recreation failed: ${error.message}`));
         }
     })
 
-    app.on('open-url', (event, url) => {
-        dialog.showErrorBox('Welcome Back', `You arrived from: ${url}`)
-    })
 
     let lastPersistedRuntime = 0;
     const runtimeSessionId = crypto.randomUUID();
@@ -913,6 +990,7 @@ app.whenReady().then(async () => {
     PluginManager.setPluginsRegistryFile(PLUGINS_REGISTRY_FILE)
     await PluginManager.loadPlugins()
     cliDeploymentReady = true;
+    deepLinks.start();
     for (const id of pendingCliDeployments) await reloadCliDeployment(id);
     pendingCliDeployments.clear();
     gitops.start();

@@ -38,7 +38,12 @@ export const SettingsChannels = withPrefix('settings', {
     observability: {GET: 'get', SAVE: 'save', TEST: 'test', RETRY: 'retry', TRACE: 'trace'},
     gitops: {LIST: 'list', SAVE: 'save', VERIFY: 'verify', REMOVE: 'remove', SYNC: 'sync', SYNC_PLUGIN: 'sync-plugin', REVIEW_UPDATE: 'review-update', SET_INTERVAL: 'set-interval', SET_AUTO_SYNC: 'set-auto-sync', UPDATED: 'updated'},
     certificates: {
+        REGISTRY_LIST: 'registry-list',
+        REGISTRY_STATUS: 'registry-status',
+        REGISTRY_IMPORT: 'registry-import',
+        REGISTRY_REMOVE: 'registry-remove',
         GET_ROOT: 'get-root',
+        GET_SIGNING: 'get-signing',
         CREATE: 'create',
         RENAME: 'rename',
         EXPORT: 'export',
@@ -225,6 +230,7 @@ export const PluginChannels = withPrefix('plugin', {
         UNLOADED: 'unloaded',
         READY: 'ready',
         DEPLOY_FROM_EDITOR: 'deploy-from-editor',
+        SIGNATURE_CHANGED: 'signature-changed',
         DEPLOY_PROGRESS: 'plugin-deploy-progress',
         INIT: 'init',
         RENDER: 'render',
@@ -241,3 +247,5 @@ export const HostServiceSettingsChannels = withPrefix('host-service-settings', {
     TOOLS_STATE: 'tools-state', TERMINAL_VIEW: 'terminal-view', CHECK_X11: 'check-x11',
     STATE: 'state', FETCH_HOST_KEY: 'fetch-host-key', SET_GIT_ENABLED: 'set-git-enabled', SAVE_SECRET: 'save-secret', DELETE_SECRET: 'delete-secret', SAVE_PROFILE: 'save-profile', DELETE_PROFILE: 'delete-profile',
 });
+
+export const RegistryInstallChannels = withPrefix('registry-install', {STATUS: 'status', PROGRESS: 'progress'});

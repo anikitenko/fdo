@@ -1,0 +1,3 @@
+.identity { margin-top: 0; overflow-wrap: anywhere; }
+.status { display: flex; align-items: center; gap: 10px; margin: 16px 0; }
+.progress { margin: 16px 0; }

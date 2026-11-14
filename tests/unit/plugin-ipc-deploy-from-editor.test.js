@@ -1,5 +1,5 @@
 jest.mock("electron", () => ({
-    BrowserWindow: {getAllWindows: jest.fn(() => [])},
+    BrowserWindow: {getAllWindows: jest.fn(() => []), fromWebContents: jest.fn(() => null)},
     app: {
         isPackaged: false,
         getAppPath: jest.fn(() => "/tmp/app"),
@@ -84,6 +84,7 @@ jest.mock("../../src/utils/plugins/runtime/PluginManager", () => ({
         clearPrivilegedApprovalSession: jest.fn(),
         loadingPlugins: {},
         mainWindow: {focus: jest.fn(), webContents: {send: jest.fn()}},
+        sendToMainWindow: jest.fn(),
     },
 }));
 
@@ -92,6 +93,7 @@ jest.mock("../../src/utils/esbuild/plugins/virtual-fs", () => ({EsbuildVirtualFs
 jest.mock("../../src/utils/system/certs", () => ({
     Certs: {
         signPlugin: jest.fn(() => ({success: true})),
+        signWithCertificate: jest.fn(async () => ({success: true})),
         verifyPlugin: jest.fn(async () => ({success: true})),
     },
 }));
@@ -155,4 +157,45 @@ describe("plugin IPC deploy from editor", () => {
         expect(require('../../src/utils/filesystem/ensureAndWrite').default).toHaveBeenCalledWith(
             '/tmp/plugins/plugin-a/package.json', expect.stringContaining('compatibility'));
     });
+    test('saving an existing plugin outside a sandbox broadcasts the signature update', async () => {
+        jest.resetModules();
+        const {ipcMain} = require('electron');
+        const {registerPluginHandlers} = require('../../src/ipc/plugin');
+        const {PluginChannels} = require('../../src/ipc/channels');
+        const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+        manager.sendToMainWindow.mockClear();
+        ipcMain.handle.mockClear();
+        registerPluginHandlers();
+        const handler=ipcMain.handle.mock.calls.find(([channel])=>channel===PluginChannels.SAVE_FROM_EDITOR)[1];
+        const result=await handler({sender:{}}, {name:'plugin-a',sandbox:'sandbox-1',dir:'/tmp/plugins/plugin-a',
+            entrypoint:'dist/index.cjs',metadata:{name:'Plugin A'},rootCert:'new-signer',content:[]});
+        expect(result).toEqual({success:true});
+        expect(manager.sendToMainWindow).toHaveBeenCalledWith(PluginChannels.on_off.SIGNATURE_CHANGED,'plugin-a');
+    });
+    test('successful re-signing broadcasts an update; failed signing does not', async () => {
+        jest.resetModules();
+        const {ipcMain}=require('electron');
+        const {registerPluginHandlers}=require('../../src/ipc/plugin');
+        const {PluginChannels}=require('../../src/ipc/channels');
+        const manager=require('../../src/utils/plugins/runtime/PluginManager').default;
+        const {Certs}=require('../../src/utils/system/certs');
+        manager.sendToMainWindow.mockClear();
+        ipcMain.handle.mockClear();registerPluginHandlers();
+        const handler=ipcMain.handle.mock.calls.find(([channel])=>channel===PluginChannels.SIGN)[1];
+        expect(await handler({},'plugin-a','new-signer')).toEqual({success:true});
+        expect(manager.sendToMainWindow).toHaveBeenCalledWith(PluginChannels.on_off.SIGNATURE_CHANGED,'plugin-a');
+        manager.sendToMainWindow.mockClear();
+        Certs.signWithCertificate.mockResolvedValueOnce({success:false,error:'Key unavailable'});
+        expect(await handler({},'plugin-a','new-signer')).toMatchObject({success:false});
+        expect(manager.sendToMainWindow).not.toHaveBeenCalled();
+    });
+
+});
+test.each(['DEPLOY_FROM_EDITOR','SAVE_FROM_EDITOR','SIGN'])('registry-managed plugins reject local %s mutations',async channelKey=>{
+    jest.resetModules();const {ipcMain}=require('electron');const {registerPluginHandlers}=require('../../src/ipc/plugin');const {PluginChannels}=require('../../src/ipc/channels');
+    mockGetPlugin.mockReturnValueOnce({id:'registry-plugin',home:'/tmp/registry-managed',registry:{pluginId:'registry-plugin',version:'1.0.0'}});
+    ipcMain.handle.mockClear();registerPluginHandlers();
+    const handler=ipcMain.handle.mock.calls.find(([channel])=>channel===PluginChannels[channelKey])[1];
+    const result=await handler({sender:{send:jest.fn()}},channelKey==='SIGN'?'registry-plugin':{name:'registry-plugin',sandbox:'draft'},'root');
+    expect(result.success).toBe(false);expect(result.error).toMatch(/registry|Registry/);
 });

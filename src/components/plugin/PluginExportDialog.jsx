@@ -4,9 +4,21 @@ import {Button,Callout,Dialog,DialogBody,DialogFooter,FormGroup,HTMLSelect,HTMLT
 import {attachWebExportRecovery,migrationBrief} from '../../utils/plugins/exporting/webExportRecovery';
 import {normalizeExportPort} from '../../utils/plugins/exporting/exportOptions';
 import DeploymentGuideDialog from './DeploymentGuideDialog';
+import {RootCertificateSelectionComponent, selectRootCert} from '../editor/utils/RootCertificateSelectionComponent';
+import {signingCertificateValue} from '../../utils/system/certificateDisplay';
 
 export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}) {
     const [format,setFormat]=useState('archive'),[review,setReview]=useState(null),[reviewing,setReviewing]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState('');
+    const [signers,setSigners]=useState([]),[signerId,setSignerId]=useState(''),[loadingSigners,setLoadingSigners]=useState(true);
+    const [showCertificateDialog, setShowCertificateDialog] = useState(false);
+    const [onCertificateSelected, setOnCertificateSelected] = useState(null);
+    const [rememberedCertificate, setRememberedCertificate] = useState(null);
+    const rememberCertificate = useRef(false);
+    useEffect(() => {
+        window.electron.settings.certificates.getSigning().then(setSigners)
+            .catch(failure => setError(failure.message)).finally(() => setLoadingSigners(false));
+    }, []);
+
     const generation=useRef(0);
     const [notice,setNotice]=useState(''),[opening,setOpening]=useState(false);
     const [port,setPort]=useState('8080');
@@ -25,7 +37,14 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
     const save=async kind=>{
         setSaving(true);setError('');setSaved('');setNotice('');
         try {
-            const result=await window.electron.plugin.exportAs(plugin.id,{format:kind,token:review?.token});
+            let selected = signerId;
+            if (kind === 'archive' && signers.length) {
+                const remembered = signers.some(cert => signingCertificateValue(cert) === rememberedCertificate) ? rememberedCertificate : null;
+                selected = await selectRootCert(setShowCertificateDialog, remembered, rememberCertificate, setRememberedCertificate, setOnCertificateSelected);
+                if (!selected) return;
+                setSignerId(selected);
+            }
+            const result=await window.electron.plugin.exportAs(plugin.id,{format:kind,token:review?.token,...(kind==='archive' && selected?{signerId:selected}:{})});
             if(!result?.success){setError(result?.error || 'The export could not be saved.');return;}
             if(!result.canceled)setSaved(result.path);
         }catch(failure){setError(failure.message);}
@@ -47,7 +66,9 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
     const groups=Object.values((report?.requirements || []).reduce((result,item)=>{
         const group=result[item.adapter] || (result[item.adapter]={...item,capabilities:[]});group.capabilities.push(item.capability);return result;
     },{}));
-    return <><Dialog isOpen title={'Export As · '+plugin.name} onClose={onClose} canOutsideClickClose={!saving && !guideProvider} canEscapeKeyClose={!saving && !guideProvider} isCloseButtonShown={!saving}
+    return <><RootCertificateSelectionComponent show={showCertificateDialog} setShow={setShowCertificateDialog}
+        rootCertificates={signers} rememberRef={rememberCertificate} setRememberRootCert={setRememberedCertificate}
+        onRootSelectedCert={onCertificateSelected} setOnRootSelectedCert={setOnCertificateSelected}/><Dialog isOpen title={'Export As · '+plugin.name} onClose={onClose} canOutsideClickClose={!saving && !guideProvider} canEscapeKeyClose={!saving && !guideProvider} isCloseButtonShown={!saving}
         style={{width:800,maxWidth:'calc(100vw - 32px)'}}>
         <DialogBody>
             <FormGroup label="Export format" labelFor="plugin-export-format">
@@ -56,7 +77,10 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
                     {value:'web',label:'Standalone web application / Docker (.zip)'},
                 ]}/>
             </FormGroup>
-            {format==='archive'?<p>Export the plugin project and its compiled bundle for use in FDO.</p>:<>
+            {format==='archive'?<>
+                <p>Export the plugin as a ZIP, keeping its signing metadata and signature inside.</p>
+                {!!signers.length && <p className="bp6-text-muted">Choose a signing certificate when you export the archive.</p>}
+            </>:<>
                 <Callout intent="primary" title="Frontend + backend, independent of FDO">
                     Converted source with Docker packaging and templates for AWS ECS, Azure Container Apps and Google Cloud Run. Runs without Electron or an installed FDO SDK.
                 </Callout>
@@ -136,12 +160,12 @@ export default function PluginExportDialog({plugin,onClose,onReviewCapabilities}
                 <div style={{display:'flex',gap:8,marginTop:16}}><Button icon="refresh" disabled={saving || reviewing || !!portError} onClick={inspect}>Review installed version</Button>
                     <Button icon="document" disabled={saving || !review || reviewing} onClick={()=>save('report')}>Save conversion report</Button></div>
             </>}
-            {error && <Callout intent="danger" role="alert" style={{marginTop:16}}>{error}</Callout>}
+            {error && <Callout intent="danger" role="alert" style={{marginTop:16, whiteSpace:'pre-wrap', overflowWrap:'anywhere'}}>{error}</Callout>}
             {saved && <Callout intent="success" role="status" style={{marginTop:16}}>Saved to <span style={{overflowWrap:'anywhere'}}>{saved}</span></Callout>}
             {notice && <Callout intent="primary" role="status" style={{marginTop:16}}>{notice}</Callout>}
         </DialogBody>
         <DialogFooter actions={<><Button disabled={saving} onClick={onClose}>Close</Button><Button intent="primary" icon="export" loading={saving}
-            disabled={saving || format==='web' && (reviewing || !report || blocked || !!portError)} onClick={()=>save(format)}>{format==='web'?'Export web application':'Export plugin archive'}</Button>
+            disabled={saving || format==='archive' && (loadingSigners) || format==='web' && (reviewing || !report || blocked || !!portError)} onClick={()=>save(format)}>{format==='web'?'Export web application':'Export plugin archive'}</Button>
             {format==='web' && blocked && <Button intent="primary" icon="archive" disabled={saving || reviewing} loading={saving} onClick={()=>save('migration')}>Export migration work package</Button>}</>}/>
     </Dialog><DeploymentGuideDialog provider={guideProvider} onProviderChange={setGuideProvider} onClose={()=>setGuideProvider(null)} port={port}/></>;
 }

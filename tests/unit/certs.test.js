@@ -1,5 +1,10 @@
 /** @jest-environment node */
 import "reflect-metadata";
+import {registryIdentityLifecycle} from '../../src/utils/system/registryIdentity';
+import {officialRegistry} from '../../src/utils/system/officialRegistry';
+import {registryLifecycleFixture} from '../helpers/registryLifecycleFixture';
+jest.mock('../../src/utils/system/registryIdentity', () => ({registryIdentityLifecycle: {ensureIdentity: jest.fn(async entry => entry)}}));
+jest.mock('../../src/utils/system/officialRegistry', () => ({officialRegistry: {trust: jest.fn(), certificateStatus: jest.fn()}}));
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -138,4 +143,35 @@ test('atomic first-use insertion cannot replace another process identity with th
     expect(database.putIfLabelMissing({...existing,id:'concurrent-root'})).toBe(false);
     expect(database.list('root')).toHaveLength(1);
     expect(database.list('root')[0].id).toBe(existing.id);
+});
+
+test('registry publication certificates do not grant desktop plugin execution trust', async () => {
+    const signer = await entry(root, rootKeys.privateKey);
+    database.put(signer, 'root');
+    expect(Certs.signPlugin(pluginDir, 'test')).toEqual({success: true});
+    database.put(signer, 'registry');
+    database.remove(signer.id, 'root');
+    expect((await Certs.verifyPlugin(pluginDir)).success).toBe(false);
+});
+
+
+test('the shared editor signer signs with a selected developer identity and verifies only an explicitly used local identity', async () => {
+    const fixture = await registryLifecycleFixture();
+    const cert = new crypto.X509Certificate(fixture.leaf);
+    const developer = {id: cert.fingerprint256, label: cert.subject, cert: fixture.leaf,
+        key: fixture.key, chainPem: fixture.chainPem, kind: 'developer'};
+    database.put(developer, 'registry');
+    officialRegistry.trust.mockResolvedValue({anchors: [fixture.root], payload: {issuers: [{pem: fixture.issuer, status: 'active'}]}});
+    officialRegistry.certificateStatus.mockResolvedValue({status: 'active'});
+    expect(await Certs.signWithCertificate(pluginDir, `registry:${developer.id}`)).toEqual({success: true});
+    expect(registryIdentityLifecycle.ensureIdentity).toHaveBeenCalled();
+    const meta = JSON.parse(fs.readFileSync(path.join(pluginDir, 'fdo.meta.json')));
+    expect(meta.signedBy).toBe('developer');
+    expect(meta.localRegistrySignerId).toBe(developer.id);
+    expect(database.list('registry')[0].localSigningAuthorized).toBe(true);
+    expect(await Certs.verifyPlugin(pluginDir)).toMatchObject({success: true});
+    officialRegistry.certificateStatus.mockRejectedValueOnce(new Error('Certificate revoked'));
+    expect((await Certs.verifyPlugin(pluginDir)).success).toBe(false);
+    database.update(developer.id, {localSigningAuthorized: false}, 'registry');
+    expect((await Certs.verifyPlugin(pluginDir)).success).toBe(false);
 });
