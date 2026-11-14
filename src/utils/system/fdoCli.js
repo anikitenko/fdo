@@ -1,3 +1,4 @@
+import {certificateInformation, signingCertificateValue} from './certificateDisplay';
 import {scaffoldCliPlugin} from './cliScaffold';
 import {PLUGIN_TEMPLATES} from '../plugins/authoring/pluginTemplateCatalog';
 import {getCliCompletion} from './cliCompletion';
@@ -69,11 +70,23 @@ export async function runFdoCli(args, dependencies) {
         });
     });
     program.command('dev <path>').description('Watch, rebuild and redeploy a plugin workspace')
-        .option('-l, --label <label>', 'Signing certificate label', 'root').action(async (input, options) => {
+        .option('-l, --label <label>', 'Root label or registry:<id> from fdo sign list', 'root').action(async (input, options) => {
             if (isJson()) throw new Error('--json is unavailable for the dev watch command.');
             await dependencies.dev(resolvePath(input), options.label);
         });
-    program.command('validate <path>').description('Validate a plugin workspace with an in-memory build').action(async input => {
+    program.command('validate <path>').description('Validate a plugin workspace with an in-memory build')
+        .option('--publishing', 'Check the source copy against the registry publishing policy without signing or building')
+        .action(async (input, options) => {
+        if (options.publishing) {
+            const result = await dependencies.checkPublishing(resolvePath(input));
+            exitCode = result.valid ? 0 : 1;
+            report('validate publishing', result, () => {
+                output.log(result.valid ? `Publishing source is valid: ${result.proposal.pluginId} ${result.proposal.metadata.version}` : 'Publishing source is not ready.');
+                for (const error of result.errors) output.log(`Error: ${error}`);
+                for (const note of result.notes) output.log(note);
+            });
+            return;
+        }
         const result = await dependencies.validate(resolvePath(input));
         report('validate', result, () => {
             output.log(`Valid plugin: ${result.name} ${result.metadata.version}\nSource: ${result.source}\nBuild output: ${result.destination}`);
@@ -82,7 +95,7 @@ export async function runFdoCli(args, dependencies) {
         });
     });
     program.command('deploy <path>').description('Compile, sign and install a plugin workspace')
-        .option('-l, --label <label>', 'Signing certificate label', 'root')
+        .option('-l, --label <label>', 'Root label or registry:<id> from fdo sign list', 'root')
         .option('--dry-run', 'Validate and preview deployment without changing plugin files, registry or certificates').action(async (input, options) => {
             if (options.dryRun) {
                 const result = await dependencies.planDeployment(resolvePath(input), options.label);
@@ -101,13 +114,31 @@ export async function runFdoCli(args, dependencies) {
     const signing = program.command('sign').description('Manage plugin signing').action(() => {signing.outputHelp();});
     signing.command('list').description('List available signing certificates').action(() => {
         const certificates = listCertificates();
-        report('sign list', certificates.map(({id, label, hasPrivateKey, expiresAt}) => ({id, label, hasPrivateKey, expiresAt})), () => {
+        report('sign list', certificates.map(cert => ({id: cert.id, label: certificateInformation(cert).name, scope: cert.scope, selector: signingCertificateValue(cert), hasPrivateKey: cert.hasPrivateKey, expiresAt: cert.expiresAt})), () => {
             if (!certificates.length) output.log('No signing certificates found. Create or import one in FDO Settings → Certificates.');
-            for (const cert of certificates) output.log(`${cert.label} (${cert.id})${cert.hasPrivateKey ? '' : ' [verification only]'}`);
+            for (const cert of certificates) output.log(`${certificateInformation(cert).name} — ${signingCertificateValue(cert)}${cert.hasPrivateKey ? '' : ' [verification only]'}`);
         });
     });
+    signing.command('import-root <file>').description('Import a trusted shared root CA certificate')
+        .action(async input => {
+            const result = await dependencies.importRootCertificate(resolvePath(input));
+            if (!result.success) throw new Error(result.error);
+            report('sign import-root', result, () => output.log('Root certificate imported. Run fdo sign list to inspect available identities.'));
+        });
+    signing.command('import-developer <files...>').description('Import the registry developer certificate chain and key together')
+        .action(async inputs => {
+            const result = await dependencies.importDeveloperCertificate(inputs.map(resolvePath));
+            report('sign import-developer', result, () => output.log('Developer certificate imported into OS-protected storage. Run fdo sign list for its selector.'));
+        });
+    signing.command('archive <path>').description('Check and sign a source-only ZIP for registry upload')
+        .requiredOption('--certificate <selector>', 'Developer selector from fdo sign list (registry:<id>)')
+        .requiredOption('-o, --output <file>', 'New ZIP file to create; existing files are never overwritten')
+        .action(async (input, options) => {
+            const result = await dependencies.signArchive(resolvePath(input), options.certificate, resolvePath(options.output));
+            report('sign archive', result, () => output.log(`Signed publishing archive: ${result.path} (${result.bytes} bytes). Upload it to your registry profile for final validation and publishing.`));
+        });
     signing.command('plugin <path>').description('Sign a plugin workspace')
-        .option('-l, --label <label>', 'Signing certificate label', 'root').action(async (input, options) => {
+        .option('-l, --label <label>', 'Root label or registry:<id> from fdo sign list', 'root').action(async (input, options) => {
             const directory = resolvePath(input); requirePluginDirectory(directory);
             await sign(directory, options.label);
             report('sign plugin', {directory, label: options.label}, () => output.log(`Signed plugin: ${directory}`));

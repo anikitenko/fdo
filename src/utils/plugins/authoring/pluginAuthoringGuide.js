@@ -1,3 +1,4 @@
+import {PLUGIN_PUBLISHING_GUIDANCE} from './pluginPublishingGuide';
 import {HOST_SERVICES_AUTHORING_SUMMARY} from './hostServicesAuthoringGuide';
 import {PLUGIN_ACTION_GUIDANCE} from './pluginActionGuidance';
 import {PLUGIN_RUNTIME_GUIDANCE} from './pluginRuntimeAuthoringContext';
@@ -93,6 +94,8 @@ WORKING METHOD
 - Make the smallest coherent change, planning contracts and dependency order. Split cohesive modules without minimum file/line counts; preserve unrelated files and behavior.
 - Check imports, compiler/editor diagnostics, tests and available rendered evidence. Locate each failure's owner and consumers, repair its cause, then repeat validation. Preserve assertions. A type assertion is not runtime validation. Bundling alone does not establish type correctness.
 - Return complete changed files. Distinguish evidence from assumptions; never claim unperformed build/test/visual checks.
+
+${PLUGIN_PUBLISHING_GUIDANCE}
 
 ${HOST_SERVICES_AUTHORING_SUMMARY}
 

@@ -99,7 +99,8 @@ process.stdout.write(result.renderView());`;
         expect(guide).toContain("Bundling alone does not establish");
         expect(guide).not.toMatch(/jsonInspectorBound|category\/title|\/features\/seo/);
         // Includes the shared desktop environment/permission diagnosis contract.
-        expect(guide.length).toBeLessThan(11000);
+        // Includes the shared publishing workflow and private-key boundary.
+        expect(guide.length).toBeLessThan(12500);
         expect(guide).toContain("never test typeof css.panel === 'string'");
         expect(guide).toContain('renderBody(dom)');
         expect(guide).toContain('emitted CSS');

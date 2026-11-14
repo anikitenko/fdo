@@ -1,0 +1,5 @@
+{
+  "certificateUrl": "https://plugins.fdo.alexvwan.me/api/v1/registry/certificate",
+  "trustUrl": "https://plugins.fdo.alexvwan.me/api/v1/registry/trust",
+  "rootFingerprint256": "e58fa04110af885ab4c6c07e015b3dbf4def1653b069d570b9b613e322d7250d"
+}

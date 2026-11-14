@@ -102,18 +102,16 @@ const CodeDeployActions = ({
 
 
     const handleRootCertificateSelection = async () => {
-        const rootCerts = await window.electron.settings.certificates.getRoot()
+        const rootCerts = await window.electron.settings.certificates.getSigning()
         setRootCertificates(rootCerts)
         if (rootCerts.length === 0) {
             (AppToaster).show({message: "No signing certificate is available. Create or import one in Settings → Certificates before deploying this plugin.", intent: "danger"});
             return null
         }
 
-        let selectedLabel = rootCerts[0].label;
-
-        if (rootCerts.length > 1) {
-            selectedLabel = await selectRootCert(setShowRootCertificateDialog, rememberedRootCertificate, rememberChoiceRef, setRememberedRootCertificate, setOnRootCertificateSelected);
-        }
+        const remembered = rootCerts.some(cert => (cert.scope === 'registry' ? `registry:${cert.id}` : cert.label) === rememberedRootCertificate)
+            ? rememberedRootCertificate : null;
+        const selectedLabel = await selectRootCert(setShowRootCertificateDialog, remembered, rememberChoiceRef, setRememberedRootCertificate, setOnRootCertificateSelected);
 
         if (!selectedLabel) {
             setDeployInProgress(false)

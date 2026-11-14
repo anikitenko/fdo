@@ -59,9 +59,17 @@ export default class PluginORM extends JSONORM {
             return {success: false, error: `Plugin "${pluginName}" not found.`};
         }
         const normalized = normalizeCapabilityList(capabilities);
+        const previous = this.data.plugins[index];
+        const registry = previous.registry && {
+            ...previous.registry,
+            needsCapabilityReview: Array.isArray(previous.registry.declaredCapabilities)
+                ? previous.registry.declaredCapabilities.some(capability => !normalized.includes(capability))
+                : Boolean(previous.registry.needsCapabilityReview),
+        };
         this.data.plugins[index] = this.normalizePluginRecord({
-            ...this.data.plugins[index],
+            ...previous,
             capabilities: normalized,
+            ...(registry ? {registry} : {}),
         });
         this._save();
         return {success: true, capabilities: normalized};

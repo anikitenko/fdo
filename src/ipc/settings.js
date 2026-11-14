@@ -1,3 +1,5 @@
+import {importRootCertificate} from '../utils/system/certificateImports';
+import {registerRegistryCertificateHandlers} from './registryCertificates';
 import {NotificationCenter} from '../utils/desktop/NotificationCenter';
 import {listGeminiModels} from "../utils/ai/providers/geminiProvider.cjs";
 import {listAnthropicModels} from "../utils/ai/providers/catalog";
@@ -391,6 +393,9 @@ export function registerSettingsHandlers() {
         return {migrated};
     });
     registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, settings, openExternal: url => shell.openExternal(url)});
+    registerRegistryCertificateHandlers();
+    ipcMain.handle(SettingsChannels.certificates.GET_SIGNING, () => certificateStorage.list().filter(entry =>
+        entry.hasPrivateKey && (entry.scope === 'root' || entry.scope === 'registry' && entry.kind === 'developer')));
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
         return certificateStorage.list('root');
     });
@@ -416,7 +421,7 @@ export function registerSettingsHandlers() {
 
     ipcMain.handle(SettingsChannels.certificates.IMPORT, async (event, file) => {
         if (file) {
-            return await Certs.import(file);
+            return await importRootCertificate(file);
         }
     });
 

@@ -1,5 +1,5 @@
 import {createPluginEventRegistry} from './utils/plugins/runtime/pluginEventRegistry';
-import {HostServiceSettingsChannels} from './ipc/channels';
+import {HostServiceSettingsChannels, RegistryInstallChannels} from './ipc/channels';
 import {contextBridge, ipcRenderer} from 'electron'
 import {NotificationChannels, PluginChannels, SettingsChannels, SystemChannels, StartupChannels, AiChatChannels, AiCodingAgentChannels, AiUsageChannels, LiveUiChannels} from "./ipc/channels";
 
@@ -11,6 +11,10 @@ const subscribeSystemEvent = (channel, callback) => {
 };
 
 contextBridge.exposeInMainWorld('electron', {
+    registryInstall: {
+        getStatus: () => ipcRenderer.invoke(RegistryInstallChannels.STATUS),
+        onProgress: callback => subscribeSystemEvent(RegistryInstallChannels.PROGRESS, callback),
+    },
     toolSettings: {inspect: () => ipcRenderer.invoke(HostServiceSettingsChannels.TOOLS_STATE, {})},
     credentialSettings: {
         checkX11: pluginId => ipcRenderer.invoke(HostServiceSettingsChannels.CHECK_X11, {pluginId}),
@@ -207,6 +211,11 @@ contextBridge.exposeInMainWorld('electron', {
             },
         },
         certificates: {
+            registryStatus: () => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_STATUS),
+            listRegistry: () => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_LIST),
+            importRegistry: options => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_IMPORT, options),
+            removeRegistry: id => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_REMOVE, id),
+            getSigning: () => ipcRenderer.invoke(SettingsChannels.certificates.GET_SIGNING),
             getRoot: () => ipcRenderer.invoke(SettingsChannels.certificates.GET_ROOT),
             create: label => ipcRenderer.invoke(SettingsChannels.certificates.CREATE, label),
             rename: (id, newName) => ipcRenderer.invoke(SettingsChannels.certificates.RENAME, id, newName),
@@ -348,6 +357,7 @@ contextBridge.exposeInMainWorld('electron', {
         getLogTail: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TAIL, id, options),
         getLogTrace: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TRACE, id, options),
         on: {
+            signatureChanged: callback => addPluginListener("signatureChanged", PluginChannels.on_off.SIGNATURE_CHANGED, callback),
             capabilitiesChanged: (callback) =>
                 addPluginListener("capabilitiesChanged", PluginChannels.on_off.CAPABILITIES_CHANGED, callback),
             unloaded: (callback) =>
@@ -366,6 +376,7 @@ contextBridge.exposeInMainWorld('electron', {
                 addPluginListener("uiMessage", PluginChannels.on_off.UI_MESSAGE, callback),
         },
         off: {
+            signatureChanged: callback => removePluginListener("signatureChanged", PluginChannels.on_off.SIGNATURE_CHANGED, callback),
             capabilitiesChanged: (callback) =>
                 removePluginListener("capabilitiesChanged", PluginChannels.on_off.CAPABILITIES_CHANGED, callback),
             unloaded: (callback) =>

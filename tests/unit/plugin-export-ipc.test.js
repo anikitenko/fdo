@@ -1,4 +1,13 @@
 /** @jest-environment node */
+jest.mock('../../src/utils/system/certs',()=>({Certs:{signWithCertificate:jest.fn()}}));
+jest.mock('../../src/utils/system/registryIdentity',()=>({registryIdentityLifecycle:{ensureIdentity:jest.fn(async entry=>entry)}}));
+jest.mock('../../src/utils/system/officialRegistry',()=>({officialRegistry:{ensureAnchor:jest.fn(),trust:jest.fn()}}));
+jest.mock('../../src/utils/persistence/certificateStorage',()=>({certificateStorage:{list:jest.fn(),privateKey:jest.fn(),update:jest.fn()}}));
+jest.mock('../../src/utils/system/registrySigning',()=>({signRegistryFiles:jest.fn()}));
+import {Certs} from '../../src/utils/system/certs';
+import {officialRegistry} from '../../src/utils/system/officialRegistry';
+import {certificateStorage} from '../../src/utils/persistence/certificateStorage';
+import {signRegistryFiles} from '../../src/utils/system/registrySigning';
 import {EventEmitter} from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -17,6 +26,11 @@ let root,handlers,plugin,event;
 let readFileSpy;
 beforeEach(async()=>{
     jest.clearAllMocks();
+    officialRegistry.ensureAnchor.mockResolvedValue({id:'official',cert:'root'});
+    officialRegistry.trust.mockResolvedValue({anchors:['root']});
+    certificateStorage.list.mockReturnValue([]);
+    certificateStorage.privateKey.mockReturnValue('private');
+    signRegistryFiles.mockImplementation(files=>({...files,'fdo.meta.json':Buffer.from('{"format":"fdo-registry-v1"}'),'fdo.signature':Buffer.from('NEW SIGNATURE')}));
     root=await fs.mkdtemp(path.join(os.tmpdir(),'export-ipc-'));
     await fs.writeFile(path.join(root,'index.ts'),'source');
     plugin={id:'owned-plugin',name:'Owned',home:root,capabilities:[]};
@@ -96,4 +110,56 @@ test('provider source or approvals changing after review invalidate the Docker e
     await expect(resolver('untrusted')).rejects.toThrow('installed plugin');
     expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'web',token:review.token})).toMatchObject({success:false,error:expect.stringContaining('Shared provider source, permissions or service bindings changed')});
     expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+});
+
+test('normal plugin export signs automatically with the imported developer identity and embeds signing files',async()=>{
+    certificateStorage.list.mockImplementation(scope=>scope==='registry'?[{id:'developer',kind:'developer',hasPrivateKey:true,anchorId:'official',chainPem:'chain'}]:[]);
+    await fs.writeFile(path.join(root,'package.json'),JSON.stringify({name:'test-utils',version:'1.0.0',author:'Team',description:'Test plugin',fdo:{compatibility:{fdo:'*',sdk:'*',api:'*'}}}));
+    for(const name of ['dist/bundle.js','node_modules/vendor/index.js','.git/config','fdo.signature','fdo.meta.json','.env','signer.key','root.pem']) {
+        await fs.mkdir(path.dirname(path.join(root,name)),{recursive:true});await fs.writeFile(path.join(root,name),'PRIVATE');
+    }
+    const output=path.join(root,'source.zip');dialog.showSaveDialog.mockResolvedValue({canceled:false,filePath:output});
+    expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'archive',signerId:'registry:developer'})).toEqual({success:true,path:output});
+    expect(signRegistryFiles).toHaveBeenCalledWith(expect.objectContaining({'index.ts':expect.any(Buffer)}),'chain','private',['root']);
+    const zip=await fs.readFile(output);
+    expect(zip.includes(Buffer.from('fdo.meta.json'))).toBe(true);expect(zip.includes(Buffer.from('fdo.signature'))).toBe(true);
+    expect(zip.includes(Buffer.from('index.ts'))).toBe(true);
+    expect(zip.includes(Buffer.from('package.json'))).toBe(true);
+    for(const name of ['dist/bundle.js','node_modules/vendor/index.js','.git/config','.env','signer.key','root.pem'])expect(zip.includes(Buffer.from(name))).toBe(false);
+});
+test('signed plugin export refuses a missing package manifest',async()=>{
+    certificateStorage.list.mockImplementation(scope=>scope==='registry'?[{id:'developer',kind:'developer',hasPrivateKey:true,anchorId:'official',chainPem:'chain'}]:[]);
+    expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'archive',signerId:'registry:developer'})).toMatchObject({success:false,error:expect.stringContaining('package.json')});
+    expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+});
+
+test('a removed or ambiguous signing identity cannot silently produce an unsigned archive',async()=>{
+    expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'archive',signerId:'missing'})).toMatchObject({success:false,error:expect.stringContaining('no longer available')});
+    certificateStorage.list.mockImplementation(scope=>scope==='registry'?[{id:'first',kind:'developer',hasPrivateKey:true},{id:'second',kind:'developer',hasPrivateKey:true}]:[]);
+    expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'archive'})).toMatchObject({success:false,error:expect.stringContaining('Choose the signing certificate')});
+});
+test('there is no separate registry format or detached manifest export',async()=>{
+    for(const format of ['registry','registry-sign'])expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format})).toMatchObject({success:false,error:expect.stringContaining('supported export format')});
+});
+
+
+test('root archive export uses the editor signer on an isolated copy without changing installed files', async () => {
+    certificateStorage.list.mockImplementation(scope => scope === 'root' ? [{id:'root-id',label:'Team root',hasPrivateKey:true}] : []);
+    await fs.writeFile(path.join(root, 'fdo.signature'), 'installed signature');
+    Certs.signWithCertificate.mockImplementation(async (directory, label) => {
+        expect(directory).not.toBe(root);
+        expect(label).toBe('Team root');
+        expect(await fs.readFile(path.join(directory, 'index.ts'), 'utf8')).toBe('source');
+        await fs.writeFile(path.join(directory, 'fdo.meta.json'), '{"signedBy":"root"}');
+        await fs.writeFile(path.join(directory, 'fdo.signature'), 'new signature');
+        await fs.writeFile(path.join(directory, '.fdoignore'), '*.log');
+        return {success:true};
+    });
+    const output=path.join(root, 'root-signed.zip');
+    dialog.showSaveDialog.mockResolvedValue({canceled:false,filePath:output});
+    expect(await handlers[PluginChannels.EXPORT_AS](event,plugin.id,{format:'archive',signerId:'Team root'})).toEqual({success:true,path:output});
+    expect(await fs.readFile(path.join(root, 'fdo.signature'), 'utf8')).toBe('installed signature');
+    expect((await fs.readFile(output)).includes(Buffer.from('fdo.signature'))).toBe(true);
+    const staging=Certs.signWithCertificate.mock.calls.at(-1)[0];
+    await expect(fs.stat(staging)).rejects.toMatchObject({code:'ENOENT'});
 });

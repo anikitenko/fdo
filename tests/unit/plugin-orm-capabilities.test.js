@@ -32,3 +32,13 @@ describe("PluginORM capability persistence", () => {
         }
     });
 });
+test('approval clears a registry capability-review flag while preserving durable provenance',()=>{
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'registry-grants-'));
+    try {
+        const file=path.join(directory,'plugins.json');
+        fs.writeFileSync(file,JSON.stringify({plugins:[{id:'registry-plugin',capabilities:[],registry:{origin:'https://plugins.fdo.alexvwan.me',pluginId:'source',version:'2.0.0',declaredCapabilities:['storage'],needsCapabilityReview:true}}]}));
+        const orm=new PluginORM(file);orm.setPluginCapabilities('registry-plugin',['storage']);
+        const saved=new PluginORM(file).getPlugin('registry-plugin');expect(saved.registry).toMatchObject({pluginId:'source',version:'2.0.0',needsCapabilityReview:false});
+        orm.setPluginCapabilities('registry-plugin',[]);expect(new PluginORM(file).getPlugin('registry-plugin').registry.needsCapabilityReview).toBe(true);
+    } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});

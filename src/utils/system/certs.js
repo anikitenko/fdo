@@ -1,3 +1,7 @@
+import {registryIdentityLifecycle} from './registryIdentity';
+import {officialRegistry} from './officialRegistry';
+import {keyFingerprint, validateAuthorityChain} from './registryTrust';
+import {verifyRegistryPluginDirectory} from './registryPluginVerification';
 import "reflect-metadata";
 import {BasicConstraintsExtension, KeyUsagesExtension, KeyUsageFlags, X509CertificateGenerator, X509Certificate as ParsedCertificate} from "@peculiar/x509";
 import {verifyCertificateChain} from "./certificateChain";
@@ -174,7 +178,8 @@ export const Certs = {
             const entry = {
                 cert: leaf.pem,
                 id,
-                label: `Imported-${(Math.random() + 1).toString(36).substring(2)}`,
+                label: new ParsedCertificate(leaf.cert.raw).subjectName.getField('CN')[0] || 'Imported root certificate',
+                identity: leaf.cert.subject,
                 createdAt: now.toISOString(),
                 expiresAt: new Date(leaf.cert.validTo).toISOString(),
                 lastUsedAt: now.toISOString(),
@@ -255,9 +260,22 @@ export const Certs = {
     },
 
 
-    signPlugin(pluginDir, signerLabel) {
+    async signWithCertificate(pluginDir, selection) {
+        if (!selection?.startsWith('registry:')) return this.signPlugin(pluginDir, selection);
+        try {
+            const id = selection.slice('registry:'.length);
+            const entry = certificateStorage.list('registry').find(cert => cert.id === id && cert.kind === 'developer' && cert.hasPrivateKey);
+            if (!entry) return {success: false, error: 'The selected signing certificate is no longer available.'};
+            const current = await registryIdentityLifecycle.ensureIdentity(entry);
+            const result = this.signPlugin(pluginDir, selection, {...current, hasPrivateKey: true});
+            if (result.success) certificateStorage.update(current.id, {localSigningAuthorized: true, lastUsedAt: new Date().toISOString()}, 'registry');
+            return result;
+        } catch (error) {return {success: false, error: error.message};}
+    },
+
+    signPlugin(pluginDir, signerLabel, registryEntry) {
         const roots = certificateStorage.list('root');
-        const certEntry = roots.find(cert => cert.label === signerLabel);
+        const certEntry = registryEntry || roots.find(cert => cert.label === signerLabel);
 
         if (!certEntry?.hasPrivateKey) {
             return {success: false, error: `Signing certificate “${signerLabel}” is missing. Create one in Settings → Certificates first. FDO encrypts signing keys with macOS Keychain, which may request access when you create or use the key.`}
@@ -274,7 +292,7 @@ export const Certs = {
             return {success: false, error: `Certificate expired on ${new Date(certObj.validTo).toISOString()}`};
         }
 
-        const privateKey = crypto.createPrivateKey(certificateStorage.privateKey(certEntry.id));
+        const privateKey = crypto.createPrivateKey(certificateStorage.privateKey(certEntry.id, registryEntry ? 'registry' : 'root'));
         if (privateKey.asymmetricKeyType !== "rsa") {
             return {success: false, error: "Plugin signing requires an RSA private key"};
         }
@@ -305,7 +323,8 @@ export const Certs = {
         }
 
         if (!isRoot) {
-            metaInformation.developerCert = certEntry.chain?.length > 1
+            if (registryEntry) metaInformation.localRegistrySignerId = certEntry.id;
+            metaInformation.developerCert = registryEntry ? {cert: certEntry.cert} : certEntry.chain?.length > 1
                 ? { chain: [certEntry.cert, ...certEntry.chain.slice(1)] }
                 : { cert: certEntry.cert };
         }
@@ -376,6 +395,8 @@ export const Certs = {
             const meta = JSON.parse(await safeReadFileSync(metaPath, "utf-8"));
             const signatureBuffer = await safeReadFileSync(sigPath);
 
+            if (meta.format === 'fdo-registry-v1') return await verifyRegistryPluginDirectory(pluginDir, meta, signatureBuffer);
+
             if (
                 typeof meta.fingerprint?.value !== "string" ||
                 meta.fingerprint.algo?.toLowerCase() !== "sha256"
@@ -386,7 +407,8 @@ export const Certs = {
                 };
             }
 
-            const allCerts = certificateStorage.list();
+            // Registry publication trust does not authorize local desktop plugin execution.
+            const allCerts = certificateStorage.list().filter(entry => entry.scope !== 'registry');
 
             let matchedCert;
             let certificateToVerifyAgainst;
@@ -409,14 +431,23 @@ export const Certs = {
                 }
 
                 try {
-                    const trustedRoot = verifyCertificateChain(certChain, allCerts.map(entry => entry.cert));
-                    matchedCert = allCerts.find(entry =>
-                        new crypto.X509Certificate(entry.cert).fingerprint256 === trustedRoot.fingerprint256);
+                    if (meta.localRegistrySignerId) {
+                        const local = certificateStorage.list('registry').find(entry => entry.id === meta.localRegistrySignerId
+                            && entry.kind === 'developer' && entry.hasPrivateKey && entry.localSigningAuthorized === true);
+                        if (!local || new crypto.X509Certificate(local.cert).fingerprint256 !== certChain[0].fingerprint256)
+                            return {success: false, error: 'Developer certificate chain verification failed: This developer certificate has not been used for local signing.'};
+                        const trust = await officialRegistry.trust();
+                        await officialRegistry.certificateStatus(keyFingerprint(local.cert));
+                        validateAuthorityChain(local.chainPem, trust);
+                        verifyCertificateChain([certChain[0]], [local.cert]);
+                        matchedCert = local;
+                    } else {
+                        const trustedRoot = verifyCertificateChain(certChain, allCerts.map(entry => entry.cert));
+                        matchedCert = allCerts.find(entry =>
+                            new crypto.X509Certificate(entry.cert).fingerprint256 === trustedRoot.fingerprint256);
+                    }
                 } catch (e) {
-                    return {
-                        success: false,
-                        error: `Developer certificate chain verification failed: ${e.message}`
-                    };
+                    return {success: false, error: `Developer certificate chain verification failed: ${e.message}`};
                 }
 
                 certificateToVerifyAgainst = rawChain[0]

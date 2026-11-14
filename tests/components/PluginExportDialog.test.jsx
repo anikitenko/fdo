@@ -3,9 +3,10 @@ import {render,screen,fireEvent,waitFor,within} from '@testing-library/react';
 import PluginExportDialog from '../../src/components/plugin/PluginExportDialog';
 const plugin={id:'plugin-a',name:'Availability'};
 const report={contractVersion:'1.0.0',requirements:[],adapters:[],warnings:['Configure cloud access.'],blockers:[]};
-beforeEach(()=>{window.electron.plugin={previewExport:jest.fn().mockResolvedValue({success:true,token:'review-token',report}),exportAs:jest.fn().mockResolvedValue({success:true,path:'/tmp/plugin.zip'})};});
+beforeEach(()=>{window.electron.settings={certificates:{getSigning:jest.fn().mockResolvedValue([])}};window.electron.plugin={previewExport:jest.fn().mockResolvedValue({success:true,token:'review-token',report}),exportAs:jest.fn().mockResolvedValue({success:true,path:'/tmp/plugin.zip'})};});
 test('archive export preserves the plugin format and reports its saved location',async()=>{
     render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button',{name:'Export plugin archive'}));
     await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('/tmp/plugin.zip'));
     expect(window.electron.plugin.exportAs).toHaveBeenCalledWith('plugin-a',{format:'archive',token:undefined});
@@ -82,8 +83,10 @@ test('Docker review identifies the shared providers that will be packaged',async
 test('failed saves and canceled native dialogs retain the chosen format for retry',async()=>{
     window.electron.plugin.exportAs.mockResolvedValueOnce({success:false,error:'Plugin source changed. Review again.'}).mockResolvedValueOnce({success:true,canceled:true});
     render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button',{name:'Export plugin archive'}));
     expect(await screen.findByRole('alert')).toHaveTextContent('Review again');
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
     fireEvent.click(screen.getByRole('button',{name:'Export plugin archive'}));
     await waitFor(()=>expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.queryByText('Saved to')).not.toBeInTheDocument();
@@ -137,4 +140,41 @@ test('empty tool requirements explain when setup is optional and open a guided p
     fireEvent.click(screen.getByRole('button',{name:'Edit package.json tool requirements'}));
     await waitFor(()=>expect(window.electron.system.openPluginInEditor).toHaveBeenCalledWith('builtin','plugin-a',{purpose:'deployment-tools'}));
     expect(await screen.findByRole('status')).toHaveTextContent('Opened package.json with container tool setup guidance');
+});
+
+test('the ordinary plugin export asks for the imported developer certificate without a manifest form',async()=>{
+    window.electron.settings.certificates.getSigning.mockResolvedValue([{id:'developer',kind:'developer',scope:'registry',label:'CN=Developer,O=Example'}]);
+    render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
+    expect(screen.getAllByRole('option').map(option=>option.textContent)).toEqual(['FDO plugin archive (.zip)','Standalone web application / Docker (.zip)']);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/manifest/i)).not.toBeInTheDocument();
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('button',{name:'Export plugin archive'}));
+    expect(await screen.findByRole('dialog',{name:'Select Signing Certificate'})).toBeInTheDocument();
+    expect(screen.getByText('Developer')).toBeInTheDocument();
+    expect(screen.queryByText('CN=Developer,O=Example')).not.toBeInTheDocument();
+    expect(window.electron.plugin.exportAs).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Use'}));
+    await waitFor(()=>expect(window.electron.plugin.exportAs).toHaveBeenCalledWith('plugin-a',{format:'archive',token:undefined,signerId:'registry:developer'}));
+});
+
+test('export reuses the certificate chooser for root and developer identities and can cancel', async () => {
+    window.electron.settings.certificates.getSigning.mockResolvedValue([
+        {id:'root-id',scope:'root',label:'Team root'},
+        {id:'developer',scope:'registry',kind:'developer',label:'CN=Alex\nO=Team'},
+    ]);
+    render(<PluginExportDialog plugin={plugin} onClose={jest.fn()}/>);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('button',{name:'Export plugin archive'}));
+    let chooser = await screen.findByRole('dialog',{name:'Select Signing Certificate'});
+    expect(within(chooser).getByText('Team root')).toBeInTheDocument();
+    expect(within(chooser).getByText('Alex')).toBeInTheDocument();
+    fireEvent.click(within(chooser).getByRole('button',{name:'Close'}));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Export plugin archive'})).toBeEnabled());
+    expect(window.electron.plugin.exportAs).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Export plugin archive'}));
+    chooser = await screen.findByRole('dialog',{name:'Select Signing Certificate'});
+    fireEvent.click(within(chooser).getAllByRole('button',{name:'Use'})[0]);
+    await waitFor(()=>expect(window.electron.plugin.exportAs).toHaveBeenCalledWith('plugin-a', {format:'archive',token:undefined,signerId:'Team root'}));
 });

@@ -97,3 +97,11 @@ test('deploy preview reports install/update and preserves files, grants and iden
     await expect(planCliDeployment(root, 'root', options)).rejects.toThrow('GitOps');
     expect(options.validate).not.toHaveBeenCalled();
 });
+test('registry provenance prevents local deployment from replacing managed source or its signature',()=>{
+    workspace();const file=path.join(root,'plugins.json');const record={id:'fixture',home:root,registry:{pluginId:'fixture',version:'1.0.0'}};
+    fs.writeFileSync(file,JSON.stringify({plugins:[record]}));
+    expect(()=>assertCliDeployAllowed(file,root)).toThrow('managed by the registry');
+    expect(()=>registerCliPlugin(file,root,{name:'fixture',metadata,entryPoint:'dist/index.cjs'})).toThrow('managed by the registry');
+    expect(JSON.parse(fs.readFileSync(file,'utf8')).plugins).toEqual([record]);
+    expect(fs.readFileSync(path.join(root,'index.ts'),'utf8')).toBe('source preserved');
+});

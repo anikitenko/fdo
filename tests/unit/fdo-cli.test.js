@@ -85,7 +85,7 @@ test('plugin inspection accepts IDs and lists empty installations', async () => 
 test('certificate JSON never exports certificate or private key material', async () => {
     const f = fixture({listCertificates: () => [{id: 'root-id', label: 'root', hasPrivateKey: true, key: 'secret', cert: 'PEM'}]});
     await runFdoCli(['sign', 'list', '--json'], f.dependencies);
-    expect(JSON.parse(f.stdout.write.mock.calls[0][0]).data).toEqual([{id: 'root-id', label: 'root', hasPrivateKey: true}]);
+    expect(JSON.parse(f.stdout.write.mock.calls[0][0]).data).toEqual([{id: 'root-id', label: 'root', selector: 'root', hasPrivateKey: true}]);
 });
 test('JSON argument errors remain parseable and preserve Commander diagnostics', async () => {
     const f = fixture();
@@ -157,4 +157,34 @@ test('profile listing and log commands expose JSON and refuse JSON streaming', a
     expect(f.dependencies.logs).toHaveBeenCalledWith('one', 2);
     expect((await runFdoCli(['plugins', 'logs', 'one', '--follow', '--json'], f.dependencies)).exitCode).toBe(1);expect(f.dependencies.followLogs).not.toHaveBeenCalled();
     expect((await runFdoCli(['plugins', 'logs', 'one', '--lines', '-1'], f.dependencies)).exitCode).toBe(1);
+});
+
+test('publishing validation returns source diagnostics and never builds or signs', async () => {
+    const f = fixture({checkPublishing: jest.fn(async () => ({valid:false,errors:['Remove package scripts'],notes:['Registry checks remain authoritative.']}))});
+    expect((await runFdoCli(['validate','.', '--publishing','--json'],f.dependencies)).exitCode).toBe(1);
+    const result = JSON.parse(f.stdout.write.mock.calls[0][0]);
+    expect(result).toMatchObject({ok:false, command:'validate publishing',data:{errors:['Remove package scripts']}});
+    expect(f.dependencies.compile).not.toHaveBeenCalled();
+    expect(f.dependencies.sign).not.toHaveBeenCalled();
+});
+test('CLI imports route explicitly to the shared certificate services with both developer files', async () => {
+    const f = fixture({importRootCertificate:jest.fn(async()=>({success:true})),importDeveloperCertificate:jest.fn(async()=>({success:true}))});
+    expect((await runFdoCli(['sign','import-root','root.pem'],f.dependencies)).exitCode).toBe(0);
+    expect(f.dependencies.importRootCertificate).toHaveBeenCalledWith(require('node:path').resolve('root.pem'));
+    expect((await runFdoCli(['sign','import-developer','chain.pem','developer.key'],f.dependencies)).exitCode).toBe(0);
+    expect(f.dependencies.importDeveloperCertificate).toHaveBeenCalledWith([require('node:path').resolve('chain.pem'),require('node:path').resolve('developer.key')]);
+});
+test('publishing archive command requires an explicit certificate and output then uses the shared archive signer', async () => {
+    const f = fixture({signArchive:jest.fn(async()=>({path:'/release.zip',bytes:123}))});
+    expect((await runFdoCli(['sign','archive','.'],f.dependencies)).exitCode).not.toBe(0);
+    expect(f.dependencies.signArchive).not.toHaveBeenCalled();
+    expect((await runFdoCli(['sign','archive','.', '--certificate','registry:developer','--output','release.zip','--json'],f.dependencies)).exitCode).toBe(0);
+    expect(f.dependencies.signArchive).toHaveBeenCalledWith(process.cwd(),'registry:developer',require('node:path').resolve('release.zip'));
+});
+test('developer certificate listing exposes a reusable selector without key or certificate content', async () => {
+    const f = fixture({listCertificates:()=>[{id:'developer',scope:'registry',kind:'developer',label:'CN=Alex,O=Team',hasPrivateKey:true,key:'PRIVATE',cert:'CERTIFICATE'}]});
+    await runFdoCli(['sign','list','--json'],f.dependencies);
+    const data=JSON.parse(f.stdout.write.mock.calls[0][0]).data;
+    expect(data[0]).toMatchObject({selector:'registry:developer',label:'Alex',scope:'registry'});
+    expect(data[0]).not.toHaveProperty('key');expect(data[0]).not.toHaveProperty('cert');
 });

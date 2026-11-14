@@ -1,3 +1,5 @@
+import {pluginBuildSource} from './pluginBuildArtifact';
+import {createVerifiedSourcePlugin,readVerifiedSource} from '../security/verifiedSourceBundle';
 import {app} from "electron";
 import fs, {chmodSync, existsSync, mkdirSync, statSync} from "node:fs";
 import Module from "node:module";
@@ -35,11 +37,18 @@ export function loadHostEsbuild(nodeModulesPath) {
     return Module._load(esbuildMainPath, module, false);
 }
 
-export function resolvePluginSourceEntrypoint(packageJsonText) {
+export function resolvePluginSourceEntrypoint(packageJsonText, verifiedFiles) {
     if (typeof packageJsonText !== "string" || !packageJsonText.trim()) {
         return null;
     }
 
+    if (verifiedFiles) {
+        // Registry publishing also accepts TypeScript main and conventional
+        // entries. Resolve only from the verified inventory, never generated files.
+        const inventory = Object.fromEntries(Object.keys(verifiedFiles).map(name => ['/' + name, '']));
+        return pluginBuildSource({...inventory, '/package.json': packageJsonText})
+            || ['src/index.ts', 'src/index.tsx'].find(name => Object.hasOwn(verifiedFiles, name)) || null;
+    }
     const parsed = JSON.parse(packageJsonText);
     return typeof parsed.source === "string" && parsed.source.trim()
         ? parsed.source
@@ -52,7 +61,7 @@ export function getHostPluginNodeModulesPath() {
 
 // Startup recompilation must use the same CSS style-map contract as the
 // editor and plugin tests. Native esbuild CSS loading exports an empty object.
-export function createRuntimeCssPlugin(pluginHome) {
+export function createRuntimeCssPlugin(pluginHome, verifiedFiles) {
     let workspace;
     const readWorkspace = async () => {
         const root = await fs.promises.realpath(pluginHome);
@@ -67,7 +76,9 @@ export function createRuntimeCssPlugin(pluginHome) {
                 }
             }
         };
-        await visit(root);
+        if (verifiedFiles) {
+            for (const name of Object.keys(verifiedFiles).filter(file=>file.endsWith('.css'))) files['/'+name]=(await readVerifiedSource(root,path.join(root,name),verifiedFiles)).toString('utf8');
+        } else await visit(root);
         return {root, files};
     };
     return {name: "fdo-runtime-css", setup(build) {
@@ -84,13 +95,14 @@ export function createRuntimeCssPlugin(pluginHome) {
     }};
 }
 
-export async function buildPluginRuntimeBundle(pluginId, pluginHome) {
+export async function buildPluginRuntimeBundle(pluginId, pluginHome, {verifiedFiles} = {}) {
     const packageJsonPath = path.join(pluginHome, "package.json");
     if (!existsSync(packageJsonPath)) {
         return null;
     }
 
-    const sourceEntrypoint = resolvePluginSourceEntrypoint(fs.readFileSync(packageJsonPath, "utf8"));
+    const packageContents=verifiedFiles ? (await readVerifiedSource(pluginHome,packageJsonPath,verifiedFiles)).toString('utf8') : fs.readFileSync(packageJsonPath,'utf8');
+    const sourceEntrypoint = resolvePluginSourceEntrypoint(packageContents, verifiedFiles);
     if (!sourceEntrypoint) {
         return null;
     }
@@ -116,8 +128,8 @@ export async function buildPluginRuntimeBundle(pluginId, pluginHome) {
         platform: "node",
         outfile,
         external: ["@anikitenko/fdo-sdk"],
-        banner: {js: pluginCompatibilityBanner(JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).fdo?.compatibility, pluginCompatibilityHost())},
-        plugins: [createRuntimeCssPlugin(pluginHome)],
+        banner: {js: pluginCompatibilityBanner(JSON.parse(packageContents).fdo?.compatibility, pluginCompatibilityHost())},
+        plugins: [...(verifiedFiles ? [createVerifiedSourcePlugin(pluginHome,verifiedFiles,nodeModulesPath)] : []), createRuntimeCssPlugin(pluginHome,verifiedFiles)],
         absWorkingDir: pluginHome,
         tsconfigRaw: {
             compilerOptions: {

@@ -1,3 +1,5 @@
+import {usePluginVerification} from './plugin/usePluginVerification';
+import {certificateDisplayName, signingCertificateValue} from '../utils/system/certificateDisplay';
 import {pluginDisplayName, operationError} from '../utils/desktop/notificationContent';
 import PluginLocation from './plugin/PluginLocation';
 import PluginExportDialog from './plugin/PluginExportDialog';
@@ -62,6 +64,7 @@ import {getPluginTrustTier} from "../utils/plugins/security/pluginTrustTier";
 import {buildCapabilityDeclarationSummary} from "../utils/plugins/security/pluginCapabilityDeclaration";
 import {sanitizeBlueprintIcon} from "../utils/presentation/blueprintIcons";
 import GitOpsBadge from './plugin/GitOpsBadge';
+import RegistryBadge from './plugin/RegistryBadge';
 import PluginCompatibilityNotice from './plugin/PluginCompatibilityNotice';
 
 function scopeCategoryLabel(scopeItem = {}) {
@@ -936,7 +939,7 @@ const SelectPluginPanel = ({
     const [customFilesystemScopeRootInput, setCustomFilesystemScopeRootInput] = useState("");
     const [customFilesystemScopeRootInputError, setCustomFilesystemScopeRootInputError] = useState("");
 
-    const [pluginVerification, setPluginVerification] = useState(null)
+    const pluginVerification = usePluginVerification(plugin, dialogOpen)
 
     const [rootCertificates, setRootCertificates] = useState([])
     const [resignProgress, setResignProgress] = useState(false)
@@ -2550,10 +2553,6 @@ const SelectPluginPanel = ({
         fetchMetrics();
         const interval = setInterval(fetchMetrics, 5000);
 
-        window.electron.plugin.verifySignature(plugin.id).then((r) => {
-            setPluginVerification(r)
-        })
-
         return () => {
             setMetrics([])
             clearInterval(interval)
@@ -2620,6 +2619,7 @@ const SelectPluginPanel = ({
                             <Tag intent="warning" icon="warning-sign" style={{verticalAlign: "bottom"}}>Uncertified</Tag>
                         </TooltipBP>
                     )}
+                    {plugin.registry && <RegistryBadge plugin={plugin}/>}
                     {plugin.gitops && <GitOpsBadge plugin={plugin} verification={pluginVerification}/>}
                     </div>
                 </div>
@@ -2663,7 +2663,7 @@ const SelectPluginPanel = ({
             <Divider/>
             <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
                 <div style={{flex: "1", minWidth: "0", width: "0"}}>
-                    <span>Status: </span> {pluginVerification?.success ? (
+                    <span>Status: </span> {pluginVerification === null ? <span className="bp6-text-muted">Checking signature…</span> : pluginVerification?.success ? (
                     <Icon icon={"endorsed"} intent={"success"}/>
                 ) : (
                     <Icon icon={"cross-circle"} intent="warning"/>
@@ -2673,7 +2673,7 @@ const SelectPluginPanel = ({
                             <div><span>Signed by <i
                                 className={"bp6-running-text"}>{pluginVerification.commonName?.value}</i></span></div>
                             <div className={"bp6-text-overflow-ellipsis"}><span>CA is <i
-                                className={"bp6-running-text"}>{pluginVerification.signer?.label || "Unknown signer"}</i></span>
+                                className={"bp6-running-text"}>{certificateDisplayName(pluginVerification.signer?.label) || "Unknown signer"}</i></span>
                             </div>
                             {pluginVerification.signer ? (
                                 <CertificateValidComponent cert={pluginVerification.signer}/>
@@ -2688,7 +2688,7 @@ const SelectPluginPanel = ({
                     loading={resignProgress}
                     onClick={async () => {
                         setResignProgress(true)
-                        const rootCerts = await window.electron.settings.certificates.getRoot()
+                        const rootCerts = await window.electron.settings.certificates.getSigning()
                         setRootCertificates(rootCerts)
                         if (rootCerts.length === 0) {
                             (AppToaster).show({
@@ -2699,10 +2699,9 @@ const SelectPluginPanel = ({
                             return
                         }
 
-                        let selectedLabel = rootCerts[0].label;
-                        if (rootCerts.length > 1) {
-                            selectedLabel = await selectRootCert(setShowRootCertificateDialog, rememberedRootCertificate, rememberChoiceRef, setRememberedRootCertificate, setOnRootCertificateSelected);
-                        }
+                        const remembered = rootCerts.some(cert => signingCertificateValue(cert) === rememberedRootCertificate)
+                            ? rememberedRootCertificate : null;
+                        const selectedLabel = await selectRootCert(setShowRootCertificateDialog, remembered, rememberChoiceRef, setRememberedRootCertificate, setOnRootCertificateSelected);
 
 
                         if (!selectedLabel) {
@@ -2716,10 +2715,6 @@ const SelectPluginPanel = ({
                                     message: operationError(`Could not re-sign ${pluginDisplayName(plugin)}`, response.error, "Review the selected certificate in Settings → Certificates."),
                                     intent: "danger"
                                 });
-                            } else {
-                                window.electron.plugin.verifySignature(plugin.id).then((r) => {
-                                    setPluginVerification(r)
-                                })
                             }
                         })
                         setResignProgress(false)

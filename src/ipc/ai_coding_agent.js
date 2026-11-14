@@ -1,3 +1,4 @@
+import {buildPublishingAgentContext} from '../utils/plugins/publishing/publishingAgentContext';
 import {INVESTIGATION_CONTRACT} from '../components/editor/utils/aiCodingAgentInvestigation';
 import {assistantRecords, assistantCredentials} from '../utils/persistence/aiCredentialSettings.cjs';
 import {pluginGuideRecoveryMetadata} from '../utils/ai/assistant/pluginGuideRecovery';
@@ -863,6 +864,7 @@ async function runCodingPrompt(event, requestId, assistantInfo, prompt, { image 
             }
         };
         const initialEvidence = workspace ? getEvidence({prompt, files: workspaceFiles || []}) : '';
+        if (workspace) prompt += '\n\n' + buildPublishingAgentContext(workspaceFiles);
         prompt += '\n\n' + pluginAuthoringInstructions(Object.fromEntries((workspaceFiles || []).map(file => [file.path, file.content])));
         prompt += '\n\n' + sharedLogicAuthoringInstructions(getSharedLogicAuthoringCatalog());
         prompt += '\n\n' + registrationDecoratorInstructions(installedRegistrationDecorators());

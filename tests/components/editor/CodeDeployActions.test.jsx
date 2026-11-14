@@ -32,13 +32,16 @@ describe('CodeDeployActions snapshot UI', () => {
     let finish;
     window.electron.plugin.on = {...window.electron.plugin.on, deployProgress: jest.fn(fn => { progress = fn; })};
     window.electron.plugin.off = {...window.electron.plugin.off, deployProgress: jest.fn()};
-    window.electron.settings.certificates.getRoot = jest.fn(async () => [{label: 'root'}]);
+    window.electron.settings.certificates.getSigning = jest.fn(async () => [{label: 'root'}]);
     jest.spyOn(virtualFS.build, 'getMetadata').mockResolvedValue({name: 'TestPlugin'});
     jest.spyOn(virtualFS.build, 'getEntrypoint').mockReturnValue('dist/index.cjs');
     jest.spyOn(virtualFS.build, 'getContent').mockReturnValue('module.exports = {};');
     window.electron.plugin.deployToMainFromEditor = jest.fn(() => new Promise(resolve => {finish = resolve;}));
     const {unmount} = setupComponent();
     fireEvent.click(screen.getByRole('button', {name: 'Deploy'}));
+    expect(await screen.findByRole('dialog', {name: 'Select Signing Certificate'})).toBeInTheDocument();
+    expect(window.electron.plugin.deployToMainFromEditor).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', {name: 'Use'}));
     await waitFor(() => expect(window.electron.plugin.deployToMainFromEditor).toHaveBeenCalled());
     expect(runTests.mock.invocationCallOrder[0]).toBeLessThan(build.mock.invocationCallOrder[0]);
     const {AppToaster} = require('../../../src/components/AppToaster.jsx');
@@ -140,13 +143,16 @@ describe('CodeDeployActions snapshot UI', () => {
 
   test('Save & Close includes the runtime bundle separately from original source', async()=>{
     const source='export const original = 42;';
-    window.electron.settings.certificates.getRoot=jest.fn(async()=>[{label:'root'}]);
+    window.electron.settings.certificates.getSigning=jest.fn(async()=>[{label:'root'}]);
     jest.spyOn(virtualFS,'listModels').mockReturnValue([{uri:{toString:()=> 'file:///index.ts'},getValue:()=>source}]);
     jest.spyOn(virtualFS.build,'getMetadata').mockResolvedValue({name:'TestPlugin'});
     jest.spyOn(virtualFS.build,'getEntrypoint').mockReturnValue('dist/index.cjs');
     jest.spyOn(virtualFS.build,'getContent').mockReturnValue('module.exports = { original: 42 };');
     window.electron.plugin.saveAndCloseFromEditor=jest.fn(async()=>({success:true}));
     setupComponent();fireEvent.click(screen.getByRole('button',{name:'Save & Close'}));
+    expect(await screen.findByRole('dialog', {name: 'Select Signing Certificate'})).toBeInTheDocument();
+    expect(window.electron.plugin.saveAndCloseFromEditor).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', {name: 'Use'}));
     await waitFor(()=>expect(window.electron.plugin.saveAndCloseFromEditor).toHaveBeenCalled());
     expect(build).toHaveBeenCalled();
     const saved=window.electron.plugin.saveAndCloseFromEditor.mock.calls[0][0];

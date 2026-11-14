@@ -2335,6 +2335,7 @@ export function registerPluginHandlers() {
             const userORM = new UserORM(USER_CONFIG_FILE);
             const plugin = pluginORM.getPlugin(data.name);
             let pathToDir = path.join(PLUGINS_DIR, `${data.name}_${data.sandbox}`)
+            if (plugin?.registry) return {success: false, error: 'This plugin is managed by the registry. Install a registry release, or export a source copy for local development.'};
             if (plugin?.gitops) return {success: false, error: 'This plugin is managed by GitOps. Commit changes to its repository or remove the subscription before deploying local edits.'};
             if (plugin) {
                 pathToDir = plugin.home
@@ -2359,13 +2360,14 @@ export function registerPluginHandlers() {
             await ensureAndWrite(pathToPlugin, data.content)
             if (data.packageJson !== undefined) await ensureAndWrite(path.join(pathToDir, 'package.json'), packageText);
             reportProgress(70, "Signing plugin…");
-            const signResult = Certs.signPlugin(pathToDir, data.rootCert)
+            const signResult = await Certs.signWithCertificate(pathToDir, data.rootCert)
             if (!signResult.success) {
                 return signResult
             }
             const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : (plugin?.capabilities || []);
             reportProgress(80, "Registering plugin…");
             pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true, capabilities)
+            PluginManager.sendToMainWindow(PluginChannels.on_off.SIGNATURE_CHANGED, data.name);
             const shouldReload = !!PluginManager.getLoadedPlugin(data.name) || userORM.getActivatedPlugins().includes(data.name);
             if (shouldReload) {
                 reportProgress(90, "Restarting plugin…");
@@ -2396,6 +2398,7 @@ export function registerPluginHandlers() {
             const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
             const plugin = pluginORM.getPlugin(data.name);
             let pathToDir;
+            if (plugin?.registry) return {success: false, error: 'This plugin is managed by the registry. Install a registry release, or export a source copy for local development.'};
             if (plugin?.gitops) return {success: false, error: 'This plugin is managed by GitOps. Commit changes to its repository or remove the subscription before saving local edits.'};
             if (data.dir === "sandbox" || data.dir.includes(data.sandbox) || !plugin) {
                 pathToDir = path.join(PLUGINS_DIR, data.name)
@@ -2405,7 +2408,7 @@ export function registerPluginHandlers() {
 
             await syncPluginDir(pathToDir, data.content, data.directories || [])
 
-            const signResult = Certs.signPlugin(pathToDir, data.rootCert)
+            const signResult = await Certs.signWithCertificate(pathToDir, data.rootCert)
             if (!signResult.success) {
                 return signResult
             }
@@ -2413,6 +2416,7 @@ export function registerPluginHandlers() {
             const metadata = normalizeAndValidatePluginMetadata(data.metadata)
             const capabilities = Array.isArray(data?.capabilities) ? data.capabilities : (plugin?.capabilities || []);
             pluginORM.addPlugin(data.name, metadata, pathToDir, data.entrypoint, true, capabilities)
+            PluginManager.sendToMainWindow(PluginChannels.on_off.SIGNATURE_CHANGED, data.name);
 
             if (data.dir.includes(data.sandbox)) {
                 rmSync(data.dir, {recursive: true, force: true})
@@ -2448,7 +2452,10 @@ export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.SIGN, async (event, id, signerLabel) => {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         const plugin = pluginORM.getPlugin(id)
-        return Certs.signPlugin(plugin.home, signerLabel)
+        if (plugin?.registry) return {success: false, error: 'Registry source retains its publisher signature. Export a source copy to sign local changes.'};
+        const result = await Certs.signWithCertificate(plugin.home, signerLabel);
+        if (result.success) PluginManager.sendToMainWindow(PluginChannels.on_off.SIGNATURE_CHANGED, id);
+        return result;
     })
 
     ipcMain.handle(PluginChannels.EXPORT, async (event, id) => {

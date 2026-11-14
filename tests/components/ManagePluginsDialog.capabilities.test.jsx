@@ -208,6 +208,24 @@ describe("ManagePluginsDialog capability UX", () => {
         };
     });
 
+    test('certificate details refresh while Manage Plugins stays open after editor signing', async () => {
+        let signatureChanged;
+        const unsubscribe = jest.fn();
+        window.electron.plugin.on = {signatureChanged: jest.fn(callback => {signatureChanged = callback; return unsubscribe;})};
+        const {unmount} = renderDialog();
+        expect(await screen.findByText('Test Root CA')).toBeInTheDocument();
+        window.electron.plugin.verifySignature.mockResolvedValue({success: true, commonName: {value: 'New developer'}, signer: {
+            label: 'New signing identity', expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
+        }});
+        const {act} = require('@testing-library/react');
+        await act(async () => signatureChanged('plugin-a'));
+        expect(await screen.findByText('New signing identity')).toBeInTheDocument();
+        expect(screen.queryByText('Test Root CA')).not.toBeInTheDocument();
+        expect(screen.getByText('New developer')).toBeInTheDocument();
+        unmount();
+        expect(unsubscribe).toHaveBeenCalled();
+    });
+
     function renderDialog(pluginOverride = {}, focusRequest = null, extraProps = {}) {
         const selectPlugin = jest.fn();
         const refreshPluginsState = jest.fn().mockResolvedValue();

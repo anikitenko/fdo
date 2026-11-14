@@ -1,3 +1,4 @@
+import {watchRegistryPlugin} from '../security/registryVerificationWatch';
 import {createSharedLogicBroker} from './sharedLogicBroker.cjs';
 import {configureSharedLogicAuthoringCatalog} from '../../sdk/sharedLogicAuthoringCatalog';
 import {sharedLogicAuthoringCatalog} from '../../sdk/sharedLogicAuthoring';
@@ -630,6 +631,32 @@ const PluginManager = {
         await Promise.allSettled(loadPromises);
     },
 
+    async compileRuntimeBundle(id, plugin, result, notificationContext, displayName) {
+        let runtimeBundle = null, failure = null;
+        try {
+            runtimeBundle = result.registry ? await buildPluginRuntimeBundle(id, plugin.home, {verifiedFiles: result.verifiedFiles}) : await buildPluginRuntimeBundle(id, plugin.home);
+        } catch (error) {failure = error;}
+        if (runtimeBundle?.entry) return runtimeBundle;
+        if (result.registry) {
+            throw failure
+                ? new Error('Registry plugins must compile from verified source; stale bundle fallback is disabled.', {cause: failure})
+                : new Error('Verified registry source could not be compiled.');
+        }
+        if (failure) {
+            this.tracePluginEvent(id, "runtime.bundle_rebuild_failed", {
+                error: failure?.message || String(failure),
+            });
+            NotificationCenter.addNotification({
+                ...notificationContext,
+                title: `${displayName}: runtime compilation failed`,
+                message: "FDO will try the previously compiled bundle. If the plugin does not open, review its logs or rebuild it.",
+                details: `Plugin ID: ${id}\n${failure.message || failure}`,
+                type: "warning",
+            });
+        }
+        return null;
+    },
+
     async loadPlugin(id) {
         if(this.drainingPlugins[id])await this.drainingPlugins[id];
         this.tracePluginEvent(id, "load.requested");
@@ -682,29 +709,11 @@ const PluginManager = {
                 NotificationCenter.addNotification({...notificationContext, type: 'warning', title: `${displayName}: supported FDO versions unknown`,
                     message: `${compatibility.summary} ${compatibility.remediation}`});
             }
-            let runtimeEntry = plugin.entry;
-            let hostNodeModulesPath = getHostPluginNodeModulesPath();
-            try {
-                const runtimeBundle = await buildPluginRuntimeBundle(id, plugin.home);
-                if (runtimeBundle?.entry) {
-                    runtimeEntry = runtimeBundle.entry;
-                    hostNodeModulesPath = runtimeBundle.nodeModulesPath || hostNodeModulesPath;
-                } else {
-                    hostNodeModulesPath = getHostPluginNodeModulesPath();
-                }
-            } catch (error) {
-                hostNodeModulesPath = getHostPluginNodeModulesPath();
-                this.tracePluginEvent(id, "runtime.bundle_rebuild_failed", {
-                    error: error?.message || String(error),
-                });
-                NotificationCenter.addNotification({
-                    ...notificationContext,
-                    title: `${displayName}: runtime compilation failed`,
-                    message: "FDO will try the previously compiled bundle. If the plugin does not open, review its logs or rebuild it.",
-                    details: `Plugin ID: ${id}\n${error.message || error}`,
-                    type: "warning",
-                });
-            }
+            const runtimeBundle = await this.compileRuntimeBundle(id, plugin, result, notificationContext, displayName);
+            let runtimeEntry = runtimeBundle?.entry || plugin.entry;
+            const hostNodeModulesPath = runtimeBundle?.entry
+                ? runtimeBundle.nodeModulesPath || getHostPluginNodeModulesPath()
+                : getHostPluginNodeModulesPath();
             if (typeof runtimeEntry === "string" && !path.isAbsolute(runtimeEntry)) {
                 runtimeEntry = path.join(plugin.home, runtimeEntry);
             }
@@ -781,6 +790,7 @@ const PluginManager = {
             attachOutputStream(child.stderr, "stderr");
 
             const cleanup = (payload = {}) => {
+                child.__stopRegistryVerification?.();
                 child.__stopWatchdog?.();
                 this.sendToMainWindow(PluginChannels.on_off.RESPONSIVENESS, {id, sessionId, status: 'stopped'});
                 cancelPluginUiBridge(id, sessionId);
@@ -858,6 +868,17 @@ const PluginManager = {
                     initRequested: false,
                     readyAt: 0,
                 };
+                if (result.registry) {
+                    child.__stopRegistryVerification = watchRegistryPlugin({
+                        isCurrent: () => this.loadedPlugins[id]?.instance === child,
+                        verify: () => Certs.verifyPlugin(plugin.home),
+                        blocked: verification => {
+                            this.tracePluginEvent(id, 'registry.trust_blocked', {error: verification.error});
+                            this.unLoadPlugin(id, {force:true, reason:'registry_verification_failed'});
+                            NotificationCenter.addNotification(failureNotification({...notificationContext, source:'security', title:`${displayName} stopped by registry verification`, message:'Its certificate or publication is revoked, expired or could not be checked.', error:verification.error}));
+                        },
+                    });
+                }
                 this.tracePluginEvent(id, "process.spawned", {sessionId});
                 this.setPluginLoading(id, false);
                 let readyHandshakeTimer = null;
@@ -1177,6 +1198,7 @@ const PluginManager = {
                 ? [...this.pluginDiagnosticsByPlugin[id].capabilities.registeredHandlers]
                 : [];
             const child = this.loadedPlugins[id]?.instance;
+            child?.__stopRegistryVerification?.();
             child?.__stopWatchdog?.();
             this.sendToMainWindow(PluginChannels.on_off.RESPONSIVENESS, {id, sessionId, status: 'stopped'});
             cancelPluginUiBridge(id, sessionId);

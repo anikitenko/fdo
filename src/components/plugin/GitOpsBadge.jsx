@@ -1,3 +1,4 @@
+import {certificateDisplayName} from '../../utils/system/certificateDisplay';
 import React, {useEffect, useState} from 'react';
 import {Button, Callout, Dialog, DialogBody, DialogFooter, Spinner, Tag} from '@blueprintjs/core';
 import * as styles from '../css/GitOpsBadge.module.css';
@@ -74,7 +75,7 @@ export default function GitOpsBadge({plugin, verification}) {
                 <h4>Signing</h4>
                 <Details rows={[
                     ['Signature', verification == null ? 'Checking signature…' : verification.success ? 'Verified' : 'Verification failed'],
-                    ['Certificate', verification?.signer?.label || 'Not available'],
+                    ['Certificate', certificateDisplayName(verification?.signer?.label) || 'Not available'],
                 ]}/>
                 {verification?.success === false && verification.error && <Callout intent="warning">{verification.error}</Callout>}
                 <h4>Collection and synchronization</h4>
