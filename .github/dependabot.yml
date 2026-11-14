@@ -6,3 +6,5 @@ updates:
       interval: daily
     allow:
       - dependency-name: '@anikitenko/fdo-sdk'
+      - dependency-name: hono
+      - dependency-name: '@hono/node-server'
