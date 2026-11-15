@@ -9,6 +9,7 @@ import {exportArchive} from '../../src/utils/plugins/exporting/exportArchive';
 import {signRegistryFiles} from '../../src/utils/system/registrySigning';
 import {registryLifecycleFixture} from '../helpers/registryLifecycleFixture';
 import {publishingFixture} from '../helpers/publishingFixture';
+import {organizationRegistries} from '../../src/utils/system/organizationRegistries';
 jest.mock('../../src/utils/system/officialRegistry', () => ({officialRegistry:{}}));
 let identity, directory, archive, release, store, options;
 const target = {id:'release-console',version:'1.0.0'};
@@ -35,6 +36,25 @@ test('persists registry provenance, signed source and zero grants across store r
     expect(record.capabilities).toEqual([]);
     expect(JSON.parse(await fs.readFile(path.join(record.home,'package.json'),'utf8')).version).toBe('1.0.0');
     expect(await fs.readFile(path.join(record.home,'dist/index.cjs'),'utf8')).toContain('module.exports');
+});
+test('uses a connected private registry for status, verification and persisted provenance', async () => {
+    const registryId = 'org-' + 'a'.repeat(24);
+    const selected = jest.spyOn(organizationRegistries, 'get').mockReturnValue({registry: options.registryService, connection: {id: registryId, name: 'Acme', url: 'https://plugins.acme.test'}});
+    try {
+        await installRegistryRelease({...target, registryId}, options);
+        expect(selected).toHaveBeenCalledWith(registryId);
+        expect(options.confirm).toHaveBeenCalledWith(expect.objectContaining({origin: 'https://plugins.acme.test'}));
+        expect(store.get(target.id).registry.origin).toBe('https://plugins.acme.test');
+        await expect(install()).rejects.toMatchObject({code: 'REGISTRY_SOURCE_CONFLICT'});
+    } finally {selected.mockRestore();}
+});
+test('unknown private registry links cannot fall back to the official registry', async () => {
+    const selected = jest.spyOn(organizationRegistries, 'get').mockImplementation(() => {throw new Error('Private registry is not connected');});
+    try {
+        await expect(installRegistryRelease({...target, registryId: 'org-' + 'a'.repeat(24)}, options)).rejects.toThrow('not connected');
+        expect(options.registryService.releaseStatus).not.toHaveBeenCalled();
+        expect(options.download).not.toHaveBeenCalled();
+    } finally {selected.mockRestore();}
 });
 test('same version is a verified no-op without download or approval',async()=>{
     await install(); const previous=store.get(target.id);

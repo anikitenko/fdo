@@ -99,7 +99,7 @@ export function validateTrustDocument(document, config, previous, now = Date.now
         !trusted.has(p.activeRoot) ||
         revokedRootKeys.has(keyFingerprint(active.pem))
     )
-        throw new Error('Registry root replacement is not authorized by this FDO release.');
+        throw new Error('Registry root replacement is not authorized by the trusted pin or a valid root transition.');
     const root = new crypto.X509Certificate(active.pem);
     if (!root.ca || !root.checkIssued(root) || !root.verify(root.publicKey))
         throw new Error('Registry root is not a self-signed CA.');

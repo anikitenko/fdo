@@ -70,7 +70,7 @@ export async function runFdoCli(args, dependencies) {
         });
     });
     program.command('dev <path>').description('Watch, rebuild and redeploy a plugin workspace')
-        .option('-l, --label <label>', 'Root label or registry:<id> from fdo sign list', 'root').action(async (input, options) => {
+        .option('-l, --label <label>', 'Root label or registry/organization selector from fdo sign list', 'root').action(async (input, options) => {
             if (isJson()) throw new Error('--json is unavailable for the dev watch command.');
             await dependencies.dev(resolvePath(input), options.label);
         });
@@ -95,7 +95,7 @@ export async function runFdoCli(args, dependencies) {
         });
     });
     program.command('deploy <path>').description('Compile, sign and install a plugin workspace')
-        .option('-l, --label <label>', 'Root label or registry:<id> from fdo sign list', 'root')
+        .option('-l, --label <label>', 'Root label or registry/organization selector from fdo sign list', 'root')
         .option('--dry-run', 'Validate and preview deployment without changing plugin files, registry or certificates').action(async (input, options) => {
             if (options.dryRun) {
                 const result = await dependencies.planDeployment(resolvePath(input), options.label);
@@ -114,9 +114,10 @@ export async function runFdoCli(args, dependencies) {
     const signing = program.command('sign').description('Manage plugin signing').action(() => {signing.outputHelp();});
     signing.command('list').description('List available signing certificates').action(() => {
         const certificates = listCertificates();
-        report('sign list', certificates.map(cert => ({id: cert.id, label: certificateInformation(cert).name, scope: cert.scope, selector: signingCertificateValue(cert), hasPrivateKey: cert.hasPrivateKey, expiresAt: cert.expiresAt})), () => {
+        report('sign list', certificates.map(cert => ({id: cert.id, label: certificateInformation(cert).name, scope: cert.scope, selector: signingCertificateValue(cert), hasPrivateKey: cert.hasPrivateKey, expiresAt: cert.expiresAt,
+            ...(cert.registryId ? {registryId: cert.registryId, registryName: cert.registryName} : {})})), () => {
             if (!certificates.length) output.log('No signing certificates found. Create or import one in FDO Settings → Certificates.');
-            for (const cert of certificates) output.log(`${certificateInformation(cert).name} — ${signingCertificateValue(cert)}${cert.hasPrivateKey ? '' : ' [verification only]'}`);
+            for (const cert of certificates) output.log(`${certificateInformation(cert).name}${cert.registryName ? ` (${cert.registryName})` : ''} — ${signingCertificateValue(cert)}${cert.hasPrivateKey ? '' : ' [verification only]'}`);
         });
     });
     signing.command('import-root <file>').description('Import a trusted shared root CA certificate')
@@ -126,19 +127,44 @@ export async function runFdoCli(args, dependencies) {
             report('sign import-root', result, () => output.log('Root certificate imported. Run fdo sign list to inspect available identities.'));
         });
     signing.command('import-developer <files...>').description('Import the registry developer certificate chain and key together')
-        .action(async inputs => {
-            const result = await dependencies.importDeveloperCertificate(inputs.map(resolvePath));
+        .option('--registry <id>', 'Connected private registry ID; omit for the official registry')
+        .action(async (inputs, options) => {
+            const result = options.registry
+                ? await dependencies.importDeveloperCertificate(inputs.map(resolvePath), options.registry)
+                : await dependencies.importDeveloperCertificate(inputs.map(resolvePath));
+            if (result?.success === false) throw new Error(result.error);
             report('sign import-developer', result, () => output.log('Developer certificate imported into OS-protected storage. Run fdo sign list for its selector.'));
         });
+    const registries = signing.command('registry').description('Connect organization private registries').action(() => registries.outputHelp());
+    registries.command('list').description('List private registry connections and public trust pins').action(() => {
+        const connections = dependencies.listOrganizationRegistries();
+        report('sign registry list', connections, () => {
+            if (!connections.length) output.log('No private registries connected. Use fdo sign registry add or Settings → Certificates.');
+            for (const entry of connections) output.log(`${entry.name} — ${entry.id}\n  ${entry.url}\n  Root SHA-256: ${entry.rootFingerprint256}`);
+        });
+    });
+    registries.command('add').description('Verify an independently trusted root pin and connect a private FDO registry')
+        .requiredOption('--name <name>', 'Organization display name')
+        .requiredOption('--url <origin>', 'HTTPS origin, for example https://plugins.example.com')
+        .requiredOption('--root-fingerprint <sha256>', 'Root certificate SHA-256 fingerprint supplied by your administrator')
+        .action(async options => {
+            const result = await dependencies.addOrganizationRegistry({name: options.name, url: options.url, rootFingerprint256: options.rootFingerprint});
+            report('sign registry add', result, () => output.log(`Connected ${result.name}: ${result.id}\nImport your developer chain and key with fdo sign import-developer --registry ${result.id} <chain.pem> <key.pem>.`));
+        });
+    registries.command('remove <id>').description('Disconnect a private registry and delete its local signing keys; installed plugins will be blocked')
+        .action(async id => {
+            await dependencies.removeOrganizationRegistry(id);
+            report('sign registry remove', {id, removed: true}, () => output.log('Private registry disconnected and its local signing keys removed. Installed plugins from it will fail verification. Server certificates were not revoked.'));
+        });
     signing.command('archive <path>').description('Check and sign a source-only ZIP for registry upload')
-        .requiredOption('--certificate <selector>', 'Developer selector from fdo sign list (registry:<id>)')
+        .requiredOption('--certificate <selector>', 'Developer selector from fdo sign list (registry:<id> or organization:<id>)')
         .requiredOption('-o, --output <file>', 'New ZIP file to create; existing files are never overwritten')
         .action(async (input, options) => {
             const result = await dependencies.signArchive(resolvePath(input), options.certificate, resolvePath(options.output));
             report('sign archive', result, () => output.log(`Signed publishing archive: ${result.path} (${result.bytes} bytes). Upload it to your registry profile for final validation and publishing.`));
         });
     signing.command('plugin <path>').description('Sign a plugin workspace')
-        .option('-l, --label <label>', 'Root label or registry:<id> from fdo sign list', 'root').action(async (input, options) => {
+        .option('-l, --label <label>', 'Root label or registry/organization selector from fdo sign list', 'root').action(async (input, options) => {
             const directory = resolvePath(input); requirePluginDirectory(directory);
             await sign(directory, options.label);
             report('sign plugin', {directory, label: options.label}, () => output.log(`Signed plugin: ${directory}`));

@@ -6,6 +6,7 @@ jest.mock('../../src/utils/persistence/certificateStorage',()=>({certificateStor
 jest.mock('../../src/utils/system/registrySigning',()=>({signRegistryFiles:jest.fn()}));
 import {Certs} from '../../src/utils/system/certs';
 import {officialRegistry} from '../../src/utils/system/officialRegistry';
+import {organizationRegistries} from '../../src/utils/system/organizationRegistries';
 import {certificateStorage} from '../../src/utils/persistence/certificateStorage';
 import {signRegistryFiles} from '../../src/utils/system/registrySigning';
 import {EventEmitter} from 'node:events';
@@ -126,6 +127,19 @@ test('normal plugin export signs automatically with the imported developer ident
     expect(zip.includes(Buffer.from('index.ts'))).toBe(true);
     expect(zip.includes(Buffer.from('package.json'))).toBe(true);
     for(const name of ['dist/bundle.js','node_modules/vendor/index.js','.git/config','.env','signer.key','root.pem'])expect(zip.includes(Buffer.from(name))).toBe(false);
+});
+test('organization certificates use the normal ZIP export with the selected private registry trust', async () => {
+    const identity = {id: 'org-id/developer', scope: 'org', registryId: 'org-id', kind: 'developer', hasPrivateKey: true, chainPem: 'private-chain'};
+    certificateStorage.list.mockImplementation(scope => scope === 'org' ? [identity] : []);
+    const selected = jest.spyOn(organizationRegistries, 'forCertificate').mockReturnValue({registry: {trust: async () => ({anchors: ['private-root']})}, lifecycle: {ensureIdentity: async entry => entry}});
+    try {
+        await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({name: 'test-utils', version: '1.0.0', author: 'Team', description: 'Test plugin', fdo: {compatibility: {fdo: '*', sdk: '*', api: '*'}}}));
+        const output = path.join(root, 'private.zip'); dialog.showSaveDialog.mockResolvedValue({canceled: false, filePath: output});
+        expect(await handlers[PluginChannels.EXPORT_AS](event, plugin.id, {format: 'archive', signerId: 'organization:org-id/developer'})).toEqual({success: true, path: output});
+        expect(signRegistryFiles).toHaveBeenCalledWith(expect.any(Object), 'private-chain', 'private', ['private-root']);
+        expect(certificateStorage.privateKey).toHaveBeenCalledWith(identity.id, 'org');
+        expect(certificateStorage.update).toHaveBeenCalledWith(identity.id, expect.any(Object), 'org');
+    } finally {selected.mockRestore();}
 });
 test('signed plugin export refuses a missing package manifest',async()=>{
     certificateStorage.list.mockImplementation(scope=>scope==='registry'?[{id:'developer',kind:'developer',hasPrivateKey:true,anchorId:'official',chainPem:'chain'}]:[]);

@@ -16,7 +16,12 @@ export function createOfficialRegistry({
     storage = certificateStorage,
     fetchCertificate = (...args) => fetch(...args),
     now = () => Date.now(),
+    scope = 'registry',
+    registryId,
+    label = 'FDO Plugin Registry',
+    assertActive = () => {},
 } = {}) {
+    const entryId = cert => registryId ? `${registryId}/${cert.fingerprint256}` : cert.fingerprint256;
     let pending,
         trust,
         checkedAt = 0;
@@ -25,10 +30,11 @@ export function createOfficialRegistry({
     const base = () => {
         const url = new URL(config.certificateUrl);
         if (url.protocol !== 'https:' || url.username || url.password)
-            throw new Error('The official registry certificate URL must use HTTPS.');
+            throw new Error('The registry certificate URL must use HTTPS.');
         return url;
     };
     async function download(url, options = {}, maxBytes = 128 * 1024) {
+        assertActive();
         let response;
         try {response = await fetchCertificate(url, {
             redirect: 'error',
@@ -52,24 +58,29 @@ export function createOfficialRegistry({
             if (size > maxBytes) throw new Error('Registry certificate response is too large.');
             chunks.push(Buffer.from(chunk));
         }
+        assertActive();
         return Buffer.concat(chunks).toString('utf8');
     }
     async function load() {
         if (!configured()) throw new Error('The official registry is not available yet.');
         const url = base(),
-            entries = storage.list('registry');
+            entries = storage.list(scope);
+        assertActive();
         const existing = entries
             .filter(
                 (entry) =>
                     entry.kind === 'anchor' &&
-                    entry.official === true &&
+                    entry.official === !registryId &&
+                    entry.registryId === registryId &&
                     entry.registryCertificateUrl === url.href,
             )
             .sort((a, b) => (b.trustSequence || 0) - (a.trustSequence || 0))[0];
         if (config.trustUrl) {
             const trustUrl = new URL(config.trustUrl);
             if (trustUrl.origin !== url.origin)
-                throw new Error('Registry trust must use the official origin.');
+                throw new Error('Registry trust must use the configured origin.');
+            if (trustUrl.protocol !== 'https:' || trustUrl.username || trustUrl.password || trustUrl.hash)
+                throw new Error('Registry trust must use HTTPS without credentials or a fragment.');
             if (trust && now() - checkedAt < 300000 && Date.parse(trust.payload.expiresAt) > now())
                 return existing;
             const document = JSON.parse(await download(trustUrl.href, {}, 512 * 1024));
@@ -81,18 +92,20 @@ export function createOfficialRegistry({
             );
             const cert = new crypto.X509Certificate(current.root);
             const entry = {
-                id: cert.fingerprint256,
-                label: 'FDO Plugin Registry',
+                id: entryId(cert),
+                label,
                 cert: current.root,
                 kind: 'anchor',
-                official: true,
+                official: !registryId,
+                ...(registryId ? {registryId, registryName: label, fingerprint256: cert.fingerprint256} : {}),
                 registryCertificateUrl: url.href,
-                createdAt: existing?.id === cert.fingerprint256 ? existing.createdAt : new Date(now()).toISOString(),
+                createdAt: existing?.id === entryId(cert) ? existing.createdAt : new Date(now()).toISOString(),
                 expiresAt: new Date(cert.validTo).toISOString(),
                 trustSequence: current.payload.sequence,
                 trustDocument: document,
             };
-            storage.put(entry, 'registry');
+            assertActive();
+            storage.put(entry, scope);
             trust = current;
             checkedAt = now();
             return entry;
@@ -109,19 +122,21 @@ export function createOfficialRegistry({
             throw new Error('The official registry must return one root certificate.');
         const cert = validateRegistryAnchor(pem, config.rootFingerprint256);
         const entry = {
-            id: cert.fingerprint256,
-            label: 'FDO Plugin Registry',
+            id: entryId(cert),
+            label,
             cert: cert.toString(),
             kind: 'anchor',
-            official: true,
+            official: !registryId,
             registryCertificateUrl: url.href,
             createdAt: new Date(now()).toISOString(),
             expiresAt: new Date(cert.validTo).toISOString(),
         };
-        storage.put(entry, 'registry');
+        assertActive();
+        storage.put(entry, scope);
         return entry;
     }
     async function ensureAnchor() {
+        assertActive();
         if (!pending)
             pending = load().finally(() => {
                 pending = undefined;
@@ -155,6 +170,7 @@ export function createOfficialRegistry({
         return status;
     }
     return {
+        assertActive,
         configured,
         ensureAnchor,
         certificateStatus,

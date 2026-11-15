@@ -1,4 +1,5 @@
 import RegistryCertificates from './RegistryCertificates';
+import OrganizationCertificates from './OrganizationCertificates';
 import {operationError} from '../../../utils/desktop/notificationContent';
 import React, {useEffect, useState} from "react";
 import CertificateDetails from './CertificateDetails';
@@ -163,14 +164,7 @@ export const CertificatePanel = () => {
                 </div>
             )}
             <RegistryCertificates/>
-            <div className={styles["card-setting-header"]}>
-                <H2 style={{margin: 0, fontSize: 16}}>Organization certificates</H2>
-            </div>
-            <p>
-                Organization certificates are issued by a trusted Root CA to individual developers or teams.
-                These certificates are used to sign plugins and establish trust within your organization.
-            </p>
-            <NonIdealState iconSize={24} className={styles["certificate-empty-state"]} icon="office" title="No organization certificates" description="Organization certificates will appear here once they are imported." layout="horizontal"/>
+            <OrganizationCertificates/>
         </Card>
     )
 }

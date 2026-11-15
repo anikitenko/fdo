@@ -1,8 +1,18 @@
 import React from 'react';
 import {render, screen, fireEvent, waitFor} from '@testing-library/react';
 import RegistryCertificates from '../../src/components/settings/panels/RegistryCertificates';
+import configuration from '../../src/config/officialRegistry.json';
 beforeEach(() => {window.electron = {settings: {certificates: {registryStatus: jest.fn(), removeRegistry: jest.fn(), importRegistry: jest.fn().mockResolvedValue({success: true})}}};});
 const certificate = {id: 'fingerprint', label: 'Developer', expiresAt: new Date(Date.now() + 86400000 * 365).toISOString()};
+test('an unconfigured certificate URL still renders the unavailable state', async () => {
+    const previous = configuration.certificateUrl;
+    configuration.certificateUrl = '';
+    try {
+        window.electron.settings.certificates.registryStatus.mockResolvedValue({available: false, configured: false, developers: []});
+        render(<RegistryCertificates/>);
+        expect(await screen.findByText('Registry unavailable')).toBeInTheDocument();
+    } finally {configuration.certificateUrl = previous;}
+});
 test('uses Blueprint empty state before the official registry is available', async () => {
     window.electron.settings.certificates.registryStatus.mockResolvedValue({available: false, configured: false, developers: []});
     render(<RegistryCertificates/>);

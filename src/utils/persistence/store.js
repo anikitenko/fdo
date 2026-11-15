@@ -28,6 +28,13 @@ const rawSettings = new Store({
         "1.1.0": stageObservabilityMigration,
     },
     schema: {
+        organizationRegistries: {
+            type: 'array', default: [], maxItems: 20,
+            items: {type: 'object', additionalProperties: false,
+                required: ['id', 'name', 'url', 'rootFingerprint256'],
+                properties: {id: {type: 'string'}, name: {type: 'string', minLength: 1, maxLength: 80},
+                    url: {type: 'string', maxLength: 2048}, rootFingerprint256: {type: 'string', pattern: '^[a-f0-9]{64}$'}}},
+        },
         notificationPreferences: {type: 'object', default: {}, additionalProperties: false, properties: {
             successToasts: {type: 'boolean'}, failureToasts: {type: 'boolean'}, infoToasts: {type: 'boolean'},
             retentionDays: {type: 'integer', enum: [0, 30, 90]},

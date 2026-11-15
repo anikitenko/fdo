@@ -1,5 +1,7 @@
 import {registryIdentityLifecycle} from './registryIdentity';
 import {officialRegistry} from './officialRegistry';
+import {organizationRegistries} from './organizationRegistries';
+import {registryCertificateSelection} from './certificateDisplay';
 import {keyFingerprint, validateAuthorityChain} from './registryTrust';
 import {verifyRegistryPluginDirectory} from './registryPluginVerification';
 import "reflect-metadata";
@@ -261,14 +263,16 @@ export const Certs = {
 
 
     async signWithCertificate(pluginDir, selection) {
-        if (!selection?.startsWith('registry:')) return this.signPlugin(pluginDir, selection);
+        const selected = registryCertificateSelection(selection);
+        if (!selected) return this.signPlugin(pluginDir, selection);
         try {
-            const id = selection.slice('registry:'.length);
-            const entry = certificateStorage.list('registry').find(cert => cert.id === id && cert.kind === 'developer' && cert.hasPrivateKey);
+            const {id, scope} = selected;
+            const entry = certificateStorage.list(scope).find(cert => cert.id === id && cert.kind === 'developer' && cert.hasPrivateKey);
             if (!entry) return {success: false, error: 'The selected signing certificate is no longer available.'};
-            const current = await registryIdentityLifecycle.ensureIdentity(entry);
-            const result = this.signPlugin(pluginDir, selection, {...current, hasPrivateKey: true});
-            if (result.success) certificateStorage.update(current.id, {localSigningAuthorized: true, lastUsedAt: new Date().toISOString()}, 'registry');
+            const {lifecycle} = scope === 'org' ? organizationRegistries.forCertificate({...entry, scope}) : {lifecycle: registryIdentityLifecycle};
+            const current = await lifecycle.ensureIdentity(entry);
+            const result = this.signPlugin(pluginDir, selection, {...current, scope, hasPrivateKey: true});
+            if (result.success) certificateStorage.update(current.id, {localSigningAuthorized: true, lastUsedAt: new Date().toISOString()}, scope);
             return result;
         } catch (error) {return {success: false, error: error.message};}
     },
@@ -292,7 +296,7 @@ export const Certs = {
             return {success: false, error: `Certificate expired on ${new Date(certObj.validTo).toISOString()}`};
         }
 
-        const privateKey = crypto.createPrivateKey(certificateStorage.privateKey(certEntry.id, registryEntry ? 'registry' : 'root'));
+        const privateKey = crypto.createPrivateKey(certificateStorage.privateKey(certEntry.id, registryEntry ? registryEntry.scope || 'registry' : 'root'));
         if (privateKey.asymmetricKeyType !== "rsa") {
             return {success: false, error: "Plugin signing requires an RSA private key"};
         }
@@ -324,6 +328,7 @@ export const Certs = {
 
         if (!isRoot) {
             if (registryEntry) metaInformation.localRegistrySignerId = certEntry.id;
+            if (registryEntry?.scope === 'org') metaInformation.localRegistryScope = 'org';
             metaInformation.developerCert = registryEntry ? {cert: certEntry.cert} : certEntry.chain?.length > 1
                 ? { chain: [certEntry.cert, ...certEntry.chain.slice(1)] }
                 : { cert: certEntry.cert };
@@ -383,7 +388,7 @@ export const Certs = {
         }
     },
 
-    async verifyPlugin(pluginDir) {
+    async verifyPlugin(pluginDir, {registryOrigin} = {}) {
         try {
             const metaPath = path.join(pluginDir, "fdo.meta.json");
             const sigPath = path.join(pluginDir, "fdo.signature");
@@ -395,7 +400,8 @@ export const Certs = {
             const meta = JSON.parse(await safeReadFileSync(metaPath, "utf-8"));
             const signatureBuffer = await safeReadFileSync(sigPath);
 
-            if (meta.format === 'fdo-registry-v1') return await verifyRegistryPluginDirectory(pluginDir, meta, signatureBuffer);
+            if (meta.format === 'fdo-registry-v1') return await verifyRegistryPluginDirectory(pluginDir, meta, signatureBuffer,
+                registryOrigin ? organizationRegistries.forOrigin(registryOrigin).registry : officialRegistry);
 
             if (
                 typeof meta.fingerprint?.value !== "string" ||
@@ -408,7 +414,7 @@ export const Certs = {
             }
 
             // Registry publication trust does not authorize local desktop plugin execution.
-            const allCerts = certificateStorage.list().filter(entry => entry.scope !== 'registry');
+            const allCerts = certificateStorage.list().filter(entry => entry.scope === 'root' || entry.scope === 'org' && !entry.registryId && !entry.kind);
 
             let matchedCert;
             let certificateToVerifyAgainst;
@@ -432,12 +438,14 @@ export const Certs = {
 
                 try {
                     if (meta.localRegistrySignerId) {
-                        const local = certificateStorage.list('registry').find(entry => entry.id === meta.localRegistrySignerId
+                        const scope = meta.localRegistryScope === 'org' ? 'org' : 'registry';
+                        const local = certificateStorage.list(scope).find(entry => entry.id === meta.localRegistrySignerId
                             && entry.kind === 'developer' && entry.hasPrivateKey && entry.localSigningAuthorized === true);
                         if (!local || new crypto.X509Certificate(local.cert).fingerprint256 !== certChain[0].fingerprint256)
                             return {success: false, error: 'Developer certificate chain verification failed: This developer certificate has not been used for local signing.'};
-                        const trust = await officialRegistry.trust();
-                        await officialRegistry.certificateStatus(keyFingerprint(local.cert));
+                        const registry = scope === 'org' ? organizationRegistries.forCertificate({...local, scope}).registry : officialRegistry;
+                        const trust = await registry.trust();
+                        await registry.certificateStatus(keyFingerprint(local.cert));
                         validateAuthorityChain(local.chainPem, trust);
                         verifyCertificateChain([certChain[0]], [local.cert]);
                         matchedCert = local;
@@ -479,6 +487,7 @@ export const Certs = {
                 success: true,
                 commonName: {name: 'commonName', value: new ParsedCertificate(verifySig.cert.raw).subjectName.getField('CN')[0]},
                 signer: matchedCert,
+                ...(matchedCert.kind === 'developer' && ['registry', 'org'].includes(matchedCert.scope) ? {registry: true} : {}),
             };
         } catch (err) {
             return {

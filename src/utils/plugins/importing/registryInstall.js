@@ -6,15 +6,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import configuration from '../../../config/officialRegistry.json';
 import {officialRegistry} from '../../system/officialRegistry';
+import {organizationRegistries} from '../../system/organizationRegistries';
 import {inspectReleaseArchive} from '../publishing/registryPolicy/release-archive';
 import {MAX_ARCHIVE_BYTES} from '../publishing/registryPolicy/source-archive';
 import {verifyRegistryPluginDirectory} from '../../system/registryPluginVerification';
 import {inspectSourcePluginCompatibility} from '../../sdk/pluginCompatibilityHost';
 import {assertPluginCompatibility} from '../../sdk/pluginCompatibility';
 
-export async function downloadRegistryArchive(release, fetchArchive = fetch) {
+export async function downloadRegistryArchive(release, fetchArchive = fetch, origin = new URL(configuration.certificateUrl).origin) {
     if (!/^[a-f0-9]{64}$/.test(release.packageSha256)) throw new Error('Registry release has no verified archive digest.');
-    const base = new URL(configuration.certificateUrl);
+    const base = new URL(origin);
     const url = new URL(`/packages/${encodeURIComponent(release.pluginId)}/${encodeURIComponent(release.version)}/${release.packageSha256}.zip`, base);
     let response;
     try {response = await fetchArchive(url.href, {redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(30000)});}
@@ -45,11 +46,14 @@ export async function installRegistryRelease(release, options) {
     return withCliLock(options.store.file, () => installRegistryReleaseUnlocked(release, options));
 }
 
-async function installRegistryReleaseUnlocked({id, version}, {pluginsDir, store, confirm, normalizeMetadata, build, onProgress = () => {},
+async function installRegistryReleaseUnlocked({id, version, registryId}, {pluginsDir, store, confirm, normalizeMetadata, build, onProgress = () => {},
     runtime, isActivated = () => false, setActivated = async () => {},
     registryService = officialRegistry, download = downloadRegistryArchive, inspect = inspectReleaseArchive,
     verify = verifyRegistryPluginDirectory}) {
-    const origin = new URL(configuration.certificateUrl).origin;
+    const connection = registryId ? organizationRegistries.get(registryId) : null;
+    if (registryId && !connection.connection) throw new Error('Choose a connected private registry.');
+    if (connection) registryService = connection.registry;
+    const origin = connection ? connection.connection.url : new URL(configuration.certificateUrl).origin;
     const sameSource = plugin => plugin?.registry?.origin === origin && plugin.registry.pluginId === id;
     const localIdFor = value => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) && value.length <= 80 && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(value)
         ? value : `registry-${crypto.createHash('sha256').update(value).digest('hex').slice(0, 40)}`;
@@ -59,7 +63,7 @@ async function installRegistryReleaseUnlocked({id, version}, {pluginsDir, store,
     let previous = store.get(localId);
     let previousVersion = previous?.registry?.version;
     if (previous?.gitops) throw Object.assign(new Error('This plugin is managed by GitOps. Registry installation cannot replace it.'), {code: 'REGISTRY_SOURCE_CONFLICT'});
-    onProgress({phase: 'checking'});
+    onProgress({phase: 'checking', registryOrigin: origin, registryName: connection?.connection.name || 'FDO Plugin Registry'});
     let resolvingName = true;
     const displayName = registryService.releaseDisplayName
         ? registryService.releaseDisplayName(id, version).then(name => {
@@ -104,7 +108,7 @@ async function installRegistryReleaseUnlocked({id, version}, {pluginsDir, store,
         } catch (error) {if (error.code && !['ENOENT', 'EISDIR'].includes(error.code)) throw error;}
     }
     onProgress({phase: 'downloading', name, action, installedVersion: previousVersion || null});
-    const bytes = await download(release);
+    const bytes = await (connection && download === downloadRegistryArchive ? download(release, fetch, origin) : download(release));
     onProgress({phase: 'verifying'});
     const archive = await inspect(bytes);
     if (!archive.embeddedSigning || !archive.proposal || archive.proposal.pluginId !== id || archive.proposal.metadata.version !== version)
@@ -131,7 +135,7 @@ async function installRegistryReleaseUnlocked({id, version}, {pluginsDir, store,
         const newCapabilities = archive.proposal.capabilities.filter(capability => !(previous?.capabilities || []).includes(capability));
         const needsCapabilityReview = !!previous && newCapabilities.length > 0;
         onProgress({phase: 'approval', action, installedVersion: previousVersion || null, needsCapabilityReview});
-        if (!await confirm({id, version, metadata, capabilities: archive.proposal.capabilities, action,
+        if (!await confirm({id, version, origin, metadata, capabilities: archive.proposal.capabilities, action,
             installedVersion: previousVersion || null, needsCapabilityReview, newCapabilities})) return {cancelled: true};
         onProgress({phase: 'building'});
         const virtual = Object.fromEntries([...archive.files].map(([name, contents]) => ['/' + name, contents]));
@@ -171,6 +175,7 @@ async function installRegistryReleaseUnlocked({id, version}, {pluginsDir, store,
                 await runtime.drainingPlugins?.[localId];
             }
             if ((!previous && isActivated(localId)) || (needsCapabilityReview && wasActivated)) await setActivated(localId, false);
+            registryService.assertActive?.();
             store.commit(localId, previous, candidate);
             committed = replaced = true;
             if (!needsCapabilityReview && previous && (wasRunning || wasActivated) && runtime) {

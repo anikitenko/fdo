@@ -144,7 +144,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@anikitenko/fdo-sdk": "1.9.1",
+    "@anikitenko/fdo-sdk": "1.9.2",
     "@anthropic-ai/sdk": "0.134.0",
     "@babel/generator": "^8.0.6",
     "@babel/parser": "^8.0.7",

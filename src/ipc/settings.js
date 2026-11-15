@@ -395,7 +395,7 @@ export function registerSettingsHandlers() {
     registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, settings, openExternal: url => shell.openExternal(url)});
     registerRegistryCertificateHandlers();
     ipcMain.handle(SettingsChannels.certificates.GET_SIGNING, () => certificateStorage.list().filter(entry =>
-        entry.hasPrivateKey && (entry.scope === 'root' || entry.scope === 'registry' && entry.kind === 'developer')));
+        entry.hasPrivateKey && (entry.scope === 'root' || ['registry', 'org'].includes(entry.scope) && entry.kind === 'developer' && (entry.scope !== 'org' || entry.registryId))));
     ipcMain.handle(SettingsChannels.certificates.GET_ROOT, async () => {
         return certificateStorage.list('root');
     });

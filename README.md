@@ -201,6 +201,14 @@ selector to reuse with `--label` (local signing/deployment) or `--certificate`
 ZIP using the same service as Export As; it never overwrites an existing output
 or uploads a release. See [registry signing](docs/REGISTRY_SIGNING.md).
 
+Organization certificates connect to private FDO registries through **Settings →
+Certificates → Connect private registry**. They share the existing import,
+signing, ZIP export, renewal and revocation workflow. CLI users can use
+`fdo sign registry add/list/remove`, import with `--registry <connection-id>`, and
+choose an `organization:<id>` selector from `fdo sign list`. See the
+[private registry deployment guide](docs/PRIVATE_REGISTRIES.md) for trust setup,
+AWS deployment, Azure/GCP/Vault integration examples and operational checks.
+
 `test <path>` runs the same workspace test runner as the editor, with TypeScript
 and CSS support and structured results under `--json`. It returns nonzero for
 failed tests, compilation errors or no tests found. Test files use `node:test` and

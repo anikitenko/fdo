@@ -43,6 +43,7 @@ export default function RegistryInstallDialog() {
         onClose={dismiss} isCloseButtonShown={!busy} canEscapeKeyClose={!busy} canOutsideClickClose={false}>
         <DialogBody>
             <p className={styles.identity}><strong>{status.name || 'Loading plugin details…'}</strong> <span className="bp6-text-muted">v{status.version}</span></p>
+            {status.registryOrigin && <p className="bp6-text-muted">{status.registryName}: {status.registryOrigin}</p>}
             <div role="status" aria-live="polite" aria-atomic="true" className={styles.status}>
                 {busy && <Spinner size={20} aria-label="Installation in progress"/>}
                 <strong>{status.phase === 'complete' ? ({update: 'Plugin updated', downgrade: 'Plugin downgraded', repair: 'Plugin repaired'}[status.action] || 'Plugin installed') : labels[status.phase] || 'Preparing installation…'}</strong>

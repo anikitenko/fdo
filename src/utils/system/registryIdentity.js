@@ -10,20 +10,29 @@ export function createRegistryIdentityLifecycle({
     registry = officialRegistry,
     storage = certificateStorage,
     now = () => Date.now(),
+    scope = 'registry',
+    registryId,
+    registryName,
 } = {}) {
     const pending = new Map();
     async function current(entry) {
+        const assertPresent = () => {
+            registry.assertActive?.();
+            if (!storage.list(scope).some(item => item.id === entry.id))
+                throw new Error('The selected signing certificate was removed. Refresh the certificate list.');
+        };
+        assertPresent();
         const trust = await registry.trust();
         let staged = storage
-            .list('registry')
+            .list(scope)
             .find((item) => item.kind === 'renewal-pending' && item.previousId === entry.id);
         async function finish(status) {
-            const key = storage.privateKey(staged.id, 'registry');
+            const key = storage.privateKey(staged.id, scope);
             const cert = validateRegistryIdentity(status.certificateChainPem, key, trust.anchors);
             if (keyFingerprint(cert.toString()) !== staged.publicKeyFingerprint)
                 throw new Error('Renewal returned an unexpected signing key.');
             const result = {
-                id: cert.fingerprint256,
+                id: registryId ? `${registryId}/${cert.fingerprint256}` : cert.fingerprint256,
                 label: entry.label,
                 cert: cert.toString(),
                 key,
@@ -33,11 +42,14 @@ export function createRegistryIdentityLifecycle({
                 createdAt: new Date(now()).toISOString(),
                 expiresAt: new Date(cert.validTo).toISOString(),
                 imported: true,
+                ...(registryId ? {registryId, registryName, fingerprint256: cert.fingerprint256} : {}),
+                ...(entry.localSigningAuthorized ? {localSigningAuthorized: true} : {}),
             };
-            storage.put(result, 'registry', entry.id);
-            storage.remove(staged.id, 'registry');
+            assertPresent();
+            storage.put(result, scope, entry.id);
+            storage.remove(staged.id, scope);
             const { key: ignored, ...publicResult } = result;
-            return publicResult;
+            return {...publicResult, scope, hasPrivateKey: true};
         }
         if (staged) {
             try {
@@ -51,7 +63,7 @@ export function createRegistryIdentityLifecycle({
         const status = await registry.certificateStatus(oldId);
         // A revoked/expired identity never renews by possession alone. Account recovery is explicit.
         validateAuthorityChain(entry.chainPem, trust);
-        if (!staged && Date.parse(old.validTo) - now() > 30 * 86400000) return entry;
+        if (!staged && Date.parse(old.validTo) - now() > 30 * 86400000) {assertPresent(); return entry;}
         if (!staged) {
             const algorithm = {
                 name: 'RSASSA-PKCS1-v1_5',
@@ -84,18 +96,20 @@ export function createRegistryIdentityLifecycle({
                 })
                 .export({ format: 'pem', type: 'pkcs8' });
             staged = {
-                id: new crypto.X509Certificate(cert.toString('pem')).fingerprint256,
+                id: `${registryId ? registryId + '/' : ''}${new crypto.X509Certificate(cert.toString('pem')).fingerprint256}`,
                 label: 'Pending registry renewal',
                 cert: cert.toString('pem'),
                 key,
                 kind: 'renewal-pending',
                 previousId: entry.id,
                 publicKeyFingerprint: keyFingerprint(cert.toString('pem')),
+                ...(registryId ? {registryId} : {}),
             };
             // Persist the new key with OS protection before sending a renewal that can succeed remotely.
-            storage.put(staged, 'registry');
+            assertPresent();
+            storage.put(staged, scope);
         }
-        const key = storage.privateKey(staged.id, 'registry'),
+        const key = storage.privateKey(staged.id, scope),
             publicKeyPem = crypto
                 .createPublicKey(key)
                 .export({ type: 'spki', format: 'pem' })
@@ -119,7 +133,7 @@ export function createRegistryIdentityLifecycle({
             .sign(
                 'sha256',
                 Buffer.from(stableStringify(payload)),
-                storage.privateKey(entry.id, 'registry'),
+                storage.privateKey(entry.id, scope),
             )
             .toString('base64');
         await registry.renewIdentity({ ...payload, signature });

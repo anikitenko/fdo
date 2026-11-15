@@ -8,6 +8,7 @@ beforeEach(() => {
         settings: {certificates: {
             getRoot: jest.fn().mockResolvedValue([]),
             registryStatus: jest.fn().mockResolvedValue({available: false, configured: false, developers: []}),
+            listOrganizations: jest.fn().mockResolvedValue([]),
             import: jest.fn().mockResolvedValue({success: true}),
         }},
     };

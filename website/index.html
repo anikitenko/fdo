@@ -483,7 +483,7 @@
             <a href="https://github.com/anikitenko/fdo-plugins"
               >Browse the author’s GitOps plugins ↗</a
             >
-            <a href="https://plugins.fdo.alexvwan.me/">Browse the plugin registry ↗</a>
+            <a href="#private-registries">Explore private registries ↗</a>
           </article>
           <article class="feature">
             <span class="feature-icon" aria-hidden="true">⌁</span>
@@ -511,6 +511,56 @@
             >
           </article>
         </div>
+      </section>
+      <section class="section container private-registries" id="private-registries" aria-labelledby="private-registries-heading">
+        <div class="registry-overview">
+          <div class="section-heading">
+            <p class="eyebrow">FOR TEAMS / PRIVATE REGISTRIES</p>
+            <h2 id="private-registries-heading">Your registries.<br />One signing workflow.</h2>
+            <p>
+              Connect multiple private FDO plugin registries alongside the official
+              registry. Keep each organization’s trust roots and developer
+              certificates separate, with the same signing and publishing workflow.
+            </p>
+          </div>
+          <aside class="registry-limit" aria-label="Private registry capacity">
+            <span class="eyebrow">UP TO</span>
+            <strong>20</strong>
+            <p>private registries per profile</p>
+            <span>The official registry stays available too.</span>
+          </aside>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">01</span>
+            <h3>Connect your organization</h3>
+            <p>In Settings → Certificates, choose Connect private registry.
+              Enter its HTTPS address and the trusted root fingerprint supplied
+              by your administrator, then import your developer certificate and key.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">02</span>
+            <h3>Choose a signer. Export as usual.</h3>
+            <p>The signing dialog identifies each private registry. Select the
+              intended certificate, export a normal FDO plugin ZIP and publish
+              through that registry’s portal. Private keys stay protected by
+              your OS credential store.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-icon" aria-hidden="true">03</span>
+            <h3>Keep trust independent</h3>
+            <p>Each registry checks its own certificates, renewal and revocation.
+              Disconnecting one leaves the others connected. Signed releases
+              still require capability review before activation; status checks
+              require access to the registry.</p>
+          </article>
+        </div>
+        <div class="registry-links">
+          <a class="text-link" href="https://github.com/anikitenko/fdo/blob/main/docs/PRIVATE_REGISTRIES.md">Host a private registry: AWS, Azure, GCP &amp; Vault ↗</a>
+          <a class="text-link" href="cli.html#private-registries">Connect from the CLI ↗</a>
+          <a class="text-link" href="https://plugins.fdo.alexvwan.me/">Browse the official registry ↗</a>
+        </div>
+        <p class="registry-availability">Organization registry support is included in current source builds. Check your packaged release for availability.</p>
       </section>
       <section
         class="container source-story"
@@ -786,6 +836,14 @@ fdo dev ./my-tool</code></pre>
           <p>Clear runtime requirements, from the desktop to a container.</p>
         </div>
         <div class="faq-grid">
+          <details open>
+            <summary>Can I connect more than one private registry?</summary>
+            <p>Yes. Connect up to 20 private FDO plugin registries per profile
+              alongside the official registry. Each connection has its own
+              trust roots, developer certificates and status checks. Manage
+              connections in Settings → Certificates.
+              <a href="#private-registries">Explore private registries ↗</a></p>
+          </details>
           <details open>
             <summary>Do I need to install an SSH client?</summary>
             <p>

@@ -1,6 +1,59 @@
 const {test, expect, _electron: electron} = require('@playwright/test');
 const {launchElectronApp, closeElectronApp, dismissBlueprintOverlays} = require('./helpers/electronApp');
 
+test('organization onboarding reuses the certificate panel without overflowing settings', async () => {
+    const app = await launchElectronApp(electron, {isolatedUserDataDir: true});
+    try {
+        await app.evaluate(({ipcMain}) => {
+            const connection = {id: 'org-' + 'a'.repeat(24), name: 'Acme Engineering', url: 'https://plugins.acme.example.com', rootFingerprint256: 'b'.repeat(64)};
+            let connected = false;
+            const handlers = {
+                'organization-list': () => connected ? [connection] : [],
+                'organization-add': (_, input) => {
+                    if (input.rootFingerprint256 !== connection.rootFingerprint256) return {success: false, error: 'Registry root fingerprint does not match the independently trusted fingerprint.'};
+                    connected = true; return {success: true, connection};
+                },
+                'organization-status': () => ({available: true,
+                    anchor: {id: connection.id + '/AA:'.repeat(32), fingerprint256: 'AA:'.repeat(31) + 'AA', label: connection.name, expiresAt: new Date(Date.now() + 365 * 86400000).toISOString()},
+                    developers: [{id: connection.id + '/BB:'.repeat(32), label: 'CN=Alice Example\nO=Acme Engineering\nOU=Platform', scope: 'org', kind: 'developer', registryName: connection.name,
+                        expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(), lifecycleStatus: 'unavailable', lifecycleError: 'The registry could not be reached. Connect to the VPN and retry.'}],
+                }),
+                'registry-status': () => ({available: false, configured: false, developers: []}),
+            };
+            for (const [name, handler] of Object.entries(handlers)) {
+                const channel = 'settings:certificates:' + name;
+                ipcMain.removeHandler(channel); ipcMain.handle(channel, handler);
+            }
+        });
+        const page = await app.firstWindow();
+        await dismissBlueprintOverlays(page);
+        await page.getByTestId('header-command-search').click();
+        await page.locator('.bp6-omnibar input').fill('Settings');
+        await page.getByRole('menuitem', {name: /Settings/}).click();
+        await page.getByRole('tab', {name: 'Certificates', exact: true}).click();
+        const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+        await settings.getByRole('button', {name: 'Connect private registry', exact: true}).click();
+        const form = page.getByRole('dialog', {name: 'Connect private registry', exact: true});
+        await form.getByLabel('Organization name').fill('Acme Engineering');
+        await form.getByLabel('Registry HTTPS address').fill('https://plugins.acme.example.com');
+        await form.getByLabel('Root certificate SHA-256 fingerprint').fill('c'.repeat(64));
+        await form.getByRole('button', {name: 'Verify and connect'}).click();
+        await expect(form.getByRole('alert')).toContainText('fingerprint does not match');
+        await form.getByLabel('Root certificate SHA-256 fingerprint').fill('b'.repeat(64));
+        await form.screenshot({path: test.info().outputPath('organization-onboarding.png'), animations: 'disabled'});
+        await form.getByRole('button', {name: 'Verify and connect'}).click();
+        await expect(form).not.toBeVisible();
+        const organization = settings.getByRole('region', {name: 'Acme Engineering signing certificates'});
+        await expect(organization.getByText('Alice Example', {exact: true})).toBeVisible();
+        await expect(organization.getByText('Status unavailable — signing blocked')).toBeVisible();
+        await expect(organization.getByRole('button', {name: 'Import developer certificate'})).toBeVisible();
+        for (const locator of [organization, organization.locator('.bp6-card').last(), organization.getByRole('button', {name: 'Import developer certificate'})]) {
+            expect(await locator.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+        }
+        await organization.screenshot({path: test.info().outputPath('organization-certificates.png'), animations: 'disabled'});
+    } finally {await closeElectronApp(app);}
+});
+
 test('certificate settings fit explicit import actions and readable developer details', async () => {
     const app = await launchElectronApp(electron, {isolatedUserDataDir: true});
     try {

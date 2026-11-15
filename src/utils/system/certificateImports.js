@@ -5,13 +5,16 @@ import {officialRegistry} from './officialRegistry';
 import {keyFingerprint} from './registryTrust';
 import {certificateStorage} from '../persistence/certificateStorage';
 import {certificatePems, validateRegistryIdentity} from './registrySigning';
+import {validateAuthorityChain} from './registryTrust';
+import {organizationRegistries} from './organizationRegistries';
 
 async function readCertificatePem(file) {
     if ((await fs.stat(file)).size > 128 * 1024) throw new Error('Certificate file is too large.');
     return fs.readFile(file, 'utf8');
 }
 
-export async function importDeveloperCertificateFiles(files) {
+export async function importDeveloperCertificateFiles(files, registryId) {
+    const {registry, scope, connection} = registryId ? organizationRegistries.get(registryId) : {registry: officialRegistry, scope: 'registry'};
     if (!Array.isArray(files) || !files.length) throw new Error('Select the certificate chain and matching private key.');
     if (files.length > 8) throw new Error('Select the certificate chain and one private key (up to 8 files).');
     const contents = await Promise.all(files.map(readCertificatePem));
@@ -33,15 +36,18 @@ export async function importDeveloperCertificateFiles(files) {
     }
     const chainPem = ordered.map(entry => entry.pem).join('\n');
     const key = keys[0];
-    const anchor = await officialRegistry.ensureAnchor();
-    const trust = await officialRegistry.trust();
+    const anchor = await registry.ensureAnchor();
+    const trust = await registry.trust();
     const cert = validateRegistryIdentity(chainPem, key, trust.anchors);
-    await officialRegistry.certificateStatus(keyFingerprint(cert.toString()));
+    if (trust.payload) validateAuthorityChain(chainPem, trust);
+    await registry.certificateStatus(keyFingerprint(cert.toString()));
+    registry.assertActive?.();
     certificateStorage.put({
-        id: cert.fingerprint256, label: cert.subject, cert: cert.toString(), key, kind: 'developer',
+        id: connection ? `${connection.id}/${cert.fingerprint256}` : cert.fingerprint256, label: cert.subject, cert: cert.toString(), key, kind: 'developer',
         chainPem: certificatePems(chainPem).join('\n'), anchorId: anchor?.id, createdAt: new Date().toISOString(),
         expiresAt: new Date(cert.validTo).toISOString(), imported: true,
-    }, 'registry');
+        ...(connection ? {registryId: connection.id, registryName: connection.name, fingerprint256: cert.fingerprint256} : {}),
+    }, scope);
     return {success: true};
 }
 

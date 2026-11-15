@@ -211,6 +211,12 @@ contextBridge.exposeInMainWorld('electron', {
             },
         },
         certificates: {
+            listOrganizations: () => ipcRenderer.invoke(SettingsChannels.certificates.ORGANIZATION_LIST),
+            organizationStatus: id => ipcRenderer.invoke(SettingsChannels.certificates.ORGANIZATION_STATUS, id),
+            addOrganization: input => ipcRenderer.invoke(SettingsChannels.certificates.ORGANIZATION_ADD, input),
+            removeOrganization: id => ipcRenderer.invoke(SettingsChannels.certificates.ORGANIZATION_REMOVE, id),
+            importOrganization: id => ipcRenderer.invoke(SettingsChannels.certificates.ORGANIZATION_IMPORT, id),
+            removeOrganizationCertificate: (registryId, id) => ipcRenderer.invoke(SettingsChannels.certificates.ORGANIZATION_REMOVE_CERTIFICATE, registryId, id),
             registryStatus: () => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_STATUS),
             listRegistry: () => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_LIST),
             importRegistry: options => ipcRenderer.invoke(SettingsChannels.certificates.REGISTRY_IMPORT, options),

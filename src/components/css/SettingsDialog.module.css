@@ -306,6 +306,13 @@
 .registryCertificateRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px; }
 .registryCertificateIssue { margin-top: 14px; width: 100%; overflow-wrap: anywhere; }
 .registryCertificateIssue p { margin-top: 0; }
+.registryCertificateActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.organizationRegistryCard { margin-top: 12px; min-width: 0; }
+.organizationRegistryCard .certificateHeader { margin-top: 0; }
+.organizationRegistryAddress { overflow-wrap: anywhere; }
+.organizationRegistryFooter { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 16px; }
+.organizationRegistryDialog { width: 560px; max-width: calc(100vw - 32px); }
+.organizationRegistryDialog :global(.bp6-dialog-body) { max-height: 65vh; overflow-y: auto; }
 @media (max-width: 480px) {
     .registryCertificateRow { grid-template-columns: minmax(0, 1fr); gap: 10px; }
     .registryCertificateRow > button { justify-self: start; }
