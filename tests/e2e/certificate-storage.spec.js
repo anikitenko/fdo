@@ -70,10 +70,14 @@ test('migrates signing keys to OS-encrypted SQLite, exposes public records only,
     } finally {await closeElectronApp(app); fs.rmSync(profile, {recursive: true, force: true});}
 });
 
-test('official registry certificate is automatic and unavailable until release configuration is provisioned', async () => {
+test('official registry certificate is automatic and shows unavailable when configuration is not provisioned', async () => {
     let app;
     try {
         app=await launchElectronApp(electron,{isolatedUserDataDir:true});
+        await app.evaluate(({ipcMain}) => {
+            ipcMain.removeHandler('settings:certificates:registry-status');
+            ipcMain.handle('settings:certificates:registry-status', () => ({available: false, configured: false, developers: []}));
+        });
         const page=await app.firstWindow();
         expect(await page.evaluate(()=>window.electron.settings.certificates.registryStatus())).toMatchObject({available:false,configured:false,developers:[]});
         expect(await page.evaluate(()=>window.electron.settings.certificates.importRegistry({kind:'anchor',fingerprint:'00'.repeat(32)}))).toMatchObject({success:false,error:expect.stringContaining('automatically')});
@@ -83,10 +87,11 @@ test('official registry certificate is automatic and unavailable until release c
         await page.getByRole('tab',{name:'Certificates',exact:true}).click();
         const section=page.getByRole('region',{name:'Registry signing certificates'});
         await expect(section.getByText('Registry unavailable',{exact:true})).toBeVisible();
-        await expect(section.locator('.bp6-non-ideal-state')).toBeVisible();
+        const unavailable = section.locator('.bp6-non-ideal-state').filter({hasText: 'Registry unavailable'});
+        await expect(unavailable).toBeVisible();
         await section.scrollIntoViewIfNeeded();
-        expect((await section.locator('.bp6-non-ideal-state').boundingBox()).height).toBeLessThan(110);
-        expect((await section.locator('.bp6-non-ideal-state-visual svg').boundingBox()).width).toBeLessThanOrEqual(24);
+        expect((await unavailable.boundingBox()).height).toBeLessThan(110);
+        expect((await unavailable.locator('.bp6-non-ideal-state-visual svg').boundingBox()).width).toBeLessThanOrEqual(24);
         await expect(section.getByRole('textbox')).toHaveCount(0);
         await expect(section.getByRole('combobox')).toHaveCount(0);
         await page.getByRole('dialog',{name:'Settings',exact:true}).screenshot({path:test.info().outputPath('official-registry-certificates.png'),animations:'disabled'});

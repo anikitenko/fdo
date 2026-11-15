@@ -1,4 +1,5 @@
 import {operationError, publishNotification, failureNotification} from '../../utils/desktop/notificationContent';
+import {signingCertificateValue} from '../../utils/system/certificateDisplay';
 import {workspaceNotificationName} from './utils/workspaceNotificationName';
 import {Alert, Button, ButtonGroup, Dialog, Divider, HTMLSelect, Switch, ProgressBar} from "@blueprintjs/core";
 import React, {useEffect, useRef, useState} from "react";
@@ -109,7 +110,7 @@ const CodeDeployActions = ({
             return null
         }
 
-        const remembered = rootCerts.some(cert => (cert.scope === 'registry' ? `registry:${cert.id}` : cert.label) === rememberedRootCertificate)
+        const remembered = rootCerts.some(cert => signingCertificateValue(cert) === rememberedRootCertificate)
             ? rememberedRootCertificate : null;
         const selectedLabel = await selectRootCert(setShowRootCertificateDialog, remembered, rememberChoiceRef, setRememberedRootCertificate, setOnRootCertificateSelected);
 

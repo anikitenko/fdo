@@ -40,6 +40,7 @@
       <nav class="guide-toc" aria-label="On this page">
         <a href="#setup">Setup</a><a href="#first-plugin">First plugin</a
         ><a href="#deployment">Deployment</a
+        ><a href="#private-registries">Private registries</a
         ><a href="#profiles">Profiles & JSON</a
         ><a href="#reference">Commands</a>
       </nav>
@@ -129,6 +130,31 @@ fdo plugins logs my-tool --follow</code></pre>
           identities with <code>fdo sign list</code>.
         </p>
       </section>
+      <section id="private-registries">
+        <h2>Connect multiple private registries</h2>
+        <p>Each FDO profile supports up to 20 private plugin registries alongside
+          the official registry. Each connection keeps its own trusted root and
+          developer certificates. You can also manage them in
+          <strong>Settings → Certificates</strong>.</p>
+        <pre><code>fdo sign registry add --name 'Acme Engineering' --url https://plugins.example.com --root-fingerprint 'ROOT_SHA256_FROM_YOUR_ADMIN'
+fdo sign registry list --json
+fdo sign import-developer ./developer-chain.pem ./developer.key --registry 'CONNECTION_ID_FROM_LIST'
+fdo sign list --json
+fdo validate ./my-tool --publishing
+fdo sign archive ./my-tool --certificate 'organization:CERTIFICATE_ID_FROM_LIST' --output ./release.zip</code></pre>
+        <p>Replace the example values with your administrator’s HTTPS origin and
+          independently supplied root fingerprint, then use the connection ID and
+          signing selector returned by the list commands. Upload the signed ZIP
+          through the selected registry’s portal. These commands do not publish it.</p>
+        <p>Place <code>--profile &lt;name&gt;</code> before <code>sign</code> to use a
+          named profile. Disconnect with <code>fdo sign registry remove &lt;id&gt;</code>;
+          this removes that registry’s local trust and signing keys, so its installed
+          plugins fail verification. Other registries stay connected.</p>
+        <p>Organization registry commands are included in current source builds;
+          check your packaged release for availability. See the
+          <a href="https://github.com/anikitenko/fdo/blob/main/docs/PRIVATE_REGISTRIES.md">private registry hosting guide</a>
+          for the server protocol, cloud examples and network requirements.</p>
+      </section>
       <section id="profiles">
         <h2>Profiles and structured output</h2>
         <pre><code>fdo profiles list --json
@@ -189,6 +215,18 @@ fdo --profile development open</code></pre>
               <tr>
                 <td><code>sign list</code></td>
                 <td>List signing identities.</td>
+              </tr>
+              <tr>
+                <td><code>sign registry add / list / remove</code></td>
+                <td>Manage private registry connections in the current profile.</td>
+              </tr>
+              <tr>
+                <td><code>sign import-developer &lt;files...&gt; --registry &lt;id&gt;</code></td>
+                <td>Import a private registry’s developer chain and matching key.</td>
+              </tr>
+              <tr>
+                <td><code>sign archive &lt;path&gt; --certificate &lt;selector&gt; --output &lt;file&gt;</code></td>
+                <td>Validate and sign a source ZIP for registry publication.</td>
               </tr>
               <tr>
                 <td><code>sign plugin &lt;path&gt;</code></td>

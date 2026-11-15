@@ -5,6 +5,19 @@ test('accepts only a registry identity and exact semver', () => {
     expect(parseDeepLink(link)).toEqual({id:'example',version:'1.2.3'});
     expect(parseDeepLink(link.replace('1.2.3','1.2.3-beta.1%2Bbuild.2')).version).toBe('1.2.3-beta.1+build.2');
 });
+test('private links reference only a previously connected registry ID without introducing an endpoint or pin', () => {
+    const registryId = 'org-' + 'a'.repeat(24);
+    expect(parseDeepLink(link.replace('registry/plugins/', `registry/${registryId}/plugins/`))).toEqual({id: 'example', version: '1.2.3', registryId});
+    expect(() => parseDeepLink(link.replace('registry/plugins/', 'registry/https%3A%2F%2Fevil.test/plugins/'))).toThrow();
+});
+test('identical releases from different private registries are not coalesced', async () => {
+    const handle = jest.fn().mockResolvedValue({});
+    const queue = createDeepLinkQueue({handle, report: jest.fn()});
+    queue.enqueue(link.replace('registry/plugins/', `registry/org-${'a'.repeat(24)}/plugins/`));
+    queue.enqueue(link.replace('registry/plugins/', `registry/org-${'b'.repeat(24)}/plugins/`));
+    queue.start(); await new Promise(setImmediate);
+    expect(handle).toHaveBeenCalledTimes(2);
+});
 test.each([
     'https://registry/plugins/example/1.2.3', link+'?url=https://evil.test',link+'#x',
     link.replace('registry/','registry.evil/'),link.replace('example','%2e%2e'),

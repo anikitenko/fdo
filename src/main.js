@@ -4,6 +4,7 @@ import {installRegistryRelease} from './utils/plugins/importing/registryInstall'
 import {importRootCertificate, importDeveloperCertificateFiles} from './utils/system/certificateImports';
 import {checkPublishingDirectory, writeRegistryArchive} from './utils/plugins/publishing/registryArchive';
 import {startRegistryLifecycleMonitor} from './utils/system/registryLifecycleMonitor';
+import {organizationRegistries} from './utils/system/organizationRegistries';
 import {cliProfile} from './utils/system/cliProfile';
 import {checkForFdoUpdate} from './utils/system/updateChecker';
 import {applyLocalMacSignature, assessCurrentMacApp, installMacAutoUpdate} from './utils/system/macAutoUpdate';
@@ -291,12 +292,15 @@ if (hasCliCommand(cliArgs) || process.argv.includes('--cli')) {
             },
             planDeployment: (directory, label) => planCliDeployment(directory, label, {registryFile: PLUGINS_REGISTRY_FILE, profile: getUserDataRoot(), validate,
                 listCertificates: () => previewSigningCertificates({includeRegistry: true})}),
-            listCertificates: () => certificateStorage.list().filter(entry => entry.scope === 'root' || entry.scope === 'registry' && entry.kind === 'developer'),
+            listCertificates: () => certificateStorage.list().filter(entry => entry.scope === 'root' || ['registry', 'org'].includes(entry.scope) && entry.kind === 'developer' && (entry.scope !== 'org' || entry.registryId)),
             importRootCertificate: file => withCertificateLock(() => importRootCertificate(file)),
-            importDeveloperCertificate: files => withCertificateLock(() => importDeveloperCertificateFiles(files)),
+            importDeveloperCertificate: (files, registryId) => withCertificateLock(() => importDeveloperCertificateFiles(files, registryId)),
+            listOrganizationRegistries: () => organizationRegistries.list(),
+            addOrganizationRegistry: input => withCertificateLock(() => organizationRegistries.add(input)),
+            removeOrganizationRegistry: id => withCertificateLock(() => organizationRegistries.remove(id)),
             checkPublishing: checkPublishingDirectory,
             signArchive: (directory, signerId, output) => withCliLock(directory, () => withCertificateLock(() => writeRegistryArchive(directory, signerId, output))),
-            inspectPlugins: id => inspectCliPlugins({registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE, verifyPlugin: directory => Certs.verifyPlugin(directory)}, id),
+            inspectPlugins: id => inspectCliPlugins({registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE, verifyPlugin: (directory, options) => Certs.verifyPlugin(directory, options)}, id),
             doctor: () => diagnoseCli({version: app.getVersion(), profile: getUserDataRoot(), registryFile: PLUGINS_REGISTRY_FILE, configFile: USER_CONFIG_FILE,
                 installation: inspectCliInstallation, listCertificates: () => certificateStorage.list('root'),
                 credentialStoreAvailable}),
@@ -378,11 +382,11 @@ const deepLinks = createDeepLinkQueue({
                 },
                 normalizeMetadata: normalizeAndValidatePluginMetadata, build: buildUsingEsbuild,
                 onProgress: publishRegistryInstall,
-                confirm: async ({id, version, metadata, capabilities, action, installedVersion, needsCapabilityReview}) => {
+                confirm: async ({id, version, origin, metadata, capabilities, action, installedVersion, needsCapabilityReview}) => {
                     const verb = {install: 'Install', update: 'Update', downgrade: 'Downgrade', repair: 'Repair'}[action] || 'Install';
                     const answer = await dialog.showMessageBox(window, {type: 'question',
                         title: 'Install registry plugin', message: `${verb} ${metadata.name}${installedVersion ? ` from v${installedVersion} to` : ''} v${version}?`,
-                        detail: `Registry ID: ${id}\nPublisher: ${metadata.author}\n\n${metadata.description}\n\nDeclared capabilities: ${capabilities.join(', ') || 'None'}\n\n${installedVersion ? 'Plugin data is preserved. Only previously granted capabilities can be retained.' : 'The plugin will be installed inactive with no capabilities granted.'}${needsCapabilityReview ? '\nNew capabilities require review. The plugin will stay inactive until you approve them in Manage Plugins.' : installedVersion ? '\nIts current activation state will be preserved.' : ' Review and activate it in Manage Plugins.'}`,
+                        detail: `Registry: ${origin}\nPlugin ID: ${id}\nPublisher: ${metadata.author}\n\n${metadata.description}\n\nDeclared capabilities: ${capabilities.join(', ') || 'None'}\n\n${installedVersion ? 'Plugin data is preserved. Only previously granted capabilities can be retained.' : 'The plugin will be installed inactive with no capabilities granted.'}${needsCapabilityReview ? '\nNew capabilities require review. The plugin will stay inactive until you approve them in Manage Plugins.' : installedVersion ? '\nIts current activation state will be preserved.' : ' Review and activate it in Manage Plugins.'}`,
                         buttons: ['Cancel', verb], defaultId: 0, cancelId: 0, noLink: true});
                     return answer.response === 1;
                 },

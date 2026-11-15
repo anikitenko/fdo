@@ -21,13 +21,13 @@ _fdo() {
         elif [[ -z "$action" && "$word" != -* ]]; then action="$word"; fi
     done
     if [[ "$prev" == --template ]]; then COMPREPLY=( $(compgen -W '${templates}' -- "$cur") ); return; fi
-    [[ "$prev" == --profile || "$prev" == --label || "$prev" == -l || "$prev" == --name || "$prev" == --display-name || "$prev" == --timeout || "$prev" == --lines || "$prev" == -n ]] && return
+    [[ "$prev" == --registry || "$prev" == --url || "$prev" == --root-fingerprint || "$prev" == --profile || "$prev" == --label || "$prev" == -l || "$prev" == --name || "$prev" == --display-name || "$prev" == --timeout || "$prev" == --lines || "$prev" == -n ]] && return
     if [[ -z "$command" ]]; then
         COMPREPLY=( $(compgen -W '${commands} --help --version --json --profile' -- "$cur") ); return
     fi
     local choices=''
     case "$command" in
-        sign) [[ -z "$action" ]] && choices='list plugin import-root import-developer archive' ;;
+        sign) [[ -z "$action" ]] && choices='list plugin import-root import-developer archive registry'; [[ "$action" == registry ]] && choices='list add remove' ;;
         plugins) [[ -z "$action" ]] && choices='list info verify logs' ;;
         profiles) [[ -z "$action" ]] && choices='list' ;;
         sdk) [[ -z "$action" ]] && choices='migrate' ;;
@@ -35,7 +35,7 @@ _fdo() {
     esac
     if [[ "$cur" == -* ]]; then
         choices='--help --json'
-        case "$command" in validate) choices+=' --publishing' ;; test) choices+=' --timeout' ;; plugins) [[ "$action" == logs ]] && choices+=' --lines --follow' ;; init) choices+=' --name --display-name --template' ;; deploy) choices+=' --label --dry-run' ;; dev) choices='--help --label' ;; sign) [[ "$action" == plugin ]] && choices+=' --label'; [[ "$action" == archive ]] && choices+=' --certificate --output' ;; sdk) choices+=' --target --write' ;; open) choices='--help' ;; esac
+        case "$command" in validate) choices+=' --publishing' ;; test) choices+=' --timeout' ;; plugins) [[ "$action" == logs ]] && choices+=' --lines --follow' ;; init) choices+=' --name --display-name --template' ;; deploy) choices+=' --label --dry-run' ;; dev) choices='--help --label' ;; sign) [[ "$action" == plugin ]] && choices+=' --label'; [[ "$action" == archive ]] && choices+=' --certificate --output'; [[ "$action" == import-developer ]] && choices+=' --registry'; [[ "$action" == registry ]] && choices+=' --name --url --root-fingerprint' ;; sdk) choices+=' --target --write' ;; open) choices='--help' ;; esac
     fi
     if [[ -n "$choices" ]]; then COMPREPLY=( $(compgen -W "$choices" -- "$cur") ); return; fi
     case "$command:$action" in
@@ -58,7 +58,7 @@ _fdo() {
     case "$state" in
         args)
             case "$line[1]" in
-                sign) _arguments '1:action:(list plugin import-root import-developer archive)' '--label[Signing identity]:label:' '--certificate[Developer selector]:selector:' '--output[New ZIP]:file:_files' '--json[Output JSON]' '--help[Show help]' '*:workspace:_files -/' ;;
+                sign) _arguments '1:action:(list plugin import-root import-developer archive registry)' '--registry[Private registry ID]:id:' '--name[Organization name]:name:' '--url[Registry HTTPS origin]:origin:' '--root-fingerprint[Root SHA-256]:fingerprint:' '--label[Signing identity]:label:' '--certificate[Developer selector]:selector:' '--output[New ZIP]:file:_files' '--json[Output JSON]' '--help[Show help]' '*:workspace:_files -/' ;;
                 plugins) _arguments '1:action:(list info verify logs)' '--json[Output JSON]' '--help[Show help]' '2:plugin ID:' '--lines[Initial log lines]:count:' '--follow[Follow log appends]' ;;
                 sdk) _arguments '1:action:(migrate)' '--target[Migration target]:target:_files' '--write[Apply migration]' '--json[Output JSON]' '--help[Show help]' ;;
                 completion) _arguments '1:shell:(bash zsh fish powershell)' '--help[Show help]' ;;
@@ -142,7 +142,12 @@ complete -c fdo -n 'contains -- validate (__fdo_command)' -l publishing -d 'Chec
 complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- archive (__fdo_action)' -l certificate -r -d 'Developer selector'
 complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- archive (__fdo_action)' -l output -s o -r -d 'New ZIP archive'
 complete -c fdo -n 'contains -- deploy (__fdo_command)' -l dry-run -d 'Preview deployment'
-complete -c fdo -n 'contains -- sign (__fdo_command); and test -z (__fdo_action)' -f -a 'list plugin import-root import-developer archive'
+complete -c fdo -n 'contains -- sign (__fdo_command); and test -z (__fdo_action)' -f -a 'list plugin import-root import-developer archive registry'
+complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- import-developer (__fdo_action)' -l registry -r -d 'Private registry ID'
+complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- registry (__fdo_action)' -f -a 'list add remove'
+complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- registry (__fdo_action)' -l name -r -d 'Organization name'
+complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- registry (__fdo_action)' -l url -r -d 'Registry HTTPS origin'
+complete -c fdo -n 'contains -- sign (__fdo_command); and contains -- registry (__fdo_action)' -l root-fingerprint -r -d 'Root SHA-256'
 complete -c fdo -n 'contains -- plugins (__fdo_command); and test -z (__fdo_action)' -f -a 'list info verify logs'
 complete -c fdo -n 'contains -- sdk (__fdo_command); and test -z (__fdo_action)' -f -a migrate
 complete -c fdo -n 'contains -- sdk (__fdo_command)' -l target -r -d 'Migration target'
@@ -164,7 +169,7 @@ Register-ArgumentCompleter -Native -CommandName fdo -ScriptBlock {
             $command = $token
         } elseif (-not $action -and $token -notlike '-*') { $action = $token }
     }
-    if ($tokens.Count -and $tokens[-1] -in @('--profile','--label','-l','--name','--display-name','--timeout','--lines','-n')) { return }
+    if ($tokens.Count -and $tokens[-1] -in @('--registry','--url','--root-fingerprint','--profile','--label','-l','--name','--display-name','--timeout','--lines','-n')) { return }
     $choices = @()
     if ($tokens.Count -and $tokens[-1] -eq '--template') { $choices = '${templates}' -split ' ' }
     elseif (-not $command) { $choices = '${commands} --help --version --json --profile' -split ' ' }
@@ -176,7 +181,7 @@ Register-ArgumentCompleter -Native -CommandName fdo -ScriptBlock {
             init { $choices += @('--name','--display-name','--template') }
             deploy { $choices += @('--label','--dry-run') }
             dev { $choices = @('--help','--label') }
-            sign { if ($action -eq 'plugin') { $choices += '--label' }; if ($action -eq 'archive') { $choices += @('--certificate','--output') } }
+            sign { if ($action -eq 'plugin') { $choices += '--label' }; if ($action -eq 'archive') { $choices += @('--certificate','--output') }; if ($action -eq 'import-developer') { $choices += '--registry' }; if ($action -eq 'registry') { $choices += @('--name','--url','--root-fingerprint') } }
             validate { $choices += '--publishing' }
             sdk { $choices += @('--target','--write') }
             open { $choices = @('--help') }
@@ -184,7 +189,7 @@ Register-ArgumentCompleter -Native -CommandName fdo -ScriptBlock {
     } else {
         switch ($command) {
             profiles { if (-not $action) { $choices = @('list') } }
-            sign { if (-not $action) { $choices = @('list','plugin','import-root','import-developer','archive') } }
+            sign { if (-not $action) { $choices = @('list','plugin','import-root','import-developer','archive','registry') }; if ($action -eq 'registry') { $choices = @('list','add','remove') } }
             plugins { if (-not $action) { $choices = @('list','info','verify','logs') } }
             sdk { if (-not $action) { $choices = @('migrate') } }
             completion { $choices = @('bash','zsh','fish','powershell') }

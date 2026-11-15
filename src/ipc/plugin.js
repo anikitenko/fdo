@@ -2446,7 +2446,7 @@ export function registerPluginHandlers() {
     ipcMain.handle(PluginChannels.VERIFY_SIGNATURE, async (event, id) => {
         const pluginORM = new PluginORM(PLUGINS_REGISTRY_FILE);
         const plugin = pluginORM.getPlugin(id)
-        return Certs.verifyPlugin(plugin.home)
+        return Certs.verifyPlugin(plugin.home, {registryOrigin: plugin.registry?.origin})
     })
 
     ipcMain.handle(PluginChannels.SIGN, async (event, id, signerLabel) => {

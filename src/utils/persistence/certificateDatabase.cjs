@@ -82,7 +82,7 @@ function openCertificateDatabase(filename, protection) {
                 assertScope(scope);
                 // Metadata changes must never decrypt or replace private keys.
                 if (Object.keys(patch).some(key => !['label', 'lastUsedAt', 'localSigningAuthorized'].includes(key))) throw new Error('Invalid certificate metadata update');
-                if ('localSigningAuthorized' in patch && (scope !== 'registry' || typeof patch.localSigningAuthorized !== 'boolean')) throw new Error('Invalid local signing authorization');
+                if ('localSigningAuthorized' in patch && (!['registry', 'org'].includes(scope) || typeof patch.localSigningAuthorized !== 'boolean')) throw new Error('Invalid local signing authorization');
                 const row = db.prepare(/* language=SQLite */ 'SELECT metadata FROM certificates WHERE scope = ? AND id = ?').get(scope, id);
                 if (row) db.prepare(/* language=SQLite */ 'UPDATE certificates SET metadata = ? WHERE scope = ? AND id = ?').run(JSON.stringify({...JSON.parse(row.metadata), ...patch}), scope, id);
             },

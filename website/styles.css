@@ -8,6 +8,38 @@
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --sans: Inter, "Helvetica Neue", Arial, sans-serif;
 }
+.registry-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 64px;
+}
+.registry-overview .section-heading { display: block; }
+.registry-overview h2 { margin-bottom: 24px; }
+.registry-overview .section-heading > p:last-child { max-width: 600px; }
+.registry-limit {
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  padding: 28px 32px;
+}
+.registry-limit .eyebrow { margin-bottom: 4px; }
+.registry-limit strong {
+  display: block;
+  color: var(--accent);
+  font-size: clamp(64px, 7vw, 96px);
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -4px;
+}
+.registry-limit p { font-size: 20px; margin: 8px 0; }
+.registry-limit > span:last-child,
+.registry-availability { color: var(--muted); font-size: 14px; }
+.registry-links { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 28px; }
+.registry-availability { margin-top: 20px; }
+@media (max-width: 800px) {
+  .registry-overview { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .registry-limit { margin-bottom: 24px; }
+}
 * {
   box-sizing: border-box;
 }

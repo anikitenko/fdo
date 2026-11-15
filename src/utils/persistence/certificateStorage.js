@@ -77,6 +77,10 @@ export function previewSigningCertificates({includeRegistry = false} = {}) {
     if (!includeRegistry) return roots;
     const registry = readCertificateMetadata(path.join(path.dirname(settings.path), 'certificates.sqlite'), 'registry');
     const known = new Set(registry.map(entry => entry.id));
+    const organizations = readCertificateMetadata(path.join(path.dirname(settings.path), 'certificates.sqlite'), 'org');
+    const knownOrganizations = new Set(organizations.map(entry => entry.id));
     return [...roots, ...registry.filter(entry => entry.kind === 'developer'),
-        ...legacyCertificates('registry').filter(entry => entry.kind === 'developer' && !known.has(entry.id))];
+        ...legacyCertificates('registry').filter(entry => entry.kind === 'developer' && !known.has(entry.id)),
+        ...organizations.filter(entry => entry.kind === 'developer' && entry.registryId),
+        ...legacyCertificates('org').filter(entry => entry.kind === 'developer' && entry.registryId && !knownOrganizations.has(entry.id))];
 }

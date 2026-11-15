@@ -120,3 +120,17 @@ test('read-only preview returns public certificate metadata without decrypting k
     expect(readCertificateMetadata(filename)).toEqual([{...root, key: undefined, scope: 'root', hasPrivateKey: true}]);
     expect(protection.decrypt).not.toHaveBeenCalled();
 });
+test('organization signing authorization preserves encrypted keys and remains isolated from local roots', () => {
+    database.put(root, 'root');
+    database.put({...root, id: 'organization/developer', kind: 'developer', registryId: 'organization'}, 'org');
+    const inspection = new DatabaseSync(filename);
+    const ciphertext = () => Buffer.from(inspection.prepare(/* language=SQLite */ 'SELECT privateKey FROM certificates WHERE scope = ?').get('org').privateKey);
+    const before = ciphertext();
+    database.update('organization/developer', {localSigningAuthorized: true}, 'org');
+    expect(ciphertext()).toEqual(before);
+    expect(database.list('org')[0]).toMatchObject({hasPrivateKey: true, localSigningAuthorized: true});
+    expect(database.list('org')[0]).not.toHaveProperty('key');
+    expect(database.list('root')[0]).not.toHaveProperty('localSigningAuthorized');
+    expect(() => database.update(root.id, {localSigningAuthorized: true}, 'root')).toThrow();
+    inspection.close();
+});

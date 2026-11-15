@@ -1,5 +1,6 @@
 import {Certs} from '../utils/system/certs';
 import {certificateStorage} from '../utils/persistence/certificateStorage';
+import {registryCertificateSelection} from '../utils/system/certificateDisplay';
 import {createRegistryArchive} from '../utils/plugins/publishing/registryArchive';
 import {app,BrowserWindow,dialog,ipcMain} from 'electron';
 import fs from 'node:fs/promises';
@@ -59,10 +60,11 @@ export function registerPluginExportHandlers({getPlugin}) {
             const plugin=readPlugin(id);
             let filename,files,report,signingIdentity,localSigner,archiveBuffer;
             if(options.format==='archive') {
-                const identities = certificateStorage.list('registry').filter(entry => entry.kind === 'developer' && entry.hasPrivateKey);
+                const identities = [...certificateStorage.list('registry'), ...certificateStorage.list('org').filter(entry => entry.registryId)].filter(entry => entry.kind === 'developer' && entry.hasPrivateKey);
                 const roots = certificateStorage.list('root').filter(entry => entry.hasPrivateKey);
-                if (options.signerId?.startsWith('registry:')) {
-                    signingIdentity = identities.find(entry => entry.id === options.signerId.slice('registry:'.length));
+                const selected = registryCertificateSelection(options.signerId);
+                if (selected) {
+                    signingIdentity = identities.find(entry => entry.id === selected.id && (entry.scope || 'registry') === selected.scope);
                 } else if (options.signerId) {
                     localSigner = roots.find(entry => entry.label === options.signerId);
                 }
@@ -72,7 +74,7 @@ export function registerPluginExportHandlers({getPlugin}) {
                     return {success: false, error: 'Choose the signing certificate for this export.'};
                 filename=(String(plugin.name || 'plugin').replace(/[^\w.-]+/g,'-') || 'plugin')+'.zip';
                 if (signingIdentity) {
-                    const prepared = await createRegistryArchive(plugin.home, signingIdentity.id);
+                    const prepared = await createRegistryArchive(plugin.home, options.signerId);
                     archiveBuffer = prepared.archive;
                     signingIdentity = {...signingIdentity, id: prepared.signerId};
                 } else {
@@ -124,7 +126,7 @@ export function registerPluginExportHandlers({getPlugin}) {
             const temporary=selection.filePath+'.'+randomUUID()+'.tmp';
             try{await fs.writeFile(temporary,content,{flag:'wx',mode:0o600});await fs.rename(temporary,selection.filePath);}
             finally{await fs.rm(temporary,{force:true});}
-            if(signingIdentity)certificateStorage.update(signingIdentity.id,{lastUsedAt:new Date().toISOString()},'registry');
+            if(signingIdentity)certificateStorage.update(signingIdentity.id,{lastUsedAt:new Date().toISOString()},signingIdentity.scope || 'registry');
             return {success:true,path:selection.filePath};
         }catch(error){return {success:false,error:error.message};}
     });

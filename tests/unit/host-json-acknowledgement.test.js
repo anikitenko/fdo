@@ -8,6 +8,9 @@ const {spawnSync}=require('node:child_process');
 test('installed SDK JSON save acknowledges atomic flush, rejects missing setup/write failures and recovers across restart',()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'fdo-json-ack-'));
  const sdk=path.resolve('node_modules/@anikitenko/fdo-sdk');
+ // SDK 1.9.2 reports a blocked storage root from flush(); older SDKs threw from useStore().
+ const [major,minor,patch]=require(path.join(sdk,'package.json')).version.split('.').map(Number);
+ const strict=major>1||(major===1&&(minor>9||(minor===9&&patch>=2)));
  const invoke=source=>{
   const entry=path.join(root,'fixture.cjs');fs.writeFileSync(entry,source);
   const result=spawnSync(process.execPath,[entry],{encoding:'utf8',timeout:10000,cwd:root,env:{...process.env,FDO_SDK_LOG_ROOT:path.join(root,'logs'),FDO_SDK_STORAGE_ROOT:''}});
@@ -22,7 +25,8 @@ const fs=require('node:fs'),path=require('node:path');const {PluginRegistry}=req
  PluginRegistry.configureCapabilities({granted:[]});try{PluginRegistry.useStore('json');}catch{missingGrants=true;}
  PluginRegistry.configureCapabilities({granted:['storage','storage.json']});try{PluginRegistry.useStore('json');}catch{missingRoot=true;}
  fs.writeFileSync(${JSON.stringify(storage)},'blocked root');PluginRegistry.configureStorage({rootDir:${JSON.stringify(storage)}});
- let store;try{store=PluginRegistry.useStore('json');store.set('setting','not acknowledged');await store.flush();}catch{rejected=true;}
+ let store;try{store=PluginRegistry.useStore('json');}catch(error){if(${strict})throw error;rejected=true;}
+ if(store){store.set('setting','not acknowledged');try{await store.flush();}catch{rejected=true;}}
  fs.unlinkSync(${JSON.stringify(storage)});store=store||PluginRegistry.useStore('json');store.set('setting','recovered');await store.flush();
  const mkdir=fs.promises.mkdir;fs.promises.mkdir=async()=>{throw Object.assign(new Error('fixture disk full'),{code:'ENOSPC'});};
  store.set('setting','disk full snapshot');try{await store.flush();}catch{diskFull=true;}

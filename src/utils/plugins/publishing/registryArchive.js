@@ -6,6 +6,8 @@ import {getAllFilesWithIgnorance} from '../../filesystem/getAllFilesWithIgnoranc
 import {certificateStorage} from '../../persistence/certificateStorage';
 import {registryIdentityLifecycle} from '../../system/registryIdentity';
 import {officialRegistry} from '../../system/officialRegistry';
+import {organizationRegistries} from '../../system/organizationRegistries';
+import {registryCertificateSelection} from '../../system/certificateDisplay';
 import {signRegistryFiles} from '../../system/registrySigning';
 import {exportArchive} from '../exporting/exportArchive';
 import {checkPublishingFiles, requirePublishingFiles} from './publishingCheck';
@@ -36,16 +38,17 @@ export async function checkPublishingDirectory(directory) {
 export async function createRegistryArchive(directory, signerId) {
     const files = await readPublishingSource(directory);
     const report = requirePublishingFiles(files); // Fail before Keychain or online signing operations.
-    const id = String(signerId || '').replace(/^registry:/, '');
-    const entry = certificateStorage.list('registry').find(cert => cert.id === id && cert.kind === 'developer' && cert.hasPrivateKey);
+    const {id, scope} = registryCertificateSelection(signerId) || {id: signerId, scope: 'registry'};
+    const entry = certificateStorage.list(scope).find(cert => cert.id === id && cert.kind === 'developer' && cert.hasPrivateKey);
     if (!entry) throw new Error('Choose an imported registry developer certificate. Run fdo sign list.');
-    const identity = await registryIdentityLifecycle.ensureIdentity(entry);
-    const trust = await officialRegistry.trust();
-    const signed = signRegistryFiles(files, identity.chainPem, certificateStorage.privateKey(identity.id, 'registry'), trust.anchors);
+    const {registry, lifecycle} = scope === 'org' ? organizationRegistries.forCertificate({...entry, scope}) : {registry: officialRegistry, lifecycle: registryIdentityLifecycle};
+    const identity = await lifecycle.ensureIdentity(entry);
+    const trust = await registry.trust();
+    const signed = signRegistryFiles(files, identity.chainPem, certificateStorage.privateKey(identity.id, scope), trust.anchors);
     if (Object.values(signed).reduce((sum, bytes) => sum + bytes.length, 0) > MAX_EXPANDED_BYTES) throw new Error('Signed source exceeds 32 MiB.');
     const archive = await exportArchive(signed);
     if (archive.length > MAX_ARCHIVE_BYTES) throw new Error('Signed ZIP exceeds the registry 10 MiB archive limit.');
-    return {archive, report, signerId: identity.id};
+    return {archive, report, signerId: identity.id, scope};
 }
 
 export async function writeRegistryArchive(directory, signerId, output) {
@@ -57,6 +60,6 @@ export async function writeRegistryArchive(directory, signerId, output) {
     const result = await createRegistryArchive(directory, signerId);
     // Exclusive creation prevents overwriting an existing archive or following a symlink.
     await fs.writeFile(output, result.archive, {flag: 'wx', mode: 0o600});
-    certificateStorage.update(result.signerId, {lastUsedAt: new Date().toISOString()}, 'registry');
+    certificateStorage.update(result.signerId, {lastUsedAt: new Date().toISOString()}, result.scope);
     return {path: output, signerId: result.signerId, bytes: result.archive.length, report: result.report};
 }

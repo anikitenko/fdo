@@ -36,6 +36,22 @@ test.each([['compiel'], ['--unknown'], ['compile'], ['compile', '.', '--unknown'
 test('open is the sole GUI command', async () => {
     expect(await runFdoCli(['open'], fixture().dependencies)).toEqual({exitCode: 0, openGui: true});
 });
+test('private registry CLI connects with a public pin, lists connections and scopes developer imports', async () => {
+    const connection = {id: 'org-' + 'a'.repeat(24), name: 'Acme', url: 'https://plugins.acme.test', rootFingerprint256: 'b'.repeat(64)};
+    const f = fixture({addOrganizationRegistry: jest.fn(async input => ({...connection, ...input})), listOrganizationRegistries: () => [connection], importDeveloperCertificate: jest.fn(async () => ({success: true})), removeOrganizationRegistry: jest.fn()});
+    expect((await runFdoCli(['sign', 'registry', 'add', '--name', connection.name, '--url', connection.url, '--root-fingerprint', connection.rootFingerprint256], f.dependencies)).exitCode).toBe(0);
+    expect(f.dependencies.addOrganizationRegistry).toHaveBeenCalledWith({name: connection.name, url: connection.url, rootFingerprint256: connection.rootFingerprint256});
+    expect((await runFdoCli(['sign', 'registry', 'list'], f.dependencies)).exitCode).toBe(0);
+    expect((await runFdoCli(['sign', 'import-developer', './chain.pem', './developer.key', '--registry', connection.id], f.dependencies)).exitCode).toBe(0);
+    expect(f.dependencies.importDeveloperCertificate).toHaveBeenCalledWith([expect.stringMatching(/chain.pem$/), expect.stringMatching(/developer.key$/)], connection.id);
+    expect((await runFdoCli(['sign', 'registry', 'remove', connection.id], f.dependencies)).exitCode).toBe(0);
+    expect(f.dependencies.removeOrganizationRegistry).toHaveBeenCalledWith(connection.id);
+});
+test('a failed organization certificate import never prints success', async () => {
+    const f = fixture({importDeveloperCertificate: jest.fn(async () => ({success: false, error: 'Unknown issuer'}))});
+    expect((await runFdoCli(['sign', 'import-developer', './developer.pem', '--registry', 'missing'], f.dependencies)).exitCode).toBe(1);
+    expect(f.output.log).not.toHaveBeenCalled();
+});
 test('SDK migration retains validation exit codes and refuses unattended writes', async () => {
     const f = fixture({migrate: jest.fn(async () => {throw Object.assign(new Error('missing target'), {code: 'SDK_MIGRATE_INVALID_TARGET'});})});
     expect((await runFdoCli(['sdk', 'migrate', '--target', '.'], f.dependencies)).exitCode).toBe(2);

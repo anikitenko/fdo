@@ -1,6 +1,6 @@
 # Signed plugin export
 
-FDO uses one official registry. Settings → Certificates obtains its root certificate automatically and checks it against the fingerprint bundled with the FDO release. Users do not import registry roots or choose registry endpoints. The official registry is https://plugins.fdo.alexvwan.me. Settings shows a compact BlueprintJS unavailable state until its certificate endpoint and bundled trust fingerprint are ready.
+FDO has one built-in official registry and supports organization private registries. Settings → Certificates obtains the official root certificate automatically and checks it against the fingerprint bundled with the FDO release. The official registry is https://plugins.fdo.alexvwan.me. Organization connections use their own HTTPS origins and independently supplied root SHA-256 fingerprints. They reuse the same validation, encrypted key storage, signing, export and lifecycle services. See [private registry deployment and onboarding](PRIVATE_REGISTRIES.md) for AWS, Azure, GCP and Vault examples.
 
 1. Generate your developer signing identity in your registry profile.
 2. In Settings → Certificates, import the downloaded developer certificate chain and matching private key. FDO validates the chain, validity, code-signing usage and key match, then protects the private key with the OS credential store.
@@ -11,7 +11,7 @@ The ZIP contains source files plus `fdo.meta.json` and binary `fdo.signature`. M
 
 The registry verifies the account certificate against its configured root and issuer, checks its active/revoked status, verifies the signature, and binds inspection/reservation to the exact ZIP SHA-256 and size. It rechecks status before reserving and promoting the release. Category remains registry-managed; source metadata, declared capabilities and compatibility are extracted from signed source. Existing browser signing remains available for unsigned source ZIPs. Legacy local directory signatures are a different format and are not accepted as registry signatures.
 
-When signing with an imported developer identity, export honors `.fdoignore` and excludes build output, dependencies, stale local signing files and common credential files before creating a fresh registry signature. With a root certificate selected, the archive is signed using the same local directory signer as the editor. With no signing identities available, export preserves the existing files and local signature. Export does not modify the installed plugin. Registry source policy and static checks remain authoritative. A verified registry signature never grants capabilities or bypasses execution approval. Organization certificates remain separate and may represent multiple organizations.
+When signing with an imported developer identity, export honors `.fdoignore` and excludes build output, dependencies, stale local signing files and common credential files before creating a fresh registry signature. With a root certificate selected, the archive is signed using the same local directory signer as the editor. With no signing identities available, export preserves the existing files and local signature. Export does not modify the installed plugin. Registry source policy and static checks remain authoritative. A verified registry signature never grants capabilities or bypasses execution approval. Organization identities appear in the same signing dialog with their private registry name; they cannot be substituted for an identity from a different registry.
 
 # CLI and local publishing checks
 
@@ -23,6 +23,10 @@ fdo validate ./publishing-source --publishing --json
 fdo sign archive ./publishing-source --certificate 'registry:<id-from-sign-list>' --output ./release.zip
 # Existing editor-format local signing also accepts the developer selector:
 fdo sign plugin ./workspace --label 'registry:<id-from-sign-list>'
+# Organization registries reuse these commands with a scoped selector:
+fdo sign registry list --json
+fdo sign import-developer ./developer-chain.pem ./developer.key --registry 'org-<connection-id>'
+fdo sign archive ./publishing-source --certificate 'organization:<id-from-sign-list>' --output ./private-release.zip
 ```
 
 Root and developer imports are explicit. The developer command accepts the chain
@@ -85,7 +89,7 @@ FDO refreshes trust while in use, checks identities on startup/every six hours, 
 
 A revoked/expired identity cannot renew by possession. Recover through the authenticated registry profile, then import the new developer chain/key. Profile renewal does not revoke old signatures; explicit revocation does. Historical valid certificates remain available for verification and publication.
 
-Registry-signed plugin directories are checked against the published signing metadata, current plugin/release/certificate status, chain and source hashes before activation. Existing capability approval and compatibility checks still apply. Running registry plugins are rechecked every five minutes and stopped if verification fails, including a registry outage. Local organization signatures remain separate. A plugin's self-declared signing date is not a trusted timestamp; expired certificates require re-signing and a new published version.
+Registry-signed plugin directories are checked against the published signing metadata, current plugin/release/certificate status, chain and source hashes before activation. Existing capability approval and compatibility checks still apply. Running registry plugins are rechecked every five minutes and stopped if verification fails, including a registry outage. Organization registry identities use these same checks and renewals against their own configured registry. Locally signed directories using a registry identity also require current online certificate status; legacy local root trust remains separate. A plugin's self-declared signing date is not a trusted timestamp; expired certificates require re-signing and a new published version.
 
 Revoking a developer certificate blocks its plugins; revoking a release blocks that version; revoking a plugin blocks all its versions. Issuer revocation blocks its chains. Planned root changes preserve valid historical chains. Root compromise or expiry before a trustworthy transition requires a new trusted FDO recovery release pinned to the replacement; a compromised root cannot securely authorize its own recovery. See `../fdo-plugins-aws-infra/docs/certificate-lifecycle.md` for GitOps variables and operator procedures.
 

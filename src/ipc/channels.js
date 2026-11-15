@@ -38,6 +38,12 @@ export const SettingsChannels = withPrefix('settings', {
     observability: {GET: 'get', SAVE: 'save', TEST: 'test', RETRY: 'retry', TRACE: 'trace'},
     gitops: {LIST: 'list', SAVE: 'save', VERIFY: 'verify', REMOVE: 'remove', SYNC: 'sync', SYNC_PLUGIN: 'sync-plugin', REVIEW_UPDATE: 'review-update', SET_INTERVAL: 'set-interval', SET_AUTO_SYNC: 'set-auto-sync', UPDATED: 'updated'},
     certificates: {
+        ORGANIZATION_LIST: 'organization-list',
+        ORGANIZATION_STATUS: 'organization-status',
+        ORGANIZATION_ADD: 'organization-add',
+        ORGANIZATION_REMOVE: 'organization-remove',
+        ORGANIZATION_IMPORT: 'organization-import',
+        ORGANIZATION_REMOVE_CERTIFICATE: 'organization-remove-certificate',
         REGISTRY_LIST: 'registry-list',
         REGISTRY_STATUS: 'registry-status',
         REGISTRY_IMPORT: 'registry-import',

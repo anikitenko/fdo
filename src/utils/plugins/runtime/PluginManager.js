@@ -688,7 +688,7 @@ const PluginManager = {
         const notificationContext = {source: "plugins", groupKey: `plugin-runtime:${id}`, details: `Plugin ID: ${id}`, actions: [{kind: "manage-plugin", pluginId: id}, {kind: "open-plugin-logs", pluginId: id}]};
 
         try {
-            const result = await Certs.verifyPlugin(plugin.home);
+            const result = await Certs.verifyPlugin(plugin.home, {registryOrigin: plugin.registry?.origin});
             if (!result.success) {
                 delete this.pluginCodeSnapshots[id];
                 this.setPluginLoading(id, false);
@@ -871,7 +871,7 @@ const PluginManager = {
                 if (result.registry) {
                     child.__stopRegistryVerification = watchRegistryPlugin({
                         isCurrent: () => this.loadedPlugins[id]?.instance === child,
-                        verify: () => Certs.verifyPlugin(plugin.home),
+                        verify: () => Certs.verifyPlugin(plugin.home, {registryOrigin: plugin.registry?.origin}),
                         blocked: verification => {
                             this.tracePluginEvent(id, 'registry.trust_blocked', {error: verification.error});
                             this.unLoadPlugin(id, {force:true, reason:'registry_verification_failed'});

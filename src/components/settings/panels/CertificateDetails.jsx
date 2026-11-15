@@ -13,6 +13,7 @@ export default function CertificateDetails({cert, label}) {
         <Icon icon="id-number" size={32}/>
         <div className={styles.certificateBody}>
             <div className={styles.certificateName}>{label || <strong>{info.name}</strong>}</div>
+            {cert.registryName && <div className="bp6-text-muted">Private registry: {cert.registryName}</div>}
             {info.organization && <div>Organization: {info.organization}</div>}
             {info.team && <div>Team: {info.team}</div>}
             {info.email && <div>Email: {info.email}</div>}
@@ -26,7 +27,7 @@ export default function CertificateDetails({cert, label}) {
             <details className={styles.certificateTechnicalDetails}>
                 <summary>Certificate details</summary>
                 {info.accountId && <div>Account ID: <code>{info.accountId}</code></div>}
-                <div>Fingerprint: <code>{cert.id}</code></div>
+                <div>Fingerprint: <code>{cert.fingerprint256 || cert.id}</code></div>
             </details>
         </div>
     </div>;

@@ -6,6 +6,18 @@ The registry's **Install in FDO** button uses:
 fdo-fiddle://registry/plugins/<plugin-id>/<exact-semver>
 ```
 
+Connected organization registries use:
+
+```text
+fdo-fiddle://registry/<org-registry-id>/plugins/<plugin-id>/<exact-semver>
+```
+
+The connection must already exist in Settings → Certificates. The ID is stable
+for a normalized HTTPS origin and appears in Connection details and
+`fdo sign registry list`. Links cannot add a connection or set its trust pin.
+Private portals must generate this scoped link instead of the official-registry
+link. See [private registry hosting and onboarding](PRIVATE_REGISTRIES.md).
+
 The desktop registers `fdo-fiddle` through electron-builder and Electron. macOS
 `open-url`, Windows/Linux startup arguments, and running-instance arguments use
 the same parser and bounded installation queue. Links received before startup
@@ -20,8 +32,9 @@ provides the final name. Internal IDs are not used as the dialog title. Registry
 network failures report DNS, TLS, timeout or connection errors instead of a generic
 "fetch failed" message.
 
-Only the configured official registry can supply archives. Links cannot choose
-an origin, filesystem path, credentials, query parameters or action. Installation
+Only the official registry or a previously connected private registry can supply
+archives. Links cannot choose an arbitrary origin, filesystem path, credentials,
+query parameters or action. Installation
 requires an embedded-signed FDO source ZIP; legacy TGZ releases are unsupported.
 The desktop checks online signed release status, archive SHA-256, bounded ZIP
 structure, source policy, signer identity, file hashes and host compatibility
@@ -40,10 +53,15 @@ Manage Plugins. A same-version link verifies the installed source and reports
 Already installed without downloading or changing it. Modified source requires an
 explicit repair. Newer and older versions require explicit Update or Downgrade
 approval. Signed registry installs created before provenance tracking are adopted
-only after successful verification against the official registry. Local and GitOps
+only after successful verification against the selected registry. Local and GitOps
 ID collisions are never overwritten. Registry-managed source and signatures cannot
 be replaced through local editor/CLI deployment; export a separate source copy
 for development.
+
+Registry provenance pins runtime checks to the recorded origin. Disconnecting a
+private registry removes its trusted certificates and local signing keys, so its
+installed plugins fail verification. A plugin from another registry with the same
+ID cannot overwrite an existing installation.
 
 Replacement stages verified code in a separate directory, serializes registry
 installs with an OS-backed lock, then commits a fresh compare-and-swap record via

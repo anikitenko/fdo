@@ -19,7 +19,7 @@ export async function inspectCliPlugins({registryFile, configFile, verifyPlugin}
     return Promise.all(selected.map(async plugin => {
         let signature;
         try {
-            const result = await verifyPlugin(plugin.home);
+            const result = await verifyPlugin(plugin.home, {registryOrigin: plugin.registry?.origin});
             signature = {status: result.success ? 'valid' : 'invalid', ...(result.success ? {} : {error: result.error || 'Signature verification failed.'})};
         } catch (error) {signature = {status: 'invalid', error: error.message};}
         return {id: plugin.id, name: plugin.metadata?.name || plugin.id, version: plugin.metadata?.version || null,
