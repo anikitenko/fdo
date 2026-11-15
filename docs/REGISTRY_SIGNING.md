@@ -44,10 +44,12 @@ publish: upload the result through your registry account for final validation.
 Local directory signatures from `sign plugin` are for local execution; they are
 not a replacement for the registry ZIP signature from `sign archive`.
 
-The pure registry validators are synchronized from `fdo-plugins-aws-infra` into
-`src/utils/plugins/publishing/registryPolicy`, with SHA-256 provenance. Run
-`npm run registry:check-policy` while the sibling repository is available to detect
-drift; `npm run registry:sync-policy` updates the snapshot for review. A dedicated
+The public source-policy validators are included in
+`src/utils/plugins/publishing/registryPolicy`, with SHA-256 provenance. They were
+synchronized from the private production registry repository. Access to that
+repository is not required to build FDO, run publishing preflight, or implement a
+compatible server. `registry:check-policy` and `registry:sync-policy` are maintainer
+tools requiring that private checkout; they are not self-hosting setup steps. A dedicated
 parser package pins the registry's TypeScript AST API separately from FDO's native
 compiler. There is no runtime dependency on the sibling checkout and no AWS code
 is copied or executed.
@@ -83,7 +85,7 @@ explicit developer actions.
 
 # Automatic lifecycle and deployment
 
-The registry provisions and renews its root and issuer certificates automatically with separate non-exportable KMS keys. FDO never downloads private CA keys. For the first managed deployment, run `npm run registry:sync-trust` with authenticated AWS CLI credentials and commit/release the resulting public configuration in `src/config/officialRegistry.json`. This obtains the first root pin independently from CloudFormation. Subsequent planned root rotations are verified using root-signed transitions from `/api/v1/registry/trust`; unrelated replacements, stale documents and persisted-sequence rollbacks are rejected.
+The official registry's maintainers provision and renew its root and issuer certificates with separate non-exportable KMS keys. FDO never downloads private CA keys. `registry:sync-trust` updates the official registry's bundled pin and is a maintainer tool tied to its private infrastructure; it is not a public self-hosting prerequisite. For your own registry, use the public [hosting guide](PRIVATE_REGISTRIES.md) and [protocol contract](REGISTRY_PROTOCOL.md), then enroll its independently supplied root pin through Settings or the CLI. Subsequent planned root rotations are verified using root-signed transitions from `/api/v1/registry/trust`; unrelated replacements, stale documents and persisted-sequence rollbacks are rejected.
 
 FDO refreshes trust while in use, checks identities on startup/every six hours, and checks online certificate status before signing. Active certificate/release responses must carry a fresh issuer signature bound to FDO’s random request nonce, purpose, exact response and a two-minute deadline. Captured or altered active responses cannot be replayed. Within 30 days of expiry it saves a fresh RSA-3072 key in the OS credential store before sending a renewal proof. Only the public key and old/new-key signatures are sent. A protected pending key allows recovery if the server renews successfully but its response is lost. The old local identity is replaced only after the renewed certificate and new key are durable.
 
@@ -91,7 +93,7 @@ A revoked/expired identity cannot renew by possession. Recover through the authe
 
 Registry-signed plugin directories are checked against the published signing metadata, current plugin/release/certificate status, chain and source hashes before activation. Existing capability approval and compatibility checks still apply. Running registry plugins are rechecked every five minutes and stopped if verification fails, including a registry outage. Organization registry identities use these same checks and renewals against their own configured registry. Locally signed directories using a registry identity also require current online certificate status; legacy local root trust remains separate. A plugin's self-declared signing date is not a trusted timestamp; expired certificates require re-signing and a new published version.
 
-Revoking a developer certificate blocks its plugins; revoking a release blocks that version; revoking a plugin blocks all its versions. Issuer revocation blocks its chains. Planned root changes preserve valid historical chains. Root compromise or expiry before a trustworthy transition requires a new trusted FDO recovery release pinned to the replacement; a compromised root cannot securely authorize its own recovery. See `../fdo-plugins-aws-infra/docs/certificate-lifecycle.md` for GitOps variables and operator procedures.
+Revoking a developer certificate blocks its plugins; revoking a release blocks that version; revoking a plugin blocks all its versions. Issuer revocation blocks its chains. Planned root changes preserve valid historical chains. Root compromise or expiry before a trustworthy transition requires a new trusted FDO recovery release pinned to the replacement; a compromised root cannot securely authorize its own recovery. For your own registry, follow the public [hosting and recovery guide](PRIVATE_REGISTRIES.md#6-operate-recover-and-validate) and [wire protocol](REGISTRY_PROTOCOL.md). Production infrastructure variables are specific to the private deployment and are not required for self-hosting.
 
 These source changes do not deploy AWS or publish an FDO release. Before announcing readiness, deploy the registry, generate/review/release the initial pin, and exercise sign-in, automatic renewal, revocation and runtime blocking against the deployed environment.
 

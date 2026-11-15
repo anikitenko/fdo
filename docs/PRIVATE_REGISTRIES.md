@@ -10,19 +10,24 @@ Container Registry, Google Artifact Registry, Amazon ECR, Harbor and Artifactory
 can hold deployment images or artifacts, but do not implement the FDO trust and
 release API by themselves.
 
-The desktop repository supplies the client, not a registry server or a portable
-registry container image. The existing server implementation is
-[fdo-plugins-aws-infra](https://github.com/anikitenko/fdo-plugins-aws-infra).
-The AWS example below uses that implementation. Azure, GCP and Vault examples
-describe the required service adapters and deployment wiring; they are not
-claims that the AWS Lambda application already runs on those platforms unchanged.
+The desktop repository supplies the client, public protocol validators and test
+fixtures. It does **not** supply a standalone registry server, container image or
+complete cloud deployment stack. The production registry's infrastructure repository
+is private and is not a prerequisite readers can download.
+
+To host your own registry, you must supply an FDO-compatible server implementing
+section 5, or obtain one from a provider that supports that exact protocol. Then
+follow the infrastructure steps below. Deploying a generic artifact store or an
+empty container does not create a working registry. All cloud examples assume
+you have first built and tested that service; no private repository access is needed
+to read the contract, validators or interoperability fixtures linked here.
 
 ## Choose a deployment
 
 | Target | Application and data | Signing authorities | Work required |
 | --- | --- | --- | --- |
-| AWS reference | CloudFront, Lambda, S3, DynamoDB, SQS, Cognito | Separate non-exportable KMS root and issuer keys | Deploy the reference stack; restrict access and configure enterprise sign-in |
-| Azure | Container Apps or AKS, Blob Storage, transactional database, queue, Entra ID | Key Vault RSA keys or Managed HSM | Port the server’s AWS persistence, identity, queue and signing integrations |
+| AWS | ECS/Fargate behind a private ALB, S3, transactional database, SQS, enterprise OIDC | Separate non-exportable KMS root and issuer keys | Implement the FDO service and provision its infrastructure |
+| Azure | Container Apps or AKS, Blob Storage, transactional database, queue, Entra ID | Key Vault RSA keys or Managed HSM | Implement persistence, identity, queue and signing integrations |
 | GCP | Cloud Run or GKE, Cloud Storage, transactional database, Pub/Sub, enterprise identity | Cloud KMS asymmetric signing keys | Implement the corresponding adapters and private ingress |
 | Existing Kubernetes / Nomad | Registry API, portal, worker, durable SQL/object storage, enterprise OIDC | Vault / enterprise HSM | Supply an FDO-compatible service and operate backups, HA and certificate lifecycle |
 
@@ -54,122 +59,148 @@ access must be reachable through a network boundary, such as VPN plus an interna
 load balancer or an approved corporate egress allowlist. Placing an interactive SSO
 redirect in front of every endpoint will break desktop checks.
 
-The AWS reference’s catalog and package routes are public by default. An independent
-deployment is not private until you enforce that network boundary. Restrict direct
+A deployment is not private until you enforce that network boundary. Restrict direct
 storage/backend access as well as the hostname. A trusted root pin authenticates
 responses; it does not make their contents confidential.
 
-## 2. AWS: deploy the existing server
+## 2. Build the service, then deploy it on AWS
 
-Use a dedicated organization account/environment and a reviewed revision of the
-[server repository](https://github.com/anikitenko/fdo-plugins-aws-infra). Its
-[production guide](https://github.com/anikitenko/fdo-plugins-aws-infra/blob/main/docs/production-deployment.md)
-contains the complete SSO and operations setup. Replace its original deployment’s
-account IDs, domain, IdP applications, alert recipients and scanner owner settings
-with your organization’s values; do not reuse the official registry’s CA keys.
+### Implement and package your registry
 
-The reference uses CDK, not ECS. Install its pinned Node version (`nvm use`), the
-AWS CLI and your approved AWS credentials. Run these commands from the server
-checkout, not from the desktop checkout:
+Use the public [server compatibility checklist](#5-server-compatibility-checklist),
+client validators and [protocol examples](REGISTRY_PROTOCOL.md). Implement these
+application components before provisioning production infrastructure:
+
+1. **Identity and accounts:** authenticate publishing users through enterprise OIDC;
+   enforce tenant/group membership and bind each certificate's public key to its
+   owning account. Desktop status and downloads use the private network boundary,
+   not the browser's login session.
+2. **Certificate authority and status:** issue code-signing leaves, maintain active,
+   expired and revoked states, sign trust/status documents and support proof-based
+   renewal. Keep the root signer separate from the routine issuer signer.
+3. **Publication:** authenticate the publisher, verify the signed ZIP against their
+   registered public certificate, validate source policy, inspect/scans in quarantine,
+   then promote an immutable approved release. Recheck status before promotion.
+4. **Catalog and downloads:** serve account/portal pages and the exact desktop API
+   and package routes. Retain historical public chains and revocation tombstones.
+5. **Background operations:** refresh signed trust metadata before it expires,
+   renew authorities, process publication jobs and collect operational alerts.
+
+Create your own reproducible build and deployment configuration. For a container
+service, produce a reviewed image pinned by digest, supply a health endpoint,
+handle graceful shutdown, and keep durable state outside the container. Configuration
+must identify the canonical HTTPS origin, database, quarantine/approved buckets,
+queue, OIDC provider, root/issuer key versions and scanner policy. Those are
+requirements for your application, not environment-variable names defined by FDO.
+
+Run your implementation against the public fixtures before exposing it to users:
 
 ```bash
-git clone https://github.com/anikitenko/fdo-plugins-aws-infra.git
-cd fdo-plugins-aws-infra
-nvm install
-nvm use
+# From the public FDO desktop checkout; validates the client contract and fixtures.
 npm ci
-
-export AWS_PROFILE=organization-registry
-export AWS_REGION=us-east-1
-aws sts get-caller-identity
+npm run test:unit -- tests/unit/registry-lifecycle.test.js tests/unit/organization-registries.test.js --runInBand
 ```
 
-Confirm the returned account is your target organization account. In that account,
-create a DNS-validated ACM certificate for `plugins.example.com` in `us-east-1`
-(the CloudFront certificate region). Prepare an Entra application restricted to
-your tenant, its OAuth client secret in SSM SecureString, and the scanner secret
-through your approved secret-management process. Only parameter names and public
-identifiers belong in synthesis inputs.
+These tests verify FDO's contract; they do not exercise or certify your server.
+Your backend needs integration tests using the same canonical payloads and signatures,
+plus the clean-profile acceptance checks in section 6.
 
-The reference requires VirusTotal checks and explicit source-sharing consent.
-Configure your own scanner owner/group settings. If external source submission
-is prohibited, adapt the server’s scanning policy to an approved private scanner
-before publishing proprietary code; there is no desktop switch that bypasses
-the server’s publication policy.
+### Provision the AWS environment
 
-Create a reviewed `cdk.context.json` with your deployment’s public settings:
+Use a dedicated account/environment and your own IaC repository. One deployment
+architecture is:
 
-```json
-{
-  "registryPublicUrl": "https://plugins.example.com",
-  "registryCertificateArn": "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE",
-  "microsoftTenantId": "YOUR-TENANT-ID",
-  "microsoftClientId": "YOUR-APPLICATION-CLIENT-ID",
-  "microsoftSecretParameter": "/acme/registry/entra-client-secret",
-  "microsoftSecretParameterVersion": "1",
-  "virusTotalApiKeyParameter": "/acme/registry/scanner-api-key",
-  "virusTotalUserId": "YOUR-APPROVED-SCANNER-OWNER",
-  "securityAlertEmail": "devops@example.com"
-}
+```text
+Employee desktop / browser -- VPN --> private DNS + HTTPS ALB
+                                            |
+                                     registry API / portal
+                                      (ECS / Fargate)
+                                            |
+                  +-------------------------+--------------------+
+                  |                         |                    |
+            transactional DB       private S3 buckets          SQS worker
+          accounts/status/releases  quarantine + approved     validation/scans
+                                            |
+                               issuer KMS signing permission
+
+Separate privileged lifecycle job --> root KMS key + public trust history
 ```
 
-Review the repository’s `cdk.json` as well: it contains synthesis defaults, including
-the original scanner owner. Register the generated Cognito hosted-login callback
-with Entra as described in the server’s SSO guide; configure tenant restrictions
-and application assignment before granting employee publication access.
+Provision in this order:
 
-The checked reference uses the `fdo2026` bootstrap qualifier. Bootstrap the account
-and Region once using that same qualifier, then review and deploy one assembly:
+1. **Network and ingress.** Create private subnets, employee VPN routing, private
+   DNS for `plugins.example.com`, and an internal ALB with HTTPS. Allow the API task
+   port only from the ALB. Provide VPC endpoints or controlled egress for image
+   pulls, logs, storage, queues and signing services. Route every desktop-facing
+   path through the same origin; do not redirect archives to an S3 hostname.
+2. **Durable data.** Create a transactional database for accounts, certificate
+   history, monotonic trust sequences, release reservations and revocation state.
+   Create separate private S3 buckets/prefixes for quarantine and approved packages.
+   Enable backup/version retention and restrict direct object access. Use conditional
+   writes or transactions to prevent duplicate version publication and revoked
+   releases being promoted concurrently.
+3. **Signing.** Provision separate non-exportable asymmetric RSA signing keys for
+   the root and issuer. Your CA implementation constructs the X.509 certificates
+   and persists their public history. The API needs routine issuer signing only;
+   a separate privileged lifecycle job controls root signing and transitions.
+   A cloud signing key alone is not an X.509 CA or a registry protocol implementation.
+4. **Identity and policy.** Configure enterprise OIDC, browser redirect URLs,
+   employee/group restrictions, account ownership checks and explicit publisher
+   authorization. Choose an approved scanner: if it sends source externally, obtain
+   the organization's approval before uploading proprietary plugins. FDO does not
+   require a particular commercial scanner for a custom server.
+5. **Compute and workers.** Push your service image to ECR and deploy its immutable
+   digest in an ECS task definition. Connect the service to the ALB, configure
+   health checks and rollout rollback, and deploy the queue worker separately.
+   Separate task execution permissions (image pulls, logs, injected secrets) from
+   application task permissions (database, objects, queues and issuer signing).
+   [AWS documents this role separation](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/security-iam-roles.html).
+6. **Lifecycle and operations.** Schedule trust refresh/authority renewal, configure
+   alerts and test data restoration. Preserve key versions and public certificates
+   needed to verify historical releases. Inspect your IaC plan/diff before applying
+   changes; do not replace durable resources or signing keys on routine updates.
+
+There is no FDO-provided ECS task definition, `cdk.context.json`, stack name,
+bootstrap qualifier or cloud output key to copy. Define those in your own
+implementation. Azure and GCP below deploy the same service contract with their
+platform-specific integrations.
+
+### Bootstrap trust and onboard a developer
+
+Create the root/issuer hierarchy and initial signed trust document through your
+controlled administrative process. Obtain the **public root certificate** through
+that administrative channel and compute its SHA-256 fingerprint:
 
 ```bash
-REGISTRY_ACCOUNT_ID="123456789012"
-npx cdk bootstrap "aws://${REGISTRY_ACCOUNT_ID}/${AWS_REGION}" --qualifier fdo2026
-npm test
-npm run synth
-npx cdk diff --app cdk.out
-npx cdk deploy --app cdk.out --outputs-file registry-outputs.json
+openssl x509 -in organization-registry-root.pem -noout -fingerprint -sha256
 ```
 
-Use normal CloudFormation deployment in production. Keep the reviewed assembly
-and context in the deployment pipeline so deployment uses the exact diffed inputs.
-[AWS documents environment bootstrapping and its account/Region scope](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping-env.html).
+This file must be the public registry signing root, not the HTTPS server certificate
+or a certificate blindly downloaded from an unverified endpoint. Share only the
+origin and public fingerprint through controlled onboarding. Never distribute a
+root/issuer private key.
 
-After deployment:
+Before connecting FDO, check transport and routing from an employee VPN client:
 
-1. Point the hostname at the `CloudFrontDomainName` stack output. Keep S3 buckets
-   private and the API’s CloudFront origin authorization intact.
-2. For a VPN/egress-allowlisted installation, define the corporate IPv4/IPv6 CIDRs
-   in CloudFront-scope WAF IP sets. Preserve the existing blocking/rate rules;
-   add an allow rule for those IP sets after them and set the web ACL’s default
-   action to **Block**. Manage this in your fork’s IaC so a later deploy preserves
-   it. Test from both an employee VPN client and a disallowed network. Also protect
-   custom alternate hostnames and any direct backend routes.
-3. Complete the tenant-specific IdP callback configuration. Test that an unassigned
-   user cannot issue a certificate or publish.
-4. Run the server smoke check from an allowed network:
+```bash
+REGISTRY_ORIGIN="https://plugins.example.com"
+curl --fail --show-error --max-time 10 --max-redirs 0 \
+  "$REGISTRY_ORIGIN/api/v1/registry/certificate" --output downloaded-root.pem
+openssl x509 -in downloaded-root.pem -noout -fingerprint -sha256
+curl --fail --show-error --max-time 10 --max-redirs 0 \
+  "$REGISTRY_ORIGIN/api/v1/registry/trust" --output registry-trust.json
+```
 
-   ```bash
-   REGISTRY_PUBLIC_URL=https://plugins.example.com node scripts/check-deployment.mjs
-   ```
+Compare the certificate fingerprint with the independently supplied value. These
+commands only check transport/content; they do not validate the trust document's
+signature or authorize an installation. FDO performs those checks during connection.
+Also verify that an off-network client cannot reach private catalog or package data.
+Follow section 4 to connect, import a developer identity, publish and install a test
+release.
 
-5. Obtain `RegistryRootFingerprint256` through authenticated CloudFormation, not
-   through the newly deployed website:
-
-   ```bash
-   aws cloudformation describe-stacks --stack-name FdoPluginRegistryStack \
-     --query 'Stacks[0].Outputs[?OutputKey==`RegistryRootFingerprint256`].OutputValue | [0]' \
-     --output text
-   ```
-
-Distribute the hostname and pin through your controlled developer onboarding
-channel. **Do not run the desktop’s `registry:sync-trust` for an organization
-registry**: that script updates the official registry’s bundled configuration.
-Private connections are configured in Settings or the CLI below.
-
-If you instead port the backend to ECS/Fargate, place tasks behind the chosen
-private ingress and implement the same API. Keep task execution permissions
-(image pulls/logs/secret injection) separate from the application task role
-(storage and issuer signing). [AWS describes the role separation](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/security-iam-roles.html).
+Do not run `registry:sync-trust` for an organization registry. It is an official
+registry maintainer tool, not a self-hosting prerequisite; private connections use
+Settings or `fdo sign registry add`.
 
 ## 3. Azure and GCP deployment examples
 
@@ -310,8 +341,8 @@ fdo-fiddle://registry/<org-registry-id>/plugins/<plugin-id>/<exact-semver>
 The connection ID is `org-` followed by the first 24 lowercase hex characters of
 SHA-256 over the normalized HTTPS origin (including a non-default port). Obtain
 it from Settings → Connection details or `fdo sign registry list`. All developers
-connecting that origin receive the same ID. The reference portal’s official link
-format must be adapted in your private fork; it does not automatically include it.
+connecting that origin receive the same ID. Your portal must generate this scoped
+route; a link without the connection ID targets the official registry instead.
 
 A link can reference only an already connected registry; it cannot enroll a new
 server, provide credentials, change the pin or choose a download URL. Unknown
