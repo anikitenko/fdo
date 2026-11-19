@@ -66,6 +66,7 @@ test('real plugin failures use display names, actionable saved notices, and reco
         await page.locator(`[data-notification-id="${uiFailure.id}"]`).getByRole('button', {name: 'Show details'}).click();
         await page.screenshot({path: testInfo.outputPath('actionable-plugin-notifications.png')});
         const certificateNotice = (await get()).find(item => item.title === 'Signing certificate “root” created');
+        await page.getByPlaceholder('Filter notifications...').fill(certificateNotice.title);
         await page.locator(`[data-notification-id="${certificateNotice.id}"]`).getByRole('button', {name: 'Open settings', exact: true}).click();
         await expect(page.getByRole('heading', {name: 'Root certificates', exact: true})).toBeVisible();
     } finally {await closeElectronApp(app);}
