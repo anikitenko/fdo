@@ -28,7 +28,7 @@ test('Live UI hands committed source to AI without replacing the prompt or losin
         const target = editor.getByRole('region', {name: 'Plugin target compatibility'});
         await expect(target.getByText(/Supported FDO:/)).toBeVisible();
         await target.getByText(/Supported FDO:/).click();
-        await expect(target.getByText(/Installed FDO/)).toContainText('Host API 1.0.0');
+        await expect(target.getByText(/Installed FDO/)).toContainText('Host API 1.1.0');
         await target.getByText(/Supported FDO:/).click();
         await editor.locator('#prompt-input').fill('Make this label clearer while keeping the existing behavior.');
         await editor.locator('#action-select').selectOption('edit');

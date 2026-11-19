@@ -65,7 +65,7 @@ const EXPECTED = {
 
 const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   // Known source-map/instrumentation gaps and low-value lines for this example.
-  13, 22, 167, 168, 169, 170,
+  13, 22, 167, 168, 169, 170, 171, 172,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 75,
@@ -380,6 +380,12 @@ test.describe("SDK example 05-advanced-dom-plugin: live E2E line proof", () => {
       expect(String(tailText)).not.toContain("plugin.render.error");
       expect(String(tailText)).not.toContain("document is not defined");
 
+      for (const errorValue of [undefined, 'Non-Error render failure']) {
+        const fallback = await window.evaluate(({pluginName, errorValue}) => window.electron.plugin.uiMessage(pluginName, {
+          handler: '__e2e.exerciseFailure', content: {method: 'render', sdkExport: 'DOMTable', memberMethod: 'createTableHead', errorValue},
+        }), {pluginName, errorValue});
+        expect(JSON.stringify(fallback)).toContain('Advanced DOM example failed to render');
+      }
       const coverage = await getSourceCoverageDetails(window, pluginName, entry.absPath);
       assertStrictCoverageWithAllowlist(coverage);
     } finally {

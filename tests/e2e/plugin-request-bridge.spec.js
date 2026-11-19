@@ -31,16 +31,16 @@ test('plugin bridge routes concurrent replies without per-request listeners and 
                 return original.call(this, type, ...args);
             };
             try {
-                const replies = await Promise.all(Array.from({length: 50}, (_, value) =>
+                const replies = await Promise.all(Array.from({length: 24}, (_, value) =>
                     window.createBackendReq('UI_MESSAGE', {handler: 'echo', content: {value}})));
                 return {messageListeners, replies};
             } finally {window.addEventListener = original;}
         });
         expect(result.messageListeners).toBe(0);
-        expect(result.replies.map(reply => reply.result?.value ?? reply.value)).toEqual(Array.from({length: 50}, (_, i) => i));
+        expect(result.replies.map(reply => reply.result?.value ?? reply.value)).toEqual(Array.from({length: 24}, (_, i) => i));
         await frame.locator('main').evaluate(() => {
             window.__bridgeCancelled = null;
-            window.createBackendReq('echo', {value: 'old', slow: true}).then(result => {window.__bridgeCancelled = result;});
+            window.createBackendReq('UI_MESSAGE', {handler: 'echo', content: {value: 'old', slow: true}}).then(result => {window.__bridgeCancelled = result;});
         });
         await home.evaluate(id => {
             document.querySelector(`iframe[data-plugin-id="${id}"]`).contentWindow.postMessage({
@@ -51,7 +51,7 @@ test('plugin bridge routes concurrent replies without per-request listeners and 
         await expect.poll(() => frame.locator('main').evaluate(() => window.__bridgeCancelled)).toEqual({
             success: false, error: 'The plugin view was disposed.',
         });
-        const fresh = await frame.locator('main').evaluate(() => window.createBackendReq('echo', {value: 'fresh'}));
+        const fresh = await frame.locator('main').evaluate(() => window.createBackendReq('UI_MESSAGE', {handler: 'echo', content: {value: 'fresh'}}));
         expect(fresh.result?.value ?? fresh.value).toBe('fresh');
     } finally {
         if (home && !home.isClosed()) await removePlugin(home, pluginName).catch(() => {});

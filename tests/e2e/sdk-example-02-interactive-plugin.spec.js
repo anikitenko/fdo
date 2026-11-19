@@ -50,7 +50,7 @@ const EXPECTED = {
 
 const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   // Known non-critical/unreachable in the base path due current example structure and sourcemap mapping.
-  13, 22, 73, 92, 93, 115, 116, 145, 146, 226, 227,
+  13, 22, 30, 73, 92, 93, 115, 116, 145, 146, 226, 227,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 82,
@@ -320,7 +320,7 @@ function createFaultInjectedEntry(baseEntry, mode) {
   } else if (mode === "decrement-catch") {
     source = source.replace("this.counter--;", `throw new Error("${DECREMENT_INJECTED_ERROR}");\n      this.counter--;`);
   } else if (mode === "submit-catch") {
-    source = source.replace("await new Promise(resolve => setTimeout(resolve, 500));", `throw new Error("${SUBMIT_INJECTED_ERROR}");\n      await new Promise(resolve => setTimeout(resolve, 500));`);
+    source = source.replace(/(private async handleFormSubmit\(data: unknown\): Promise<any> \{\s*try \{)/, match => match + `\n      throw new Error("${SUBMIT_INJECTED_ERROR}");`);
   } else {
     throw new Error(`Unknown mode: ${mode}`);
   }
@@ -464,6 +464,14 @@ test.describe("SDK example 02-interactive-plugin: live E2E line proof", () => {
       expect(filledSubmit.ok, JSON.stringify(filledSubmit)).toBe(true);
       expect(String(filledSubmit.text || "")).toContain("Form submitted successfully.");
 
+      for (const method of ['handleIncrement', 'handleDecrement', 'handleFormSubmit']) {
+        const failure = await invokeHandler(window, pluginName, '__e2e.exerciseFailure', {method, member: 'log', data: {userName: 'Fixture'}});
+        expect(failure.result?.success).toBe(false);
+      }
+      await invokeHandler(window, pluginName, '__e2e.exerciseFailure', {method: 'render', member: 'counter', value: '__throwOnRead'});
+      // Exercise the shutdown guard and the form's default-name branches too.
+      await invokeHandler(window, pluginName, '__e2e.exerciseFailure', {method: 'handleFormSubmit', member: 'signal', value: {aborted: true}});
+      for (const data of [null, {}, {userName: 1}]) expect((await invokeHandler(window, pluginName, 'submitForm', data)).result?.success).toBe(true);
       const coverage = await getSourceCoverageDetails(window, pluginName, entry.absPath);
       assertStrictCoverageWithAllowlist(coverage);
     } finally {

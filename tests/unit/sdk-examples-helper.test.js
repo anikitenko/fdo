@@ -33,7 +33,7 @@ describe("sdkExamples helper", () => {
   test("discoverSdkExampleEntries classifies fixtures separately from examples", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "fdo-sdk-discover-"));
     fs.mkdirSync(path.join(tempRoot, "fixtures"), { recursive: true });
-    fs.writeFileSync(path.join(tempRoot, "01-basic-plugin.ts"), "const Base = mixin(FDO_SDK); export default class Basic extends Base { static readonly HANDLER = 'constant.handler'; init() { PluginRegistry.registerHandler<{value: string}>('typed.handler', () => ({value: 'ok'})); PluginRegistry.registerHandler(Basic.HANDLER, () => ({})); } }", "utf8");
+    fs.writeFileSync(path.join(tempRoot, "01-basic-plugin.ts"), "const Base = mixin(FDO_SDK); export default class Basic extends Base { static readonly HANDLER = 'constant.handler'; init() { PluginRegistry.registerHandler<{value: string}>('typed.handler', () => ({value: 'ok'})); PluginRegistry.registerHandler(Basic.HANDLER, () => ({})); } @handler() direct() {} @handler('named.decorator') decorated() {} @handler(Basic.HANDLER) constantDecorated() {} }", "utf8");
     fs.writeFileSync(path.join(tempRoot, "fixtures", "minimal-plugin.fixture.ts"), "export default class Minimal extends FDO_SDK {}", "utf8");
     fs.writeFileSync(path.join(tempRoot, "frontend-recipe.ts"), "export function markup() { return '<p>Example</p>'; }", "utf8");
     fs.writeFileSync(path.join(tempRoot, "logic.ts"), "export class Logic {}", "utf8");
@@ -53,7 +53,7 @@ describe("sdkExamples helper", () => {
         slug: "fixtures-minimal-plugin-fixture",
       }),
     ]);
-    expect(entries[0].expectations.handlers).toEqual(['typed.handler', 'constant.handler']);
+    expect(entries[0].expectations.handlers).toEqual(['typed.handler', 'constant.handler', 'direct', 'named.decorator']);
 
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });

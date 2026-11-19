@@ -3,7 +3,7 @@ const OPERATIONAL = new Set(['12-git-operations-plugin.ts', '13-service-content-
 function isOperationalExample(entry) { return OPERATIONAL.has(entry.relativePath); }
 
 // Test-only code appended to coverage-instrumented plugin modules. Never shipped to production plugins.
-function operationalCoverageSupport(compiled, invokeInitializer = false) {
+function operationalCoverageSupport(compiled) {
   const ast = require('@babel/parser').parse(compiled, {sourceType: 'script'});
   const counter = ast.program.body.find(node => node.type === 'FunctionDeclaration' && /^cov_/.test(node.id?.name || ''));
   if (!counter) throw new Error('Instrumented example is missing its Istanbul counter bootstrap');
@@ -27,7 +27,12 @@ function operationalCoverageSupport(compiled, invokeInitializer = false) {
       };
       sdk.FDO_SDK.prototype.__e2eCoverageSerializers = serializers;
     }
-    serializers[${JSON.stringify(counter.id.name)}] = serialized => JSON.stringify("() => {\\n" + ${serializedFrontendBootstrap} + "return (" + JSON.parse(serialized).replace(/;\\s*$/, '') + ")${invokeInitializer ? "()" : ""};\\n}");
+    serializers[${JSON.stringify(counter.id.name)}] = serialized => {
+      const source = JSON.parse(serialized).replace(/;\\s*$/, '');
+      // Invoke function expressions once; an IIFE has already produced its cleanup.
+      const functionExpression = !/\\)\\s*\\(\\s*\\)\\s*$/.test(source) && /^(?:async\\s+)?(?:function\\b|(?:\\([^)]*\\)|[A-Za-z_$][\\w$]*)\\s*=>)/.test(source.trim());
+      return JSON.stringify("() => {\\n" + ${serializedFrontendBootstrap} + "return (" + source + ")" + (functionExpression ? "()" : "") + ";\\n}");
+    };
     const names = ['__FDO_AUTH_BROKER','__FDO_CONTENT_BROKER','__FDO_BROWSER_BROKER','__FDO_SESSION_REQUEST','__FDO_AI_REQUEST','__FDO_AI_ASSISTANT','__FDO_AI_LIST_ASSISTANTS','__FDO_AI_ASSISTANTS'];
     const originalFetch = globalThis.fetch;
     const reply = spec => {
@@ -82,7 +87,7 @@ async function prepareOperationalCoverage(window, pluginId, entry, invoke) {
 }
 async function mergedExampleCoverage(window, backendCoverage, entry) {
   const map = createCoverageMap(backendCoverage);
-  if (isOperationalExample(entry)) {
+  if (isOperationalExample(entry) || /^(19|20)-shared-logic/.test(entry.relativePath)) {
     const frontend = await window.evaluate(() => {
       const iframe = document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]');
       return iframe?.contentWindow?.__coverage__ || {};
@@ -93,6 +98,29 @@ async function mergedExampleCoverage(window, backendCoverage, entry) {
   return map;
 }
 async function runOperationalCoverage(window, pluginId, entry, invoke, expect) {
+  if (/^(19|20)-shared-logic/.test(entry.relativePath)) {
+    const provider = entry.relativePath.startsWith('19-');
+    for (const input of [null, {}, {url:'invalid'}, {url:'http://example.com'}, {url:'https://user:pass@example.com'}, {url:'https://example.com'}]) {
+      const response = await invoke(window, pluginId, 'checkWebsite', input);
+      expect(response?.result?.ok ?? response?.ok).toBe(false);
+    }
+    const prefix = provider ? 'provider-check' : 'check-website';
+    const frame = window.frameLocator(`iframe[data-plugin-id="${pluginId}"]`);
+    await frame.locator('#' + prefix + '-url').fill('invalid');
+    await frame.locator('#' + prefix + '-button').click();
+    await expect(frame.locator('#' + prefix + '-result')).not.toHaveText(/Ready|Checking…|Running/);
+    if (!provider) {
+      await frame.locator('#request-shared-access').click();
+    }
+    return [{handler:'checkWebsite', invalidInputs: true, frontend: true}];
+  }
+  if (entry.relativePath === '04-ui-extensions-plugin.ts') {
+    for (const method of ['handleQuickSearch', 'handleQuickCreate', 'handleQuickSettings', 'handleShowDashboard', 'handleShowReports', 'handleShowSettings']) {
+      const result = await invoke(window, pluginId, '__e2e.exerciseFailure', {method, member:'log'});
+      expect(result?.result?.success ?? result?.success).toBe(false);
+    }
+    return [{handler:'UI extension failure paths'}];
+  }
   if (!isOperationalExample(entry)) return [];
   if (entry.relativePath === '18-interactive-ssh-plugin.ts') return require('./sdkTerminalCoverage').runTerminalCoverage(window, pluginId, invoke, expect);
   const records=[];
@@ -104,6 +132,9 @@ async function runOperationalCoverage(window, pluginId, entry, invoke, expect) {
   };
   const configure=async config=>{await run('__e2e.configureServices',config);};
   await window.waitForFunction(() => typeof document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]')?.contentWindow?.createBackendReq === 'function', null, {timeout: 15000});
+  if (entry.relativePath.startsWith('12-')) {
+    await window.waitForFunction(() => document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]')?.contentDocument?.getElementById('git-output-code')?.textContent.includes('runtime ready'));
+  }
   // Keep real UI_MESSAGE calls to registered plugin handlers. Only OS-facing execution is simulated.
   await window.evaluate(() => {
     const win=document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]').contentWindow;
@@ -115,6 +146,7 @@ async function runOperationalCoverage(window, pluginId, entry, invoke, expect) {
         return response?.ok === true && response.result && typeof response.result === 'object' ? response.result : response;
       }
       const request=payload?.request || payload;
+      if(win.__coverageRawMode==='throw') throw new Error('Snapshot failed fixture');
       if(win.__coverageRawMode==='error') return {ok:false,correlationId:'coverage-error',code:'PROCESS_EXEC_FAILED',error:'Command failed',result:{stderr:'fatal: not a git repository',stdout:'',exitCode:128}};
       const args=request?.payload?.args || [];
       let stdout='Completed';
@@ -160,7 +192,7 @@ async function runOperationalCoverage(window, pluginId, entry, invoke, expect) {
       await window.waitForFunction(()=>{const doc=document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]')?.contentDocument;return doc?.getElementById('git-run-status') && !doc.getElementById('git-run-status').disabled;},null,{timeout:15000});
     };
     for(const id of ['git-save-path','git-prefetch-original','git-run-status','git-run-branches','git-run-log','git-run-diff','git-run-show','git-run-fetch','git-run-pull','git-ai-refresh-assistants','git-ai-commit-message','git-ai-summarize-output','git-ai-suggest-next','git-run-commit','git-run-snapshot']) await click(id);
-    await click('git-run-status','clean'); await click('git-run-status','error'); await click('git-run-snapshot','error');
+    await click('git-run-status','clean'); await click('git-run-status','error'); await click('git-run-snapshot','throw');
     expect(await window.evaluate(()=>document.querySelector('iframe[data-plugin-id][data-plugin-active="true"]').contentDocument.getElementById('git-output-code').textContent)).toContain('failed');
     await configure(serviceConfig({ai:{throw:'AI unavailable'}})); await click('git-ai-commit-message');
   } else {

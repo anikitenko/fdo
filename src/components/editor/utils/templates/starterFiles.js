@@ -28,7 +28,7 @@ class StarterPlugin extends ${dashboard ? 'SidePanelMixin(QuickActionMixin(FDO_S
     get metadata() { return {name: ${literal}, version: '1.0.0', author: 'Your team', description: ${JSON.stringify(utility ? 'Inspect JSON locally' : service ? 'Service monitor with a demo adapter' : 'Operations dashboard with demo metrics')}, icon: '${utility ? 'code' : service ? 'cloud' : 'dashboard'}'}; }
     init(): void {
         PluginRegistry.registerHandler('${handler}', ${utility ? "(input: unknown) => {\n            const data = input as {text?: unknown} | null;\n            return inspectJson(typeof data?.text === 'string' ? data.text : '');\n        }" : service ? "async (input: unknown) => {\n            const data = input as {environment?: unknown} | null;\n            return loadServiceStatus(readEnvironment(data?.environment));\n        }" : "() => ({success: true})"});
-        ${dashboard ? "PluginRegistry.registerHandler('showOverview', () => { this.view = 'overview'; return {success: true}; });\n        PluginRegistry.registerHandler('showActivity', () => { this.view = 'activity'; return {success: true}; });" : ''}
+        ${dashboard ? "PluginRegistry.registerHandler('showOverview', () => { this.view = 'overview'; return {success: true, refreshUi: true}; });\n        PluginRegistry.registerHandler('showActivity', () => { this.view = 'activity'; return {success: true, refreshUi: true}; });" : ''}
     }
     ${dashboard ? `defineQuickActions() { return [{name: 'Refresh dashboard', message_type: 'refreshDashboard', icon: 'refresh'}]; }
     defineSidePanel() { return {label: this.metadata.name, icon: 'dashboard', submenu_list: [

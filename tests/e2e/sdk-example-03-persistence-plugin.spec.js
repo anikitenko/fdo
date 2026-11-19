@@ -52,7 +52,7 @@ const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   // Istanbul records esbuild output coordinates. Keep these aligned with the
   // installed SDK/compiler: export helpers, missing-data return and catch paths
   // (handler/render catches are exercised by the fault-injection tests below).
-  13, 22, 92, 106, 118, 139, 140, 162, 163, 190, 191, 316, 317,
+  13, 22, 30, 150, 92, 106, 118, 139, 140, 162, 163, 190, 191, 316, 317,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 70,
@@ -316,14 +316,11 @@ function createFaultInjectedEntry(baseEntry, mode) {
   let source = original;
 
   if (mode === "render-catch") {
-    source = source.replace(
-      'const userName = this.persistentStore.get(this.KEYS.USER_NAME) || "Not set";',
-      `throw new Error("${RENDER_INJECTED_ERROR}");\n      const userName = this.persistentStore.get(this.KEYS.USER_NAME) || "Not set";`
-    );
+    source = source.replace(/render\(\): string \{\s*try \{/, match => match + `\n      throw new Error("${RENDER_INJECTED_ERROR}");`);
   } else if (mode === "save-catch") {
-    source = source.replace("this.persistentStore.set(this.KEYS.USER_NAME, data.userName);", `throw new Error("${SAVE_INJECTED_ERROR}");\n        this.persistentStore.set(this.KEYS.USER_NAME, data.userName);`);
+    source = source.replace("this.preferenceStore.set(this.KEYS.USER_NAME, data.userName);", `throw new Error("${SAVE_INJECTED_ERROR}");\n        this.preferenceStore.set(this.KEYS.USER_NAME, data.userName);`);
   } else if (mode === "clear-catch") {
-    source = source.replace("this.persistentStore.remove(this.KEYS.USER_NAME);", `throw new Error("${CLEAR_INJECTED_ERROR}");\n      this.persistentStore.remove(this.KEYS.USER_NAME);`);
+    source = source.replace("this.preferenceStore.remove(this.KEYS.USER_NAME);", `throw new Error("${CLEAR_INJECTED_ERROR}");\n      this.preferenceStore.remove(this.KEYS.USER_NAME);`);
   } else if (mode === "record-catch") {
     source = source.replace("this.tempStore.set(this.KEYS.LAST_ACTION, {", `throw new Error("${RECORD_INJECTED_ERROR}");\n      this.tempStore.set(this.KEYS.LAST_ACTION, {`);
   } else {
@@ -473,6 +470,17 @@ test.describe("SDK example 03-persistence-plugin: live E2E line proof", () => {
       expect(await getTextInIframe(window, pluginName, "#current-theme")).toBe("light");
       expect(await getTextInIframe(window, pluginName, "#current-notifications")).toBe("Enabled");
 
+      for (const [method, member, memberMethod, data] of [
+        ['initializeSessionData', 'tempStore', 'set', {}],
+        ['handleSavePreferences', 'preferenceStore', 'set', {userName: 'Fixture'}],
+        ['handleClearPreferences', 'preferenceStore', 'remove', {}],
+        ['handleRecordAction', 'tempStore', 'set', {action: 'Fixture'}],
+        ['render', 'preferenceStore', 'get', {}],
+      ]) await invokeHandler(window, pluginName, '__e2e.exerciseFailure', {method, member, memberMethod, data});
+      for (const data of [null, [], {userName: 1}, {theme: 'unsupported'}, {notificationsEnabled: 'yes'}]) {
+        expect((await invokeHandler(window, pluginName, 'savePreferences', data)).result?.success).toBe(false);
+      }
+      expect((await invokeHandler(window, pluginName, 'recordAction', {})).result?.success).toBe(false);
       const coverage = await getSourceCoverageDetails(window, pluginName, entry.absPath);
       assertStrictCoverageWithAllowlist(coverage);
     } finally {

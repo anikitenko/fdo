@@ -9,7 +9,7 @@ class SurfacePlugin extends SidePanelMixin(QuickActionMixin(FDO_SDK)) {
     defineSidePanel() { return {icon: 'cog', label: 'Surface sidebar', submenu_list: [{id: 'side', name: 'Surface side action', message_type: 'side'}]}; }
     init() {
         const events: string[] = [];
-        for (const name of ['quick', 'side', 'tray']) PluginRegistry.registerHandler(name, () => { this.lastAction = name; events.push(name); return {events}; });
+        for (const name of ['quick', 'side', 'tray']) PluginRegistry.registerHandler(name, () => { this.lastAction = name; events.push(name); return {events, refreshUi: true}; });
         PluginRegistry.registerHandler('events', () => ({events}));
         PluginRegistry.registerHandler('exitFixture', () => { setTimeout(() => process.exit(1), 200); return {ok: true}; });
         PluginRegistry.registerHandler('registerTray', () => window.createBackendReq('UI_MESSAGE', {handler: 'fdo.tray.v1', content: {

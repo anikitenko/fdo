@@ -78,6 +78,10 @@ test('Editor close confirmation is shown only once for duplicate close events', 
   const editorWindow = await openEditorWithMockedIPC(electronApp);
 
   await editorWindow.waitForFunction(() => typeof window.__editorTestApi?.getState === 'function');
+  await editorWindow.evaluate(() => {
+    const api = window.__editorTestApi;
+    api.createFile('/index.ts', api.getFileContent('/index.ts') + '\n// Unsaved close-confirmation fixture');
+  });
   await clearConfirmLog(editorWindow);
   await electronApp.evaluate(({ ipcMain }, approvedChannel) => {
     global.__e2eOriginalEditorCloseApprovedListeners = ipcMain.listeners(approvedChannel);

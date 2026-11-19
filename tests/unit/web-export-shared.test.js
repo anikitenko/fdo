@@ -74,13 +74,15 @@ test.each(['plugins.shared.use',logical,installed])('a missing approved %s grant
     const result=await prepare(fixture);expect(result.files).toBeUndefined();
     expect(result.report.blockers.join(' ')).toMatch(/approved|not approved/);
 });
-test('missing, unapproved and incompatible providers produce review blockers',async()=>{
-    const missing=await prepare(fixtures(),{resolveSharedProvider:async()=>null});
-    expect(missing.files).toBeUndefined();expect(missing.report.blockers.join(' ')).toContain('must be installed');
-    const fixture=fixtures();fixture.provider.capabilities=[];
-    const denied=await prepare(fixture);expect(denied.files).toBeUndefined();expect(denied.report.blockers.join(' ')).toContain('plugins.shared.provide');
-    const incompatible=fixtures();incompatible.providerSnapshot.sourceCompatibility={status:'incompatible',issues:['Requires newer SDK.']};
-    const blocked=await prepare(incompatible);expect(blocked.files).toBeUndefined();expect(blocked.report.blockers.join(' ')).toContain('Requires newer SDK.');
+test.each(['missing', 'unapproved', 'incompatible'])('%s providers produce review blockers', async scenario => {
+    const fixture = fixtures();
+    const options = {};
+    if (scenario === 'missing') options.resolveSharedProvider = async () => null;
+    if (scenario === 'unapproved') fixture.provider.capabilities = [];
+    if (scenario === 'incompatible') fixture.providerSnapshot.sourceCompatibility = {status: 'incompatible', issues: ['Requires newer SDK.']};
+    const result = await prepare(fixture, options);
+    expect(result.files).toBeUndefined();
+    expect(result.report.blockers.join(' ')).toContain({missing: 'must be installed', unapproved: 'plugins.shared.provide', incompatible: 'Requires newer SDK.'}[scenario]);
 });
 
 test('exported processes invoke the real SDK shared handlers, cancel calls, persist provider data and fail explicitly after a provider exits',async()=>{

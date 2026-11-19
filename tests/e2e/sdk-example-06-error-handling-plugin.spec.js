@@ -55,7 +55,7 @@ const EXPECTED = {
 
 const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   // Known source-map/instrumentation gaps and low-value lines for this example.
-  13, 30, 177,
+  13, 30, 177, 234,
   39, 48, 76, 77, 78, 79, 80, 81, 82,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {

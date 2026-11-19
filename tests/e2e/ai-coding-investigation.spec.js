@@ -81,7 +81,7 @@ for(const stale of [false,true])test(stale?'saved review refuses a repair after 
         await page.waitForFunction(()=>window.__editorTestApi?.getState().workspaceTreeIds.includes('/index.ts'));
         const baseline=await page.evaluate(()=>{
             const api=window.__editorTestApi;
-            for(const id of api.getState().workspaceTreeIds)if(!['/package.json','/tsconfig.json'].includes(id))api.deleteFile(id);
+            for(const id of api.getState().workspaceTreeIds)if(!['/','/package.json','/tsconfig.json'].includes(id))api.deleteFile(id);
             api.createFile('/package.json',JSON.stringify({name:'review-fixture',version:'1.0.0',main:'index.ts'}),'json');
             api.createFile('/index.ts',`import {FDO_SDK} from '@anikitenko/fdo-sdk';import {render} from './view';
 export default class Plugin extends FDO_SDK {get metadata(){return {name:'Review fixture',version:'1.0.0',author:'Tests',description:'Review recovery',icon:'cog'};}init():void{}render():string{return render();}}new Plugin();`);

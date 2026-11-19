@@ -80,7 +80,7 @@ test('Review & repair discovers old SDK form hazards and rejects an unchanged re
         await page.waitForFunction(()=>window.__editorTestApi.getState().nodeModulesLoading===false);
         await page.evaluate(({bad,index})=>{
             const api=window.__editorTestApi;
-            for(const id of api.getState().workspaceTreeIds)if(!['/package.json','/tsconfig.json'].includes(id))api.deleteFile(id);
+            for(const id of api.getState().workspaceTreeIds)if(!['/','/package.json','/tsconfig.json'].includes(id))api.deleteFile(id);
             api.createFile('/package.json',JSON.stringify({name:'form-fixture',version:'1.0.0',main:'index.ts'}),'json');
             api.createFile('/index.ts',index);api.createFile('/view.ts',bad);
         },{bad,index});

@@ -70,7 +70,18 @@ function extractExampleExpectations(absPath) {
       constants.set(`${owner.node.id.name}.${p.node.key.name}`, p.node.value.value);
     }
   }});
-  traverse(ast, {CallExpression(p) {
+  traverse(ast, {ClassMethod(p) {
+    for (const decorator of p.node.decorators || []) {
+      const expression = decorator.expression;
+      const callee = expression.type === 'CallExpression' ? expression.callee : expression;
+      if (callee.type !== 'Identifier' || callee.name !== 'handler') continue;
+      const argument = expression.arguments?.[0];
+      const name = argument?.type === 'StringLiteral' ? argument.value
+        : argument?.type === 'MemberExpression' ? constants.get(`${argument.object.name}.${argument.property.name}`)
+        : !argument ? p.node.key.name : undefined;
+      if (name) handlers.push(name);
+    }
+  }, CallExpression(p) {
     const {node} = p;
     if (node.callee.type !== 'MemberExpression' || node.callee.property.name !== 'registerHandler') return;
     const arg = node.arguments[0];
@@ -191,7 +202,17 @@ async function compileSdkExample(entry) {
       target: "node20",
       sourcemap: "inline",
       external: ["@anikitenko/fdo-sdk"],
-      plugins: [sdkExampleCssPlugin(entry, esbuild)],
+      plugins: [{name: 'sdk-example-relative-imports', setup(build) {
+        // Fault-injected entry points live in temp directories; their supporting
+        // modules still belong to the installed example's source directory.
+        build.onResolve({filter: /^\./}, args => {
+          if (!args.importer || fs.realpathSync(args.importer) !== fs.realpathSync(entry.absPath) || !entry.examplesRoot) return;
+          const original = path.join(entry.examplesRoot, entry.relativePath.replace(/^fault-injected\/[^/]+\//, ''));
+          const base = path.resolve(path.dirname(original), args.path);
+          const resolved = ['', '.ts', '.tsx', '.js', '/index.ts'].map(ext => base + ext).find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+          if (resolved) return {path: resolved};
+        });
+      }}, sdkExampleCssPlugin(entry, esbuild)],
       logLevel: "silent",
       tsconfigRaw: {
         compilerOptions: {
@@ -228,16 +249,35 @@ async function compileSdkExample(entry) {
       coverageGlobalScope: "globalThis",
       coverageGlobalScopeFunc: false,
     });
+    // Generated CommonJS/decorator helpers are compiler implementation details,
+    // not example behavior. Keep their artificial branches out of the gate.
+    compiled = compiled.replace(/^var (__\w+) = /gm, '/* istanbul ignore next */ var $1 = ');
     compiled = instrumenter.instrumentSync(compiled, entry.absPath);
     const { isOperationalExample, operationalCoverageSupport } = require("./sdkOperationalCoverage");
-    if (isOperationalExample(entry)) compiled += operationalCoverageSupport(compiled, entry.relativePath.startsWith("12-"));
+    if (isOperationalExample(entry) || /^(19|20)-shared-logic/.test(entry.relativePath)) compiled += operationalCoverageSupport(compiled);
     if (entry.relativePath === '18-interactive-ssh-plugin.ts') compiled += require('./sdkTerminalCoverage').terminalCoverageSupport();
     compiled += `
 ;(() => {
   try {
     const sdk = require("@anikitenko/fdo-sdk");
     const registry = sdk && sdk.PluginRegistry;
+    // Exercise the public default export as well as the SDK-created instance.
+    void module.exports.default;
     if (registry && typeof registry.registerHandler === "function") {
+      registry.registerHandler("__e2e.exerciseFailure", async ({method, member, memberMethod, data, value, errorValue, sdkExport}) => {
+        const instance = registry.pluginInstance;
+        const target = sdkExport ? sdk[sdkExport].prototype : memberMethod ? instance[member] : instance;
+        const key = memberMethod || member;
+        const descriptor = Object.getOwnPropertyDescriptor(target, key);
+        Object.defineProperty(target, key, value === '__throwOnRead'
+          ? {configurable: true, get() {throw errorValue ?? new Error('Injected coverage failure');}}
+          : {configurable: true, value: value !== undefined ? value : () => {throw errorValue ?? new Error('Injected coverage failure');}});
+        try { return await instance[method](data); }
+        finally {
+          if (descriptor) Object.defineProperty(target, key, descriptor);
+          else delete target[key];
+        }
+      });
       registry.registerHandler("__e2e.getCoverage", () => {
         try {
           const cov = (typeof globalThis !== "undefined" && globalThis.__coverage__) ? globalThis.__coverage__ : {};
@@ -286,7 +326,7 @@ async function deploySdkExample(window, entry, options = {}) {
   const compiledContent = options.compiledContent ?? await compileSdkExample(entry);
   const capabilities = Array.isArray(options.capabilities)
     ? Array.from(new Set(options.capabilities.map((item) => String(item || "").trim()).filter(Boolean)))
-    : [];
+    : entry.relativePath === "19-shared-logic-provider.ts" ? ["plugins.shared.provide"] : [];
   await ensureRootCertificate(window);
   const result = await window.evaluate(async ({ pluginName, compiledContent, relativePath, capabilities }) => {
     return await window.electron.plugin.deployToMainFromEditor({

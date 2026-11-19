@@ -16,7 +16,7 @@ test('Live UI exposes the host target and retains read-only diagnosis for an inc
         const context = visual.getByRole('region', {name: 'Plugin target compatibility'});
         await expect(context.getByText(/Supported FDO:/)).toBeVisible();
         await context.getByText(/Supported FDO:/).click();
-        await expect(context.getByText(/Installed FDO/)).toContainText('Host API 1.0.0');
+        await expect(context.getByText(/Installed FDO/)).toContainText('Host API 1.1.0');
         await expect(context.getByText(/Handshake/)).toContainText('Capability schema 1.0.0');
         await context.getByText(/Supported FDO:/).click();
         await editor.evaluate(() => {

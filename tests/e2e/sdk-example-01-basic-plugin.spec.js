@@ -29,9 +29,7 @@ let electronApp;
 const EXAMPLE_RELATIVE_PATH = "01-basic-plugin.ts";
 const INIT_INJECTED_ERROR = "Injected init failure for e2e branch test";
 const RENDER_INJECTED_ERROR = "Injected render failure for e2e branch test";
-const INIT_CATCH_SENTINEL = "__E2E_INIT_CATCH_REACHED__";
 const RENDER_CATCH_SENTINEL = "__E2E_RENDER_CATCH_REACHED__";
-const INIT_CATCH_UI_SENTINEL = "E2E init catch reached";
 
 const EXPECTED = {
   metadata: {
@@ -93,22 +91,7 @@ function createFaultInjectedEntry(baseEntry, mode) {
   let updatedSource = originalSource;
 
   if (mode === "init-catch") {
-    updatedSource = updatedSource.replace(
-      "export default class BasicPlugin extends FDO_SDK implements FDOInterface {",
-      "export default class BasicPlugin extends FDO_SDK implements FDOInterface {\n  private __e2eInitCatchReached = false;",
-    );
-    updatedSource = updatedSource.replace(
-      'this.log("BasicPlugin initialized!");',
-      `throw new Error("${INIT_INJECTED_ERROR}");`,
-    );
-    updatedSource = updatedSource.replace(
-      "this.error(error as Error);",
-      `this.error(error as Error);\n      this.__e2eInitCatchReached = true;\n      this.error(new Error("${INIT_CATCH_SENTINEL}"));`,
-    );
-    updatedSource = updatedSource.replace(
-      "<h1>Welcome to ${this._metadata.name}</h1>",
-      `<h1>Welcome to \${this._metadata.name}</h1>\n          \${this.__e2eInitCatchReached ? '<p id="e2e-init-catch-sentinel">${INIT_CATCH_UI_SENTINEL}</p>' : ""}`,
-    );
+    updatedSource = updatedSource.replace('this.log("BasicPlugin initialized!");', `throw new Error("${INIT_INJECTED_ERROR}");`);
   } else if (mode === "render-catch") {
     updatedSource = originalSource.replace(
       "return `",
@@ -215,7 +198,7 @@ test.describe("SDK example 01-basic-plugin: live E2E line proof", () => {
     }
   });
 
-  test("01-basic-plugin init() catch branch executes on init failure", async () => {
+  test("01-basic-plugin initialization failures reach SDK diagnostics", async () => {
     test.setTimeout(120000);
 
     const window = await electronApp.firstWindow();
@@ -234,28 +217,13 @@ test.describe("SDK example 01-basic-plugin: live E2E line proof", () => {
 
     const injected = createFaultInjectedEntry(baseEntry, "init-catch");
     try {
-      await deploySdkExample(window, injected.entry, { pluginName });
-      await waitForPluginRegistered(window, pluginName);
-      await waitForPluginReady(window, pluginName);
-      await waitForPluginSettled(window, pluginName);
-
-      await selectPluginOpen(window, pluginName);
-      await expectPluginUiVisible(window, pluginName);
-      const matchedInitCatchMarker = await waitForAnyUiMarker(window, pluginName, [INIT_CATCH_UI_SENTINEL], 25000);
-      expect(matchedInitCatchMarker).toBe(INIT_CATCH_UI_SENTINEL);
-
-      const uiState = await getPluginUiState(window, pluginName);
-      const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 18000 });
-      const tailText = toTailText(logTail);
-      const combinedUi = `${String(uiState?.iframeText || "")}\n${String(uiState?.iframeHtml || "")}`;
-
-      expect(uiState?.runtimeStatus?.loaded).toBe(true);
-      expect(combinedUi).toContain(INIT_CATCH_UI_SENTINEL);
-      expect(String(tailText)).toMatch(
-        new RegExp(`${INIT_CATCH_SENTINEL}|${INIT_INJECTED_ERROR}`),
-      );
-      expect(String(tailText)).not.toContain("plugin.init.error");
-      expect(String(tailText)).not.toContain(EXPECTED.initLogMessage);
+      await deploySdkExample(window, injected.entry, {pluginName, deferActivation: true});
+      await window.evaluate(id => window.electron.plugin.activate(id), pluginName);
+      await expect.poll(async () => toTailText(await getPluginLogTail(window, pluginName, {maxFiles: 3, maxChars: 18000}))).toContain(INIT_INJECTED_ERROR);
+      const logTail = toTailText(await getPluginLogTail(window, pluginName, {maxFiles: 3, maxChars: 18000}));
+      expect(logTail).toContain('plugin.init.error');
+      expect(logTail).not.toContain(EXPECTED.initLogMessage);
+      expect(await window.evaluate(() => window.electron.plugin.getAll())).toBeTruthy();
     } finally {
       await removePlugin(window, pluginName);
       injected.cleanup();

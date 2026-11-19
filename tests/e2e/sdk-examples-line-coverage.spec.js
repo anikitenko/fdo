@@ -150,7 +150,7 @@ for (const entry of entries) {
     await removePlugin(window, pluginName);
 
     try {
-      await deploySdkExample(window, entry, { pluginName, capabilities: isOperationalExample(entry) ? ["system.clipboard.write", "system.network", "system.network.https", "system.network.scope.public-web-secure", "system.network.scope.external-services"] : [] });
+      await deploySdkExample(window, entry, { pluginName, capabilities: isOperationalExample(entry) ? ["system.clipboard.write", "system.network", "system.network.https", "system.network.scope.public-web-secure", "system.network.scope.external-services"] : entry.relativePath === "19-shared-logic-provider.ts" ? ["plugins.shared.provide"] : [] });
       await waitForPluginRegistered(window, pluginName);
       await waitForPluginReady(window, pluginName);
       await waitForPluginSettled(window, pluginName);
