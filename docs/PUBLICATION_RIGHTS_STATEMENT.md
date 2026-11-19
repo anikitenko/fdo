@@ -97,3 +97,15 @@ the release identified below.
 **Signing identity:** Oleksandr Nykytenko (AleXvWaN) <me@alexvwan.me>  
 **Signing key fingerprint:** `2D44849E993870A62DF79C486E3DCD79134122D3`  
 **Public key:** [`PUBLICATION_RIGHTS_SIGNING_KEY.asc`](PUBLICATION_RIGHTS_SIGNING_KEY.asc)
+
+## Verify the signature
+
+From the repository root, import the public key and verify the detached signature:
+
+```sh
+gpg --import docs/PUBLICATION_RIGHTS_SIGNING_KEY.asc
+gpg --verify docs/PUBLICATION_RIGHTS_STATEMENT.md.asc docs/PUBLICATION_RIGHTS_STATEMENT.md
+```
+
+The signing key fingerprint must match the fingerprint recorded above. Any change
+to this declaration requires a new detached signature.
