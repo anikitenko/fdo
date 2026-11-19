@@ -8,15 +8,26 @@ import {cloudflareRequest} from './cloudflare';
 import {geminiRequest} from './gemini';
 import {inspectGeminiModel} from './geminiProvider.cjs';
 import {opencodeRequest} from './opencode';
-import {cursorRequest} from './cursor';
-import {inspectCursorModel} from './cursorProvider';
 import {inspectOpenCodeModel} from './opencodeProvider.cjs';
 import {openrouterRequest} from './openrouter';
 import {inspectOpenRouterModel} from './openRouterProvider.cjs';
 import {ollamaRequest} from './ollama';
 import {usageLedger} from '../billing/ledger';
 
-const providers = {cursor: cursorRequest, openai: openaiRequest, anthropic: anthropicRequest, cloudflare: cloudflareRequest, gemini: geminiRequest, opencode: opencodeRequest, openrouter: openrouterRequest, ollama: ollamaRequest};
+const providers = {openai: openaiRequest, anthropic: anthropicRequest, cloudflare: cloudflareRequest, gemini: geminiRequest, opencode: opencodeRequest, openrouter: openrouterRequest, ollama: ollamaRequest};
+
+function validateProviderResult(result, reason, tools = []) {
+    if (['tool_calls', 'tool_use'].includes(reason) && !result.tool_calls.length) throw new Error('Assistant stream ended without successful completion: missing tool calls.');
+    if (!result.content?.trim() && !result.tool_calls?.length) throw new Error('The provider completed without answer text or tool calls.');
+    // Tool calls are proposals only. Reject undeclared tools;
+    // the app's existing policy owns their execution.
+    if (result.tool_calls.some(call => !tools.some(tool => tool.name === call.name))) throw new Error('Provider returned an undeclared tool call.');
+}
+
+function validateResponseCompletion(signal, complete) {
+    if (signal.aborted) throw new DOMException('AI request was cancelled.', 'AbortError');
+    if (!complete) throw new Error('The AI response has not completed successfully.');
+}
 
 // This is an application boundary, not a model framework. Each adapter uses
 // its provider's official client. FDO retains tool authorization and retries.
@@ -27,7 +38,7 @@ export default class AiProviderClient {
         this.model = options.model;
         this.apiKey = String(options.apiKey || '').trim();
         if (!providers[this.service]) throw new Error(`Unsupported AI provider: ${this.service}`);
-        if (['openai', 'anthropic', 'gemini', 'opencode', 'openrouter', 'cursor'].includes(this.service) && !this.apiKey) throw new Error(`An API key is required for ${this.service}.`);
+        if (['openai', 'anthropic', 'gemini', 'opencode', 'openrouter'].includes(this.service) && !this.apiKey) throw new Error(`An API key is required for ${this.service}.`);
         if (this.service === 'cloudflare') cloudflareConnection(options);
         this.messages = [];
         this.controller = new AbortController();
@@ -39,7 +50,7 @@ export default class AiProviderClient {
     addMessage(role, content, native) { this.messages.push({role, content, ...(native ? {native} : {})}); }
     abort() { this.controller.abort(); }
     describeTransport() {
-        const name = {cursor: 'Cursor', openai: 'OpenAI', anthropic: 'Anthropic', cloudflare: 'Cloudflare', gemini: 'Gemini', opencode: 'OpenCode Zen', openrouter: 'OpenRouter', ollama: 'Ollama'}[this.service];
+        const name = {openai: 'OpenAI', anthropic: 'Anthropic', cloudflare: 'Cloudflare', gemini: 'Gemini', opencode: 'OpenCode Zen', openrouter: 'OpenRouter', ollama: 'Ollama'}[this.service];
         if (!this.transport.requestStarted) return `Preparing the ${name} request.`;
         // Fetch resolves when response headers arrive, not when the connection
         // is established. Buffered generation may wait here for the whole file.
@@ -92,19 +103,14 @@ export default class AiProviderClient {
                         observedUsage = result.usage;
                         reportedUsage = true;
                         serviceTier = result.serviceTier ?? serviceTier;
-                        if (['tool_calls', 'tool_use'].includes(event.reason) && !result.tool_calls.length) throw new Error('Assistant stream ended without successful completion: missing tool calls.');
-                        if (!result.content?.trim() && !result.tool_calls?.length) throw new Error('The provider completed without answer text or tool calls.');
-                        // Tool calls are proposals only. Reject undeclared tools;
-                        // the app's existing policy owns their execution.
-                        if (result.tool_calls.some(call => !(options.tools || []).some(tool => tool.name === call.name))) throw new Error('Provider returned an undeclared tool call.');
+                        validateProviderResult(result, event.reason, options.tools || []);
                         complete = result;
                     } else if (event.type === 'content' || event.type === 'thinking') {
                         self.transport[event.type === 'content' ? 'answerCharacters' : 'reasoningCharacters'] += event.content.length;
                         yield event;
                     }
                 }
-                if (self.controller.signal.aborted) throw new DOMException('AI request was cancelled.', 'AbortError');
-                if (!complete) throw new Error('The AI response has not completed successfully.');
+                validateResponseCompletion(self.controller.signal, complete);
                 finished = true;
                 outcome = 'completed';
             } catch (error) {
@@ -170,10 +176,6 @@ export default class AiProviderClient {
         return safe;
     }
     async verifyConnection() {
-        if (this.service === 'cursor') {
-            await inspectCursorModel({apiKey: this.apiKey, model: this.model});
-            return true;
-        }
         if (this.service === 'gemini') {
             await inspectGeminiModel(this.options, {fetchImpl: this.options.fetchImpl, signal: this.controller.signal});
             return true;

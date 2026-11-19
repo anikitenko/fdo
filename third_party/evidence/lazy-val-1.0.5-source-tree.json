@@ -1,0 +1,61 @@
+{
+  "sha": "b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+  "url": "https://api.github.com/repos/develar/lazy-val/git/trees/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+  "tree": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8fdeaa1e3e3b41b3045405d33dc6a26f7558ceb7",
+      "size": 18,
+      "url": "https://api.github.com/repos/develar/lazy-val/git/blobs/8fdeaa1e3e3b41b3045405d33dc6a26f7558ceb7"
+    },
+    {
+      "path": ".idea",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "2ccb666ba281bf4f47d100c9974c850ac75bcbd6",
+      "url": "https://api.github.com/repos/develar/lazy-val/git/trees/2ccb666ba281bf4f47d100c9974c850ac75bcbd6"
+    },
+    {
+      "path": "package.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "aec80f9a751750c78b247ed86d84c43eb8756b54",
+      "size": 475,
+      "url": "https://api.github.com/repos/develar/lazy-val/git/blobs/aec80f9a751750c78b247ed86d84c43eb8756b54"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "08f1242424e17d8f11220cc5d0871e0dcf9ef3ef",
+      "size": 313,
+      "url": "https://api.github.com/repos/develar/lazy-val/git/blobs/08f1242424e17d8f11220cc5d0871e0dcf9ef3ef"
+    },
+    {
+      "path": "readme.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dde7417819786bc4ff4228b500bc54e244f89366",
+      "size": 158,
+      "url": "https://api.github.com/repos/develar/lazy-val/git/blobs/dde7417819786bc4ff4228b500bc54e244f89366"
+    },
+    {
+      "path": "src",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "f1a04e007b2b08ca2c8d3d6d0d83fa6e4e860ba9",
+      "url": "https://api.github.com/repos/develar/lazy-val/git/trees/f1a04e007b2b08ca2c8d3d6d0d83fa6e4e860ba9"
+    },
+    {
+      "path": "tsconfig.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2f515e8e6cb5923901e42126e92f2f70816947e9",
+      "size": 463,
+      "url": "https://api.github.com/repos/develar/lazy-val/git/blobs/2f515e8e6cb5923901e42126e92f2f70816947e9"
+    }
+  ],
+  "truncated": false
+}

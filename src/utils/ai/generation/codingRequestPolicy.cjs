@@ -2,7 +2,7 @@
 // A whole-scenario Playwright timeout does not override a provider request.
 function codingFirstResponseTimeoutMs({provider = '', firstResponseTimeoutMs} = {}) {
     if (firstResponseTimeoutMs === undefined || firstResponseTimeoutMs === null || firstResponseTimeoutMs === '') {
-        return ['cloudflare', 'ollama', 'opencode', 'openrouter', 'codex-cli', 'gemini-cli', 'cursor'].includes(provider) ? 300000 : 240000;
+        return ['cloudflare', 'ollama', 'opencode', 'openrouter', 'codex-cli', 'gemini-cli'].includes(provider) ? 300000 : 240000;
     }
     const value = Number(firstResponseTimeoutMs);
     if (!Number.isInteger(value) || value < 10000 || value > 600000) {

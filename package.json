@@ -61,7 +61,7 @@
     "test:ai:transport": "node scripts/diagnose-electron-transport.cjs",
     "test:ai:probe": "node scripts/diagnose-ai-provider.cjs",
     "test:ai:reliability": "node scripts/test-ai-reliability.cjs",
-    "test:ai:safety": "node scripts/run-jest.cjs tests/unit/cursor-provider.test.js tests/unit/coding-workspace-generation.test.js tests/unit/workspace-type-import-repair.test.js tests/unit/generated-module-exports.test.js tests/unit/workspace-css-composition.test.js tests/unit/generated-workspace-imports.test.js tests/unit/ai-billing.test.js tests/components/AiUsagePopover.test.jsx tests/unit/ai-model-capabilities.test.js tests/unit/gemini-provider.test.js tests/unit/anthropic-provider-policy.test.js tests/unit/ai-provider-client.test.js tests/unit/native-provider-contracts.test.js tests/unit/openrouter-provider.test.js tests/unit/opencode-provider.test.js tests/unit/cloudflare-structured-output.test.js tests/unit/provider-structured-output.test.js tests/unit/coding-llm-request.test.js tests/unit/cloudflare-provider.test.js tests/components/editor/AiCodingAgentPanel.test.jsx tests/components/AIAssistantsPanel.ollama.test.jsx tests/unit/ollama-provider.test.js tests/unit/coding-ollama-stream.test.js tests/unit/coding-first-content-deadline.test.js tests/unit/coding-llm-stream.test.js tests/unit/ai-coding-output-recovery.test.js tests/unit/ai-coding-transient-recovery.test.js tests/unit/ai-coding-agent-plugin-scope.test.js tests/unit/ai-coding-agent-issue-scope.test.js tests/unit/ai-coding-agent-timeouts.test.js tests/unit/live-ai-lifecycle.test.js tests/unit/live-ai-transport-log.test.js tests/unit/stdio-errors.test.js tests/unit/ipc-reply-target.test.js tests/unit/live-ai-reliability.test.js tests/unit/live-ai-test-budget.test.js --runInBand",
+    "test:ai:safety": "node scripts/run-jest.cjs tests/unit/coding-workspace-generation.test.js tests/unit/workspace-type-import-repair.test.js tests/unit/generated-module-exports.test.js tests/unit/workspace-css-composition.test.js tests/unit/generated-workspace-imports.test.js tests/unit/retired-providers.test.js tests/unit/ai-billing.test.js tests/components/AiUsagePopover.test.jsx tests/unit/ai-model-capabilities.test.js tests/unit/gemini-provider.test.js tests/unit/anthropic-provider-policy.test.js tests/unit/ai-provider-client.test.js tests/unit/native-provider-contracts.test.js tests/unit/openrouter-provider.test.js tests/unit/opencode-provider.test.js tests/unit/cloudflare-structured-output.test.js tests/unit/provider-structured-output.test.js tests/unit/coding-llm-request.test.js tests/unit/cloudflare-provider.test.js tests/components/editor/AiCodingAgentPanel.test.jsx tests/components/AIAssistantsPanel.ollama.test.jsx tests/unit/ollama-provider.test.js tests/unit/coding-ollama-stream.test.js tests/unit/coding-first-content-deadline.test.js tests/unit/coding-llm-stream.test.js tests/unit/ai-coding-output-recovery.test.js tests/unit/ai-coding-transient-recovery.test.js tests/unit/ai-coding-agent-plugin-scope.test.js tests/unit/ai-coding-agent-issue-scope.test.js tests/unit/ai-coding-agent-timeouts.test.js tests/unit/live-ai-lifecycle.test.js tests/unit/live-ai-transport-log.test.js tests/unit/stdio-errors.test.js tests/unit/ipc-reply-target.test.js tests/unit/live-ai-reliability.test.js tests/unit/live-ai-test-budget.test.js --runInBand",
     "test:ai:isolation": "node scripts/check-plugin-assistant-isolation.cjs",
     "test:ai:live:codex": "FDO_E2E_LIVE_AI=1 node scripts/evaluate-plugin-assistant.cjs",
     "test:ai:hardening": "node scripts/run-jest.cjs tests/unit/workspace-sdk-dom-repair.test.js tests/unit/generated-workspace-calls.test.js tests/unit/generated-workspace-options.test.js tests/unit/ai-workspace-candidate.test.js tests/unit/ai-workspace-apply.test.js tests/unit/ai-release-gate.test.js tests/components/editor/AiCodingAgentPanel.test.jsx tests/components/editor/utils/VirtualFS.test.js --runInBand",
@@ -155,7 +155,6 @@
     "@blueprintjs/datetime": "^6.3.0",
     "@blueprintjs/icons": "^6.14.1",
     "@blueprintjs/select": "^6.4.0",
-    "@cursor/sdk": "1.0.40",
     "@dnd-kit/core": "^6.3.1",
     "@expo/sudo-prompt": "^9.3.2",
     "@fdo/minimatch-compat": "file:packages/minimatch-compat",
@@ -187,6 +186,7 @@
     "jimp": "^1.6.1",
     "js-yaml": "^5.4.3",
     "lodash": "^4.17.21",
+    "lazy-val": "file:packages/lazy-val",
     "lodash.isequal": "file:packages/lodash-isequal",
     "lookpath": "^1.2.3",
     "lz-string": "^1.5.0",
@@ -220,7 +220,6 @@
     "typescript": "7.0.2",
     "unique-names-generator": "^4.7.1",
     "uuid": "^14.0.3",
-    "vscode-icons-js": "^11.6.1",
     "yauzl": "^3.4.0"
   },
   "overrides": {
@@ -252,6 +251,7 @@
     "serialize-javascript": "^7.1.4",
     "undici": "^7.30.1",
     "zod": "^4.6.7",
+    "lazy-val": "$lazy-val",
     "lodash.isequal": "$lodash.isequal",
     "minimatch": "$@fdo/minimatch-compat",
     "@electron/asar": "$@electron/asar"
@@ -277,10 +277,6 @@
       "dist/main/node_modules/@anikitenko/fdo-sdk/**/*",
       "dist/main/node_modules/esbuild/**/*",
       "dist/main/node_modules/@esbuild/**/*",
-      "dist/main/node_modules/@cursor/**/*",
-      "dist/main/node_modules/@bufbuild/**/*",
-      "dist/main/node_modules/@connectrpc/**/*",
-      "dist/main/node_modules/@statsig/**/*",
       "dist/main/node_modules/zod/**/*",
       "dist/main/node_modules/@typescript/**/*",
       "dist/main/node_modules/registry-typescript/**/*"

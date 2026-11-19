@@ -6,7 +6,6 @@ import {listAnthropicModels} from "../utils/ai/providers/catalog";
 import {codingFirstResponseTimeoutMs} from "../utils/ai/generation/codingRequestPolicy.cjs";
 import {listCloudflareModels, inspectCloudflareModel, cloudflareAccountId} from "../utils/ai/providers/cloudflareProvider.cjs";
 import {listOllamaModels, inspectOllamaModel, ollamaLlmOptions} from "../utils/ai/providers/ollamaProvider.cjs";
-import {listCursorModels, inspectCursorModel} from "../utils/ai/providers/cursorProvider";
 import {listOpenCodeModels, inspectOpenCodeModel} from "../utils/ai/providers/opencodeProvider.cjs";
 import {listOpenRouterModels, inspectOpenRouterModel} from "../utils/ai/providers/openRouterProvider.cjs";
 import {reserveLiveAiTestRequest} from "../utils/ai/testing/liveAiTestBudget";
@@ -34,6 +33,7 @@ import {
 } from "../utils/ai/generation/geminiCli.js";
 import path from "node:path";
 import {normalizeAiProviderInstructionMap} from "../utils/ai/assistant/aiProviderInstructions";
+import {removeRetiredProviderData} from "../utils/ai/assistant/retiredProviders.cjs";
 
 const activeCodexAuthProcesses = new Map();
 const activeGeminiAuthProcesses = new Map();
@@ -381,6 +381,8 @@ function monitorGeminiTerminalSession(assistant, invocation, loginLaunchResult) 
 }
 
 export function registerSettingsHandlers() {
+    try {removeRetiredProviderData(settings);}
+    catch {/* Retried on the next start; the credential-store warning below covers a locked keychain. */}
     try {settings.migrateAiCredentials?.();}
     catch {
         NotificationCenter.addNotification({source: 'security', type: 'warning',
@@ -463,7 +465,6 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.GET_AVAILABLE_MODELS, async (_, provider, apiKey, baseUrl, accountId, executablePath) => {
-        if (provider === "cursor") return listCursorModels(apiKey);
         if (provider === "opencode") return listOpenCodeModels(apiKey);
         if (provider === "openrouter") return listOpenRouterModels(apiKey);
         if (provider === "cloudflare") return listCloudflareModels({accountId, apiKey});
@@ -595,10 +596,6 @@ export function registerSettingsHandlers() {
             }
             data.apiKey = "";
             data.model = data.model || "gemini-2.5-pro";
-        } else if (data.provider === "cursor") {
-            if (data.purpose !== "coding") throw new Error("Cursor is supported only for Coding Assistant purpose.");
-            data.apiKey = String(data.apiKey || "").trim();
-            await inspectCursorModel(data);
         } else if (data.provider === "opencode") {
             if (data.purpose !== "coding") {
                 throw new Error("OpenCode Zen is currently supported for Coding Assistant purpose.");

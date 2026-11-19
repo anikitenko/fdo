@@ -1,0 +1,8 @@
+{
+  "name": "lazy-val",
+  "version": "1.0.5",
+  "private": true,
+  "description": "Memoized async value holder for electron-updater, implemented in-tree",
+  "main": "index.js",
+  "license": "MIT"
+}

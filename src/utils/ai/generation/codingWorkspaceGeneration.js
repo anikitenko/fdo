@@ -127,7 +127,7 @@ const importSourceSpecifiers = source => {
 
 export function useStagedWorkspaceGeneration(provider, workspace, repairPaths, checkpointable = false) {
     if (['codex-cli', 'gemini-cli'].includes(provider)) return workspace === true;
-    return repairPaths !== undefined || ((checkpointable || ['cloudflare', 'openrouter', 'cursor'].includes(provider)) && workspace === true);
+    return repairPaths !== undefined || ((checkpointable || ['cloudflare', 'openrouter'].includes(provider)) && workspace === true);
 }
 
 export function parseWorkspaceManifest(text, {maxFiles = MAX_WORKSPACE_FILES, cssOnly = false, retainedPaths = [], includeCompositionMode = false, requiredGuide = false} = {}) {

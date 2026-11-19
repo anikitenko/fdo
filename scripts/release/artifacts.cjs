@@ -7,6 +7,7 @@ const {spawnSync} = require('node:child_process');
 const yaml = require('js-yaml');
 const {assetNames, platforms, sha256, readJson, parseVersion} = require('./common.cjs');
 const {evidenceNames,createLegalEvidence}=require('./legal-evidence.cjs');
+const {nativeSourceNames,verifyNativeSource}=require('./native-source.cjs');
 
 function run(command, args) {
     const result = spawnSync(command, args, {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']});
@@ -83,8 +84,22 @@ async function stage({source, destination, version, commit, platform, signed = f
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('A full source commit is required.');
     if (verifyPackaged && platform.startsWith('mac-')) verifyMacDistributables({source, version, platform, signed, notarized});
     const files = [];
-    const evidence=legalDirectory ? await createLegalEvidence({directory:legalDirectory,destination:source,version,commit,platform,publishing,signing}) : [];
-    for (const name of [...assetNames(version, platform),...evidence]) {
+    const packagedReport=path.join(source,'packaged-security-report.json');
+    const packagedTests=fs.existsSync(packagedReport)?readJson(packagedReport):undefined;
+    if (publishing) {
+        require('./packaged-test-evidence.cjs').assertPackagedTests(packagedTests,{version,commit,platform});
+        if(verifyPackaged){
+            const executable=require('../run-packaged-host-services.cjs').packagedExecutable(process.platform,platform.split('-')[1],path.resolve(source));
+            if(await require('./packaged-test-evidence.cjs').applicationDigest(executable)!==packagedTests.applicationSha256)throw new Error('Packaged application changed after security tests.');
+        }
+        for(const name of assetNames(version,platform)) if(packagedTests.installers.find(file=>file.name===name)?.sha256!==await sha256(path.join(source,name))) throw new Error(`Installer changed after packaged tests: ${name}`);
+    }
+    const evidence=legalDirectory ? await createLegalEvidence({directory:legalDirectory,destination:source,version,commit,platform,publishing,signing,packagedTests}) : [];
+    const nativeNames=nativeSourceNames(version,platform);
+    const nativeSource=nativeNames.every(name=>fs.existsSync(path.join(source,name)))?nativeNames:[];
+    if (publishing && !nativeSource.length) throw new Error(`Missing native source archive for ${platform}. Run scripts/release/native-source.cjs first.`);
+    if (nativeSource.length) await verifyNativeSource({archive:path.join(source,nativeNames[0]),sidecar:path.join(source,nativeNames[1]),version,commit,platform});
+    for (const name of [...assetNames(version, platform),...evidence,...nativeSource]) {
         const file = path.join(source, name);
         let stat;
         try {stat = fs.lstatSync(file);}
@@ -104,7 +119,7 @@ async function stage({source, destination, version, commit, platform, signed = f
     fs.mkdirSync(destination, {recursive: true});
     for (const file of files) fs.copyFileSync(path.join(source, file.name), path.join(destination, file.name), fs.constants.COPYFILE_EXCL);
     for (const file of metadata) fs.copyFileSync(path.join(source, file.sourceName), path.join(destination, file.name), fs.constants.COPYFILE_EXCL);
-    const manifest = {schemaVersion: 1, version, commit, platform, signed, notarized, files, ...(evidence.length?{evidence}: {})};
+    const manifest = {schemaVersion: 1, version, commit, platform, signed, notarized, files, ...(evidence.length?{evidence}: {}), ...(nativeSource.length?{nativeSource}: {})};
     fs.writeFileSync(path.join(destination, `${platform}.json`), JSON.stringify(manifest, null, 2) + '\n', {flag: 'wx'});
     return manifest;
 }
@@ -149,8 +164,10 @@ async function assemble({source, destination, version, commit, publishing = fals
         if (manifest.schemaVersion !== 1 || manifest.platform !== platform || manifest.version !== version || manifest.commit !== commit) throw new Error(`Mismatched build manifest: ${platform}`);
         if (publishing && platform.startsWith('mac-') && (manifest.signed !== true || manifest.notarized !== true)) throw new Error('Published macOS assets must be signed and notarized.');
         const evidence=manifest.evidence || [];
-        if ((requireEvidence && evidence.length!==3) || (evidence.length && (evidence.length!==3 || evidence.some(name=>!evidenceNames(version,platform).includes(name)) || new Set(evidence).size!==3))) throw new Error(`Missing/invalid legal release evidence: ${platform}`);
-        const names = [...assetNames(version, platform),...evidence];
+        if (((requireEvidence || publishing) && evidence.length!==3) || (evidence.length && (evidence.length!==3 || evidence.some(name=>!evidenceNames(version,platform).includes(name)) || new Set(evidence).size!==3))) throw new Error(`Missing/invalid legal release evidence: ${platform}`);
+        const nativeSource=manifest.nativeSource || [];
+        if (((requireEvidence || publishing) && nativeSource.length!==2) || (nativeSource.length && JSON.stringify(nativeSource)!==JSON.stringify(nativeSourceNames(version,platform)))) throw new Error(`Missing/invalid native source archive: ${platform}`);
+        const names = [...assetNames(version, platform),...evidence,...nativeSource];
         if (!Array.isArray(manifest.files) || manifest.files.length !== names.length || new Set(manifest.files.map(file => file.name)).size !== names.length) throw new Error(`Invalid artifact inventory: ${platform}`);
         for (const asset of manifest.files) {
             if (!names.includes(asset.name) || !byName.has(asset.name)) throw new Error(`Missing/unexpected asset: ${asset.name}`);
@@ -158,10 +175,12 @@ async function assemble({source, destination, version, commit, publishing = fals
             if (fs.statSync(file).size !== asset.size || await sha256(file) !== asset.sha256) throw new Error(`Artifact checksum mismatch: ${asset.name}`);
             expected.add(asset.name);
         }
+        if (nativeSource.length) await verifyNativeSource({archive:byName.get(nativeSource[0]),sidecar:byName.get(nativeSource[1]),version,commit,platform});
         if (evidence.length) {
             const provenance=readJson(byName.get(evidenceNames(version,platform)[2]));
             if (provenance.version!==version || provenance.commit!==commit || provenance.platform!==platform) throw new Error(`Mismatched legal provenance: ${platform}`);
             if (publishing && (provenance.source?.commit!==commit || provenance.source?.dirty!==false)) throw new Error(`Published releases require clean source provenance: ${platform}`);
+            if (publishing && provenance.legalReleaseReady!==true) throw new Error(`Publication requires licensing clearance: ${platform}`);
             for (const [suffix,hash] of [['-legal.zip',provenance.legalArchiveSha256],['-sbom.cdx.json',provenance.sbomSha256]]) {
                 const name=evidence.find(name=>name.endsWith(suffix));
                 if (await sha256(byName.get(name))!==hash) throw new Error(`Legal evidence checksum mismatch: ${name}`);
@@ -173,6 +192,7 @@ async function assemble({source, destination, version, commit, publishing = fals
     fs.mkdirSync(destination, {recursive: true});
     const assets = builds.flatMap(build => build.files).sort((a, b) => a.name.localeCompare(b.name));
     for (const asset of assets) fs.copyFileSync(byName.get(asset.name), path.join(destination, asset.name), fs.constants.COPYFILE_EXCL);
+    if(publishing) await require('./publication-gate.cjs').verifyPublicationEvidence(destination,{version,commit,manifest:{builds}});
     for (const [name, file] of byName) if (name.endsWith('.blockmap') || name === 'latest.yml' || name === 'latest-linux.yml') fs.copyFileSync(file, path.join(destination, name), fs.constants.COPYFILE_EXCL);
     mergeMacUpdateInfo(byName, destination);
     const updateInventory = [];

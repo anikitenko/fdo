@@ -9,5 +9,6 @@ module.exports=function preparePackageLegal(context) {
         ? path.join(context.appOutDir,context.packager.info.framework.distMacOsAppName,'Contents','Resources')
         : context.appOutDir;
     return require('./legal/inventory.cjs').generate({root,platform,arch,
+        release:process.env.RELEASE_PUBLISH==='true',
         electronNoticesPath:path.join(runtimeRoot,'LICENSES.chromium.html')});
 };

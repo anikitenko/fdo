@@ -4994,9 +4994,7 @@ Rules:
                     </div>
                     {assistantLoadError && <Callout intent="warning" style={{marginTop: '8px'}}>{assistantLoadError}</Callout>}
                     <p style={{marginTop: '8px'}}>Screenshots: {imageSupportLabel(inputCapabilities)}</p>
-                    {inputCapabilities.imageSupport === 'unknown' && <p>{selectedAssistant?.provider === 'cursor'
-                        ? 'Attach screenshots or mockups to your request.'
-                        : 'You can attach an image. The provider will check whether the selected model accepts it.'}</p>}
+                    {inputCapabilities.imageSupport === 'unknown' && <p>You can attach an image. The provider will check whether the selected model accepts it.</p>}
                 </FormGroup>
 
                 <FormGroup label="Action" labelFor="action-select">

@@ -53,5 +53,15 @@
     "file": "data-uri-to-buffer-4.0.1-LICENSE.txt",
     "source": "node_modules/data-uri-to-buffer/README.md (original License section)",
     "sha256": "3072ef4a004c4f92b37eae61cdc3e27225c0a7d2f5e144700e40b9c5a5a7a9b9"
+  },
+  {
+    "file": "fdo-sdk-1.9.2-ISC.txt",
+    "source": "third_party/permissions/fdo-sdk.md (maintainer-authorized FDO-side notice, 2026-11-19)",
+    "sha256": "0839d0a44f1fbaf06573a9ff295deb125a0405a04fb8e3280c83d8e63831200e"
+  },
+  {
+    "file": "typescript-7.0.2-darwin-arm64-NOTICE.txt",
+    "source": "Installed @typescript/typescript-darwin-arm64@7.0.2/NOTICE.txt; package gitHead 2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
+    "sha256": "f5c708b59114507b8b27b48181b6883d106bbca0c1634bbee45b5e344237b66b"
   }
 ]

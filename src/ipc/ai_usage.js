@@ -32,7 +32,7 @@ export async function registerAiUsageHandlers() {
     ipcMain.handle(AiUsageChannels.GET, async (_event, filter = {}) => {try {await usageLedger.flush();} catch { /* The snapshot exposes persistenceError. */ } return usageLedger.snapshot({surface: filter.surface, sessionId: filter.sessionId});});
     ipcMain.handle(AiUsageChannels.RATES, () => ({catalog: PRICING_CATALOG, overrides: usageLedger.rates, sources: PRICING_SOURCES}));
     ipcMain.handle(AiUsageChannels.SAVE_RATE, async (_event, {provider, model, rate}) => {
-        if (!['openai', 'anthropic', 'gemini', 'cloudflare', 'opencode', 'openrouter', 'cursor'].includes(provider) || typeof model !== 'string' || !model.trim() || model.length > 200) throw new Error('Choose an API provider and model.');
+        if (!['openai', 'anthropic', 'gemini', 'cloudflare', 'opencode', 'openrouter'].includes(provider) || typeof model !== 'string' || !model.trim() || model.length > 200) throw new Error('Choose an API provider and model.');
         const key = rateKey(provider, model.trim());
         if (rate === null) delete usageLedger.rates[key];
         else usageLedger.rates[key] = {...validateRate(rate), source: 'Custom rate', verifiedAt: new Date().toISOString().slice(0, 10)};

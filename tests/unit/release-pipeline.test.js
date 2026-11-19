@@ -51,39 +51,57 @@ test('signed mac builds allow electron-builder identity discovery', () => {
         expect(signingChildEnv({platform: 'win', signed: true, env, temp}).CSC_IDENTITY_AUTO_DISCOVERY).toBe('false');
     } finally {fs.rmSync(temp, {recursive: true, force: true});}
 });
-async function fixture(version = '1.0.0-rc.1', signed = false) {
+async function fixture(version = '1.0.0-rc.1', signed = false, stale = false) {
     const download = path.join(root,'download');fs.mkdirSync(download);
     for (const platform of Object.keys(platforms)) {
         const source = path.join(root,platform), destination = path.join(download,platform);fs.mkdirSync(source,{recursive:true});
         for (const file of assetNames(version,platform)) fs.writeFileSync(path.join(source,file),`${platform} binary ${file}`);
-        await stage({source,destination,version,commit,platform,signed,notarized:signed && platform.startsWith('mac-')});
+        const legalDirectory=await require('../helpers/legalReleaseFixture.cjs')({root,source,platform,version,commit});
+        if(stale && platform==='linux-x64'){
+            const file=path.join(legalDirectory,'review.json'),review=JSON.parse(fs.readFileSync(file,'utf8'));review.items[0].inputs[platform]='f'.repeat(64);fs.writeFileSync(file,JSON.stringify(review));
+            const indexFile=path.join(legalDirectory,'files.json'),index=JSON.parse(fs.readFileSync(indexFile,'utf8'));index.files.find(f=>f.path==='review.json').sha256=await sha256(file);fs.writeFileSync(indexFile,JSON.stringify(index));
+        }
+        await require('../helpers/nativeSourceFixture.cjs')({source,version,commit,platform});
+        await stage({source,destination,version,commit,platform,signed,notarized:signed && platform.startsWith('mac-'),legalDirectory});
     }
     return download;
 }
 test('assembles exactly nine unique installers, checksums and a source manifest', async () => {
     const source = await fixture(), destination = path.join(root,'assets');
     const result = await assemble({source,destination,version:'1.0.0-rc.1',commit});
-    expect(result.builds).toHaveLength(4);expect(fs.readdirSync(destination)).toHaveLength(11);
+    expect(result.builds).toHaveLength(4);expect(fs.readdirSync(destination)).toHaveLength(31);
     for (const line of fs.readFileSync(path.join(destination,'SHA256SUMS'),'utf8').trim().split('\n')) {
         const [digest,name] = line.split('  ');expect(await sha256(path.join(destination,name))).toBe(digest);
     }
 });
-test('release assembly requires complete legal sidecars and detects tampering', async () => {
+test('release assembly requires complete cleared legal sidecars and detects tampering', async () => {
     const source=await fixture('1.0.0-rc.1',true),version='1.0.0-rc.1';
+    const file=path.join(source,'mac-arm64','mac-arm64.json'),original=fs.readFileSync(file,'utf8'),manifest=JSON.parse(original);
+    manifest.evidence=[];fs.writeFileSync(file,JSON.stringify(manifest));
     await expect(assemble({source,destination:path.join(root,'missing-evidence'),version,commit,requireEvidence:true})).rejects.toThrow('legal release evidence');
-    const {evidenceNames}=require('../../scripts/release/legal-evidence.cjs');
-    for (const platform of Object.keys(platforms)) {
-        const directory=path.join(source,platform),manifestFile=path.join(directory,`${platform}.json`),manifest=JSON.parse(fs.readFileSync(manifestFile,'utf8'));
-        const names=evidenceNames(version,platform);
-        fs.writeFileSync(path.join(directory,names[0]),'legal archive');fs.writeFileSync(path.join(directory,names[1]),'sbom');
-        fs.writeFileSync(path.join(directory,names[2]),JSON.stringify({version,commit,platform,source:{commit,dirty:false},legalReleaseReady:false,legalArchiveSha256:await sha256(path.join(directory,names[0])),sbomSha256:await sha256(path.join(directory,names[1]))}));
-        for (const name of names) manifest.files.push({name,size:fs.statSync(path.join(directory,name)).size,sha256:await sha256(path.join(directory,name))});
-        manifest.evidence=names;fs.writeFileSync(manifestFile,JSON.stringify(manifest));
-    }
+    fs.writeFileSync(file,original);
     await assemble({source,destination:path.join(root,'with-evidence'),version,commit,requireEvidence:true,publishing:true});
-    expect(fs.readdirSync(path.join(root,'with-evidence'))).toHaveLength(23);
-    const name=evidenceNames(version,'linux-x64')[0];fs.appendFileSync(path.join(source,'linux-x64',name),'tamper');
+    expect(fs.readdirSync(path.join(root,'with-evidence'))).toHaveLength(31);
+    const {evidenceNames}=require('../../scripts/release/legal-evidence.cjs');
+    const provenancePath=path.join(source,'mac-arm64',evidenceNames(version,'mac-arm64')[2]);
+    const provenance=JSON.parse(fs.readFileSync(provenancePath,'utf8'));provenance.legalReleaseReady=false;
+    fs.writeFileSync(provenancePath,JSON.stringify(provenance));
+    const updated=JSON.parse(original),record=updated.files.find(f=>f.name===path.basename(provenancePath));record.size=fs.statSync(provenancePath).size;record.sha256=await sha256(provenancePath);fs.writeFileSync(file,JSON.stringify(updated));
+    await expect(assemble({source,destination:path.join(root,'pending'),version,commit,publishing:true})).rejects.toThrow('licensing clearance');
+    fs.appendFileSync(path.join(source,'linux-x64',evidenceNames(version,'linux-x64')[0]),'tamper');
     await expect(assemble({source,destination:path.join(root,'tampered-evidence'),version,commit,requireEvidence:true})).rejects.toThrow('checksum mismatch');
+});
+test('release assembly requires and verifies the native source archive',async()=>{
+    const source=await fixture('1.0.0-rc.1',true),version='1.0.0-rc.1';
+    const {nativeSourceNames}=require('../../scripts/release/native-source.cjs');
+    const file=path.join(source,'win-x64','win-x64.json'),original=fs.readFileSync(file,'utf8'),manifest=JSON.parse(original);
+    manifest.nativeSource=[];fs.writeFileSync(file,JSON.stringify(manifest));
+    await expect(assemble({source,destination:path.join(root,'no-native'),version,commit,requireEvidence:true})).rejects.toThrow('native source');
+    fs.writeFileSync(file,original);
+    const sidecar=path.join(source,'win-x64',nativeSourceNames(version,'win-x64')[1]),record=JSON.parse(fs.readFileSync(sidecar,'utf8'));
+    record.components.pop();fs.writeFileSync(sidecar,JSON.stringify(record));
+    const updated=JSON.parse(original),entry=updated.files.find(f=>f.name===path.basename(sidecar));entry.size=fs.statSync(sidecar).size;entry.sha256=await sha256(sidecar);fs.writeFileSync(file,JSON.stringify(updated));
+    await expect(assemble({source,destination:path.join(root,'bad-native'),version,commit,requireEvidence:true})).rejects.toThrow('native source');
 });
 test('staging reports the files electron-builder actually wrote when an inventory name is missing', async () => {
     const source = path.join(root,'linux');fs.mkdirSync(source);
@@ -137,13 +155,14 @@ test('publishes only after every asset uploads; failed uploads leave an unpublis
     await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:broken.api,uploadFile:broken.uploadFile,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('upload failed');
     expect(broken.state.draft.draft).toBe(true);expect(broken.state.published).toBe(false);
     const good=fakeApi();await publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:good.api,uploadFile:good.uploadFile,isAncestor:()=>true,history:()=>[]});
-    expect(good.state.assets).toHaveLength(11);expect(good.state.calls.at(-1).body).toEqual({draft:false,prerelease:true,make_latest:'false'});
+    expect(good.state.assets).toHaveLength(31);expect(good.state.calls.at(-1).body).toEqual({draft:false,prerelease:true,make_latest:'false'});
     const immutable=fakeApi({published:true});await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:immutable.api,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('already published');
     expect(immutable.state.calls.every(call=>call.method==='GET')).toBe(true);
 });
 test('workflow contracts gate publication and freeze action versions', () => {
     const workflow=yaml.load(fs.readFileSync('.github/workflows/release_matrix.yml','utf8'));
     expect(workflow.permissions).toEqual({contents:'read'});
+    expect(workflow.jobs.validate.steps.some(step=>step.run==='node scripts/legal/inventory.cjs --review --strict')).toBe(true);
     expect(workflow.jobs.validate.steps.some(step => step.run === 'node scripts/release/check-sdk.cjs')).toBe(true);
     expect(workflow.jobs.build.needs).toEqual(['validate','quality']);expect(workflow.jobs.quality.uses).toContain('editor_ui_tests.yml');
     expect(workflow.jobs.publish.needs).toEqual(['validate','assemble']);
@@ -165,7 +184,7 @@ test('resumes a matching draft, skips byte-identical uploaded assets and refuses
     const name='SHA256SUMS',file=path.join(directory,name);
     good.state.assets=[{id:1,name,state:'uploaded',size:fs.statSync(file).size,digest:`sha256:${await sha256(file)}`}];
     await publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:good.api,uploadFile:good.uploadFile,isAncestor:()=>true,history:()=>[]});
-    expect(good.state.calls.filter(call=>call.binary)).toHaveLength(10);expect(good.state.calls.some(call=>call.method==='DELETE')).toBe(false);
+    expect(good.state.calls.filter(call=>call.binary)).toHaveLength(30);expect(good.state.calls.some(call=>call.method==='DELETE')).toBe(false);
     const foreign=fakeApi();foreign.state.draft={id:1,tag_name:'v1.0.0-rc.1',target_commitish:'other',draft:true};
     await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api:foreign.api,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('different release source');
     expect(foreign.state.calls.every(call=>call.method==='GET')).toBe(true);
@@ -175,7 +194,7 @@ test('tag movement after upload leaves the release as a draft', async () => {
     const fake=fakeApi();let lookups=0;
     const api=async(...args)=>args[1].includes('/git/ref/tags/')?{object:{type:'commit',sha:++lookups===1?commit:'b'.repeat(40)}}:fake.api(...args);
     await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api,uploadFile:fake.uploadFile,isAncestor:()=>true,history:()=>[]})).rejects.toThrow('tag moved');
-    expect(fake.state.assets).toHaveLength(11);expect(fake.state.published).toBe(false);
+    expect(fake.state.assets).toHaveLength(31);expect(fake.state.published).toBe(false);
 });
 test('merges electron-builder macOS update metadata and keeps blockmaps', async () => {
     const source = await fixture(), destination = path.join(root, 'metadata');
@@ -199,7 +218,7 @@ test('uploads a verified release through electron-builder', async () => {
     });
     await publish({repository: 'owner/repo', version: '1.0.0-rc.1', commit, directory, api: fake.api, isAncestor: () => true, history: () => [], publishArtifacts});
     expect(publishArtifacts).toHaveBeenCalledWith(expect.any(Array), '1.0.0-rc.1', null, {provider: 'github', owner: 'owner', repo: 'repo', releaseType: 'draft'}, {publish: 'always'});
-    expect(publishArtifacts.mock.calls[0][0]).toHaveLength(11);
+    expect(publishArtifacts.mock.calls[0][0]).toHaveLength(31);
     expect(fake.state.published).toBe(true);
     expect(fake.state.calls.some(call => call.binary)).toBe(false);
 });
@@ -230,4 +249,24 @@ test('tag preflight accepts default-branch commits and rejects an unrelated tagg
     expect(main({GITHUB_REF:'refs/tags/v1.0.0',DEFAULT_BRANCH:'main'},root).publish).toBe(true);
     git(['checkout','--orphan','outside']);git(['add','package.json','package-lock.json']);git(['commit','-m','unrelated']);git(['tag','-f','v1.0.0']);
     expect(()=>main({GITHUB_REF:'refs/tags/v1.0.0',DEFAULT_BRANCH:'main'},root)).toThrow();
+});
+
+test('direct publisher refuses missing legal evidence before any remote action',async()=>{
+    const source=await fixture(),directory=path.join(root,'assets');await assemble({source,destination:directory,version:'1.0.0-rc.1',commit});
+    const manifestPath=path.join(directory,'release-manifest.json'),manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
+    manifest.builds[0].evidence=[];fs.writeFileSync(manifestPath,JSON.stringify(manifest));
+    const sums=fs.readdirSync(directory).filter(name=>name!=='SHA256SUMS');
+    fs.writeFileSync(path.join(directory,'SHA256SUMS'),(await Promise.all(sums.map(async name=>`${await sha256(path.join(directory,name))}  ${name}`))).join('\n')+'\n');
+    const api=jest.fn();await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api})).rejects.toThrow('publication evidence');expect(api).not.toHaveBeenCalled();
+});
+
+test('direct publisher reads archived approvals and refuses stale bindings even when all checksums match',async()=>{
+    const source=await fixture('1.0.0-rc.1',false,true),directory=path.join(root,'assets');
+    await assemble({source,destination:directory,version:'1.0.0-rc.1',commit});
+    const api=jest.fn();await expect(publish({repository:'owner/repo',version:'1.0.0-rc.1',commit,directory,api})).rejects.toThrow('Archived licensing clearance');expect(api).not.toHaveBeenCalled();
+});
+test('staging rejects installers changed after packaged tests',async()=>{
+    await fixture('1.0.0',true);
+    const source=path.join(root,'mac-arm64');fs.appendFileSync(path.join(source,assetNames('1.0.0','mac-arm64')[0]),'changed');
+    await expect(stage({source,destination:path.join(root,'restaged'),version:'1.0.0',commit,platform:'mac-arm64',publishing:true,legalDirectory:path.join(root,'legal-mac-arm64')})).rejects.toThrow('Installer changed after packaged tests');
 });

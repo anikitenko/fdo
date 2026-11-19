@@ -4,44 +4,83 @@
     {
       "id": "missing-package-notices",
       "status": "pending",
-      "scope": "@anikitenko/fdo-sdk 1.8.3 and lazy-val 1.0.5",
-      "action": "Obtain the actual copyright/permission notices from their rights holders and include them in the distributed notices. Installed packages and their npm gitHead source trees declare ISC/MIT but do not contain the full original license notices. Do not invent copyright years or a grant from metadata alone.",
-      "evidence": ["https://github.com/anikitenko/fdo-sdk/tree/50a9021bb60102255e66521a40ad1616c0db7f33", "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071"]
+      "scope": "@anikitenko/fdo-sdk 1.9.2 and lazy-val 1.0.5 (replaced in 1.0.7)",
+      "action": "SDK 1.9.2 has a maintainer-authorized ISC notice retained on the FDO side (third_party/permissions/fdo-sdk.md). lazy-val 1.0.5 (develar/lazy-val) ships no license file or copyright notice in its npm package or pinned source tree, so it is replaced in 1.0.7 by an original in-tree implementation (packages/lazy-val, MIT, same public Lazy API used by electron-updater) wired through package.json overrides. Remaining step: after the final release commit, record the reviewer, date and per-target input hashes from the packaged builds and mark this item cleared.",
+      "evidence": [
+        "https://github.com/anikitenko/fdo-sdk/tree/50a9021bb60102255e66521a40ad1616c0db7f33",
+        "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+        "third_party/permissions/fdo-sdk.md",
+        "packages/lazy-val/index.js",
+        "package.json",
+        "third_party/evidence/lazy-val-1.0.5-source-tree.json"
+      ]
     },
     {
       "id": "publication-rights",
       "status": "pending",
       "scope": "Code, documentation, logos, screenshots and workshop media",
-      "action": "Maintainer must document publication rights, employment/client clearance where applicable, and uncertain third-party or AI-assisted material. Attach the statement and supporting evidence; do not infer ownership from the MIT license.",
-      "evidence": []
+      "action": "Vendor-facing publication rights declaration prepared in docs/PUBLICATION_RIGHTS_STATEMENT.md. It records the confirmed six ChatGPT-generated logo/preview files and distinguishes original project material from third-party components. Before signing, the maintainer must validate the publication-authority statements, applicable approvals, derived-asset rights and permission to disclose information visible in screenshots/workshop media. Awaiting signature, date, exact release source revision, supporting permission evidence where applicable, and target-bound review clearance. Preparing or signing the declaration does not itself complete native/component or packaged-release reviews.",
+      "evidence": [
+        "docs/PUBLICATION_RIGHTS_STATEMENT.md",
+        "third_party/source-evidence.json"
+      ]
     },
     {
       "id": "cursor-redistribution",
       "status": "pending",
-      "scope": "@cursor/sdk and platform runtime 1.0.40",
-      "action": "Obtain a redistribution grant covering the SDK/runtime included in FDO, or remove those components from distribution. The installed license reserves rights and refers to Cursor terms; npm availability does not establish redistribution permission.",
-      "evidence": ["https://cursor.com/terms-of-service", "node_modules/@cursor/sdk/LICENSE.md"]
+      "scope": "@cursor/sdk and platform runtime 1.0.40 (removed from FDO 1.0.7)",
+      "action": "Resolved by removal: the SDK, runtime packages and Cursor assistant provider are deleted from source, package.json and the lockfile, and third_party/distribution-policy.json fails packaging if any @cursor component returns. Existing Cursor assistants saved by earlier versions are deleted at startup. Remaining step: after the final release commit, record the reviewer, date and per-target input hashes from the packaged builds (see docs/LICENSING_AND_PROVENANCE.md) and mark this item cleared.",
+      "evidence": [
+        "third_party/distribution-policy.json",
+        "tests/unit/distribution-policy.test.js",
+        "tests/unit/retired-providers.test.js",
+        "package.json",
+        "package-lock.json"
+      ]
     },
     {
       "id": "git-native-distribution",
       "status": "pending",
       "scope": "Dugite native v2.53.0-4: Git, Git LFS, Git Credential Manager and platform libraries/tools",
-      "action": "Audit each target archive, include its component notices, and fulfill applicable GPL corresponding-source obligations for the exact shipped binaries, including required build scripts/patches. An upstream source link alone is not recorded as fulfillment. Store the actual source distribution or a reviewed compliant alternative with release evidence.",
-      "evidence": ["https://github.com/desktop/dugite-native/tree/4098283a7ecb8a227b9d43580336c78a06f90e5d", "https://github.com/git/git/tree/67ad42147a7acc2af6074753ebd03d904476118f", "node_modules/dugite/script/embedded-git.json"]
+      "action": "Implemented: every release target now ships a corresponding-source archive built in CI (scripts/release/native-source.cjs, policy third_party/native-source.json) holding the pinned upstream sources of the exact bundled Git, Git LFS and Git Credential Manager (all platforms) plus, for Windows, the Git for Windows fork and the MSYS2/MinGW package sources, build-extra and OpenSSL. The archive is staged, checksummed, attested and required by the publication gate. Disclosed deviations: bash uses the MSYS2 5.2.037-2 source package (the -1 source is no longer hosted); OpenSSL 3.5.5 comes from the upstream tarball plus the Git for Windows packaging commits; MinGit's package-versions.txt is stale versus git.exe 2.53.0.windows.4. Remaining step: after the final release commit, run the release matrix, review the archives, then record the reviewer, date and per-target input hashes and mark this item cleared.",
+      "evidence": [
+        "https://github.com/desktop/dugite-native/tree/4098283a7ecb8a227b9d43580336c78a06f90e5d",
+        "https://github.com/git/git/tree/67ad42147a7acc2af6074753ebd03d904476118f",
+        "node_modules/dugite/script/embedded-git.json",
+        "docs/NATIVE_SOURCE_DISTRIBUTION.md",
+        "third_party/native-source.json",
+        "scripts/release/native-source.cjs",
+        "tests/unit/native-source.test.js"
+      ]
     },
     {
       "id": "native-ai-notices",
       "status": "pending",
-      "scope": "Native Codex, Cursor and TypeScript-Go embedded dependencies",
-      "action": "Obtain version/platform-specific embedded dependency notices and review source/redistribution obligations. Parent npm metadata is not a complete inventory of Rust, Go, .NET or other native dependencies. Codex upstream LICENSE and NOTICE are now retained, but do not establish complete native coverage.",
-      "evidence": ["https://github.com/openai/codex/tree/rust-v0.162.1", "third_party/licenses/codex-0.162.1-NOTICE"]
+      "scope": "Native Codex and TypeScript-Go embedded dependencies",
+      "action": "Per-platform findings are recorded for macOS, Linux and Windows x64 (third_party/evidence/native-ai-platform-packages.json, from the published npm tarballs, not run on those platforms). TypeScript native 7.0.2: NOTICE.txt and LICENSE are in every platform package and byte-identical. Codex 0.162.1: every platform package also ships an optional voice runtime (LGPL-2.1 GStreamer/GLib, Opus, libffi, PCRE2, and Microsoft vcruntime140.dll on Windows) that FDO does not use; it is excluded from the app by webpack.main.config.js and enforced by third_party/distribution-policy.json (codex-voice-runtime), and the Codex CLI was confirmed to run without it. Linux ships a bubblewrap helper (LGPL-2.0-or-later) whose vendored source is added to the Linux native-source archive (openai/codex at commit 092d3acd). Still open: Codex helper binaries (rg, zsh, Windows sandbox executables) and Rust crates rely on the upstream NOTICE and the source-lock inventory; no complete native SBOM exists. After the final release commit, review the packaged builds, then record the reviewer, date and per-target input hashes.",
+      "evidence": [
+        "https://github.com/openai/codex/tree/rust-v0.162.1",
+        "third_party/licenses/codex-0.162.1-NOTICE",
+        "third_party/evidence/supplier-audit.json",
+        "third_party/evidence/codex-0.162.1-source-dependencies.json",
+        "third_party/licenses/typescript-7.0.2-darwin-arm64-NOTICE.txt",
+        "third_party/evidence/native-ai-platform-packages.json",
+        "third_party/distribution-policy.json",
+        "third_party/native-source.json",
+        "webpack.main.config.js"
+      ]
     },
     {
       "id": "copied-artwork-and-builds",
       "status": "pending",
-      "scope": "vscode-icons artwork, highlight.js custom build and copied stylesheets",
-      "action": "Review branded-icon permissions and ShareAlike attribution/source obligations; identify file_type_npm.svg origin or replace it with a cleared asset. Record the highlight.js custom build recipe and stylesheet origins. Recheck third_party/assets.json after any replacement.",
-      "evidence": ["third_party/source-evidence.json", "third_party/assets.json"]
+      "scope": "Former vscode-icons artwork (removed in 1.0.7), highlight.js custom build and copied stylesheets",
+      "action": "Resolved by replacement: the 1,374 vscode-icons files and the vscode-icons-js package are deleted. The file-tree icons are now an original set generated by scripts/generate-file-icons.cjs into src/assets/icons/files and registered as project assets. The unmatched npm-branded icon is gone. Both highlight stylesheets and Notyf CSS byte-match pinned npm archives and highlight.js has a reproducible recipe. Remaining step: after the final release commit, record the reviewer, date and per-target input hashes from the packaged builds and mark this item cleared.",
+      "evidence": [
+        "third_party/source-evidence.json",
+        "third_party/assets.json",
+        "scripts/generate-file-icons.cjs",
+        "src/components/editor/utils/fileIcons.js"
+      ]
     }
   ]
 }

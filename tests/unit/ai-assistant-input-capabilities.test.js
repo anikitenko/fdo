@@ -26,23 +26,16 @@ test('retains checked capabilities only for the matching provider and model', ()
     expect(assistantInputCapabilities({provider: 'openrouter', model: 'b', inputCapabilities: saved}).imageSupport).toBe('unknown');
 });
 
-test('Cursor discards the old text-only integration restriction without promising vision for every model', () => {
-    const assistant = {provider: 'cursor', model: 'example'};
-    const legacy = {...assistant, imageSupport: 'unsupported', source: 'integration', reason: 'Text only in FDO'};
-    expect(assistantInputCapabilities(assistant, legacy)).toMatchObject({imageSupport: 'unknown', reason: expect.stringContaining('Attach screenshots or mockups')});
-    expect(assistantInputCapabilities(assistant, {modalities: ['text', 'image']})).toMatchObject({imageSupport: 'supported'});
-    expect(assistantInputCapabilities(assistant, {modalities: ['text']})).toMatchObject({imageSupport: 'unsupported'});
-});
 test('Ollama capability lists explicitly describe whether the local model supports vision', () => {
     expect(assistantInputCapabilities({provider: 'ollama', model: 'example'}, {capabilities: ['completion']}).imageSupport).toBe('unsupported');
 });
 
-test('Cursor presents attachment availability once without cluttering each model or inventing vision support', () => {
-    const unknown = assistantInputCapabilities({provider: 'cursor', model: 'example'});
+test('Unknown image support is labelled without implying vision support, and text-only models are marked', () => {
+    const unknown = assistantInputCapabilities({provider: 'openrouter', model: 'example'});
     expect(unknown.imageSupport).toBe('unknown');
-    expect(imageSupportLabel(unknown)).toBe('Image attachments available');
+    expect(imageSupportLabel(unknown)).toBe('Image support unknown');
     expect(imageSupportOptionSuffix(unknown)).toBe('');
-    const textOnly = assistantInputCapabilities({provider: 'cursor', model: 'example'}, {modalities: ['text']});
+    const textOnly = assistantInputCapabilities({provider: 'openrouter', model: 'example'}, {modalities: ['text']});
     expect(imageSupportOptionSuffix(textOnly)).toBe(' · Text only');
     expect(imageSupportOptionSuffix(assistantInputCapabilities({provider: 'codex-cli'}))).toBe('');
 });

@@ -1,6 +1,6 @@
 import {pluginBuildEntrypoint, pluginBuildSource} from '../../../utils/plugins/runtime/pluginBuildArtifact';
 import React from 'react';
-import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "vscode-icons-js";
+import {getIconForFile, getIconForFolder, getIconForOpenFolder} from "./fileIcons";
 import * as monaco from "monaco-editor";
 import * as styles from '../EditorPage.module.css'
 import _ from "lodash";
@@ -661,7 +661,7 @@ const virtualFS = {
             this.parent.treeObject[0].id = "/";
             this.parent.treeObject[0].label = this.parent.pluginName;
             this.parent.treeObject[0].icon =
-                <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForOpenFolder(this.parent.pluginName)}
+                <img className={styles["file-tree-icon"]} src={"static://assets/icons/files/" + getIconForOpenFolder(this.parent.pluginName)}
                      width="20" height="20" alt="icon"/>;
 
             this.setRestorePhase("restoring-models")
@@ -1411,7 +1411,7 @@ const virtualFS = {
         this.treeObject[0].id = "/";
         this.treeObject[0].label = name;
         this.treeObject[0].icon =
-            <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForOpenFolder(name)}
+            <img className={styles["file-tree-icon"]} src={"static://assets/icons/files/" + getIconForOpenFolder(name)}
                  width="20" height="20" alt="icon"/>
         this.notifications.addToQueue("treeUpdate", this.getTreeObjectSortedAsc())
     },
@@ -1560,7 +1560,7 @@ const virtualFS = {
             id,
             label: name,
             icon: <img className={styles["file-tree-icon"]}
-                       src={type === "folder" ? "static://assets/icons/vscode/" + getIconForFolder(name) : "static://assets/icons/vscode/" + getIconForFile(name)}
+                       src={type === "folder" ? "static://assets/icons/files/" + getIconForFolder(name) : "static://assets/icons/files/" + getIconForFile(name)}
                        width="20" height="20" alt="icon"/>,
             isExpanded: false,
             type: type,
@@ -1626,14 +1626,14 @@ const virtualFS = {
             const node = stack.pop();
             if (node.label) {
                 if (node.type === "folder") {
-                    node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForFolder(node.label)} width="20" height="20"
+                    node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/files/" + getIconForFolder(node.label)} width="20" height="20"
                                      alt="icon"/>
                     if (node.isExpanded) {
-                        node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForOpenFolder(node.label)} width="20" height="20"
+                        node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/files/" + getIconForOpenFolder(node.label)} width="20" height="20"
                                          alt="icon"/>
                     }
                 } else {
-                    node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/vscode/" + getIconForFile(node.label)} width="20" height="20"
+                    node.icon = <img className={styles["file-tree-icon"]} src={"static://assets/icons/files/" + getIconForFile(node.label)} width="20" height="20"
                                      alt="icon"/>
                 }
             }

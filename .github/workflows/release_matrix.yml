@@ -41,9 +41,9 @@ jobs:
         run: node scripts/release/validate.cjs
       - name: Require the latest stable FDO SDK
         run: node scripts/release/check-sdk.cjs
-      - name: Report outstanding licensing and provenance reviews
+      - name: Require licensing and provenance review clearance
         if: steps.release.outputs.publish == 'true'
-        run: node scripts/legal/inventory.cjs --review
+        run: node scripts/legal/inventory.cjs --review --strict
 
   quality:
     name: Release quality gates
@@ -118,6 +118,19 @@ jobs:
       - name: Test the packaged desktop application
         if: matrix.platform != 'linux'
         run: node scripts/run-packaged-host-services.cjs
+      - name: Retain packaged security test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: packaged-security-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/packaged-security-report.json
+            test-results-packaged-services/results.json
+            playwright-report-packaged-services
+          if-no-files-found: error
+          retention-days: 90
+      - name: Build corresponding-source archive for the bundled Git
+        run: node scripts/release/native-source.cjs
       - name: Stage exact installer inventory and checksums
         run: node scripts/release/artifacts.cjs stage
       - name: Upload verified build

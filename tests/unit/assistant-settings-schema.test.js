@@ -50,11 +50,6 @@ test('persists command hooks in their own strict settings namespace',()=>{
     expect(validateHooks([{...hook,allowAllCommands:true}])).toBe(false);
 });
 
-test('Cursor API assistants persist with integration capabilities and no CLI metadata', () => {
-    const cursor = {name: 'Cursor coding', provider: 'cursor', model: 'composer-fixture', apiKey: 'fixture', firstResponseTimeoutMs: 300000};
-    expect(validate({...cursor, inputCapabilities: assistantInputCapabilities(cursor)})).toBe(true);
-});
-
 test('contains only active configuration, without JSON history fields', () => {
     const schema = Store.mock.calls.find(([options]) => options.name === 'settings')[0].schema;
     expect(schema.notifications).toBeUndefined();

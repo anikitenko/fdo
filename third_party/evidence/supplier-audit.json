@@ -1,0 +1,32 @@
+{
+  "reviewedAt": "2026-11-19",
+  "records": [
+    {
+      "file": "third_party/evidence/dugite-native-v2.53.0-4-dependencies.json",
+      "source": "https://raw.githubusercontent.com/desktop/dugite-native/4098283a7ecb8a227b9d43580336c78a06f90e5d/dependencies.json",
+      "sha256": "7ff51dc3947eb1f45410effd85088f20f320fa770e13529cd299900cf99465d1"
+    },
+    {
+      "file": "third_party/evidence/dugite-native-v2.53.0-4.gitmodules",
+      "source": "https://raw.githubusercontent.com/desktop/dugite-native/4098283a7ecb8a227b9d43580336c78a06f90e5d/.gitmodules",
+      "sha256": "4ad3b0539045e367e7385a4b7ed2827f6900138a0ad2ba5a32174d0de0c0e89c"
+    },
+    {
+      "file": "third_party/evidence/lazy-val-1.0.5-source-tree.json",
+      "source": "https://api.github.com/repos/develar/lazy-val/git/trees/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+      "sha256": "7982708dc3f2041320db2974012227e3c909887ac2843094bc088e6d07145a4e"
+    },
+    {
+      "file": "third_party/evidence/native-ai-platform-packages.json",
+      "source": "npm registry tarballs @openai/codex@0.162.1-<platform> and @typescript/typescript-<platform>@7.0.2",
+      "sha256": "f7b0039d579ad1117ded8ed6c508f7fe2ceaf747fe515144053e05aa5427bbe3"
+    }
+  ],
+  "findings": {
+    "cursor": "Removed in 1.0.7. @cursor/sdk@1.0.40 LICENSE.md reserved rights and no redistribution grant was established, so the SDK, its runtime packages and the Cursor assistant provider are no longer distributed. third_party/distribution-policy.json enforces the exclusion.",
+    "codex": "Pinned upstream NOTICE retained and byte-matched. Source-lock inventory retained separately. Per-platform packages inspected (macOS, Linux, Windows x64): the optional LGPL voice runtime is not used by FDO and is excluded from distribution; the Linux bubblewrap helper (LGPL-2.0-or-later) has its vendored source in the Linux native-source archive. Helper binaries (rg, zsh, Windows sandbox executables) and a native SBOM remain open.",
+    "typescript": "NOTICE.txt and LICENSE present in each of the darwin-arm64, darwin-x64, linux-x64 and win32-x64 7.0.2 packages and byte-identical (see native-ai-platform-packages.json); the notice is collected from the installed package for each target.",
+    "lazy-val": "Pinned tree and npm package carry no license notice and no rights-holder authorization was obtained. Replaced in 1.0.7 by an original in-tree package (packages/lazy-val); the upstream evidence is retained only as the audit record.",
+    "git": "Pinned build dependency manifest and Git submodule confirmed. A corresponding-source archive per target is built and verified by scripts/release/native-source.cjs (policy third_party/native-source.json); CI review of the produced archives remains."
+  }
+}

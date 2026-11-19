@@ -15,9 +15,8 @@ Copied assets are registered in [third_party/assets.json](third_party/assets.jso
 | Pure 3.0.0 / normalize.css 8.0.1 | BSD-3-Clause / MIT |
 | Notyf 3.10.0; Split Grid 1.0.11 | MIT |
 | highlight.js 11.10.0 | BSD-3-Clause; exact custom build provenance pending |
-| vscode-icons artwork | Upstream identifies CC BY-SA 4.0, with separate terms for branded icons; its source-code MIT license does not clear all artwork |
-| Dugite / bundled Git | MIT wrapper; Git is GPL-2.0, with additional components and obligations in the native distribution |
-| Codex 0.162.1 | Apache-2.0; upstream LICENSE and NOTICE retained; embedded native coverage remains under review |
-| Cursor SDK/runtime 1.0.40 | Reserved rights / Cursor terms; redistribution clearance pending |
+| Dugite / bundled Git | MIT wrapper; Git is GPL-2.0, with additional components and obligations in the native distribution. Corresponding sources are published beside each release as `fdo-<version>-<platform>-native-source.zip` |
+| Codex 0.162.1 | Apache-2.0; upstream LICENSE and NOTICE retained; the optional voice runtime is not distributed; the Linux bubblewrap helper (LGPL-2.0-or-later) has source in the Linux native-source archive; embedded native coverage remains under review |
+| TypeScript native 7.0.2 | Apache-2.0; supplier NOTICE.txt shipped in each platform package |
 
 This is an inventory and remediation record, not a declaration that all redistribution requirements have been fulfilled. See the [review ledger](third_party/review.json) and [licensing and provenance guide](docs/LICENSING_AND_PROVENANCE.md) for unresolved items and release checks. No new rights or trademark permissions are granted by this document.

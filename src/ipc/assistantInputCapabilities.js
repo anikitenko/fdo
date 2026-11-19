@@ -1,5 +1,4 @@
 import {assistantInputCapabilities} from '../utils/ai/assistant/aiAssistantInputCapabilities';
-import {inspectCursorModel} from '../utils/ai/providers/cursorProvider';
 import {inspectOpenRouterModel} from '../utils/ai/providers/openRouterProvider.cjs';
 import {inspectOpenCodeModel} from '../utils/ai/providers/opencodeProvider.cjs';
 import {inspectOllamaModel} from '../utils/ai/providers/ollamaProvider.cjs';
@@ -10,8 +9,7 @@ import {listOpenAIModels, listAnthropicModels} from '../utils/ai/providers/catal
 // Metadata discovery only: never spend an inference request to probe images.
 export async function discoverAssistantInputCapabilities(assistant) {
     let metadata = {};
-    if (assistant.provider === 'cursor') metadata = (await inspectCursorModel(assistant)).modelMetadata;
-    else if (assistant.provider === 'openrouter') metadata = await inspectOpenRouterModel(assistant);
+    if (assistant.provider === 'openrouter') metadata = await inspectOpenRouterModel(assistant);
     else if (assistant.provider === 'opencode') metadata = await inspectOpenCodeModel(assistant);
     else if (assistant.provider === 'ollama') metadata = await inspectOllamaModel(assistant.baseUrl, assistant.model);
     else if (assistant.provider === 'cloudflare') metadata = await inspectCloudflareModel(assistant, {includeInputCapabilities: true});

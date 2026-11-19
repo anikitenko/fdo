@@ -5,7 +5,7 @@ import * as styles from './EditorPage.module.css'
 import React from "react";
 import {useEffect, useRef, useState} from "react";
 import classnames from "classnames";
-import {getIconForFile, getIconForOpenFolder} from "vscode-icons-js";
+import {getIconForFile, getIconForOpenFolder} from "./utils/fileIcons";
 
 const FileTabs = ({closeTab}) => {
     const [tabs, setTabs] = useState(virtualFS.tabs.get())
@@ -207,12 +207,12 @@ const FileTabs = ({closeTab}) => {
                         <span key={index} style={{display: "flex", alignItems: "center", gap: 2, fontSize: "75%"}}>
                             {item.current ? (
                                 <img
-                                     src={"static://assets/icons/vscode/" + getIconForFile(item.text)} width="20"
+                                     src={"static://assets/icons/files/" + getIconForFile(item.text)} width="20"
                                      height="20"
                                      alt="icon"/>
                             ) : (
                                 <img
-                                     src={"static://assets/icons/vscode/" + getIconForOpenFolder(item.text)} width="20"
+                                     src={"static://assets/icons/files/" + getIconForOpenFolder(item.text)} width="20"
                                      height="20"
                                      alt="icon"/>
                             )}

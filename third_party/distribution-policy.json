@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "excluded": [
+    {
+      "id": "cursor",
+      "packages": [
+        "@cursor/sdk"
+      ],
+      "paths": [
+        "node_modules/@cursor"
+      ]
+    },
+    {
+      "id": "codex-voice-runtime",
+      "packages": [],
+      "paths": [
+        "codex-resources/voice"
+      ]
+    }
+  ]
+}

@@ -156,12 +156,12 @@ test.describe('Snapshots E2E', () => {
   
   test('Editor file tree loads icon assets successfully', async () => {
     const win = await openEditorWithMockedIPC(app);
-    const img = await win.waitForSelector('img[src^="static://assets/icons/vscode/"]', { timeout: 15000 });
+    const img = await win.waitForSelector('img[src^="static://assets/icons/files/"]', { timeout: 15000 });
     const src = await img.getAttribute('src');
-    expect(src).toMatch(/^static:\/\/assets\/icons\/vscode\//);
+    expect(src).toMatch(/^static:\/\/assets\/icons\/files\//);
 
     await win.waitForFunction(() => {
-      const icon = document.querySelector('img[src^="static://assets/icons/vscode/"]');
+      const icon = document.querySelector('img[src^="static://assets/icons/files/"]');
       return Boolean(icon && icon.complete && icon.naturalWidth > 0 && icon.naturalHeight > 0);
     }, { timeout: 15000 });
   });

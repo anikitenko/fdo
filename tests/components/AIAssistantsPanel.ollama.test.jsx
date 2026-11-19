@@ -123,31 +123,3 @@ test('Cloudflare loads models after account and token, and saves coding-only acc
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
 
-test('Cursor uses API-key model discovery and coding purpose without CLI setup or sign-in', async () => {
-    const ai = {getAssistants: jest.fn().mockResolvedValue([]),
-        getAvailableModels: jest.fn().mockResolvedValue([{label: 'Composer fixture', value: 'composer-fixture', provider: 'cursor'}]),
-        addAssistant: jest.fn().mockResolvedValue({}), getCodexAuthStatus: jest.fn()};
-    window.electron = {settings: {ai}};
-    render(<AIAssistantsPanel/>);
-    await screen.findByText('No AI Assistants yet');
-    fireEvent.click(screen.getByRole('button', {name: 'Add Assistant'}));
-    const dialog = within(screen.getByRole('dialog'));
-    fireEvent.change(dialog.getByLabelText('Provider'), {target: {value: 'cursor'}});
-    expect(dialog.getByText(/No separate Cursor CLI installation or browser login is required/)).toBeVisible();
-    expect(dialog.getByRole('option', {name: 'Cursor'})).toBeTruthy();
-    expect(dialog.getByText('A secret access token that lets FDO make requests using your Cursor account.')).toBeVisible();
-    expect(dialog.getByLabelText('Purpose')).toHaveValue('coding');
-    expect(dialog.getByLabelText('Purpose')).toBeDisabled();
-    fireEvent.change(dialog.getByLabelText('API Key'), {target: {value: 'cursor-test-key'}});
-    await waitFor(() => expect(dialog.getByLabelText('Model')).toHaveValue('composer-fixture'));
-    expect(ai.getAvailableModels).toHaveBeenCalledWith('cursor', 'cursor-test-key', expect.anything());
-    expect(dialog.getByRole('option', {name: 'Composer fixture'})).toBeTruthy();
-    expect(dialog.getByText('Image attachments available')).toBeVisible();
-    expect(dialog.queryByText('Image support unknown')).toBeNull();
-    fireEvent.change(dialog.getByLabelText('Name'), {target: {value: 'Cursor coding'}});
-    fireEvent.click(dialog.getByRole('button', {name: 'Add Assistant'}));
-    await waitFor(() => expect(ai.addAssistant).toHaveBeenCalledTimes(1));
-    expect(ai.addAssistant.mock.calls[0][0]).toMatchObject({provider: 'cursor', purpose: 'coding', model: 'composer-fixture', apiKey: 'cursor-test-key'});
-    expect(ai.addAssistant.mock.calls[0][0]).not.toHaveProperty('executablePath');
-    expect(ai.getCodexAuthStatus).not.toHaveBeenCalled();
-});

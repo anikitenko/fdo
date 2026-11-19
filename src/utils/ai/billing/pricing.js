@@ -46,9 +46,6 @@ export const providerBilling = {
     // explicit zero for free models) estimate cost like other OpenAI-compatible
     // endpoints. Without a saved rate the cost stays unknown, never zero.
     openrouter: (usage, rate) => calculate(usage, rate),
-    // The adapter normalizes Cursor's separately reported cache reads/writes
-    // into inclusive input tokens. Reasoning is already part of output tokens.
-    cursor: (usage, rate) => calculate(usage, rate),
 };
 export function estimateCost({provider, model, usage, rate, at = new Date().toISOString(), serviceTier, completeUsage = true}) {
     if (provider === 'ollama') return {status: 'local', currency: 'USD', inputCost: 0, outputCost: 0, totalCost: 0, reason: 'Local inference; hardware and electricity excluded.'};

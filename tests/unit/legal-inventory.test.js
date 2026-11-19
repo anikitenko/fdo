@@ -38,7 +38,7 @@ test.each([['darwin','arm64'],['darwin','x64'],['linux','x64'],['win32','x64']])
     const relative=platform==='darwin'?'Electron.app/Contents/Resources/LICENSES.chromium.html':'LICENSES.chromium.html';
     const target=path.join(appOutDir,relative);
     fs.mkdirSync(path.dirname(target),{recursive:true});
-    const notices=`<html>Exact ${platform}/${arch} target notices</html>`;
+    const notices=`<html lang="en">Exact ${platform}/${arch} target notices</html>`;
     fs.writeFileSync(target,notices);
     const afterExtract=require('../../scripts/prepare-package-legal.cjs');
     const result=await afterExtract({appOutDir,electronPlatformName:platform,arch,packager:{info:{appDir:root,framework:{distMacOsAppName:'Electron.app'}}}});
@@ -48,7 +48,7 @@ test.each([['darwin','arm64'],['darwin','x64'],['linux','x64'],['win32','x64']])
     expect(manifest.files.find(file=>file.path==='LICENSES.chromium.html').sha256).toBe(sha256(notices));
     const releasePlatform=platform==='darwin'?'mac':platform==='win32'?'win':platform;
     const signing={platform:releasePlatform,arch,signed:platform==='darwin',notarized:platform==='darwin',node:'24.22.2',electron:'45.2.1',verification:[]};
-    const releaseEnv={RELEASE_PLATFORM:releasePlatform,RELEASE_ARCH:arch,RELEASE_VERSION:'1.0.0',RELEASE_COMMIT:commit,RELEASE_PUBLISH:'true'};
+    const releaseEnv={RELEASE_PLATFORM:releasePlatform,RELEASE_ARCH:arch,RELEASE_VERSION:'1.0.0',RELEASE_COMMIT:commit,RELEASE_PUBLISH:'false'};
     const options=stageOptionsFromEnvironment(releaseEnv,signing);
     expect(options.platform).toBe(`${releasePlatform}-${arch}`);expect(options.verifyPackaged).toBe(true);
     const source=path.join(root,'release');fs.mkdirSync(source,{recursive:true});
@@ -141,7 +141,7 @@ test('legal evidence checks source/target, validates every file and refuses dirt
     fs.appendFileSync(path.join(directory,'THIRD_PARTY_NOTICES.txt'),'tampered');
     expect(()=>verifyLegalDirectory(directory,options)).toThrow('checksum mismatch');
 });
-test('publishing retains pending review evidence without treating it as clearance',async()=>{
+test('publishing rejects pending reviews even with clean source and valid hashes',async()=>{
     generate({root,platform:'darwin',arch:'arm64'});
     const directory=path.join(root,'dist/legal'),commit='a'.repeat(40);
     const inventory=JSON.parse(fs.readFileSync(path.join(directory,'inventory.json'),'utf8'));
@@ -155,11 +155,29 @@ test('publishing retains pending review evidence without treating it as clearanc
     };
     refreshHashes();
     const options={version:'1.0.0',commit,platform:'mac-arm64',publishing:true};
-    expect(verifyLegalDirectory(directory,options).status.pending).toHaveLength(1);
-    const names=await createLegalEvidence({directory,destination:path.join(root,'published'),...options,signing:{signed:true,notarized:true}});
-    const provenance=JSON.parse(fs.readFileSync(path.join(root,'published',names[2]),'utf8'));
-    expect(provenance.legalReleaseReady).toBe(false);
-    expect(JSON.parse(fs.readFileSync(path.join(directory,'review.json'),'utf8')).items[0].status).toBe('pending');
+    expect(()=>verifyLegalDirectory(directory,options)).toThrow('licensing clearance');
+    await expect(createLegalEvidence({directory,destination:path.join(root,'published'),...options,signing:{signed:true,notarized:true}})).rejects.toThrow('licensing clearance');
     status.issues=['Asset digest mismatch'];write('dist/legal/review-status.json',status);refreshHashes();
     expect(()=>verifyLegalDirectory(directory,options)).toThrow('structural errors');
+});
+
+test('clearance expires when source, metadata, assets or native contents change',()=>{
+    const {inventory}=generate({root,platform:'darwin',arch:'arm64'});
+    const item={id:'rights',status:'cleared',action:'Review',reviewedBy:'Rights holder',reviewedAt:'2026-11-19',resolution:'Reviewed exact inputs',evidence:['record:123'],inputs:{'mac-arm64':inventory.clearance.inputSha256}};
+    write('third_party/review.json',{schemaVersion:1,items:[item]});
+    expect(generate({root,platform:'darwin',arch:'arm64'}).status.pending).toEqual([]);
+    write('dist/main/git-arm64/git','changed native binary');
+    expect(generate({root,platform:'darwin',arch:'arm64'}).status.pending[0].reason).toContain('stale');
+    fs.unlinkSync(path.join(root,'dist/main/git-arm64/git'));
+    expect(generate({root,platform:'darwin',arch:'arm64'}).status.pending).toEqual([]);
+    write('docs/changed.md','new material');
+    expect(generate({root,platform:'darwin',arch:'arm64'}).status.pending).toHaveLength(1);
+});
+
+test('FDO review ledger cannot silently drop required items or duplicate IDs',()=>{
+    write('package.json',{name:'fdo',version:'1.0.0',license:'MIT'});
+    expect(()=>checkReview(root)).toThrow('Required licensing review item was removed');
+    write('package.json',{name:'fixture',version:'1.0.0',license:'MIT'});
+    write('third_party/review.json',{schemaVersion:1,items:[{id:'rights',status:'pending',action:'Review'},{id:'rights',status:'pending',action:'Duplicate'}]});
+    expect(()=>checkReview(root)).toThrow('duplicate');
 });

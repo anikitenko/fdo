@@ -107,12 +107,6 @@ test('chat turn totals include routing and follow-ups but exclude other turns an
     expect(currentTurnUsage()).toEqual({});
 });
 
-test('Cursor charges normalized cache categories without billing reasoning a second time', () => {
-    expect(price('cursor', {input_tokens: 1500, output_tokens: 100, cached_input_tokens: 200, cache_write_tokens: 300, reasoning_tokens: 40}))
-        .toMatchObject({status: 'estimated', inputCost: .00279, outputCost: .001, totalCost: .00379});
-    expect(estimateCost({provider: 'cursor', model: 'unpriced', usage: {input_tokens: 10, output_tokens: 1}})).toMatchObject({status: 'unknown'});
-});
-
 test('a successful unrelated save cannot hide an asynchronous accounting failure', async () => {
     const ledger = new UsageLedger({save: (_entries, _rates, entry) => entry ? Promise.reject(new Error('Disk full')) : Promise.resolve()});
     ledger.begin('openai', 'test-model');

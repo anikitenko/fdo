@@ -23,7 +23,6 @@ const PROVIDERS = [
     { label: "Anthropic", value: "anthropic" },
     { label: "OpenCode Zen (free & curated models)", value: "opencode" },
     { label: "OpenRouter (free & curated models)", value: "openrouter" },
-    { label: "Cursor", value: "cursor" },
     { label: "Ollama (local)", value: "ollama" },
     { label: "Codex (built into FDO)", value: "codex-cli" },
     { label: "Gemini CLI (separate installation)", value: "gemini-cli" },
@@ -261,7 +260,7 @@ export default function AIAssistantsPanel() {
                     : form.provider === "gemini-cli"
                         ? (form.model || "gemini-2.5-pro")
                         : form.model,
-                purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter", "cursor"].includes(form.provider) ? "coding" : form.purpose,
+                purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter"].includes(form.provider) ? "coding" : form.purpose,
                 defaultThinkingMode: form.defaultThinkingMode || "auto",
             };
             await window.electron.settings.ai.addAssistant(nextForm);
@@ -269,7 +268,7 @@ export default function AIAssistantsPanel() {
             const addedAssistant = updated.find((item) =>
                 item.name === form.name &&
                 item.provider === form.provider &&
-                item.purpose === (["codex-cli", "gemini-cli", "ollama", "openrouter", "cursor"].includes(form.provider) ? "coding" : form.purpose)
+                item.purpose === (["codex-cli", "gemini-cli", "ollama", "openrouter"].includes(form.provider) ? "coding" : form.purpose)
             );
 
             if (["codex-cli", "gemini-cli"].includes(form.provider) && addedAssistant) {
@@ -628,7 +627,7 @@ export default function AIAssistantsPanel() {
                                 setForm({
                                     ...form,
                                     provider,
-                                    purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter", "cursor"].includes(provider) ? "coding" : form.purpose,
+                                    purpose: ["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter"].includes(provider) ? "coding" : form.purpose,
                                     model: "",
                                     firstResponseTimeoutMs: "",
                                 });
@@ -644,7 +643,6 @@ export default function AIAssistantsPanel() {
                         </FormGroup>
                     ) : null}
 
-                    {form.provider === "cursor" && <Callout intent="primary" title="Connect Cursor">Create a key in Cursor Dashboard → API Keys, paste it below, and choose a model. No separate Cursor CLI installation or browser login is required. Available models and charges depend on your account.</Callout>}
 
                     <FormGroup label={form.provider === "codex-cli" ? "Codex Model" : form.provider === "gemini-cli" ? "Gemini Model" : "Model"} labelFor="ai-model">
                         <HTMLSelect
@@ -693,7 +691,7 @@ export default function AIAssistantsPanel() {
                             id="ai-purpose"
                             options={PURPOSES}
                             value={form.purpose}
-                            disabled={["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter", "cursor"].includes(form.provider)}
+                            disabled={["codex-cli", "gemini-cli", "ollama", "cloudflare", "opencode", "openrouter"].includes(form.provider)}
                             onChange={(e) => setForm({ ...form, purpose: e.target.value })}
                         />
                     </FormGroup>
@@ -702,7 +700,7 @@ export default function AIAssistantsPanel() {
                         <FormGroup label="First answer timeout (seconds)" labelFor="ai-first-response-timeout"
                             helperText="Initial wait for answer text; confirmed reasoning or buffered generation can use up to 3× this time. Blank uses 240 seconds (300 for local, routed, and CLI providers); 10–600 seconds. Stop remains available.">
                             <InputGroup id="ai-first-response-timeout" type="number" min="10" max="600" step="1"
-                                placeholder={["cloudflare", "ollama", "opencode", "openrouter", "codex-cli", "gemini-cli", "cursor"].includes(form.provider) ? "300" : "240"}
+                                placeholder={["cloudflare", "ollama", "opencode", "openrouter", "codex-cli", "gemini-cli"].includes(form.provider) ? "300" : "240"}
                                 value={form.firstResponseTimeoutMs === "" ? "" : Number(form.firstResponseTimeoutMs) / 1000}
                                 onChange={e => setForm({...form, firstResponseTimeoutMs: e.target.value === "" ? "" : Number(e.target.value) * 1000})} />
                         </FormGroup>
@@ -751,12 +749,11 @@ export default function AIAssistantsPanel() {
                     ) : (
                         <FormGroup
                             label={form.provider === "cloudflare" ? "API Token" : "API Key"}
-                            helperText={form.provider === "cursor" ? "A secret access token that lets FDO make requests using your Cursor account." : undefined}
                             labelFor={"ai-key"}
                         >
                             <InputGroup
                                 id="ai-key"
-                                placeholder={form.provider === "cloudflare" ? "Cloudflare API token" : form.provider === "gemini" ? "Google AI Studio API key" : form.provider === "opencode" ? "OpenCode Zen key (sk-...)" : form.provider === "openrouter" ? "OpenRouter key (sk-or-...)" : form.provider === "cursor" ? "Cursor user or service-account API key" : "sk-..."}
+                                placeholder={form.provider === "cloudflare" ? "Cloudflare API token" : form.provider === "gemini" ? "Google AI Studio API key" : form.provider === "opencode" ? "OpenCode Zen key (sk-...)" : form.provider === "openrouter" ? "OpenRouter key (sk-or-...)" : "sk-..."}
                                 type="password"
                                 value={form.apiKey}
                                 onChange={(e) => {

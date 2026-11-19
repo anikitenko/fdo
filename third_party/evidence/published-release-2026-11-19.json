@@ -1,0 +1,9 @@
+{
+  "checkedAt": "2026-11-19",
+  "release": "https://github.com/anikitenko/fdo/releases/tag/v1.0.6",
+  "version": "1.0.6",
+  "commit": "50e86081a880a6cf5f91af5e016185061def735c",
+  "platform": "mac-arm64",
+  "legalReleaseReady": false,
+  "scope": "Fetched public latest-release metadata and mac-arm64 provenance only. No installer tests, signature verification or build attestation verification performed on this download."
+}

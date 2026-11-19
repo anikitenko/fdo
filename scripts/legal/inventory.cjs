@@ -21,14 +21,9 @@ function walk(directory) {
         return entry.isDirectory() ? walk(file) : entry.isFile() ? [file] : [];
     });
 }
-function checkReview(root) {
-    const review = json(path.join(root, 'third_party/review.json'));
-    if (review.schemaVersion !== 1 || !Array.isArray(review.items)) throw new Error('Invalid licensing review ledger.');
-    for (const item of review.items) {
-        if (!['pending','cleared'].includes(item.status) || !item.id || !item.action) throw new Error('Invalid licensing review item.');
-        if (item.status === 'cleared' && (!item.reviewedBy || !item.reviewedAt || !item.resolution || !item.evidence?.length)) throw new Error(`Clearance requires reviewer, date, resolution and evidence: ${item.id}`);
-    }
-    return review.items.filter(item => item.status !== 'cleared');
+const {bindingFor,targetName,unresolved} = require('./clearance.cjs');
+function checkReview(root, binding={}) {
+    return unresolved(json(path.join(root,'third_party/review.json')), {...binding,requireIds:json(path.join(root,'package.json')).name==='fdo'});
 }
 function checkAssets(root) {
     const registry = json(path.join(root, 'third_party/assets.json')), issues = [], seen = new Set(), groups = [];
@@ -75,7 +70,7 @@ function sourceContext(root) {
 function generate({root=process.cwd(), platform=process.platform, arch=process.arch, output=path.join(root,'dist/legal'), release=false, electronNoticesPath}={}) {
     root = path.resolve(root);output = path.resolve(output);
     const metadata = json(path.join(root,'package.json')), lock = json(path.join(root,'package-lock.json'));
-    const assets = checkAssets(root), pending = checkReview(root), issues = [...assets.issues], coverageIssues = [], packages = new Map();
+    const assets = checkAssets(root), issues = [...assets.issues], coverageIssues = [], packages = new Map();
     const add = (directory, inclusion, expected) => {
         const file = path.join(inside(root,directory),'package.json');
         if (!fs.existsSync(file)) {issues.push(`Missing package metadata: ${directory}`);return;}
@@ -132,9 +127,7 @@ function generate({root=process.cwd(), platform=process.platform, arch=process.a
         if (/^@openai\/codex(?:-|$)/.test(pkg.name) && pkg.version.startsWith('0.162.1')) originals.push(...['codex-0.162.1-LICENSE','codex-0.162.1-NOTICE'].map(name=>path.join(root,'third_party/licenses',name)));
         if (pkg.name==='exif-parser' && pkg.version==='0.1.12' && originals.some(file=>path.basename(file)==='LICENSE.md')) pkg.license='MIT';
         const recovered={
-            '@bufbuild/protobuf@1.10.0':['protobuf-es-1.10.0-LICENSE','protobuf-es-1.10.0-GOOGLE-NOTICE.txt'],
-            '@connectrpc/connect@1.7.0':['connect-es-1.7.0-LICENSE'],
-            '@connectrpc/connect-web@1.7.0':['connect-es-1.7.0-LICENSE'],
+            '@anikitenko/fdo-sdk@1.9.2':['fdo-sdk-1.9.2-ISC.txt'],
             'tree-sitter@0.21.1':['tree-sitter-0.21.1-LICENSE'],
             'tree-sitter-bash@0.21.0':['tree-sitter-bash-0.21.0-LICENSE'],
             'data-uri-to-buffer@4.0.1':['data-uri-to-buffer-4.0.1-LICENSE.txt'],
@@ -148,8 +141,6 @@ function generate({root=process.cwd(), platform=process.platform, arch=process.a
         if (pkg.name==='victory-vendor' && pkg.version==='37.3.6') originals.push(...walk(path.join(directory,'lib-vendor')).filter(file=>/^licen[cs]e$/i.test(path.basename(file))));
         if (pkg.root.startsWith('node_modules/goober/') && json(path.join(root,'node_modules/goober/package.json')).version==='2.1.19') originals.push(path.join(root,'node_modules/goober/LICENSE'));
         if (pkg.name.startsWith('@esbuild/') && pkg.version===json(path.join(root,'node_modules/esbuild/package.json')).version) originals.push(path.join(root,'node_modules/esbuild/LICENSE.md'));
-        // Cursor platform packages defer to the parent license; this does not clear redistribution.
-        if (/^@cursor\/sdk-/.test(pkg.name) && pkg.version==='1.0.40') originals.push(path.join(root,'node_modules/@cursor/sdk/LICENSE.md'));
         const unique=[...new Set(originals)];
         const files=unique.map(file=>copyNotice(file,portable(path.relative(root,file))));
         if (!files.length) coverageIssues.push(`No original license/notice file recovered: ${pkg.name}@${pkg.version} (${pkg.root})`);
@@ -179,7 +170,9 @@ function generate({root=process.cwd(), platform=process.platform, arch=process.a
     inventory.nativeInputs={hashScope:'Staged files BEFORE code signing/packager filtering; final artifact hashes are in SHA256SUMS. This is a file inventory, not identification of every embedded library.',
         gitArchive:gitArchives[`${platform}-${arch}`] || null,
         files:[...walk(gitDirectory),...walk(path.join(root,'dist/main/node_modules')).filter(file=>/\/vendor\/|\/bin\/|\.(?:node|dll|dylib|so|exe)$|\/lib\/tsc$/.test(portable(file)))].map(file=>({path:portable(path.relative(root,file)),size:fs.statSync(file).size,sha256:sha256(fs.readFileSync(file))}))};
-    const status={schemaVersion:1,releaseReady:!issues.length && !coverageIssues.length && !pending.length && context.dirty===false,issues,coverageIssues,pending,source:context};
+    inventory.clearance={target:targetName(inventory.target),inputSha256:bindingFor(root,inventory,assets)};
+    const pending=checkReview(root,inventory.clearance);
+    const status={schemaVersion:1,clearance:inventory.clearance,releaseReady:!issues.length && !coverageIssues.length && !pending.length && context.dirty===false,issues,coverageIssues,pending,source:context};
     writeJson(path.join(output,'inventory.json'),inventory);
     writeJson(path.join(output,'asset-inventory.json'),{schemaVersion:1,groups:assets.groups});
     writeJson(path.join(output,'review-status.json'),status);

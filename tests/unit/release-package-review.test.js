@@ -5,7 +5,7 @@ jest.mock('../../scripts/legal/inventory.cjs',()=>({generate:jest.fn(options=>{
     if(!options.electronNoticesPath)throw new Error('Target runtime has not been extracted.');
     return {status:{releaseReady:false,pending:[{id:'publication-rights',status:'pending'}]}};
 })}));
-test('tagged package preparation reports pending reviews without invoking the optional strict audit',async()=>{
+test('tagged package preparation requires strict licensing clearance',async()=>{
     const previous=process.env.RELEASE_PUBLISH;process.env.RELEASE_PUBLISH='true';
     try {
         const prepare=require('../../scripts/prepare-package.cjs');
@@ -13,7 +13,7 @@ test('tagged package preparation reports pending reviews without invoking the op
         await expect(prepare(context)).resolves.toBeUndefined();
         expect(require('../../scripts/legal/inventory.cjs').generate).not.toHaveBeenCalled();
         const afterExtract=require('../../scripts/prepare-package-legal.cjs');
-        expect(afterExtract(context)).toMatchObject({status:{releaseReady:false,pending:[{id:'publication-rights',status:'pending'}]}});
+        expect(()=>afterExtract(context)).toThrow('Strict legal review is pending.');
     } finally {
         if(previous===undefined)delete process.env.RELEASE_PUBLISH;else process.env.RELEASE_PUBLISH=previous;
     }

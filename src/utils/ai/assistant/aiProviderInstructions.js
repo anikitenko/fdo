@@ -6,7 +6,6 @@ export const AI_INSTRUCTION_PROVIDERS = Object.freeze([
     "cloudflare",
     "opencode",
     "openrouter",
-    "cursor",
     "codex-cli",
     "gemini-cli",
 ]);

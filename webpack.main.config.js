@@ -40,7 +40,6 @@ module.exports = {
         typescript: "commonjs typescript",
         "registry-typescript": "commonjs registry-typescript",
         esbuild: "commonjs esbuild",
-        "@cursor/sdk": "commonjs @cursor/sdk",
         "@anikitenko/fdo-sdk": "commonjs @anikitenko/fdo-sdk",
     },
     optimization: {
@@ -96,9 +95,7 @@ module.exports = {
                 {from: 'src/utils/persistence/observabilityDatabase.cjs', to: 'observabilityDatabase.cjs'},
                 {from: 'src/utils/persistence/chatWorker.cjs', to: 'chatWorker.cjs'},
                 {from: 'src/utils/persistence/chatDatabase.cjs', to: 'chatDatabase.cjs'},
-                // Keep the SDK's lazy local-runtime chunks intact, together with
-                // its platform helpers and direct runtime dependencies.
-                ...['@cursor', '@bufbuild/protobuf', '@connectrpc/connect', '@connectrpc/connect-web', '@statsig/js-client', 'zod'].map(name => ({
+                ...['zod'].map(name => ({
                     from: path.resolve(__dirname, 'node_modules', name), to: 'node_modules/' + name,
                 })),
                 ...['typescript', 'registry-typescript', '@typescript', '@types/node', 'undici-types'].map(name => ({
@@ -124,7 +121,8 @@ module.exports = {
                     to: "node_modules/@openai",
                     noErrorOnMissing: true,
                     globOptions: {
-                        ignore: ["node_modules/@openai/**/node_modules/**"],
+                        // The optional Codex voice runtime (LGPL GStreamer/GLib) is not used by FDO and is not redistributed.
+                        ignore: ["node_modules/@openai/**/node_modules/**", "**/codex-resources/voice/**"],
                     },
                 },
                 {

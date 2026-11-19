@@ -27,6 +27,7 @@ function notes({generated, history, repository, tag, previous, manifest}) {
     const body = [generated.slice(0, 70000), '\n## Downloads and verification',
         'Installers are attached below. electron-builder publishes the files, including its update metadata. `SHA256SUMS` covers every attached file except itself, and `release-manifest.json` records source commit, platform and signing status.',
         '\nEach platform also includes a legal-notices archive, a scoped CycloneDX SBOM and build/signing evidence. See [licensing and provenance verification](https://github.com/'+repository+'/blob/'+manifest.commit+'/docs/LICENSING_AND_PROVENANCE.md). GitHub build attestations cover the released files; checksums alone do not authenticate their producer.',
+        '\nEach platform also includes a `native-source` archive with the corresponding source of the bundled Git distribution (Git, Git LFS, Git Credential Manager and, on Windows, the MSYS2/MinGW runtime packages), with a `.json` record of every component, source URL, commit and SHA-256.',
         '\nmacOS installers are Developer ID signed and notarized.',
         '\nWindows installers are published unsigned.',
         `\nSource: [${manifest.commit.slice(0, 12)}](https://github.com/${repository}/commit/${manifest.commit}).`,
@@ -64,6 +65,8 @@ async function publish({repository, version, commit, directory, api, isAncestor,
     }
     if (expected.size !== inventory.length - 1 || inventory.some(name => name !== 'SHA256SUMS' && !expected.has(name))) throw new Error('Release checksum inventory is incomplete.');
     for (const [name, digest] of expected) if (await sha256(path.join(directory, name)) !== digest) throw new Error(`Release checksum mismatch: ${name}`);
+    // Repeat the gate here: calling the publisher directly must not bypass assembly.
+    await require('./publication-gate.cjs').verifyPublicationEvidence(directory,{version,commit,manifest});
     const verifyTag = async () => {
         let object = (await api('GET', `${base}/git/ref/tags/${encodeURIComponent(tag)}`)).object;
         for (let depth = 0; object?.type === 'tag' && depth < 10; depth++) object = (await api('GET', `${base}/git/tags/${object.sha}`)).object;
