@@ -45,5 +45,4 @@ unescaped model-path separators.
 
 `npm run test:ai:safety` includes native provider contract and structured-output
 tests. They use installed SDKs with simulated HTTP responses, without paid API
-calls. See [AI coding reliability](../../../docs/AI_CODING_RELIABILITY.md) for
-completion rules, usage accounting and live-test configuration.
+calls.
