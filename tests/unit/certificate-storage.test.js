@@ -41,3 +41,39 @@ test('preview reads legacy public metadata without migrating or encrypting keys'
     expect(safeStorage.encryptString).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(directory, 'certificates.sqlite'))).toBe(false);
 });
+
+test.each(['registry', 'org'])('public %s anchors do not migrate legacy signing keys', scope => {
+    let legacy = {root: [root]};
+    settings.get.mockImplementation(() => legacy);
+    settings.delete.mockImplementation(() => {legacy = undefined;});
+    safeStorage.isEncryptionAvailable.mockReturnValue(true);
+    safeStorage.getSelectedStorageBackend.mockReturnValue('gnome_libsecret');
+    safeStorage.encryptString.mockImplementation(value => Buffer.from(value));
+    safeStorage.decryptString.mockImplementation(value => value.toString());
+    const {key, ...anchor} = {...root, id: 'public-anchor', kind: 'anchor'};
+
+    certificateStorage.put(anchor, scope);
+    expect(certificateStorage.list(scope)).toMatchObject([{id: 'public-anchor', hasPrivateKey: false}]);
+    expect(certificateStorage.list('root')).toMatchObject([{id: root.id, hasPrivateKey: true}]);
+    expect(settings.delete).not.toHaveBeenCalled();
+    expect(safeStorage.encryptString).not.toHaveBeenCalled();
+
+    certificateStorage.put({...root, id: 'new-signer'}, 'root');
+    expect(settings.delete).toHaveBeenCalledWith('certificates');
+    expect(certificateStorage.privateKey(root.id)).toBe(key);
+});
+
+test('a public anchor matching a legacy record still migrates before replacement', () => {
+    let legacy = {registry: [{...root, kind: 'anchor'}]};
+    settings.get.mockImplementation(() => legacy);
+    settings.delete.mockImplementation(() => {legacy = undefined;});
+    safeStorage.isEncryptionAvailable.mockReturnValue(true);
+    safeStorage.getSelectedStorageBackend.mockReturnValue('gnome_libsecret');
+    safeStorage.encryptString.mockImplementation(value => Buffer.from(value));
+    safeStorage.decryptString.mockImplementation(value => value.toString());
+    const {key, ...anchor} = {...root, kind: 'anchor', label: 'updated'};
+
+    certificateStorage.put(anchor, 'registry');
+    expect(settings.delete).toHaveBeenCalledWith('certificates');
+    expect(certificateStorage.list('registry')).toMatchObject([{id: root.id, label: 'updated', hasPrivateKey: false}]);
+});
