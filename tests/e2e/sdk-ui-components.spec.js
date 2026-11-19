@@ -124,7 +124,7 @@ test('bundled frontend UI mounts under plugin CSP, restores focus and disposes p
         expect(await frame.locator('main').evaluate(()=>{try {return !!window.parent.document.body;} catch(error) {return error.name;}})).toBe('SecurityError');
         await frame.locator('main').evaluate(async()=>{window.__sdkUiTest.previous=window.__sdkUiTest.controllers;window.__sdkUiTest.previousExtra=window.__sdkUiTest.extra;window.__sdkUiTest.previousActionSignal=window.__sdkUiTest.actionSignal;window.__sdkUiTest.previousUi=await window.loadFdoUi();});
         // Changed markup passes through real render IPC without replacing the iframe.
-        await page.evaluate(id=>window.electron.plugin.render(id),pluginName);
+        await page.evaluate(id=>window.electron.plugin.render(id, {replace: true}),pluginName);
         await expect.poll(()=>frame.locator('main').evaluate(()=>window.__sdkUiTest.setups)).toBe(initialSetups + 1);
         const state = await frame.locator('main').evaluate(()=>({cleanups:window.__sdkUiTest.cleanups,aborted:window.__sdkUiTest.signal.aborted,registry:window[Symbol.for('fdo.renderOnLoad.cleanup')].size}));
         expect(state.cleanups).toHaveLength(initialCleanups + 1);

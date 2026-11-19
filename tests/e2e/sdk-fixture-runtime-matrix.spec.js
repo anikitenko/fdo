@@ -216,7 +216,7 @@ async function captureRenderEnvelope(window, pluginId, timeoutMs = 20000) {
         finish(reject, new Error(`Timed out waiting for render event for ${pluginId}`));
       }, timeoutMs);
       window.electron.plugin.on.render(onRender);
-      window.electron.plugin.render(pluginId)
+      window.electron.plugin.render(pluginId, {replace: true})
         .then((response) => {
           if (!response?.success) {
             const error = new Error(response?.error || `Render request failed for ${pluginId}`);

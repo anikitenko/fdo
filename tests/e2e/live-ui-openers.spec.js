@@ -96,7 +96,7 @@ test('visual dialog/popover openers deploy with native controllers and preserve 
         await expect(result.locator('*')).toHaveCount(0);
         await frame.getByRole('button',{name:'Refresh status',exact:true}).click();
         await expect(frame.locator('[data-role="status"]')).toContainText('is running');
-        await home.evaluate(id=>window.electron.plugin.render(id),pluginName);
+        await home.evaluate(id=>window.electron.plugin.render(id, {replace: true}),pluginName);
         await expect(frame.locator('[data-role="status"]')).toContainText('Click the button');
         await frame.getByRole('button',{name:'Open settings',exact:true}).click();
         await expect(frame.getByRole('dialog',{name:'New Dialog',exact:true})).toBeVisible();

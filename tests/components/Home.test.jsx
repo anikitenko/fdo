@@ -117,8 +117,20 @@ describe("Home plugin runtime backfill", () => {
         fireEvent.click(screen.getByText('Clipboard tools'));
         await waitFor(() => expect(window.electron.plugin.uiMessage).toHaveBeenCalledWith('plugin-1',
             {handler: 'copySide', content: {source: 'sidebar', actionId: 'copy-side'}}));
-        expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1');
+        expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1', {replace: false});
         localStorage.removeItem('showRightSideBar');
+    });
+    test('data-only actions do not request a render that could replace temporary UI state', async () => {
+        window.electron.plugin.uiMessage = jest.fn(async () => ({ok: true, result: {refreshUi: false}}));
+        window.electron.plugin.render = jest.fn(async () => ({success: true}));
+        render(<Home/>);
+        await waitFor(() => expect(window.electron.plugin.on.init).toHaveBeenCalled());
+        act(() => window.electron.plugin.on.init.mock.calls[0][0]({id: 'plugin-1',
+            quickActions: [{name: 'Copy without navigation', message_type: 'copy'}]}));
+        fireEvent.click(await screen.findByText('Copy without navigation'));
+        await waitFor(() => expect(window.electron.plugin.uiMessage).toHaveBeenCalled());
+        await act(async () => {});
+        expect(window.electron.plugin.render).not.toHaveBeenCalled();
     });
     test('serializes actions per plugin, reports failure, and allows another attempt', async () => {
         let resolveAction;
@@ -139,7 +151,7 @@ describe("Home plugin runtime backfill", () => {
         expect(window.electron.plugin.render).not.toHaveBeenCalled();
         window.electron.plugin.uiMessage.mockResolvedValue({ok: true});
         fireEvent.click(screen.getByText('Run action'));
-        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1'));
+        await waitFor(() => expect(window.electron.plugin.render).toHaveBeenCalledWith('plugin-1', {replace: false}));
         localStorage.removeItem('showRightSideBar');
     });
     test('stale unload keeps registered quickbar and sidebar actions', async () => {
@@ -428,6 +440,7 @@ describe("Home plugin runtime backfill", () => {
 
     test("ignores unexpected manual unload while activation is pending even if runtime status is inactive", async () => {
         let unloadedHandler = null;
+        window.electron.plugin.getActivated.mockResolvedValue({plugins: []});
         window.electron.plugin.on.unloaded.mockImplementation((handler) => {
             unloadedHandler = handler;
         });
@@ -439,23 +452,24 @@ describe("Home plugin runtime backfill", () => {
             });
 
         render(<Home />);
-
-        const pluginButton = await screen.findByRole("button", { name: "Plugin One" });
-        fireEvent.click(pluginButton);
+        await act(async () => {});
+        act(() => expect(window.__homeTestApi.selectPluginById('plugin-1', {open: true})).toBe(true));
 
         await waitFor(() => {
             expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
         });
 
-        unloadedHandler?.({
+        const retainedContainer = screen.getByTestId('plugin-container');
+        await act(async () => unloadedHandler?.({
             id: "plugin-1",
             reason: "manual_unload",
             message: "",
-        });
+        }));
 
         await waitFor(() => {
             expect(window.electron.plugin.deactivateUsers).not.toHaveBeenCalled();
             expect(screen.getByTestId("plugin-container")).toHaveTextContent("plugin-1");
+            expect(screen.getByTestId('plugin-container')).toBe(retainedContainer);
         });
     });
 

@@ -32,3 +32,12 @@ export async function invokePluginUiAction(pluginId, action, source, bridge) {
     if (action.disabled) throw new Error('This plugin action is currently unavailable.');
     return assertPluginUiActionResponse(await bridge(pluginId, {handler: text(action.message_type), content: {source, actionId: action.id || action.name}}));
 }
+
+// A response can choose its intent dynamically; registration provides a default.
+// Undefined retains legacy rendering, but the host defers destructive changes.
+export function pluginUiActionRefresh(action, response) {
+    for (const value of [response?.result?.refreshUi, response?.refreshUi, action?.refreshUi]) {
+        if (typeof value === 'boolean') return value;
+    }
+    return undefined;
+}

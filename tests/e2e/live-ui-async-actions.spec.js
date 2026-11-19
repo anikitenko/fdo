@@ -116,7 +116,7 @@ test('catalog cards contain long names and generated SDK async actions deploy wi
         await expect(backendRoot).toHaveAttribute('data-fdo-state','success');
         await frame.getByRole('button',{name:'Refresh status',exact:true}).click();
         await expect(frame.locator('[data-role="status"]')).toContainText('is running');
-        await home.evaluate(id=>window.electron.plugin.render(id),pluginName);
+        await home.evaluate(id=>window.electron.plugin.render(id, {replace: true}),pluginName);
         await expect(root).toHaveAttribute('data-fdo-state','idle');
         await expect(root).toHaveAttribute('aria-busy','false');
         await root.getByRole('button',{name:'Run action',exact:true}).click();

@@ -39,13 +39,13 @@ test('two plugin frames retain their own render subscriptions through refreshes 
         // removing one must never clear all consumers of a shared IPC channel.
         await home.evaluate(async ids => {
             window.electron.plugin.off.render(() => {});
-            await Promise.all(ids.map(id => window.electron.plugin.render(id)));
+            await Promise.all(ids.map(id => window.electron.plugin.render(id, {replace: true})));
         }, names);
         await expect.poll(async () => Number(await first.textContent())).toBeGreaterThan(before[0]);
         await expect.poll(async () => Number(await second.textContent())).toBeGreaterThan(before[1]);
         const previous = Number(await first.textContent());
         await removePlugin(home, names[1]);
-        await home.evaluate(id => window.electron.plugin.render(id), names[0]);
+        await home.evaluate(id => window.electron.plugin.render(id, {replace: true}), names[0]);
         await expect.poll(async () => Number(await first.textContent())).toBeGreaterThan(previous);
         expect(await home.evaluate(() => window.__pluginHostFetches)).toBe(hostFetches);
         await expect(home.getByText('Plugin UI failed to load', {exact: true})).toHaveCount(0);

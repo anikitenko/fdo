@@ -236,6 +236,41 @@ jest.mock("../../src/utils/plugins/security/privilegedFsScopeRegistry", () => ({
     HOST_FS_SCOPE_REGISTRY: Object.freeze([]),
 }));
 
+test('only the main renderer can authorize destructive render intent, and dispatch failures cancel it', async () => {
+    const {ipcMain} = require('electron');
+    const {PluginChannels} = require('../../src/ipc/channels');
+    const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+    const {registerPluginHandlers} = require('../../src/ipc/plugin');
+    const postMessage = jest.fn();
+    manager.getLoadedPlugin.mockReturnValue({ready: true, instance: {postMessage}});
+    const {consumePluginRenderRequest} = require('../../src/utils/plugins/runtime/pluginRenderRequests');
+    const worker = {postMessage};
+    manager.getLoadedPlugin.mockReturnValue({ready: true, instance: worker});
+    ipcMain.handle.mockClear();
+    registerPluginHandlers();
+    const handler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.RENDER)[1];
+    const sender = manager.mainWindow.webContents;
+    await expect(handler({sender}, 'trace-plugin', {replace: true})).resolves.toEqual({success: true});
+    expect(consumePluginRenderRequest(worker)).toMatchObject({replace: true});
+    await handler({sender: {}}, 'trace-plugin', {replace: true});
+    expect(consumePluginRenderRequest(worker)).toMatchObject({replace: false});
+    postMessage.mockImplementation(() => {throw new Error('Worker exited');});
+    await expect(handler({sender}, 'trace-plugin', {replace: true})).resolves.toMatchObject({success: false});
+    expect(consumePluginRenderRequest(worker)).toMatchObject({replace: false});
+});
+
+test('rejects lifecycle log writes from other renderer contents', async () => {
+    const {ipcMain} = require('electron');
+    const {PluginChannels} = require('../../src/ipc/channels');
+    const manager = require('../../src/utils/plugins/runtime/PluginManager').default;
+    manager.tracePluginEvent = jest.fn();
+    ipcMain.handle.mockClear();
+    require('../../src/ipc/plugin').registerPluginHandlers();
+    const handler = ipcMain.handle.mock.calls.find(([channel]) => channel === PluginChannels.RECORD_UI_LIFECYCLE)[1];
+    expect(handler({sender: {}}, 'trace-plugin', {event: 'frame-created', reason: 'initial_load', attempt: 0})).toEqual({success: false});
+    expect(manager.tracePluginEvent).not.toHaveBeenCalled();
+});
+
 describe("plugin IPC log trace", () => {
     afterEach(() => {
         const fs = require("node:fs");

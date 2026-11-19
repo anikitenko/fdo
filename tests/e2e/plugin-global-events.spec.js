@@ -24,7 +24,7 @@ test('global event helpers release old view callbacks across repeated plugin ren
         const root = frame.locator('main');
         let previous = 0;
         for (let i = 0; i < 12; i++) {
-            if (i) await home.evaluate(id => window.electron.plugin.render(id), id);
+            if (i) await home.evaluate(id => window.electron.plugin.render(id, {replace: true}), id);
             await expect.poll(() => root.evaluate(node => Number(node.querySelector('output').dataset.ready || 0))).toBeGreaterThan(previous);
             const result = await root.evaluate(() => {
                 window.__delivered = [];
@@ -45,7 +45,7 @@ test('global event helpers release old view callbacks across repeated plugin ren
             return calls;
         });
         expect(manual).toBe(1);
-        await home.evaluate(id => window.electron.plugin.render(id), id);
+        await home.evaluate(id => window.electron.plugin.render(id, {replace: true}), id);
         await expect.poll(() => root.evaluate(node => Number(node.querySelector('output').dataset.ready || 0))).toBeGreaterThan(previous);
         const stale = await root.evaluate(() => {
             let calls = 0;

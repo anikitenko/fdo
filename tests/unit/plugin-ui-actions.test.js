@@ -1,4 +1,12 @@
-import {invokePluginUiAction} from '../../src/utils/plugins/runtime/pluginUiActions';
+import {invokePluginUiAction, pluginUiActionRefresh} from '../../src/utils/plugins/runtime/pluginUiActions';
+
+test('action refresh intent is explicit, preserves legacy defaults and lets responses override registration', () => {
+    expect(pluginUiActionRefresh({}, {ok: true})).toBeUndefined();
+    expect(pluginUiActionRefresh({refreshUi: false}, {ok: true})).toBe(false);
+    expect(pluginUiActionRefresh({refreshUi: true}, {ok: true, result: {refreshUi: false}})).toBe(false);
+    expect(pluginUiActionRefresh({}, {ok: true, result: {refreshUi: true}})).toBe(true);
+    expect(pluginUiActionRefresh({}, {refreshUi: 'true'})).toBeUndefined();
+});
 test.each(['sidebar', 'quick-bar'])('%s dispatches the registered handler with action identity', async source => {
     const bridge = jest.fn(async () => ({ok: true}));
     await invokePluginUiAction('plugin-one', {id: 'copy', message_type: 'copyItem'}, source, bridge);

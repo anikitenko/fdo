@@ -116,6 +116,9 @@ const STRICT_COVERAGE_ALLOWED_UNCOVERED_LINES = new Set([
   222, 223, 245, 246, 268, 269, 291, 292, 320, 321, 333, 334,
   // SDK 1.7 compiled catch branches; each has a fault-injection test below.
   175, 197, 198, 219, 220, 241, 242, 263, 264, 285, 286, 327, 328,
+  // SDK 1.9.2/esbuild generated default-export getter and compiled catch paths.
+  // Handler/render catch paths retain the fault-injection checks below.
+  30, 100, 101, 138, 139, 156, 157, 173, 174, 190, 191, 207, 208, 224, 225, 283, 284,
 ]);
 const STRICT_COVERAGE_MINIMUMS = {
   lines: 75,
@@ -173,7 +176,7 @@ async function invokeHandlerWithRetry(window, pluginId, handler, content = {}, a
 
 async function triggerRender(window, pluginId) {
   const response = await window.evaluate(async ({ pluginId }) => {
-    return await window.electron.plugin.render(pluginId);
+    return await window.electron.plugin.render(pluginId, {replace: true});
   }, { pluginId });
   expect(response?.success).toBe(true);
 }
@@ -508,11 +511,15 @@ test.describe("SDK example 04-ui-extensions-plugin: live E2E line proof", () => 
       await expect(omnibar.getByRole('menuitem').first()).toContainText('Create New Item');
       await window.getByPlaceholder('Search commands...').fill('Search Plugin Data');
       await window.getByRole('menuitem', {name: /Search Plugin Data/}).click();
+      // This legacy SDK example does not return refreshUi intent. The user
+      // explicitly opens its changed view so temporary state is not discarded.
+      await window.getByRole('button', {name: 'Open updated view', exact: true}).click();
       const searchMarker = await waitForAnyUiMarker(window, pluginName, ['Search View'], 10000);
       if (!searchMarker) await test.info().attach('Quickbar view failure', {body: await window.screenshot(), contentType: 'image/png'});
       expect(searchMarker).toBe('Search View');
       await window.getByRole('button', {name: 'UI Extensions', exact: true}).click();
       await window.getByRole('menuitem', {name: 'Reports', exact: true}).click();
+      await window.getByRole('button', {name: 'Open updated view', exact: true}).click();
       expect(await waitForAnyUiMarker(window, pluginName, ['Reports View'], 10000)).toBe('Reports View');
 
       expect(hasInitLog).toBe(true);

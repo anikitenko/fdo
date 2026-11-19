@@ -2,6 +2,7 @@ import {failureNotification, publishNotification, pluginDisplayName} from '../ut
 import {subscribePluginEvent} from '../utils/plugins/runtime/subscribePluginEvent';
 import {loadPluginHostDocument} from './plugin/utils/loadPluginHostDocument';
 import {samePluginRenderContent} from './plugin/utils/pluginRenderContent';
+import {reportPluginUiLifecycle} from '../utils/plugins/runtime/pluginUiLifecycle';
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import PropTypes from "prop-types";
 import {Button, Spinner} from "@blueprintjs/core";
@@ -173,7 +174,14 @@ export const PluginContainer = ({
     const lastCapabilityDeniedDigestRef = useRef("");
     const helloRecoveryAttemptsRef = useRef(0);
     const layoutRecoveryAttemptsRef = useRef(0);
-    const stageRecoveryAttemptsRef = useRef(0);
+    const viewStartedRef = useRef(false);
+    const documentIdRef = useRef(null);
+    const retiredDocumentIdsRef = useRef(new Set());
+    const awaitingHelloRef = useRef(true);
+    const previousDocumentKeyRef = useRef(null);
+    const [pendingContent, setPendingContent] = useState(null);
+    const pendingContentRef = useRef(null);
+    const dismissedContentRef = useRef(null);
 
     const [hostDocument, setHostDocument] = useState(null);
     const [hostError, setHostError] = useState("");
@@ -235,13 +243,23 @@ export const PluginContainer = ({
         : (statusLabelByStage[stageToken] || "Loading plugin UI");
 
     const handleRetry = () => {
+        reportPluginUiLifecycle(plugin, 'frame-reload', 'manual_retry', renderAttempt);
         helloRecoveryAttemptsRef.current = 0;
         layoutRecoveryAttemptsRef.current = 0;
-        stageRecoveryAttemptsRef.current = 0;
         setShowRecovery(false);
         setHostError("");
         setDebugStage("retrying-plugin-render");
         setRenderAttempt((prev) => prev + 1);
+    };
+
+    const applyPendingContent = () => {
+        if (!pendingContent) return;
+        reportPluginUiLifecycle(plugin, 'render-replaced', 'user_opened_update', renderAttempt);
+        setContent(pendingContent);
+        contentRef.current = pendingContent;
+        pendingContentRef.current = null;
+        dismissedContentRef.current = null;
+        setPendingContent(null);
     };
 
     const reportCapabilityDenied = ({
@@ -353,10 +371,27 @@ export const PluginContainer = ({
     useEffect(() => {
         helloRecoveryAttemptsRef.current = 0;
         layoutRecoveryAttemptsRef.current = 0;
-        stageRecoveryAttemptsRef.current = 0;
     }, [plugin, capabilitiesKey]);
 
     useEffect(() => {
+        if (previousDocumentKeyRef.current !== hostDocumentKey) {
+            const reason = previousDocumentKeyRef.current === null ? 'initial_load' : 'frame_configuration_changed';
+            reportPluginUiLifecycle(plugin, 'frame-created', reason, renderAttempt);
+            if (previousDocumentKeyRef.current !== null && viewStartedRef.current
+                && JSON.parse(previousDocumentKeyRef.current)[1] !== capabilitiesKey) {
+                publishNotification({source: 'plugins', type: 'warning',
+                    title: `${pluginName || pluginDisplayName({id: plugin})}: interface restarted`,
+                    message: 'Plugin permissions changed. The interface restarted and temporary settings may have reset.',
+                    actions: [{kind: 'open-plugin-logs', pluginId: plugin}]});
+            }
+            previousDocumentKeyRef.current = hostDocumentKey;
+        }
+        documentIdRef.current = null;
+        retiredDocumentIdsRef.current.clear();
+        awaitingHelloRef.current = true;
+        pendingContentRef.current = null;
+        dismissedContentRef.current = null;
+        setPendingContent(null);
         setIframeLoaded(false);
         setIframeHello(false);
         setIframeLayoutReady(false);
@@ -496,6 +531,26 @@ export const PluginContainer = ({
             }
 
             const incomingSignature = normalizedContent;
+            const replace = payload.renderRequest?.replace === true;
+            if (viewStartedRef.current && contentRef.current?.render) {
+                if (samePluginRenderContent(normalizedContent, contentRef.current)) {
+                    pendingContentRef.current = null;
+                    setPendingContent(null);
+                    return;
+                }
+                if (!replace) {
+                    if (samePluginRenderContent(pendingContentRef.current, normalizedContent)
+                        || samePluginRenderContent(dismissedContentRef.current, normalizedContent)) return;
+                    reportPluginUiLifecycle(plugin, 'render-deferred', 'background_update', renderAttempt);
+                    pendingContentRef.current = normalizedContent;
+                    setPendingContent(normalizedContent);
+                    return;
+                }
+                reportPluginUiLifecycle(plugin, 'render-replaced', 'navigation_action', renderAttempt);
+                pendingContentRef.current = null;
+                dismissedContentRef.current = null;
+                setPendingContent(null);
+            }
             const incomingNow = Date.now();
             if (
                 samePluginRenderContent(incomingSignature,lastIncomingRenderSignatureRef.current)
@@ -507,6 +562,7 @@ export const PluginContainer = ({
             lastIncomingRenderAtRef.current = incomingNow;
             setHostError("");
             setDebugStage("plugin-render-received");
+            contentRef.current = normalizedContent;
             setContent(normalizedContent);
         };
 
@@ -592,6 +648,25 @@ export const PluginContainer = ({
             }
 
             if (event.data.type === "PLUGIN_HELLO") {
+                const documentId = typeof event.data.documentId === 'string' ? event.data.documentId.slice(0, 128) : '';
+                if (documentId && documentId === documentIdRef.current) return;
+                if (documentId && retiredDocumentIdsRef.current.has(documentId)) return;
+                if (!documentId && !awaitingHelloRef.current) return;
+                if (documentIdRef.current !== null && viewStartedRef.current) {
+                    reportPluginUiLifecycle(plugin, 'frame-reload', 'unexpected_document_navigation', renderAttempt);
+                    publishNotification({source: 'plugins', type: 'warning',
+                        title: `${pluginName || pluginDisplayName({id: plugin})}: interface restarted`,
+                        message: 'The plugin frame navigated to a new document. Temporary interface settings may have reset.',
+                        actions: [{kind: 'open-plugin-logs', pluginId: plugin}]});
+                }
+                if (documentIdRef.current) {
+                    retiredDocumentIdsRef.current.add(documentIdRef.current);
+                    if (retiredDocumentIdsRef.current.size > 16) {
+                        retiredDocumentIdsRef.current.delete(retiredDocumentIdsRef.current.values().next().value);
+                    }
+                }
+                documentIdRef.current = documentId;
+                awaitingHelloRef.current = false;
                 // contentWindow survives a srcdoc navigation. A new document
                 // needs the render payload even when its content is unchanged.
                 lastPostedRenderSignatureRef.current = null;
@@ -602,6 +677,8 @@ export const PluginContainer = ({
                 setDebugStage("iframe-ready");
                 return;
             }
+
+            if (event.data.documentId && event.data.documentId !== documentIdRef.current) return;
 
             if (event.data.type === "PLUGIN_LAYOUT_READY") {
                 const layout = event.data.layout || {};
@@ -619,6 +696,7 @@ export const PluginContainer = ({
 
             if (event.data.type === "PLUGIN_STAGE" && typeof event.data.stage === "string") {
                 if (event.data.stage === "iframe-component-mounted" || event.data.stage === "iframe-dom-after-mount") {
+                    viewStartedRef.current = true;
                     setIframeMounted(true);
                 }
                 if (/iframe-(?:module-import-failed|default-export-missing|render-handle-failed|render-crashed)/.test(event.data.stage)) setHostError(event.data.message || 'The plugin interface failed to render.');
@@ -629,14 +707,13 @@ export const PluginContainer = ({
                         publishNotification({source: 'plugins', groupKey: `plugin-ui:${plugin}`, status: 'resolved', type: 'success',
                             title: `${pluginName || pluginDisplayName({id: plugin})}: interface recovered`, message: 'The plugin interface loaded successfully after the earlier failure.'});
                     }
-                    if (layoutRecoveryAttemptsRef.current > 0 || stageRecoveryAttemptsRef.current > 0) {
+                    if (layoutRecoveryAttemptsRef.current > 0) {
                         emitIframeMetric("plugin_iframe_recovery_success", plugin, {
                             layoutRecoveries: layoutRecoveryAttemptsRef.current,
-                            stageRecoveries: stageRecoveryAttemptsRef.current,
+                            stageRecoveries: 0,
                         });
                     }
                     layoutRecoveryAttemptsRef.current = 0;
-                    stageRecoveryAttemptsRef.current = 0;
                 }
                 const nextStage = event.data.message
                     ? `${event.data.stage}: ${event.data.message}`
@@ -779,6 +856,10 @@ export const PluginContainer = ({
             return;
         }
         lastPostedRenderSignatureRef.current = signature;
+        reportPluginUiLifecycle(plugin, 'render-posted', viewStartedRef.current ? 'view_update' : 'initial_render', renderAttempt);
+        // The iframe can become interactive before its mount signal reaches
+        // this renderer. Protect state as soon as any UI payload is posted.
+        viewStartedRef.current = true;
         setIframeMounted(false);
         setDebugStage("posting-render");
         iframeRef.current?.contentWindow?.postMessage({
@@ -801,12 +882,18 @@ export const PluginContainer = ({
         }
         const timer = window.setTimeout(() => {
             if (iframeHello) return;
+            if (viewStartedRef.current) {
+                reportPluginUiLifecycle(plugin, 'recovery-blocked', 'hello_missing', renderAttempt);
+                setHostError('The plugin frame stopped responding. Reloading it will reset temporary interface settings.');
+                return;
+            }
             if (helloRecoveryAttemptsRef.current >= 2) {
                 setHostError("The plugin frame did not respond. Reload the plugin frame.");
                 emitIframeMetric("plugin_iframe_terminal_failure", plugin, {reason: "hello_missing"});
                 return;
             }
             helloRecoveryAttemptsRef.current += 1;
+            reportPluginUiLifecycle(plugin, 'frame-recovery', 'hello_missing', renderAttempt);
             emitIframeMetric("plugin_iframe_recovery_attempt", plugin, {reason: "hello_missing"});
             setRenderAttempt((prev) => prev + 1);
         }, 2200);
@@ -819,6 +906,11 @@ export const PluginContainer = ({
         }
         const timer = window.setTimeout(() => {
             if (iframeLayoutReady) return;
+            if (viewStartedRef.current) {
+                reportPluginUiLifecycle(plugin, 'recovery-blocked', 'layout_not_ready', renderAttempt);
+                setHostError('The plugin frame layout is unavailable. Reloading it will reset temporary interface settings.');
+                return;
+            }
             emitIframeMetric("plugin_iframe_layout_collapsed", plugin, {reason: "pre_render_geometry_zero"});
             if (layoutRecoveryAttemptsRef.current >= 2) {
                 setHostError("Plugin frame layout is unstable. Reload the plugin frame.");
@@ -826,6 +918,7 @@ export const PluginContainer = ({
                 return;
             }
             layoutRecoveryAttemptsRef.current += 1;
+            reportPluginUiLifecycle(plugin, 'frame-recovery', 'layout_not_ready', renderAttempt);
             emitIframeMetric("plugin_iframe_recovery_attempt", plugin, {reason: "layout_not_ready"});
             setRenderAttempt((prev) => prev + 1);
         }, 1800);
@@ -837,14 +930,9 @@ export const PluginContainer = ({
             return;
         }
         const timer = window.setTimeout(() => {
-            if (stageRecoveryAttemptsRef.current >= 1) {
-                setHostError("The plugin failed to load. You might find more details in the notification panel.");
-                emitIframeMetric("plugin_iframe_terminal_failure", plugin, {reason: "component_mount_missing"});
-                return;
-            }
-            stageRecoveryAttemptsRef.current += 1;
-            emitIframeMetric("plugin_iframe_recovery_attempt", plugin, {reason: "component_mount_missing"});
-            setRenderAttempt((prev) => prev + 1);
+            reportPluginUiLifecycle(plugin, 'recovery-blocked', 'component_mount_missing', renderAttempt);
+            setHostError('The plugin view did not finish loading. Reloading it will reset temporary interface settings.');
+            emitIframeMetric("plugin_iframe_terminal_failure", plugin, {reason: "component_mount_missing"});
         }, 5000);
         return () => window.clearTimeout(timer);
     }, [hostError, iframeLoaded, iframeReady, iframeDocumentVersion, content, plugin, iframeMounted]);
@@ -895,6 +983,17 @@ export const PluginContainer = ({
                 transition: "opacity 120ms ease",
             }}
         >
+            {pendingContent && active && <div role="status" style={{position: 'absolute', top: 8, left: 8, right: 8,
+                zIndex: 4, background: '#fff', color: '#1f2933', border: '1px solid #8f99a8', borderRadius: 4,
+                padding: 12, display: 'flex', alignItems: 'center', gap: 12}}>
+                <span style={{flex: 1}}>An updated view is ready. Opening it will reset temporary interface settings.</span>
+                <Button intent="primary" text="Open updated view" onClick={applyPendingContent}/>
+                <Button text="Keep current view" onClick={() => {
+                    dismissedContentRef.current = pendingContentRef.current;
+                    pendingContentRef.current = null;
+                    setPendingContent(null);
+                }}/>
+            </div>}
             {shouldShowLoadingOverlay && (
                 <div style={{
                     position: "absolute",
@@ -951,6 +1050,7 @@ export const PluginContainer = ({
                     // about:blank may load while the trusted host HTML is still
                     // being fetched. It has no plugin handshake to wait for.
                     if (!currentHostDocument) return;
+                    awaitingHelloRef.current = true;
                     setIframeLoaded(true);
                     setDebugStage("iframe-loaded");
                 }}

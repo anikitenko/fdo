@@ -26,7 +26,8 @@ import {NavigationPluginsButton} from "./components/NavigationPluginsButton.jsx"
 import {AppToaster} from "./components/AppToaster.jsx";
 import {PluginContainer} from "./components/PluginContainer.jsx";
 import {SideBar} from "./components/SideBar.jsx";
-import {invokePluginUiAction, normalizePluginUiExtensions, pluginUiActionKey, assertPluginUiActionResponse} from './utils/plugins/runtime/pluginUiActions';
+import {invokePluginUiAction, normalizePluginUiExtensions, pluginUiActionKey, assertPluginUiActionResponse, pluginUiActionRefresh} from './utils/plugins/runtime/pluginUiActions';
+import {requestPluginUiRender, reportPluginUiLifecycle} from './utils/plugins/runtime/pluginUiLifecycle';
 import {PLUGIN_UI_PREFERENCES_KEY, readPluginUiPreferences, normalizePluginUiPreferences, orderPluginUiItems} from './utils/plugins/runtime/pluginUiPreferences';
 import {PluginShortcutsDialog} from './components/PluginShortcutsDialog';
 import {CommandBar} from "./components/CommandBar.jsx";
@@ -1604,6 +1605,7 @@ export const Home = () => {
                 if (cancelled) return;
                 knownPlugins = new Map(records.map(plugin => [plugin.id, plugin.home]));
                 const updated = records.filter(plugin => previous.has(plugin.id) && previous.get(plugin.id) !== plugin.home);
+                updated.forEach(plugin => reportPluginUiLifecycle(plugin.id, 'frame-reload', 'gitops_update'));
                 if (updated.length) setPluginRenderEpochs(epochs => {
                     const next = new Map(epochs);
                     updated.forEach(plugin => next.set(plugin.id, (next.get(plugin.id) || 0) + 1));
@@ -1935,6 +1937,7 @@ export const Home = () => {
             if (loadedPlugin) {
                 window.electron.plugin.get(loadedPlugin).then((loadedPlugin) => {
                     const newPlugin = {...loadedPlugin.plugin, ...loadedPlugin.plugin.metadata, loading: true};
+                    reportPluginUiLifecycle(newPlugin.id, 'frame-reload', 'deployment');
                     uiActionEpochs.current.set(newPlugin.id, (uiActionEpochs.current.get(newPlugin.id) || 0) + 1);
                     setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === newPlugin.id)));
                     setSideBarActionItems((prev) => prev.filter((item) => item.id !== newPlugin.id));
@@ -2057,11 +2060,6 @@ export const Home = () => {
                     }
 
                     uiActionEpochs.current.set(unloadedPluginId, (uiActionEpochs.current.get(unloadedPluginId) || 0) + 1);
-                    setPluginRenderEpochs((prev) => {
-                        const next = new Map(prev);
-                        next.set(unloadedPluginId, (next.get(unloadedPluginId) || 0) + 1);
-                        return next;
-                    });
                     setSearchActions((prev) => prev.filter((action) => !(action.source === "plugin-init" && action.pluginId === unloadedPluginId)));
                     setSideBarActionItems((prev) => prev.filter((item) => item.id !== unloadedPluginId));
                     // Keep the activation UI during its grace window, but do not
@@ -2070,6 +2068,12 @@ export const Home = () => {
                         pluginTrace("home.unload.ignored.unexpectedManual.recentActivation", {id: unloadedPluginId, openedRecently, activationPendingRecently});
                         return;
                     }
+                    reportPluginUiLifecycle(unloadedPluginId, 'frame-reload', 'runtime_unloaded');
+                    setPluginRenderEpochs((prev) => {
+                        const next = new Map(prev);
+                        next.set(unloadedPluginId, (next.get(unloadedPluginId) || 0) + 1);
+                        return next;
+                    });
                     window.electron.plugin.deactivateUsers(unloadedPluginId).then(() => {
                     })
                     setState(prevState => {
@@ -2336,11 +2340,12 @@ export const Home = () => {
         setBusyUiPlugins(prev => new Set(prev).add(id));
         try {
             handlePluginChange(id);
-            await invokePluginUiAction(id, action, source, window.electron.plugin.uiMessage);
-            // SDK navigation actions mutate plugin state used by render().
-            // Request the updated view after the handler has finished.
+            const response = await invokePluginUiAction(id, action, source, window.electron.plugin.uiMessage);
             if ((uiActionEpochs.current.get(id) || 0) !== epoch) return;
-            assertPluginUiActionResponse(await window.electron.plugin.render(id));
+            const refresh = pluginUiActionRefresh(action, response);
+            if (refresh !== false) {
+                assertPluginUiActionResponse(await requestPluginUiRender(id, {replace: refresh === true}));
+            }
         } catch (error) {
             if ((uiActionEpochs.current.get(id) || 0) !== epoch) return;
             const toaster = await AppToaster;

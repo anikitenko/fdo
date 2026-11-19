@@ -43,7 +43,7 @@ test('asset readiness releases listeners and timers on stylesheet failure and vi
         });
         for (const settle of ['error', 'replace']) {
             const previous = Number(await output.textContent());
-            await home.evaluate(id => window.electron.plugin.render(id), id);
+            await home.evaluate(id => window.electron.plugin.render(id, {replace: true}), id);
             await expect.poll(() => output.evaluate(() => window.__assetProbe.listeners.size)).toBe(2);
             expect(await output.evaluate(() => window.__assetProbe.timers.size)).toBe(1);
             if (settle === 'error') {
@@ -51,7 +51,7 @@ test('asset readiness releases listeners and timers on stylesheet failure and vi
             } else {
                 // Remove the pending asset, then replace the view before its deadline.
                 await output.evaluate(() => window.__assetProbe.link.remove());
-                await home.evaluate(id => window.electron.plugin.render(id), id);
+                await home.evaluate(id => window.electron.plugin.render(id, {replace: true}), id);
             }
             await expect.poll(() => output.evaluate(node => Number(node.dataset.ready || 0))).toBeGreaterThan(previous);
             expect(await output.evaluate(() => ({timers: window.__assetProbe.timers.size, listeners: window.__assetProbe.listeners.size})))

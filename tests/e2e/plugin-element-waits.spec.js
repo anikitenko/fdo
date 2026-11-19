@@ -48,7 +48,7 @@ test('plugin element waits use DOM observation and are cancelled when their view
             window.__staleWaitFired = 0;
             window.waitForElement('#stale-target', () => window.__staleWaitFired++, 3000);
         });
-        await home.evaluate(id => window.electron.plugin.render(id), id);
+        await home.evaluate(id => window.electron.plugin.render(id, {replace: true}), id);
         await expect.poll(async () => Number(await frame.locator('output').textContent())).toBeGreaterThan(previous);
         await expect(frame.locator('#present')).toHaveAttribute('data-found', 'true');
         const stale = await frame.locator('main').evaluate(async () => {

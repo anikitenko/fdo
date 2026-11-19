@@ -230,6 +230,7 @@ export const PluginChannels = withPrefix('plugin', {
     GET_PRIVILEGED_AUDIT: 'get-privileged-audit',
     GET_LOG_TAIL: 'get-log-tail',
     GET_LOG_TRACE: 'get-log-trace',
+    RECORD_UI_LIFECYCLE: 'record-plugin-ui-lifecycle',
     on_off: {
         CAPABILITIES_CHANGED: 'capabilities-changed',
         RESPONSIVENESS: 'plugin-runtime-responsiveness',

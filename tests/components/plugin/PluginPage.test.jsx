@@ -27,11 +27,27 @@ describe("PluginPage host contract", () => {
 
         const { container } = render(<PluginPage />);
 
-        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_STAGE", stage: "iframe-listeners-ready", message: "" }, "*");
-        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_HELLO" }, "*");
+        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_STAGE", stage: "iframe-listeners-ready", message: "", documentId: expect.any(String) }, "*");
+        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_HELLO", documentId: expect.any(String) }, "*");
         expect(container.querySelector(".plugin-page-loader")).toBeTruthy();
 
         postMessageSpy.mockRestore();
+    });
+
+    test('deduplicates identical in-flight renders instead of recreating their module', async () => {
+        jest.spyOn(window.parent, 'postMessage').mockImplementation(() => {});
+        render(<PluginPage/>);
+        const message = {type: 'PLUGIN_RENDER', content: {code: JSON.stringify('<input value="temporary"/>'), onLoad: '() => {}'}};
+        act(() => {
+            window.dispatchEvent(new MessageEvent('message', {source: window.parent, data: message}));
+            window.dispatchEvent(new MessageEvent('message', {source: window.parent, data: message}));
+        });
+        expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+        // Failed imports remain retryable in this document.
+        await screen.findByText('Plugin failed to load');
+        act(() => window.dispatchEvent(new MessageEvent('message', {source: window.parent, data: message})));
+        expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
+        await act(async () => {});
     });
 
     test("installs the request bridge before readiness and releases it on unmount", async () => {
@@ -73,14 +89,14 @@ describe("PluginPage host contract", () => {
 
         await waitFor(() => {
             expect(postMessageSpy).toHaveBeenCalledWith(
-                {type: "PLUGIN_STAGE", stage: "iframe-render-handle-failed", message: 'Fixture module preparation failed'},
+                {type: "PLUGIN_STAGE", stage: "iframe-render-handle-failed", message: 'Fixture module preparation failed', documentId: expect.any(String)},
                 "*",
             );
         });
 
         expect(screen.getByText('Fixture module preparation failed')).toBeInTheDocument();
         expect(window.electron.notifications.add).not.toHaveBeenCalled();
-        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_HELLO" }, "*");
+        expect(postMessageSpy).toHaveBeenCalledWith({ type: "PLUGIN_HELLO", documentId: expect.any(String) }, "*");
     });
 
     test("keeps waiting for a cold plugin instead of failing before the parent's initialization deadline", () => {

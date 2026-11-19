@@ -9,6 +9,7 @@ import {createPluginRequestBridge} from './utils/pluginRequestBridge';
 import {pluginOnLoadInvocation} from './utils/pluginOnLoadInvocation';
 import {pluginSourceMapConnectSources} from './utils/pluginSourceMapPolicy';
 import {createSdkUiViewRuntime} from './utils/sdkUiViewRuntime';
+import {samePluginRenderContent} from './utils/pluginRenderContent';
 import {
     isTrustedParentPluginEvent,
     isValidPluginRenderMessage,
@@ -20,6 +21,8 @@ const NETWORK_CAPABILITY = "system.network";
 const NETWORK_HTTPS_CAPABILITY = "system.network.https";
 const NETWORK_HTTP_CAPABILITY = "system.network.http";
 const NETWORK_WEBSOCKET_CAPABILITY = "system.network.websocket";
+// Stable for this document, including a React host remount.
+const hostDocumentId = crypto.randomUUID();
 
 function getGrantedPluginCapabilities() {
     const metaTag = document.querySelector('meta[name="fdo-plugin-capabilities"]');
@@ -50,6 +53,7 @@ export const PluginPage = () => {
     const [, setPluginLoadError] = useState("");
     const activeModuleUrlRef = useRef(null);
     const activeUiViewRef = useRef(null);
+    const activeRenderRef = useRef(null);
 
     useEffect(() => {
         const iframeDocument = document;
@@ -336,7 +340,7 @@ export const PluginPage = () => {
         const previousRequest = window.createBackendReq;
         window.createBackendReq = bridge.request;
         const reportStage = (stage, message = "") => {
-            window.parent.postMessage({ type: "PLUGIN_STAGE", stage, message }, "*");
+            window.parent.postMessage({ type: "PLUGIN_STAGE", stage, message, documentId: hostDocumentId }, "*");
         };
         const collectLayout = () => {
             const docElRect = document?.documentElement?.getBoundingClientRect?.() || null;
@@ -375,6 +379,7 @@ export const PluginPage = () => {
             );
             window.parent.postMessage({
                 type: "PLUGIN_LAYOUT_READY",
+                documentId: hostDocumentId,
                 layout,
                 nonZero,
             }, "*");
@@ -404,6 +409,7 @@ export const PluginPage = () => {
         };
 
         const showPluginError = (message) => {
+            activeRenderRef.current = null;
             bridge.reset();
             activeUiViewRef.current?.dispose();
             activeUiViewRef.current = null;
@@ -427,6 +433,9 @@ export const PluginPage = () => {
             }
 
             if (isValidPluginRenderMessage(event.data)) {
+                const signature = {render: event.data.content.code, onLoad: event.data.content.onLoad};
+                if (samePluginRenderContent(activeRenderRef.current, signature)) return;
+                activeRenderRef.current = signature;
                 try {
                     reportStage("iframe-render-message-received");
                     setPluginLoadError("");
@@ -533,7 +542,7 @@ export const PluginPage = () => {
         document.addEventListener("click", blockPluginNavigation, true);
         document.addEventListener("submit", blockPluginFormSubmit, true);
         reportStage("iframe-listeners-ready");
-        window.parent.postMessage({type: "PLUGIN_HELLO"}, "*");
+        window.parent.postMessage({type: "PLUGIN_HELLO", documentId: hostDocumentId}, "*");
         if (!emitLayoutReady()) {
             let attempts = 0;
             layoutReadyInterval = window.setInterval(() => {
@@ -558,6 +567,7 @@ export const PluginPage = () => {
             }
             activeUiViewRef.current?.dispose();
             activeUiViewRef.current = null;
+            activeRenderRef.current = null;
             window.removeEventListener("message", handleMessage);
             window.removeEventListener("pointerdown", handlePointerDownBridge, true);
             window.removeEventListener("mousedown", handleMouseDownBridge, true);
@@ -579,7 +589,7 @@ export const PluginPage = () => {
     return PluginComponent ? (
         <PluginRuntimeErrorBoundary onError={(message) => {
             setPluginLoadError(message);
-            window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-render-crashed", message }, "*");
+            window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-render-crashed", message, documentId: hostDocumentId }, "*");
         }}>
             <PluginComponent React={React} sdkUi={sdkUi} registerUiView={view => {activeUiViewRef.current = view;}}/>
         </PluginRuntimeErrorBoundary>
@@ -656,7 +666,7 @@ function createESModule(pluginCode, onLoad) {
                     if (window.loadFdoUi === load) delete window.loadFdoUi;
                 };
             }, []);
-            window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-component-invoked", message: "" }, "*");
+            window.parent.postMessage({ type: "PLUGIN_STAGE", documentId: ${JSON.stringify(hostDocumentId)}, stage: "iframe-component-invoked", message: "" }, "*");
 
             window.executeInjectedScript = function (scriptContent) {
                 const existingPlaceholder = document.getElementById("plugin-script-placeholder");
@@ -679,12 +689,12 @@ function createESModule(pluginCode, onLoad) {
             }
             
             React.useLayoutEffect(() => {
-                window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-layout-effect", message: "" }, "*");
+                window.parent.postMessage({ type: "PLUGIN_STAGE", documentId: ${JSON.stringify(hostDocumentId)}, stage: "iframe-layout-effect", message: "" }, "*");
             }, []);
 
             React.useEffect(() => {
                 let cancelled = false;
-                window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-component-mounted", message: "" }, "*");
+                window.parent.postMessage({ type: "PLUGIN_STAGE", documentId: ${JSON.stringify(hostDocumentId)}, stage: "iframe-component-mounted", message: "" }, "*");
 
                 const handleDocumentClick = (event) => {
                     const target = event.target.closest("a");
@@ -729,7 +739,7 @@ function createESModule(pluginCode, onLoad) {
                 assets.ready.then(() => {
                     if (cancelled) return;
                     window.parent.postMessage({
-                        type: "PLUGIN_STAGE",
+                        type: "PLUGIN_STAGE", documentId: ${JSON.stringify(hostDocumentId)},
                         stage: "iframe-host-styles-ready",
                         message: "waitedMs=" + String(Math.max(0, Date.now() - assetProbeStartedAt)),
                     }, "*");
@@ -828,7 +838,7 @@ function createESModule(pluginCode, onLoad) {
                                 + "; viewportFallback=" + String(viewportFallbackApplied)
                                 + "; probeTag=" + String(probeEl?.tagName || "")
                             : "children=0; text=0; visibleText=0";
-                        window.parent.postMessage({ type: "PLUGIN_STAGE", stage: "iframe-dom-after-mount", message: domSummary }, "*");
+                        window.parent.postMessage({ type: "PLUGIN_STAGE", documentId: ${JSON.stringify(hostDocumentId)}, stage: "iframe-dom-after-mount", message: domSummary }, "*");
 
                         // Force a compositor repaint in packaged Electron when iframe content mounts
                         // but the texture is not visually refreshed.

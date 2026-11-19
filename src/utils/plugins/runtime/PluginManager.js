@@ -14,6 +14,7 @@ import {attachHostServiceBridge, drainWorkerStorage} from '../../hostServices/wo
 import {cancelPluginUiBridge} from './pluginUiMessageQueue';
 import {requestPluginUiMessage, postPluginMessage} from './pluginUiRequest';
 import {watchPluginWorker, createPluginRestartLimiter} from './pluginWatchdog';
+import {postPluginRender, consumePluginRenderRequest} from './pluginRenderRequests';
 const allowPluginRestart = createPluginRestartLimiter();
 const restartingPlugins = new Map();
 import UserORM from "../../persistence/UserORM";
@@ -944,7 +945,7 @@ const PluginManager = {
                         // Host-side safety net: always request a render right after init.
                         // This avoids UI deadlocks when renderer-side render trigger is missed.
                         try {
-                            child.postMessage(createHostPluginMessage("PLUGIN_RENDER"));
+                            postPluginRender(child);
                             console.info("[PLUGIN_RENDER_REQUEST_AFTER_INIT]", JSON.stringify({
                                 pluginId: id,
                                 sessionId,
@@ -973,6 +974,7 @@ const PluginManager = {
                             id,
                             sessionId,
                             content: message.response,
+                            renderRequest: consumePluginRenderRequest(child),
                         })
                     } else if (message.type === 'UI_MESSAGE') {
                         this.tracePluginEvent(id, "runtime.ui_message", {sessionId});

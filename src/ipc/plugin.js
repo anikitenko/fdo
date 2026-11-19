@@ -5,6 +5,8 @@ import {pluginCompatibilityHost, installedPluginCompatibility, inspectPluginComp
 import {validateNewPluginName} from '../utils/plugins/authoring/pluginNameValidation';
 import {pluginDisplayName} from '../utils/desktop/notificationContent';
 import {requestPluginUiMessage} from '../utils/plugins/runtime/pluginUiRequest';
+import {createPluginUiLifecycleRecorder} from '../utils/plugins/runtime/pluginUiLifecycleRecorder';
+import {postPluginRender} from '../utils/plugins/runtime/pluginRenderRequests';
 import {typecheckPluginWorkspace} from '../utils/sdk/pluginWorkspaceTypecheck';
 import {normalizePluginDoctorPresentation} from './pluginDoctorPresentation';
 import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
@@ -851,6 +853,15 @@ function getPluginRuntimeAuthoringContext(id,configuredCapabilities) {
 }
 
 export function registerPluginHandlers() {
+    const recordUiLifecycle = createPluginUiLifecycleRecorder({
+        root: () => process.env.FDO_E2E_USER_DATA_DIR || app.getPath('userData'),
+        getPlugin: id => new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(id),
+        trace: (id, event, details) => PluginManager.tracePluginEvent(id, event, details),
+    });
+    ipcMain.handle(PluginChannels.RECORD_UI_LIFECYCLE, (event, id, entry) => {
+        if (event.sender !== PluginManager.mainWindow?.webContents) return {success: false};
+        try {return recordUiLifecycle(id, entry);} catch {return {success: false};}
+    });
     registerPluginExportHandlers({getPlugin:id=>new PluginORM(PLUGINS_REGISTRY_FILE).getPlugin(id)});
     const folderPreviews = new Map();
     const importingIds = new Set();
@@ -2129,7 +2140,7 @@ export function registerPluginHandlers() {
         }
     })
 
-    ipcMain.handle(PluginChannels.RENDER, async (event, id) => {
+    ipcMain.handle(PluginChannels.RENDER, async (event, id, options) => {
         const plugin = PluginManager.getLoadedPlugin(id)
         if (!plugin) {
             console.warn("[PLUGIN_RENDER_REQUEST_REJECTED]", JSON.stringify({
@@ -2150,7 +2161,11 @@ export function registerPluginHandlers() {
             pluginId: id,
             sessionId: getPluginRuntimeSessionId(id, plugin),
         }));
-        plugin.instance.postMessage(buildHostPluginMessage("PLUGIN_RENDER"))
+        try {
+            postPluginRender(plugin.instance, {replace: options?.replace === true && event.sender === PluginManager.mainWindow?.webContents});
+        } catch {
+            return {success: false, error: 'Plugin render request could not be delivered.'};
+        }
         return {success: true};
     })
 

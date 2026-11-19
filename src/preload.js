@@ -351,7 +351,7 @@ contextBridge.exposeInMainWorld('electron', {
         build: (data) => ipcRenderer.invoke(PluginChannels.BUILD, data),
         runTests: (data) => ipcRenderer.invoke(PluginChannels.RUN_TESTS, data),
         init: (id) => ipcRenderer.invoke(PluginChannels.INIT, id),
-        render: (id) => ipcRenderer.invoke(PluginChannels.RENDER, id),
+        render: (id, options) => ipcRenderer.invoke(PluginChannels.RENDER, id, options),
         uiMessage: (id, content) => ipcRenderer.invoke(PluginChannels.UI_MESSAGE, id, content),
         verifySignature: (id) => ipcRenderer.invoke(PluginChannels.VERIFY_SIGNATURE, id),
         sign: (id, signerLabel) => ipcRenderer.invoke(PluginChannels.SIGN, id, signerLabel),
@@ -362,6 +362,7 @@ contextBridge.exposeInMainWorld('electron', {
         getPrivilegedAudit: (id, options) => ipcRenderer.invoke(PluginChannels.GET_PRIVILEGED_AUDIT, id, options),
         getLogTail: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TAIL, id, options),
         getLogTrace: (id, options) => ipcRenderer.invoke(PluginChannels.GET_LOG_TRACE, id, options),
+        recordUiLifecycle: (id, entry) => ipcRenderer.invoke(PluginChannels.RECORD_UI_LIFECYCLE, id, entry),
         on: {
             signatureChanged: callback => addPluginListener("signatureChanged", PluginChannels.on_off.SIGNATURE_CHANGED, callback),
             capabilitiesChanged: (callback) =>
