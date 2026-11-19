@@ -47,7 +47,13 @@ export const certificateStorage = {
         const known = new Set(stored.map(entry => `${entry.scope}:${entry.id}`));
         return [...stored, ...legacyCertificates(scope).filter(entry => !known.has(`${entry.scope}:${entry.id}`))];
     },
-    put(entry, scope, previousId) {migrateLegacy().put(entry, scope, previousId);},
+    put(entry, scope, previousId) {
+        const publicAnchor = entry.kind === 'anchor' && entry.key == null
+            && (scope === 'registry' || scope === 'org') && !previousId
+            && !legacyCertificates(scope).some(legacy => legacy.id === entry.id);
+        const db = publicAnchor ? initializeCertificateStorage({migrateLegacy: false}) : migrateLegacy();
+        db.put(entry, scope, previousId);
+    },
     putIfLabelMissing(entry, scope) {return migrateLegacy().putIfLabelMissing(entry, scope);},
     update(id, patch, scope = 'root') {
         const db = initializeCertificateStorage({migrateLegacy: false}), stored = db.list(scope).some(entry => entry.id === id);
