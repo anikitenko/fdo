@@ -20,6 +20,7 @@ const {
   getPluginUiState,
   getPluginDiagnostics,
   getPluginLogTail,
+  readFixtureRunLogs,
   removePlugin,
 } = require("./helpers/sdkExamples");
 const { getBehaviorSpec } = require("./helpers/sdkExampleBehaviorManifest");
@@ -336,7 +337,7 @@ if (contractEntries.length === 0) {
 }
 
 test.beforeAll(async () => {
-  electronApp = await launchElectronApp(electron);
+  electronApp = await launchElectronApp(electron, {isolatedUserDataDir: true});
 });
 
 test.afterAll(async () => {
@@ -423,8 +424,7 @@ for (const entry of contractEntries) {
 
       if (expectedInitLogs.length > 0) {
         await expect.poll(async () => {
-          const preInvokeTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 120000 });
-          const preInvokeText = tailText(preInvokeTail);
+          const preInvokeText = await readFixtureRunLogs(electronApp, pluginName);
           const matchedInitLog = expectedInitLogs.find((token) => preInvokeText.includes(String(token)))
             || (preInvokeText.includes("plugin.init.success") ? "plugin.init.success" : "");
           testRecord.matchedInitLog = matchedInitLog || "";

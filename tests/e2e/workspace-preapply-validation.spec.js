@@ -40,7 +40,8 @@ for (const outcome of ['success', 'stop', 'edit', 'failure']) {
             await page.locator('#prompt-input').fill('Update /logic.ts to export value = 2. Apply the complete workspace file.');
             await page.locator('#action-select').selectOption('plan');
             await page.getByRole('button', {name: 'Submit', exact: true}).click();
-            await expect.poll(() => app.evaluate(() => !!globalThis.__releaseCandidate)).toBe(true);
+            await expect.poll(() => app.evaluate(() => globalThis.__candidateCalls), {timeout: 15000}).toBe(1);
+            await expect.poll(() => app.evaluate(() => typeof globalThis.__releaseCandidate), {timeout: 30000}).toBe('function');
             expect(await page.evaluate(() => window.__editorTestApi.getFileContent('/logic.ts'))).toBe('export const value = 1;');
             await expect(page.getByRole('button', {name: /Processing/})).toBeDisabled();
             if (outcome === 'stop') await page.getByRole('button', {name: 'Stop', exact: true}).click();
