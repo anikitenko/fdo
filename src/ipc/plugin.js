@@ -677,7 +677,7 @@ async function getPluginLogTail(pluginId, options = {}) {
     const entries = await readdir(logDir, {withFileTypes: true});
     const fileStats = [];
     for (const entry of entries) {
-        if (!entry.isFile()) continue;
+        if (!entry.isFile() || entry.name.endsWith("-audit.json")) continue;
         const filePath = path.join(logDir, entry.name);
         try {
             const details = await stat(filePath);
