@@ -31,7 +31,7 @@ test('CRLF workspace edits use LF preview offsets and preserve editor line endin
     workspace.files['/render.tsx'].content = 'first\r\nsecond';
     base = liveUiWorkspacePayload(workspace);
     expect(base.files['/render.tsx']).toBe('first\nsecond');
-    const patch = {file: '/render.tsx', before: 'first\nsecond', after: 'first\nchanged', description: 'Edit second line'};
+    const patch = {file: '/render.tsx', before: 'first\nsecond', after: 'first\r\nchanged', description: 'Edit second line'};
     const result = await applyVisualEdit({workspace, base, patch, storage, validate, canCommit});
     expect(result.status).toBe('applied');
     expect(workspace.files['/render.tsx'].content).toBe('first\r\nchanged');

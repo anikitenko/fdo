@@ -13,6 +13,7 @@ test('SDK authoring components insert, edit typed properties and simulate states
         const previewOpening=app.waitForEvent('window');
         await editor.getByRole('button',{name:'Live UI editor',exact:true}).click();
         const visual=await previewOpening,frame=visual.frameLocator('iframe[title="Plugin UI preview"]');
+        await visual.setViewportSize({width:1600,height:1000});
         await visual.getByText('SDK catalog',{exact:true}).click();
         for(const name of ['Progress Bar','Toast','Inline Alert','Toast Region','Async Action Button','Tabs','Disclosure','Accordion']) {
             await visual.getByRole('button',{name:'main',exact:true}).click();

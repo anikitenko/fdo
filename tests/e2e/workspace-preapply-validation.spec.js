@@ -28,7 +28,7 @@ for (const outcome of ['success', 'stop', 'edit', 'failure']) {
                 if (!build) throw new Error('Real compiler handler is unavailable');
                 ipcMain.removeHandler('plugin:build');
                 ipcMain.handle('plugin:build', async (event, candidate) => {
-                    await new Promise(resolve => {globalThis.__releaseCandidate = resolve;});
+                    if (!globalThis.__rejectCandidate) await new Promise(resolve => {globalThis.__releaseCandidate = resolve;});
                     return globalThis.__rejectCandidate ? {success: false, error: 'controlled compiler rejection\n/logic.ts:1:1: controlled compiler rejection'} : build(event, candidate);
                 });
             });
@@ -50,10 +50,6 @@ for (const outcome of ['success', 'stop', 'edit', 'failure']) {
                 globalThis.__releaseCandidate();
                 globalThis.__releaseCandidate = null;
             }, outcome);
-            if (outcome === 'failure') {
-                await expect.poll(() => app.evaluate(() => !!globalThis.__releaseCandidate && globalThis.__candidateCalls === 2)).toBe(true);
-                await app.evaluate(() => globalThis.__releaseCandidate());
-            }
             await expect(page.getByRole('button', {name: /Processing/})).toHaveCount(0, {timeout: 30000});
             const source = await page.evaluate(() => window.__editorTestApi.getFileContent('/logic.ts'));
             expect(source.trim()).toBe(`export const value = ${outcome === 'success' ? 2 : outcome === 'edit' ? 99 : 1};`);

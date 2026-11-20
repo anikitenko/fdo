@@ -60,7 +60,7 @@
       "id": "native-ai-notices",
       "status": "pending",
       "scope": "Native Codex and TypeScript-Go embedded dependencies",
-      "action": "Per-platform findings are recorded for macOS, Linux and Windows x64 (third_party/evidence/native-ai-platform-packages.json, from the published npm tarballs, not run on those platforms). TypeScript native 7.0.2: NOTICE.txt and LICENSE are in every platform package and byte-identical. Codex 0.162.1: every platform package also ships an optional voice runtime (LGPL-2.1 GStreamer/GLib, Opus, libffi, PCRE2, and Microsoft vcruntime140.dll on Windows) that FDO does not use; it is excluded from the app by webpack.main.config.js and enforced by third_party/distribution-policy.json (codex-voice-runtime), and the Codex CLI was confirmed to run without it. Linux ships a bubblewrap helper (LGPL-2.0-or-later) whose vendored source is added to the Linux native-source archive (openai/codex at commit 092d3acd). Still open: Codex helper binaries (rg, zsh, Windows sandbox executables) and Rust crates rely on the upstream NOTICE and the source-lock inventory; no complete native SBOM exists. After the final release commit, review the packaged builds, then record the reviewer, date and per-target input hashes.",
+      "action": "Per-platform findings are recorded for macOS, Linux and Windows x64 (third_party/evidence/native-ai-platform-packages.json, from the published npm tarballs, not run on those platforms). TypeScript native 7.0.2: NOTICE.txt and LICENSE are in every platform package and byte-identical. Codex 0.162.1: every platform package also ships an optional voice runtime (LGPL-2.1 GStreamer/GLib, Opus, libffi, PCRE2, and Microsoft vcruntime140.dll on Windows) that FDO does not use; it is excluded from the app by webpack.main.config.js and enforced by third_party/distribution-policy.json (codex-voice-runtime), and the Codex CLI was confirmed to run without it. Linux ships a bubblewrap helper (LGPL-2.0-or-later) whose vendored source is added to the Linux native-source archive (openai/codex at commit 092d3acd). Still open: Codex helper binaries (rg, zsh, Windows sandbox executables) and Rust crates rely on the upstream NOTICE and the source-lock inventory; no complete native SBOM exists. After the final release commit, review the packaged builds, then record the reviewer, date and per-target input hashes. On 2026-11-20 the maintainer chose to retain bundled Codex and hold publication until its redistribution evidence is complete. The pinned supplier ripgrep manifest identifies 15.2.0. For darwin-arm64 the fallback zsh manifest references an alpha archive with SHA-256 49dec9832379688c9090666694a3449502ac5ebd4d76b9ffde1d0999cd088205 (verified). Its zsh executable hashes to db6fe1a78eaceaff3b0f0cde25fc25afe466d61b0bf76b4ebe35812e4bc8dd71, while the installed npm executable hashes to 78baefdeac8715fe8a99b60d112f45daa2feaeb5068cd7b116c75300f1402d50. Removing signatures from temporary copies did not produce identical hashes. Establish which build inputs produced the shipped helper and retain their applicable notices.",
       "evidence": [
         "https://github.com/openai/codex/tree/rust-v0.162.1",
         "third_party/licenses/codex-0.162.1-NOTICE",
@@ -70,7 +70,10 @@
         "third_party/evidence/native-ai-platform-packages.json",
         "third_party/distribution-policy.json",
         "third_party/native-source.json",
-        "webpack.main.config.js"
+        "webpack.main.config.js",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/scripts/codex_package/rg",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/scripts/codex_package/codex-zsh",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/.github/scripts/build-zsh-release-artifact.sh"
       ]
     },
     {

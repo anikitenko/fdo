@@ -17,7 +17,7 @@ export async function applyVisualEdit({workspace, base, patch, patches = [patch]
     if (!patches.length || new Set(patches.map(item => item?.file)).size !== patches.length || patches.some(item => !item || base.files[item.file] !== item.before)) return {status: 'conflict', message: 'An edited file changed.'};
     const initialFingerprint = workspaceFingerprint(workspace);
     const unchanged = () => matches(workspace, base) && workspaceFingerprint(workspace) === initialFingerprint;
-    const candidate = {...base.files, ...Object.fromEntries(patches.map(item => [item.file, item.after]))};
+    const candidate = {...base.files, ...Object.fromEntries(patches.map(item => [item.file, item.after.replace(/\r\n/g, '\n')]))};
     const validation = await validate(candidate);
     if (!validation.success) return {status: 'error', message: validation.error || 'Candidate validation failed. No source edits were applied.'};
     if (!isActive() || !unchanged()) return {status: 'conflict', message: 'Source changed during validation. No source edits were applied.'};
@@ -49,10 +49,11 @@ export async function applyVisualEdit({workspace, base, patch, patches = [patch]
         for (const item of patches) {
             const original = originals.get(item.file);
             const eol = workspace.files[item.file].model?.getEOL?.() || original.match(/\r?\n/)?.[0];
-            workspace.setFileContent(item.file, eol === '\r\n' ? item.after.replace(/\r?\n/g, '\r\n') : item.after);
-            if (liveUiWorkspacePayload(workspace).files[item.file] !== item.after) {
+            const expected = candidate[item.file];
+            workspace.setFileContent(item.file, eol === '\r\n' ? expected.replace(/\n/g, '\r\n') : expected);
+            if (liveUiWorkspacePayload(workspace).files[item.file] !== expected) {
                 //noinspection ExceptionCaughtLocallyJS
-                throw new Error('The IDE could not update the source model.');
+                throw new Error(`The IDE could not update the source model for ${item.file}.`);
             }
         }
         const after = fs.create(before.version, tabs, {quiet: true,
