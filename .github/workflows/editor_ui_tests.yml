@@ -2,7 +2,8 @@ name: App UI Tests
 
 on:
   push:
-    branches: ['**']
+    # The Release Matrix already calls this workflow for candidate pushes.
+    branches-ignore: ['review/fdo-1.0.7']
     paths-ignore:
       - 'website/**'
       - 'scripts/website/**'
@@ -181,8 +182,8 @@ jobs:
         run: npx electron-builder --dir --publish never
       - name: Verify services in packaged desktop host
         run: node scripts/run-packaged-host-services.cjs
-      - name: Run full regressions on scheduled and manual runs
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      - name: Run full regressions on schedules, manual runs and release rehearsals
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/review/fdo-1.0.7'
         env:
           PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report-full
         run: npm run test:e2e:ci -- --output=test-results-full
