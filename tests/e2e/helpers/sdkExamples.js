@@ -510,6 +510,19 @@ async function getPluginDiagnostics(window, pluginName, options = {}) {
   return null;
 }
 
+// Startup evidence may already have rolled out of the renderer's bounded log tail.
+async function readFixtureRunLogs(app, pluginName) {
+  const root = await app.evaluate(() => process.env.FDO_E2E_USER_DATA_DIR);
+  if (!root || path.basename(pluginName) !== pluginName || pluginName === '..') {
+    throw new Error('Expected a plugin in the Electron test profile.');
+  }
+  const dir = path.join(root, 'plugin-data', pluginName, 'logs');
+  const entries = await fs.promises.readdir(dir, {withFileTypes: true});
+  const logs = await Promise.all(entries.filter(entry => entry.isFile())
+    .map(entry => fs.promises.readFile(path.join(dir, entry.name), 'utf8')));
+  return logs.join('\n');
+}
+
 async function getPluginLogTail(window, pluginName, options = {}) {
   const maxFiles = Number(options.maxFiles || 2);
   const maxChars = Number(options.maxChars || 12000);
@@ -543,5 +556,6 @@ module.exports = {
   getPluginIframeText,
   getPluginDiagnostics,
   getPluginLogTail,
+  readFixtureRunLogs,
   removePlugin,
 };

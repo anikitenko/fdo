@@ -56,6 +56,11 @@ clearance work separately. It is not a publication-rights attestation.
   `91776082a8e0a878956ad9458367883d041ff271` and the 1.0.7 release-evidence
   documentation. This follow-up was given in writing in the release preparation
   conversation. The detached signature covers the original declaration.
+- [x] In a further written confirmation on 2026-11-20, the maintainer extended
+  the same 1.0.7 publication-rights and employer/client statements to the
+  rehearsal changes, including the Live UI line-ending fix, editor test hook,
+  regression tests and CI changes. The original signature remains scoped to
+  the revision named in the signed declaration.
 - [ ] Review final native sources and outstanding helper notices.
 - [ ] Record the reviewer, date, resolution, supporting evidence and verified
   input hashes for each target in all six ledger entries.

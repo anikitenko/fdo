@@ -19,7 +19,7 @@
       "id": "publication-rights",
       "status": "pending",
       "scope": "Code, documentation, logos, screenshots and workshop media",
-      "action": "The maintainer signed the declaration for 3ee271e4 and confirmed its rights and employer/client statements also cover changes through 91776082 and the 1.0.7 release-evidence documentation. The dated follow-up is recorded in the reassessment checklist. Review the final release scope and record per-target input hashes before clearance.",
+      "action": "The maintainer signed the declaration for 3ee271e4 and confirmed its rights and employer/client statements also cover changes through 91776082 and the 1.0.7 release-evidence documentation. The maintainer also confirmed coverage of the rehearsal changes including Live UI line-ending handling, editor test hook, regressions and CI. Both dated follow-ups are recorded in the reassessment checklist. Review the final release scope and record per-target input hashes before clearance.",
       "evidence": [
         "docs/PUBLICATION_RIGHTS_STATEMENT.md",
         "third_party/source-evidence.json",

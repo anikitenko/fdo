@@ -416,6 +416,7 @@ test('dialog design preview reveals hidden children, supports native focus and E
         let previewOpening = app.waitForEvent('window');
         await editor.getByRole('button', {name: 'Live UI editor', exact: true}).click();
         let visual = await previewOpening;
+        await visual.setViewportSize({width: 1600, height: 1000});
         let frame = visual.frameLocator('iframe[title="Plugin UI preview"]');
         const dialog = frame.locator('[data-role="settings-dialog"]');
         await expect(dialog).toBeHidden();
@@ -1019,6 +1020,7 @@ test('CSS states preview only the selected element and preserve isolated state e
         const previewOpening = app.waitForEvent('window');
         await editor.getByRole('button', {name: 'Live UI editor', exact: true}).click();
         const visual = await previewOpening;
+        await visual.setViewportSize({width: 1600, height: 1000});
         const frame = visual.frameLocator('iframe[title="Plugin UI preview"]');
         const originalButton = frame.locator('[data-role="run"]');
         await expect(originalButton).toBeVisible();
@@ -1107,6 +1109,7 @@ test('responsive max-width edits preview at exact widths, preserve wider styles 
         const previewOpening = app.waitForEvent('window');
         await editor.getByRole('button', {name: 'Live UI editor', exact: true}).click();
         const visual = await previewOpening;
+        await visual.setViewportSize({width: 1600, height: 1000});
         const frame = visual.frameLocator('iframe[title="Plugin UI preview"]');
         const button = frame.locator('[data-role="run"]');
         await expect(button).toBeVisible();

@@ -21,7 +21,7 @@ const {
   waitForPluginUiRendered,
   getPluginUiState,
   getPluginDiagnostics,
-  getPluginLogTail,
+  readFixtureRunLogs,
   removePlugin,
 } = require("./helpers/sdkExamples");
 
@@ -102,15 +102,6 @@ function getFailureMessage(result) {
   return "";
 }
 
-function toTailText(logTail) {
-  const logs = Array.isArray(logTail?.logs) ? logTail.logs : [];
-  if (logs.length > 0) {
-    return logs.map((item) => String(item?.tail || "")).join("\n");
-  }
-  const files = Array.isArray(logTail?.files) ? logTail.files : [];
-  return files.map((file) => String(file?.content || file?.tail || "")).join("\n");
-}
-
 async function waitForAnyUiMarker(window, pluginName, markers = [], timeoutMs = 20000) {
   const expected = (Array.isArray(markers) ? markers : []).map((value) => String(value || "").trim()).filter(Boolean);
   if (expected.length === 0) return "";
@@ -152,8 +143,7 @@ async function waitForAnyLogContains(window, pluginName, needles, timeoutMs = 12
   if (!expected.length) return "";
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 6, maxChars: 160000 });
-    const tailText = toTailText(logTail);
+    const tailText = await readFixtureRunLogs(electronApp, pluginName);
     const matched = expected.find((needle) => String(tailText).includes(needle));
     if (matched) return matched;
     await window.waitForTimeout(220);

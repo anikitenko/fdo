@@ -9,13 +9,17 @@ export function pickLiveUiSources(files = {}) {
     ).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 }
 
+export function workspaceFileText(entry) {
+    return entry.model && !entry.model.isDisposed?.() ? entry.model.getValue() : entry.content || '';
+}
+
 export function liveUiWorkspacePayload(workspace) {
     // Do not materialize thousands of dependency Monaco models on each refresh.
     const eligible = pickLiveUiSources(Object.fromEntries(Object.keys(workspace.files).map(file => [file, ''])));
     const files = Object.fromEntries(Object.keys(eligible).map(file => {
-        const entry = workspace.files[file];
-        const model = entry.model;
-        return [file, model && !model.isDisposed?.() ? model.getValue() : entry.content || ''];
+        // The parser cooks CRLF template literals to LF. Use the same coordinate
+        // system for source mapping and edit validation on every platform.
+        return [file, workspaceFileText(workspace.files[file]).replace(/\r\n/g, '\n')];
     }));
     let name;
     let source = 'index.ts';

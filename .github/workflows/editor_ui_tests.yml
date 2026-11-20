@@ -159,7 +159,8 @@ jobs:
   ui-cross-platform:
     name: Electron Smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Manual and candidate runs execute the full serial suite after packaging.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

@@ -17,7 +17,7 @@ const {
   waitForPluginUiRendered,
   getPluginUiState,
   getPluginDiagnostics,
-  getPluginLogTail,
+  readFixtureRunLogs,
   removePlugin,
 } = require("./helpers/sdkExamples");
 
@@ -67,15 +67,6 @@ function normalizeUiMessageResponse(response) {
     return { ok: true, result: response, error: "", code: "", correlationId: "" };
   }
   return { ok: true, result: response, error: "", code: "", correlationId: "" };
-}
-
-function toTailText(logTail) {
-  const logs = Array.isArray(logTail?.logs) ? logTail.logs : [];
-  if (logs.length > 0) {
-    return logs.map((item) => String(item?.tail || "")).join("\n");
-  }
-  const files = Array.isArray(logTail?.files) ? logTail.files : [];
-  return files.map((file) => String(file?.content || file?.tail || "")).join("\n");
 }
 
 async function invokeHandler(window, pluginId, handler, content = {}) {
@@ -171,8 +162,7 @@ test.describe("SDK fixture minimal-plugin: live E2E line proof", () => {
       const unknownErrorText = `${unknownHandler?.error || ""} ${unknownHandler?.code || ""} ${JSON.stringify(unknownHandler?.result || {})}`;
       expect(/not registered|handler/i.test(unknownErrorText)).toBe(true);
 
-      const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 8, maxChars: 140000 });
-      const combinedLog = toTailText(logTail);
+      const combinedLog = await readFixtureRunLogs(electronApp, pluginName);
       expect(combinedLog).toMatch(/Minimal fixture initialized|plugin\.init\.success/);
       expect(combinedLog).toMatch(/plugin\.init\.success|plugin\.render\.success|ui\.message\.response\.error|ui\.message\.response\.success/);
       expect(combinedLog).not.toMatch(/plugin\.render\.error|plugin\.init\.error|document is not defined/i);

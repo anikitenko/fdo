@@ -771,6 +771,9 @@ export const EditorPage = () => {
                 activeCodeEditor.focus?.();
                 return true;
             },
+            triggerSuggestions() {
+                activeCodeEditor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+            },
             async triggerQuickFix() {
                 if (!activeCodeEditor) {
                     return false;

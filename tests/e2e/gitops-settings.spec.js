@@ -16,7 +16,9 @@ test('GitOps Settings exposes the repository form and validates input through na
         const {layout,environment} = require('../../src/utils/git/bundledGit.cjs');
         const git = layout(root), env = environment(process.env,git);
         expect(execFileSync(git.command,['--version'],{env,encoding:'utf8',timeout:5000})).toMatch(/^git version /);
-        const helper = path.join(git.execPath,process.platform==='win32'?'git-remote-https.exe':'git-remote-https');
+        const helper = process.platform === 'win32'
+            ? path.join(git.binPaths[0], 'git-remote-https.exe')
+            : path.join(git.execPath, 'git-remote-https');
         // No arguments invokes helper usage, without making a network request.
         // EACCES/ENOENT and Windows loader failures must not pass as usage exits.
         let httpsHelperStarted;

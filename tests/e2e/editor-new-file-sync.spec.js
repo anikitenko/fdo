@@ -32,6 +32,9 @@ async function waitForModelMarkerMessage(page, filePath, messagePattern) {
 
 test.beforeAll(async () => {
   electronApp = await launchElectronApp(electron, {isolatedUserDataDir: true});
+}, 120000);
+
+test.beforeEach(async () => {
   editorWindow = await openEditorWithMockedIPC(electronApp);
   await waitForWorkspaceReady(editorWindow);
 }, 120000);
@@ -172,7 +175,7 @@ export function createWebsiteCheckUI() {
     .getByText('Compilation successful!', {exact: true})).toBeVisible({timeout: 15000});
 });
 
- test('a helper edited after snapshot restore immediately becomes a module for its importer', async () => {
+test('a helper edited after snapshot restore immediately becomes a module for its importer', async () => {
   await editorWindow.evaluate(() => {
     window.__editorTestApi.createFile('/shared/restored.ts', '// new helper');
     window.__editorTestApi.createFile('/index.ts', "import {answer} from './shared/restored'; const typed: string = answer;");

@@ -313,7 +313,8 @@ test.describe("SDK fixture operator-custom-tool-plugin: live E2E line proof", ()
       const deniedDialog = window.getByLabel("Process Scope Not Configured");
       await expect(deniedDialog.getByText("Required Plugin-Specific Process Scope Setup")).toBeVisible();
       await expect(deniedDialog.locator("code").filter({ hasText: /^internal-runner$/ }).first()).toBeVisible();
-      await expect(deniedDialog.locator("code").filter({ hasText: /^\/usr\/local\/bin\/internal-runner$/ }).first()).toBeVisible();
+      const requestedPath = require('node:path').resolve('/usr/local/bin/internal-runner');
+      await expect(deniedDialog.getByText(requestedPath, {exact: true}).first()).toBeVisible();
 
       const fixProcessAccessButton = window.getByRole("button", { name: /Fix Process Access|Open Plugin Scopes|Open Capabilities/i }).first();
       await expect(fixProcessAccessButton).toBeVisible({ timeout: 15000 });
