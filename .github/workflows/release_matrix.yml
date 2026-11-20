@@ -3,6 +3,7 @@ name: Release Matrix
 on:
   workflow_dispatch:
   push:
+    branches: ['review/fdo-1.0.7']
     tags: ['v*']
 
 permissions:

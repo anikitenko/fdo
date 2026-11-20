@@ -114,6 +114,8 @@ async function launchElectronApp(electron, options = {}) {
     isolated: isolatedUserDataDir,
     child: app.process(),
   });
+  // Install before new editor documents mount, including after renderer reloads.
+  await app.context().addInitScript(() => { window.__E2E__ = true; });
   const firstWindow = await app.firstWindow();
   if (options.keepDisplayAwake === true) {
     try {
@@ -137,9 +139,6 @@ async function launchElectronApp(electron, options = {}) {
   firstWindow.on('dialog', acceptAllDialogs);
   app.on('window', (page) => {
     page.on('dialog', acceptAllDialogs);
-    page.evaluate(() => {
-      window.__E2E__ = true;
-    }).catch(() => {});
   });
 
   await firstWindow.waitForLoadState('domcontentloaded', { timeout: 30000 });
