@@ -19,10 +19,13 @@
       "id": "publication-rights",
       "status": "pending",
       "scope": "Code, documentation, logos, screenshots and workshop media",
-      "action": "Vendor-facing publication rights declaration prepared in docs/PUBLICATION_RIGHTS_STATEMENT.md. It records the confirmed six ChatGPT-generated logo/preview files and distinguishes original project material from third-party components. Before signing, the maintainer must validate the publication-authority statements, applicable approvals, derived-asset rights and permission to disclose information visible in screenshots/workshop media. Awaiting signature, date, exact release source revision, supporting permission evidence where applicable, and target-bound review clearance. Preparing or signing the declaration does not itself complete native/component or packaged-release reviews.",
+      "action": "The maintainer signed the declaration for 3ee271e4 and confirmed its rights and employer/client statements also cover changes through 91776082 and the 1.0.7 release-evidence documentation. The dated follow-up is recorded in the reassessment checklist. Review the final release scope and record per-target input hashes before clearance.",
       "evidence": [
         "docs/PUBLICATION_RIGHTS_STATEMENT.md",
-        "third_party/source-evidence.json"
+        "third_party/source-evidence.json",
+        "docs/PUBLICATION_RIGHTS_STATEMENT.md.asc",
+        "docs/PUBLICATION_RIGHTS_SIGNING_KEY.asc",
+        "docs/LICENSING_REASSESSMENT.md"
       ]
     },
     {
