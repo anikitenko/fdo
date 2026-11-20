@@ -9,20 +9,6 @@ async function chooseCssProperty(visual, query) {
     await expect(visual.getByLabel('CSS value', {exact: true})).toBeFocused();
 }
 
-async function expectTransitionRun(element, action, propertyName = 'opacity') {
-    await element.evaluate((node, property) => {
-        node.dataset.e2eTransitionRun = 'false';
-        const onTransitionRun = event => {
-            if (event.propertyName !== property) return;
-            node.dataset.e2eTransitionRun = 'true';
-            node.removeEventListener('transitionrun', onTransitionRun);
-        };
-        node.addEventListener('transitionrun', onTransitionRun);
-    }, propertyName);
-    await action();
-    await expect.poll(() => element.getAttribute('data-e2e-transition-run')).toBe('true');
-}
-
 test('SDK motion presets persist, replay without workspace edits and honor reduced motion', async () => {
     test.setTimeout(120000);
     const app=await launchElectronApp(electron,{isolatedUserDataDir:true});
@@ -46,7 +32,8 @@ test('SDK motion presets persist, replay without workspace edits and honor reduc
         await expect(dialog).toBeVisible();
         await expect(dialog).toHaveCSS('transition-duration','0.8s, 0.8s, 0.8s, 0.8s');
         const before=await editor.evaluate(()=>window.__editorTestApi.getFileContent('/render.tsx'));
-        await expectTransitionRun(frame.locator('[data-fdo-component="fdo.dialog"]'),()=>visual.getByRole('button',{name:'Replay entrance',exact:true}).click());
+        await visual.getByRole('button',{name:'Replay entrance',exact:true}).click();
+        await expect.poll(()=>frame.locator('[data-fdo-component="fdo.dialog"]').evaluate(node=>node.getAnimations().some(animation=>animation.transitionProperty==='opacity'))).toBe(true);
         expect(await editor.evaluate(()=>window.__editorTestApi.getFileContent('/render.tsx'))).toBe(before);
         await visual.getByRole('button',{name:'Undo',exact:true}).click();
         await expect(dialog).toHaveCSS('transition-duration','0s');
@@ -67,12 +54,14 @@ test('SDK motion presets persist, replay without workspace edits and honor reduc
         const popover=frame.locator('[data-fdo-component="fdo.popover"]');
         await expect(popover).toBeVisible();
         await expect(popover).toHaveCSS('opacity','1');
-        await expectTransitionRun(popover,()=>visual.getByRole('button',{name:'Close overlay preview',exact:true}).click());
+        await visual.getByRole('button',{name:'Close overlay preview',exact:true}).click();
+        await expect.poll(()=>popover.evaluate(node=>node.getAnimations().some(animation=>animation.transitionProperty==='opacity'))).toBe(true);
         // Reopening during exit must survive the old close completion.
         await visual.getByRole('button',{name:'Popover · New Popover',exact:true}).click();
         await expect(popover).toHaveCSS('opacity','1');
         await expect(popover).toBeVisible();
-        await expectTransitionRun(popover,()=>visual.getByRole('button',{name:'Replay entrance',exact:true}).click());
+        await visual.getByRole('button',{name:'Replay entrance',exact:true}).click();
+        await expect.poll(()=>popover.evaluate(node=>node.getAnimations().some(animation=>animation.transitionProperty==='opacity'))).toBe(true);
         await expect(popover).toHaveCSS('opacity','1');
         await visual.getByLabel('Motion preset',{exact:true}).selectOption('none');
         await visual.getByRole('button',{name:'Preview motion',exact:true}).click();
