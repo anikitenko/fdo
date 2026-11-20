@@ -24,15 +24,29 @@ for (const outcome of ['success', 'stop', 'edit', 'failure']) {
                     globalThis.__candidateCalls++;
                     return {success: true, requestId, content: '### File: /logic.ts\n```typescript\nexport const value = 2;\n```'};
                 });
+                // Pause at the first compiler step so Stop and Edit act on a
+                // pending validation before the real typechecker completes.
+                const typecheck = ipcMain._invokeHandlers.get('plugin:plugin-typecheck');
+                if (!typecheck) throw new Error('Real typecheck handler is unavailable');
+                ipcMain.removeHandler('plugin:plugin-typecheck');
+                ipcMain.handle('plugin:plugin-typecheck', async (event, candidate) => {
+                    if (candidate.latestContent?.['/logic.ts']?.trim() === 'export const value = 2;' && !globalThis.__candidateReleased) {
+                        await new Promise(resolve => { globalThis.__releaseCandidate = resolve; });
+                    }
+                    return typecheck(event, candidate);
+                });
                 const build = ipcMain._invokeHandlers.get('plugin:build');
                 if (!build) throw new Error('Real compiler handler is unavailable');
                 ipcMain.removeHandler('plugin:build');
                 ipcMain.handle('plugin:build', async (event, candidate) => {
-                    if (!globalThis.__rejectCandidate) await new Promise(resolve => {globalThis.__releaseCandidate = resolve;});
                     return globalThis.__rejectCandidate ? {success: false, error: 'controlled compiler rejection\n/logic.ts:1:1: controlled compiler rejection'} : build(event, candidate);
                 });
             });
-            const page = await openEditorWithMockedIPC(app, {__useRealAssistants: true});
+            const page = await openEditorWithMockedIPC(app, {__useRealAssistants: true, pluginDisplayName: 'Candidate validation', pluginDir: 'sandbox'});
+            await page.waitForFunction(() => {
+                const state = window.__editorTestApi?.getState();
+                return state?.currentVersion && !state.nodeModulesLoading && state.workspaceTreeIds.includes('/index.ts');
+            });
             await page.getByRole('tab', {name: 'AI Coding Agent'}).click();
             await expect(page.locator('#action-select')).toBeVisible();
             await page.evaluate(() => window.__editorTestApi.createFile('/logic.ts', 'export const value = 1;', 'typescript'));
@@ -41,20 +55,27 @@ for (const outcome of ['success', 'stop', 'edit', 'failure']) {
             await page.locator('#action-select').selectOption('plan');
             await page.getByRole('button', {name: 'Submit', exact: true}).click();
             await expect.poll(() => app.evaluate(() => globalThis.__candidateCalls), {timeout: 15000}).toBe(1);
-            await expect.poll(() => app.evaluate(() => typeof globalThis.__releaseCandidate), {timeout: 30000}).toBe('function');
+            await expect.poll(async () => ({
+                paused: await app.evaluate(() => typeof globalThis.__releaseCandidate === 'function'),
+                editorError: await page.getByTestId('ai-coding-error').allTextContents(),
+            }), {timeout: 30000}).toEqual({paused: true, editorError: []});
             expect(await page.evaluate(() => window.__editorTestApi.getFileContent('/logic.ts'))).toBe('export const value = 1;');
             await expect(page.getByRole('button', {name: /Processing/})).toBeDisabled();
             if (outcome === 'stop') await page.getByRole('button', {name: 'Stop', exact: true}).click();
             if (outcome === 'edit') await page.evaluate(() => window.__editorTestApi.createFile('/logic.ts', 'export const value = 99;', 'typescript'));
             await app.evaluate((_electron, outcome) => {
                 globalThis.__rejectCandidate = outcome === 'failure';
+                globalThis.__candidateReleased = true;
                 globalThis.__releaseCandidate();
                 globalThis.__releaseCandidate = null;
             }, outcome);
-            await expect(page.getByRole('button', {name: /Processing/})).toHaveCount(0, {timeout: 30000});
-            const source = await page.evaluate(() => window.__editorTestApi.getFileContent('/logic.ts'));
-            expect(source.trim()).toBe(`export const value = ${outcome === 'success' ? 2 : outcome === 'edit' ? 99 : 1};`);
-            if (outcome !== 'success') await expect(page.getByTestId('ai-coding-error')).toContainText(outcome === 'failure' ? 'controlled compiler rejection' : outcome === 'stop' ? 'stopped' : 'Workspace changed');
+            if (outcome !== 'success') {
+                const message = outcome === 'failure' ? 'controlled compiler rejection' : outcome === 'stop' ? 'stopped' : 'Workspace changed';
+                await expect(page.getByTestId('ai-coding-error')).toContainText(message, {timeout: 30000});
+            }
+            const expectedValue = outcome === 'success' ? 2 : outcome === 'edit' ? 99 : 1;
+            await expect.poll(() => page.evaluate(() => window.__editorTestApi.getFileContent('/logic.ts').trim()),
+                {timeout: 30000}).toBe(`export const value = ${expectedValue};`);
             expect(await app.evaluate(() => globalThis.__candidateCalls)).toBe(outcome === 'failure' ? 2 : 1);
         } finally { await closeElectronApp(app); }
     });
