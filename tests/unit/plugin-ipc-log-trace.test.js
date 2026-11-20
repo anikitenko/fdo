@@ -367,10 +367,12 @@ describe("plugin IPC log trace", () => {
         const pluginId = "trace-plugin";
         const logDir = actualPath.join(userDataRoot, "plugin-data", pluginId, "logs");
         const infoLogPath = actualPath.join(logDir, "info-2026-04-06.log");
+        const auditPath = actualPath.join(logDir, ".rotation-audit.json");
         const exactLogLine = "Terraform preview completed with exitCode=0";
 
         actualFs.mkdirSync(logDir, {recursive: true});
         actualFs.writeFileSync(infoLogPath, `${exactLogLine}\nnext-line\n`, "utf8");
+        actualFs.writeFileSync(auditPath, JSON.stringify({files: [infoLogPath]}), "utf8");
 
         app.getPath.mockImplementation((name) => {
             if (name === "userData") {
@@ -396,6 +398,9 @@ describe("plugin IPC log trace", () => {
             expect.objectContaining({
                 file: "info-2026-04-06.log",
             }),
+        ]));
+        expect(response.logTail.logs).not.toEqual(expect.arrayContaining([
+            expect.objectContaining({file: ".rotation-audit.json"}),
         ]));
         expect(response.combined).toContain("Plugin runtime logs:");
         expect(response.combined).toContain(exactLogLine);
