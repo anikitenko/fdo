@@ -57,7 +57,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y xvfb xauth
-          xvfb-run -a -s '-screen 0 800x600x24 +extension SECURITY -nolisten tcp' node scripts/test-xsecurity-display.cjs
+          # Keep the same server generation between the independent credential probes.
+          xvfb-run -a -s '-screen 0 800x600x24 +extension SECURITY -nolisten tcp -noreset' node scripts/test-xsecurity-display.cjs
       - name: Upload Jest results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
