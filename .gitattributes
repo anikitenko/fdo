@@ -3,3 +3,6 @@
 /src/assets/** -text
 /website/assets/** -text
 /third_party/licenses/** -text
+
+# The native-source sidecar records the SHA-256 of this policy file.
+/third_party/native-source.json text eol=lf
