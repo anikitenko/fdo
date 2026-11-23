@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {execFile} = require('node:child_process');
 const {promisify} = require('node:util');
+const {removeBundledGcm} = require('./remove-bundled-gcm.cjs');
 function binaryTarget(filename) {
     if (!fs.existsSync(filename)) return null;
     const fd=fs.openSync(filename,'r'), head=Buffer.alloc(4096); let size;
@@ -19,7 +20,10 @@ async function stageOne(context) {
     const destination=path.join(context.appDir,'dist/main/git-'+arch), relative=platform==='win32'?'cmd/git.exe':'bin/git';
     const lfs=platform==='win32'?(arch==='arm64'?'clangarm64':'mingw64')+'/libexec/git-core/git-lfs.exe':'libexec/git-core/git-lfs';
     const matches=directory => [relative,lfs].every(file=>{const target=binaryTarget(path.join(directory,file));return target?.platform===platform&&target?.arch===arch;});
-    if (matches(destination)) return;
+    if (matches(destination)) {
+        removeBundledGcm(destination, platform, arch);
+        return;
+    }
     const distribution=path.join(context.appDir,'node_modules/dugite/git');
     if (!matches(distribution)) {
         if (platform!==process.platform) throw new Error('Build the bundled Git distribution on the target operating system.');
@@ -28,6 +32,7 @@ async function stageOne(context) {
     }
     if (!matches(distribution)) throw new Error(`Bundled Git for ${platform}/${arch} is missing or has the wrong architecture.`);
     fs.rmSync(destination,{recursive:true,force:true}); fs.cpSync(distribution,destination,{recursive:true});
+    removeBundledGcm(destination, platform, arch);
     require('./fix-bundled-binary-permissions.js').repairBundledGitSymlinks(destination);
 }
 let pending=Promise.resolve();

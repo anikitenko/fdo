@@ -51,17 +51,6 @@
       "tag": "v3.7.1"
     },
     {
-      "id": "git-credential-manager",
-      "name": "Git Credential Manager",
-      "version": "v2.9.0",
-      "license": "MIT",
-      "kind": "git",
-      "repo": "git-ecosystem/git-credential-manager",
-      "commit": "194ba290ce533465310d50f811684ab180536ae7",
-      "tag": "v2.9.0",
-      "note": "Prebuilt self-contained release is bundled; third-party notices ship in libexec/git-core/NOTICE or mingw64/doc/git-credential-manager/NOTICE."
-    },
-    {
       "id": "gfw-build-extra",
       "name": "Git for Windows build-extra (git-extra, git-for-windows-addons)",
       "version": "f502a63dc",
@@ -635,8 +624,7 @@
       "components": [
         "dugite-native",
         "git",
-        "git-lfs",
-        "git-credential-manager"
+        "git-lfs"
       ]
     },
     "mac-x64": {
@@ -644,8 +632,7 @@
       "components": [
         "dugite-native",
         "git",
-        "git-lfs",
-        "git-credential-manager"
+        "git-lfs"
       ]
     },
     "linux-x64": {
@@ -654,7 +641,6 @@
         "dugite-native",
         "git",
         "git-lfs",
-        "git-credential-manager",
         "openai-codex"
       ]
     },
@@ -664,7 +650,6 @@
         "dugite-native",
         "git-for-windows",
         "git-lfs",
-        "git-credential-manager",
         "gfw-build-extra",
         "gfw-msys2-bash-packaging",
         "gfw-msys2-openssl-packaging",

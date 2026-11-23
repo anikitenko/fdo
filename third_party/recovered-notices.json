@@ -63,5 +63,15 @@
     "file": "typescript-7.0.2-darwin-arm64-NOTICE.txt",
     "source": "Installed @typescript/typescript-darwin-arm64@7.0.2/NOTICE.txt; package gitHead 2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
     "sha256": "f5c708b59114507b8b27b48181b6883d106bbca0c1634bbee45b5e344237b66b"
+  },
+  {
+    "file": "ripgrep-15.2.0-LICENSE-MIT",
+    "source": "https://github.com/BurntSushi/ripgrep/blob/15.2.0/LICENSE-MIT",
+    "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f"
+  },
+  {
+    "file": "codex-zsh-LICENCE",
+    "source": "https://github.com/zsh-users/zsh/blob/77045ef899e53b9598bebc5a41db93a548a40ca6/LICENCE",
+    "sha256": "d06fdf3ef9b1ec69d6b9e170b0a9516fbad3523261ff1668bde3bfea6e0ef5f5"
   }
 ]

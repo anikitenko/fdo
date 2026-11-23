@@ -74,6 +74,7 @@ module.exports = {
                     const output = compiler.options.output.path;
                     const binary = path.join(output, 'node_modules/@typescript', `typescript-${process.platform}-${process.arch}`, 'lib/tsc');
                     if (process.platform !== 'win32' && fs.existsSync(binary)) fs.chmodSync(binary, 0o755);
+                    require('./scripts/remove-bundled-gcm.cjs').removeBundledGcm(path.join(output, 'git'), process.platform, process.arch);
                     require('./scripts/fix-bundled-binary-permissions.js').fixGitPermissions(output);
                 });
             },

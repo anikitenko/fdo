@@ -33,8 +33,8 @@ test('repository policy covers every release target and pins every non-git sourc
     const policy=JSON.parse(fs.readFileSync(ns.POLICY,'utf8'));
     for(const platform of ['mac-arm64','mac-x64','linux-x64','win-x64']){
         const components=ns.selectComponents(policy,platform);
-        expect(components.length).toBeGreaterThan(3);
-        expect(components.map(c=>c.id)).toEqual(expect.arrayContaining(['dugite-native','git-lfs','git-credential-manager']));
+        expect(components.map(c=>c.id)).toEqual(expect.arrayContaining(['dugite-native','git-lfs',platform==='win-x64'?'git-for-windows':'git']));
+        expect(components.map(c=>c.id)).not.toContain('git-credential-manager');
         for(const component of components) if(component.kind==='file') expect(component.url.startsWith('https://')).toBe(true);
     }
     expect(ns.selectComponents(policy,'win-x64').some(c=>c.id.startsWith('msys2-msys2-runtime'))).toBe(true);

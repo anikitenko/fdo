@@ -12,11 +12,10 @@ Each release target publishes `fdo-<version>-<platform>-native-source.zip` and a
 `third_party/native-source.json`, listed in the release checksum inventory and
 attestations, and required by `scripts/release/publication-gate.cjs`.
 
-- Unix targets (macOS, Linux): dugite-native build repository, Git, Git LFS,
-  Git Credential Manager. Linux also carries `openai/codex` at the Codex
+- Unix targets (macOS, Linux): dugite-native build repository, Git and Git LFS. Linux also carries `openai/codex` at the Codex
   0.162.1 build commit, which holds the vendored bubblewrap source (LGPL) for
   the Codex Linux helper.
-- Windows: dugite-native, the Git for Windows fork, Git LFS, GCM, Git for
+- Windows: dugite-native, the Git for Windows fork, Git LFS, Git for
   Windows build-extra, the MSYS2/MinGW packaging repositories and about 50
   MSYS2 source packages plus the OpenSSL upstream tarball.
 - Git sources are fetched by commit; the archive's pax header is checked
@@ -38,8 +37,7 @@ attestations, and required by `scripts/release/publication-gate.cjs`.
   real binary is archived.
 - Per-component licences for MSYS2 packages are not declared in the policy; each
   source archive carries its own licence files.
-- The Linux build ships `ssl/cacert.pem` (Mozilla CA bundle, MPL-2.0), and GCM is
-  a prebuilt .NET release whose permissive notices are in `libexec/git-core/NOTICE`.
+- The Linux build ships `ssl/cacert.pem` (Mozilla CA bundle, MPL-2.0), and excludes the bundled Git Credential Manager payload.
 
 ## Remaining review
 
@@ -63,7 +61,7 @@ For Dugite native v2.53.0-4, retain these inputs:
 - Git submodule source at `67ad42147a7acc2af6074753ebd03d904476118f`.
 - Windows Git source and packaging materials for the separately downloaded
   MinGit v2.53.0.windows.4; do not substitute the ordinary Git submodule for this.
-- Version-specific Git LFS v3.7.1, Git Credential Manager v2.9.0 where included,
+- Version-specific Git LFS v3.7.1
   and every additional library/tool/runtime actually shipped on each platform.
   Inventory each final archive; the upstream dependency manifest is a starting
   point and does not identify every statically linked library or runtime.

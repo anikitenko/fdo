@@ -19,7 +19,7 @@
       "id": "publication-rights",
       "status": "pending",
       "scope": "Code, documentation, logos, screenshots and workshop media",
-      "action": "The maintainer signed the declaration for 3ee271e4 and confirmed its rights and employer/client statements also cover changes through 91776082 and the 1.0.7 release-evidence documentation. The maintainer also confirmed coverage of the rehearsal changes including Live UI line-ending handling, editor test hook, regressions and CI. Both dated follow-ups are recorded in the reassessment checklist. Review the final release scope and record per-target input hashes before clearance.",
+      "action": "The maintainer signed the declaration for 3ee271e4 and confirmed its rights and employer/client statements also cover changes through 91776082 and the 1.0.7 release-evidence documentation. The maintainer also confirmed coverage of the rehearsal changes including Live UI line-ending handling, editor test hook, regressions and CI. Both dated follow-ups are recorded in the reassessment checklist. Review the final release scope and record per-target input hashes before clearance. On 2026-11-22 the maintainer personally confirmed coverage of original code, documentation, assets and required employer/client approvals for exact source revision 5c6977faa6e7428229cd1673e21510e964170b72. Reconcile later GCM removal and notice changes with the final scope.",
       "evidence": [
         "docs/PUBLICATION_RIGHTS_STATEMENT.md",
         "third_party/source-evidence.json",
@@ -45,7 +45,7 @@
       "id": "git-native-distribution",
       "status": "pending",
       "scope": "Dugite native v2.53.0-4: Git, Git LFS, Git Credential Manager and platform libraries/tools",
-      "action": "Implemented: every release target now ships a corresponding-source archive built in CI (scripts/release/native-source.cjs, policy third_party/native-source.json) holding the pinned upstream sources of the exact bundled Git, Git LFS and Git Credential Manager (all platforms) plus, for Windows, the Git for Windows fork and the MSYS2/MinGW package sources, build-extra and OpenSSL. The archive is staged, checksummed, attested and required by the publication gate. Disclosed deviations: bash uses the MSYS2 5.2.037-2 source package (the -1 source is no longer hosted); OpenSSL 3.5.5 comes from the upstream tarball plus the Git for Windows packaging commits; MinGit's package-versions.txt is stale versus git.exe 2.53.0.windows.4. Remaining step: after the final release commit, run the release matrix, review the archives, then record the reviewer, date and per-target input hashes and mark this item cleared.",
+      "action": "Implemented: every release target now ships a corresponding-source archive built in CI (scripts/release/native-source.cjs, policy third_party/native-source.json) holding the pinned upstream sources of the exact bundled Git, Git LFS and Git Credential Manager (all platforms) plus, for Windows, the Git for Windows fork and the MSYS2/MinGW package sources, build-extra and OpenSSL. The archive is staged, checksummed, attested and required by the publication gate. Disclosed deviations: bash uses the MSYS2 5.2.037-2 source package (the -1 source is no longer hosted); OpenSSL 3.5.5 comes from the upstream tarball plus the Git for Windows packaging commits; MinGit's package-versions.txt is stale versus git.exe 2.53.0.windows.4. Remaining step: after the final release commit, run the release matrix, review the archives, then record the reviewer, date and per-target input hashes and mark this item cleared. Review of the 5c6977f Windows inventory matched Bash and both OpenSSL DLLs to Git for Windows SDK revisions 7dcc4cda92934c4d306c4958304581f23a2ca31a and d8562a834b61d0111c21a6510788bbedf358719b respectively. The Windows GCM payload included Microsoft NativeInterop 0.20.6. The maintainer selected GCM removal on all targets. Verify the new candidate has no GCM private files, retains authentication and includes the required native sources.",
       "evidence": [
         "https://github.com/desktop/dugite-native/tree/4098283a7ecb8a227b9d43580336c78a06f90e5d",
         "https://github.com/git/git/tree/67ad42147a7acc2af6074753ebd03d904476118f",
@@ -53,14 +53,17 @@
         "docs/NATIVE_SOURCE_DISTRIBUTION.md",
         "third_party/native-source.json",
         "scripts/release/native-source.cjs",
-        "tests/unit/native-source.test.js"
+        "tests/unit/native-source.test.js",
+        "third_party/gcm-files.json",
+        "tests/e2e/packaged-git-auth.spec.js",
+        "https://www.nuget.org/packages/Microsoft.Identity.Client.NativeInterop/0.20.6"
       ]
     },
     {
       "id": "native-ai-notices",
       "status": "pending",
       "scope": "Native Codex and TypeScript-Go embedded dependencies",
-      "action": "Per-platform findings are recorded for macOS, Linux and Windows x64 (third_party/evidence/native-ai-platform-packages.json, from the published npm tarballs, not run on those platforms). TypeScript native 7.0.2: NOTICE.txt and LICENSE are in every platform package and byte-identical. Codex 0.162.1: every platform package also ships an optional voice runtime (LGPL-2.1 GStreamer/GLib, Opus, libffi, PCRE2, and Microsoft vcruntime140.dll on Windows) that FDO does not use; it is excluded from the app by webpack.main.config.js and enforced by third_party/distribution-policy.json (codex-voice-runtime), and the Codex CLI was confirmed to run without it. Linux ships a bubblewrap helper (LGPL-2.0-or-later) whose vendored source is added to the Linux native-source archive (openai/codex at commit 092d3acd). Still open: Codex helper binaries (rg, zsh, Windows sandbox executables) and Rust crates rely on the upstream NOTICE and the source-lock inventory; no complete native SBOM exists. After the final release commit, review the packaged builds, then record the reviewer, date and per-target input hashes. On 2026-11-20 the maintainer chose to retain bundled Codex and hold publication until its redistribution evidence is complete. The pinned supplier ripgrep manifest identifies 15.2.0. For darwin-arm64 the fallback zsh manifest references an alpha archive with SHA-256 49dec9832379688c9090666694a3449502ac5ebd4d76b9ffde1d0999cd088205 (verified). Its zsh executable hashes to db6fe1a78eaceaff3b0f0cde25fc25afe466d61b0bf76b4ebe35812e4bc8dd71, while the installed npm executable hashes to 78baefdeac8715fe8a99b60d112f45daa2feaeb5068cd7b116c75300f1402d50. Removing signatures from temporary copies did not produce identical hashes. Establish which build inputs produced the shipped helper and retain their applicable notices.",
+      "action": "Per-platform findings are recorded for macOS, Linux and Windows x64 (third_party/evidence/native-ai-platform-packages.json, from the published npm tarballs, not run on those platforms). TypeScript native 7.0.2: NOTICE.txt and LICENSE are in every platform package and byte-identical. Codex 0.162.1: every platform package also ships an optional voice runtime (LGPL-2.1 GStreamer/GLib, Opus, libffi, PCRE2, and Microsoft vcruntime140.dll on Windows) that FDO does not use; it is excluded from the app by webpack.main.config.js and enforced by third_party/distribution-policy.json (codex-voice-runtime), and the Codex CLI was confirmed to run without it. Linux ships a bubblewrap helper (LGPL-2.0-or-later) whose vendored source is added to the Linux native-source archive (openai/codex at commit 092d3acd). Still open: Codex helper binaries (rg, zsh, Windows sandbox executables) and Rust crates rely on the upstream NOTICE and the source-lock inventory; no complete native SBOM exists. After the final release commit, review the packaged builds, then record the reviewer, date and per-target input hashes. On 2026-11-20 the maintainer chose to retain bundled Codex and hold publication until its redistribution evidence is complete. The pinned supplier ripgrep manifest identifies 15.2.0. The production workflow pins codex-zsh-v0.1.0 manifest c534eab89dcea7e3d8a5e5b3f49c025c7c64cd4e4d9814ee24871de58a9359a1. Linux zsh and Linux/Windows ripgrep match the supplier executables exactly. Both macOS architectures match after removing signatures on comparison copies and normalizing the __LINKEDIT virtual-size field. The alpha manifest comparison did not represent production. The candidate adds the upstream zsh and ripgrep notices. Review their inclusion and the remaining embedded dependencies before clearance.",
       "evidence": [
         "https://github.com/openai/codex/tree/rust-v0.162.1",
         "third_party/licenses/codex-0.162.1-NOTICE",
@@ -73,7 +76,10 @@
         "webpack.main.config.js",
         "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/scripts/codex_package/rg",
         "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/scripts/codex_package/codex-zsh",
-        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/.github/scripts/build-zsh-release-artifact.sh"
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/.github/scripts/build-zsh-release-artifact.sh",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/.github/workflows/rust-release.yml",
+        "https://github.com/openai/codex/releases/tag/codex-zsh-v0.1.0",
+        "third_party/recovered-notices.json"
       ]
     },
     {
@@ -88,5 +94,16 @@
         "src/components/editor/utils/fileIcons.js"
       ]
     }
-  ]
+  ],
+  "reviewedRehearsal": {
+    "run": "https://github.com/anikitenko/fdo/actions/runs/45012834112",
+    "source": "5c6977faa6e7428229cd1673e21510e964170b72",
+    "inputs": {
+      "linux-x64": "50fb9392dd6d064af47b10569ad2134d551619f1bc8ac8da6f37da84356bc07d",
+      "mac-arm64": "af7663acfcc298540880e21c7be1a651088c4b9f628cd7e8b3afd458d8c3aad6",
+      "mac-x64": "8bcfcd0b451cbfd241057c54ae0417ba3cf22c8e039a88e7b3241c209c107102",
+      "win-x64": "5d1afd18fe73d56b3da298e0db469cd20fdabe04212cbc2c5203ee248072bf28"
+    },
+    "findings": "19 packaged tests passed once per target. The four legal inventories recorded matching asset trees, the FDO-side SDK notice, the local lazy-val package and no Cursor package. These historical inputs predate GCM removal and the helper notices."
+  }
 }
