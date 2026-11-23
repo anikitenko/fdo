@@ -1,7 +1,41 @@
 # Licensing reassessment checklist
 
-Review updated 2026-11-20. This records engineering work and remaining
+Review updated 2026-11-23. This records engineering work and remaining
 clearance work separately. It is not a publication-rights attestation.
+
+## Candidate reviewed on 2026-11-23
+
+FDO 1.0.7 at `e7612c01da5c2192176e98928bff356bb839dbc3` completed the
+unpublished matrix. All 20 packaged application checks passed once on each of
+Linux x64, Windows x64 and both macOS architectures. The reports include scoped
+Git authentication without GCM, Git LFS, credential storage and offline notices.
+The release inventory assembled successfully. The publish job was skipped.
+The latest public download checked on 2026-11-23 was v1.0.6.
+[Release Matrix](https://github.com/anikitenko/fdo/actions/runs/45176465539)
+
+The maintainer confirmed in writing on 2026-11-23 that the publication-rights
+declaration for original FDO code, documentation and assets, including required
+employer or client approvals, extends to that exact revision and its changes
+since `5c6977f`. The detached signature identifies the earlier revision in the
+signed declaration. The four target input hashes and item decisions are in
+`third_party/review.json`.
+
+The reviewed packages excluded the listed GCM private files and retained the
+ripgrep and zsh notices. The Dugite-native source sidecars incorrectly declared
+MIT for the native build scripts. The supplier declares GPL-2.0-only. The
+follow-up corrects the sidecars and adds offline Git, Git LFS, Dugite-native
+and Windows MXC notices. New packages require fresh input verification.
+[Dugite-native package metadata](https://github.com/desktop/dugite-native/blob/4098283a7ecb8a227b9d43580336c78a06f90e5d/package.json)
+
+Publication remains on hold for bundled Codex. Five upstream compiler reports
+cover the four primary builds and the Windows helper build. They identify
+1,144 distinct package/version pairs across build units. The review matched
+980 registry archives to pinned Cargo checksums. The reports include builds of
+multiple executables and build-time tools. The remaining review must attribute
+embedded dependencies to shipped binaries, including their V8 archives, and
+verify notice and source delivery for those dependencies. The maintainer
+reported having no additional supplier evidence.
+[Codex supplier build](https://github.com/openai/codex/actions/runs/37967782807)
 
 ## Engineering work
 
@@ -67,7 +101,7 @@ clearance work separately. It is not a publication-rights attestation.
 - [ ] Confirm the strict review passes and supply the published installer,
   source, notices and packaged-test evidence links for each target.
 
-## Validation and release scope
+## Earlier validation and release scope
 
 Production build passed. Focused verification passed 56 tests across seven suites;
 subsequent source/target consistency changes passed the 36 affected legal/release

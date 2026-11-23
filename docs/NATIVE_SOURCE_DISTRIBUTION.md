@@ -1,8 +1,11 @@
 # Native source distribution
 
-Status: implemented in 1.0.7, pending the first CI release run and review. The
-Git native ledger item stays pending until the archives below have been produced
-by the release matrix and reviewed.
+The 1.0.7 rehearsal at `e7612c0` produced source archives for all four
+targets. Its Dugite-native sidecar incorrectly listed MIT. The corrected
+manifest follows the supplier's GPL-2.0-only declaration and the app's
+notice index identifies the Git, Git LFS and Dugite-native license texts.
+The Git ledger entry awaits verification in the corrected packages.
+[Supplier declaration](https://github.com/desktop/dugite-native/blob/4098283a7ecb8a227b9d43580336c78a06f90e5d/package.json)
 
 ## What ships
 

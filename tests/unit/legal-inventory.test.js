@@ -98,6 +98,21 @@ test('captures bundled dev dependencies, original notices and explicit native co
     expect(inventory.nativeInputs.hashScope).toContain('BEFORE');
     expect(()=>generate({root,platform:'darwin',arch:'arm64',release:true})).toThrow('rights');
 });
+test('renders native notices for the applicable target and rejects altered license bytes', () => {
+    const notice = 'Original supplier notice';
+    write('third_party/licenses/native.txt', notice);
+    write('third_party/recovered-notices.json', [{
+        file: 'native.txt', source: 'upstream', sha256: sha256(notice), nativeComponent: 'Native helper', platform: 'win32'
+    }]);
+    const rendered = () => fs.readFileSync(path.join(root, 'dist/legal/THIRD_PARTY_NOTICES.txt'), 'utf8');
+    generate({root, platform: 'darwin', arch: 'arm64'});
+    expect(rendered()).not.toContain(notice);
+    generate({root, platform: 'win32', arch: 'arm64'});
+    expect(rendered()).toContain('Native helper');
+    expect(rendered()).toContain(notice);
+    write('third_party/licenses/native.txt', 'modified');
+    expect(() => generate({root, platform: 'win32', arch: 'arm64'})).toThrow('Native notice checksum mismatch');
+});
 test('rejects changed or unregistered assets and notice tampering',()=>{
     write('src/assets/test.txt','changed');expect(checkAssets(root).issues.join()).toContain('Asset contents changed');
     write('src/assets/new.svg','new');expect(checkAssets(root).issues.join()).toContain('Unregistered asset');

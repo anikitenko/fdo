@@ -11,7 +11,7 @@
       "id": "dugite-native",
       "name": "dugite-native build scripts",
       "version": "v2.53.0-4",
-      "license": "MIT",
+      "license": "GPL-2.0-only",
       "kind": "git",
       "repo": "desktop/dugite-native",
       "commit": "4098283a7ecb8a227b9d43580336c78a06f90e5d",

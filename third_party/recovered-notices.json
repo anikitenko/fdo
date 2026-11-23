@@ -73,5 +73,30 @@
     "file": "codex-zsh-LICENCE",
     "source": "https://github.com/zsh-users/zsh/blob/77045ef899e53b9598bebc5a41db93a548a40ca6/LICENCE",
     "sha256": "d06fdf3ef9b1ec69d6b9e170b0a9516fbad3523261ff1668bde3bfea6e0ef5f5"
+  },
+  {
+    "file": "git-2.53.0-COPYING",
+    "source": "https://github.com/git/git/blob/67ad42147a7acc2af6074753ebd03d904476118f/COPYING",
+    "sha256": "5b2198d1645f767585e8a88ac0499b04472164c0d2da22e75ecf97ef443ab32e",
+    "nativeComponent": "Git 2.53.0"
+  },
+  {
+    "file": "git-lfs-3.7.1-LICENSE.md",
+    "source": "https://github.com/git-lfs/git-lfs/blob/b84b33847fe6458f36ef521534dc0eac953cb379/LICENSE.md",
+    "sha256": "4fae9062ab5cdd5fb15486b728534d8aded8b4ae9d84b6d66a956f5162c366b6",
+    "nativeComponent": "Git LFS 3.7.1"
+  },
+  {
+    "file": "dugite-native-2.53.0-4-LICENSE.md",
+    "source": "https://github.com/desktop/dugite-native/blob/4098283a7ecb8a227b9d43580336c78a06f90e5d/LICENSE.md",
+    "sha256": "db296f2f7f35bca3a174efb0eb392b3b17bd94b341851429a3dff411b1c2fc73",
+    "nativeComponent": "Dugite-native v2.53.0-4"
+  },
+  {
+    "file": "mxc-0.8.0-LICENSE.md",
+    "source": "https://github.com/microsoft/mxc/blob/6cd3d58f05d3447e67109cfb75e042803b843ca4/LICENSE.md",
+    "sha256": "d9a1b1e30d633d5732ea18e3cba9538d293ebc53e1a9e4e96ab739e0c5c4f1cb",
+    "nativeComponent": "Microsoft MXC 0.8.0 (Windows Codex build)",
+    "platform": "win32"
   }
 ]
