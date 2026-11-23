@@ -26,8 +26,11 @@ test.afterEach(async ({},info)=>{
 async function source(text) {
     await page.evaluate(text=>{
         window.__editorTestApi.createFile('/index.ts',text);
-        window.__editorTestApi.openTabs([{id:'/index.ts',active:true}]);
+        if (window.__editorTestApi.getEditorLocation().uri !== 'file:///index.ts') {
+            window.__editorTestApi.openTabs([{id:'/index.ts',active:true}]);
+        }
     },text);
+    await expect.poll(() => page.evaluate(() => window.__editorTestApi.getEditorLocation().uri)).toBe('file:///index.ts');
 }
 async function cursor(line,column) {
     await page.evaluate(({line,column})=>window.__editorTestApi.setEditorPosition(line,column),{line,column});
@@ -39,7 +42,6 @@ test('available shared methods insert real calls and expose typed method, input 
     await source(prefix+'async function example() {\n  return sdk.shared\n}');
     await cursor(4,'  return sdk.shared'.length+1);
     await page.keyboard.type('.');
-    await page.evaluate(() => window.__editorTestApi.triggerSuggestions());
     const handler=page.locator('.suggest-widget .monaco-list-row').filter({hasText:'check — website-availability v1'});
     await expect(handler).toBeVisible({timeout:15000});
     await handler.click();
