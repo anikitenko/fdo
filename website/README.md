@@ -161,8 +161,7 @@ identity and port guidance aligned with generated deployment files.
 
 The homepage's structured application data, visible version, release link and
 share image must be updated together. Keep metadata descriptive and grounded in
-the product; do not add invented ratings or reviews. See
-[the SEO implementation notes](../docs/portfolio/WEBSITE_SEO.md).
+the product; do not add invented ratings or reviews.
 
 Regenerate the social preview after editing its HTML source:
 

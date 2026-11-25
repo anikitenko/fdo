@@ -26,7 +26,7 @@ const PROVIDERS = [
     { label: "OpenCode Zen (free & curated models)", value: "opencode" },
     { label: "OpenRouter (free & curated models)", value: "openrouter" },
     { label: "Ollama (local)", value: "ollama" },
-    { label: "Codex CLI (installed separately)", value: "codex-cli" },
+    { label: "Codex CLI (separate installation)", value: "codex-cli" },
     { label: "Gemini CLI (separate installation)", value: "gemini-cli" },
 ]
 
