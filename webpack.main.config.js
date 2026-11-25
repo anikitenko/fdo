@@ -13,6 +13,8 @@ module.exports = {
     output: {
         path: path.resolve(__dirname, 'dist/main'),
         filename: 'index.js',
+        // Old builds copied Codex here. Preserve artifacts produced by the other compilers.
+        clean: {keep: name => !/^node_modules\/@openai(?:\/|$)/.test(name)},
     },
     // Put your normal webpack config below here
     module: {
@@ -116,15 +118,6 @@ module.exports = {
                     globOptions: {
                         ignore: ["node_modules/@anikitenko/fdo-sdk/node_modules/**"] // Exclude only nested node_modules
                     }
-                },
-                {
-                    from: path.resolve(__dirname, "node_modules/@openai"),
-                    to: "node_modules/@openai",
-                    noErrorOnMissing: true,
-                    globOptions: {
-                        // The optional Codex voice runtime (LGPL GStreamer/GLib) is not used by FDO and is not redistributed.
-                        ignore: ["node_modules/@openai/**/node_modules/**", "**/codex-resources/voice/**"],
-                    },
                 },
                 {
                     from: path.resolve(__dirname, "src/workers/codexAuthWorker.js"),

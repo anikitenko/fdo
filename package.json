@@ -161,7 +161,6 @@
     "@google/genai": "2.30.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@monaco-editor/react": "^4.7.0",
-    "@openai/codex": "^0.162.1",
     "@peculiar/x509": "^2.2.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -302,7 +301,8 @@
       "!dist/**/__tests__/**/*",
       "!dist/**/*.md",
       "!dist/main/node_modules/@google/gemini-cli/**/*",
-      "!dist/main/node_modules/@google/gemini-cli-core/**/*"
+      "!dist/main/node_modules/@google/gemini-cli-core/**/*",
+      "!dist/main/node_modules/@openai/codex*/**/*"
     ],
     "extraResources": [
       {
@@ -340,10 +340,6 @@
       {
         "from": "dist/main/node_modules/@anikitenko",
         "to": "app.asar.unpacked/dist/main/node_modules/@anikitenko"
-      },
-      {
-        "from": "dist/main/node_modules/@openai",
-        "to": "app.asar.unpacked/dist/main/node_modules/@openai"
       }
     ],
     "protocols": [

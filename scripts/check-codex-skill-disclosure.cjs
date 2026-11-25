@@ -11,15 +11,12 @@ const shim = {exports: {}};
 new Function('require', 'module', 'exports', esbuild.buildSync({entryPoints: ['src/utils/plugins/security/pluginAssistantIsolation.js'], bundle: true, write: false, platform: 'node', format: 'cjs'}).outputFiles[0].text)(require, shim, shim.exports);
 
 (async () => {
-    const platformPackage = path.join(process.cwd(), 'node_modules', '@openai', `codex-${process.platform}-${process.arch}`, 'vendor');
-    const executable = process.platform === 'win32' ? 'codex.exe' : 'codex';
-    const binary = fs.readdirSync(platformPackage).flatMap(triple => ['bin', 'codex'].map(folder => path.join(platformPackage, triple, folder, executable))).find(file => fs.existsSync(file));
-    assert.ok(binary, 'Bundled native Codex is required for this probe.');
+    const {command: binary} = await require('./local-codex-probe.cjs')();
     const credentialRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'fdo-no-login-'));
     const skills = ['needed', 'unrelated'].map(name => ({name, description: `${name} skill metadata`, content: `---\nname: ${name}\ndescription: ${name} skill metadata\n---\n${name.toUpperCase()}_INSTRUCTION_BODY_CANARY`}));
     // The OS-profile smoke test runs separately: that profile intentionally
     // blocks loopback. This probe checks native context loading via a mock.
-    const isolated = await shim.exports.createPluginAssistantIsolation({command: binary, args: [], bundled: true}, 'codex-cli', [],
+    const isolated = await shim.exports.createPluginAssistantIsolation({command: binary, args: [], native: true}, 'codex-cli', [],
         {credentialRoot, platform: process.platform === 'darwin' ? 'linux' : process.platform, codexSkills: skills});
     let capture;
     const server = http.createServer((request, response) => {

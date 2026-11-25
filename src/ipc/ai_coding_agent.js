@@ -343,7 +343,6 @@ ${providerInstructions}
 async function resolveCodexExecutable(assistantInfo) {
     return await resolveCodexCliInvocation({
         configuredPath: assistantInfo?.executablePath,
-        preferBundled: true, requireBundled: true,
     });
 }
 
@@ -754,9 +753,7 @@ async function runCodexCliTransport(event, requestId, assistantInfo, prompt, {de
         updateCodexAssistantState(assistantInfo, {
             codexAuth: {
                 status: "authorized",
-                message: invocation.source === "bundled"
-                    ? `Bundled Codex ${invocation.version || ""} executed successfully.`
-                    : `Codex CLI ${invocation.version || ""} executed successfully.`,
+                message: `Codex CLI ${invocation.version || ""} executed successfully.`,
                 checkedAt: new Date().toISOString(),
             },
             codexRuntime: {

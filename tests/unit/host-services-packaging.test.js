@@ -10,9 +10,6 @@ test.each(['linux', 'win32', 'darwin'])('packaging %s requires every portable SS
     const modules = path.join(root, 'dist/main/node_modules');
     const file = name => {fs.mkdirSync(path.dirname(name), {recursive: true}); fs.writeFileSync(name, 'fixture');};
     try {
-        const bin = path.join(modules, `@openai/codex-${platform}-x64/vendor/fixture/bin`);
-        file(path.join(bin, platform === 'win32' ? 'codex.exe' : 'codex'));
-        file(path.join(bin, platform === 'win32' ? 'codex-code-mode-host.exe' : 'codex-code-mode-host'));
         file(path.join(modules, `@typescript/typescript-${platform}-x64/lib`, platform === 'win32' ? 'tsc.exe' : 'tsc'));
         const context = {appDir: root, electronPlatformName: platform, arch: 'x64'};
         for (const [name, entry] of runtime) {

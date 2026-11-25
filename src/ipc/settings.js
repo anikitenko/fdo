@@ -441,6 +441,21 @@ export function registerSettingsHandlers() {
         await Certs.generateRootCA(label, true);
     });
 
+    ipcMain.handle(SettingsChannels.ai_assistants.CHOOSE_CODEX_EXECUTABLE, async (_event, id) => {
+        const selected = await dialog.showOpenDialog({title: 'Choose Codex CLI executable', properties: ['openFile']});
+        if (selected.canceled || !selected.filePaths.length) return;
+        const runtime = await resolveCodexCliInvocation({configuredPath: selected.filePaths[0]});
+        const auth = await readCodexAuthStatus(runtime);
+        const records = assistantRecords(settings, 'coding');
+        const assistant = records.find(a => a.id === id && a.provider === 'codex-cli');
+        if (!assistant) throw new Error('Codex assistant no longer exists.');
+        stopCodexAuthProcess(id);
+        settings.set('ai.coding', records.map(a => a.id !== id ? a : {...a, executablePath: runtime.entrypoint,
+            codexRuntime: {source: runtime.source, version: runtime.version, bundled: false},
+            codexAuth: {...auth, checkedAt: new Date().toISOString()}}));
+        broadcastAIAssistantsUpdate();
+    });
+
     ipcMain.handle(SettingsChannels.ai_assistants.GET, async () => {
         const chat = assistantMetadata(settings, 'chat');
         const coding = assistantMetadata(settings, 'coding');
@@ -473,7 +488,7 @@ export function registerSettingsHandlers() {
         if (provider === "anthropic") return listAnthropicModels(apiKey);
 
         if (provider === "codex-cli") {
-            const invocation = await resolveCodexCliInvocation({requireBundled: true,configuredPath: executablePath, preferBundled: true});
+            const invocation = await resolveCodexCliInvocation({configuredPath: executablePath});
             return listCodexModels(invocation);
         }
         if (provider === "gemini-cli") {
@@ -539,10 +554,7 @@ export function registerSettingsHandlers() {
             }
             // Validation failures intentionally share this boundary with operation failures.
             try {
-                const invocation = await resolveCodexCliInvocation({requireBundled: true,
-                    configuredPath: data.executablePath,
-                    preferBundled: true,
-                });
+                const invocation = await resolveCodexCliInvocation({configuredPath: data.executablePath});
                 resolvedInvocation = invocation;
                 data.executablePath = invocation.entrypoint || invocation.command;
                 data.codexRuntime = {
@@ -685,10 +697,7 @@ export function registerSettingsHandlers() {
         if (data.provider === "codex-cli") {
             const storedAssistant = list.find((item) => norm(item.name) === target);
             if (storedAssistant?.codexAuth?.status !== "authorized") {
-                const invocation = resolvedInvocation || await resolveCodexCliInvocation({requireBundled: true,
-                    configuredPath: storedAssistant?.executablePath,
-                    preferBundled: true,
-                });
+                const invocation = resolvedInvocation || await resolveCodexCliInvocation({configuredPath: storedAssistant?.executablePath});
                 updateCodexAssistantState(storedAssistant.id, {
                     codexAuth: {
                         status: "pending",
@@ -735,10 +744,7 @@ export function registerSettingsHandlers() {
         
         let authStatus;
         if (assistant.provider === "codex-cli") {
-            const invocation = await resolveCodexCliInvocation({requireBundled: true,
-                configuredPath: assistant.executablePath,
-                preferBundled: true,
-            });
+            const invocation = await resolveCodexCliInvocation({configuredPath: assistant.executablePath});
             authStatus = await readCodexAuthStatus(invocation);
         } else {
             const invocation = await resolveGeminiCliInvocation({
@@ -787,10 +793,7 @@ export function registerSettingsHandlers() {
 
         let result = { started: false };
         if (assistant.provider === "codex-cli") {
-            const invocation = await resolveCodexCliInvocation({requireBundled: true,
-                configuredPath: assistant.executablePath,
-                preferBundled: true,
-            });
+            const invocation = await resolveCodexCliInvocation({configuredPath: assistant.executablePath});
             result = launchCodexLoginUtilityProcess(assistant, invocation);
         } else {
             if (activeGeminiAuthProcesses.has(assistant.id)) {
@@ -855,10 +858,7 @@ export function registerSettingsHandlers() {
                 status: "cancelled",
                 message: "Codex authentication was cancelled before sign out.",
             });
-            const invocation = await resolveCodexCliInvocation({requireBundled: true,
-                configuredPath: assistant.executablePath,
-                preferBundled: true,
-            });
+            const invocation = await resolveCodexCliInvocation({configuredPath: assistant.executablePath});
             authStatus = await runCodexLogout(invocation);
         } else {
             stopGeminiAuthProcess(assistant.id, {

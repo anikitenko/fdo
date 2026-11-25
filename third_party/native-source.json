@@ -605,17 +605,6 @@
       "sha256": "0e369f559046468bb605c8f4c8d93c7a4e7e88e8dc412226ebbad92ac1d5bd28",
       "size": 2401857,
       "file": "mingw-w64-zstd-1.5.7-1.src.tar.zst"
-    },
-    {
-      "id": "openai-codex",
-      "name": "OpenAI Codex (vendored bubblewrap)",
-      "version": "rust-v0.162.1",
-      "license": "Apache-2.0; vendored bubblewrap LGPL-2.0-or-later",
-      "kind": "git",
-      "repo": "openai/codex",
-      "commit": "092d3acd6bec3e3a14bdc7e7a2810ab628ab759d",
-      "tag": "rust-v0.162.1",
-      "note": "Corresponding source of the Codex CLI 0.162.1 Linux platform package. Its codex-resources/bwrap helper is built from codex-rs/vendor/bubblewrap (LGPL-2.0-or-later). The commit equals buildCommit in the package's voice manifest."
     }
   ],
   "targets": {
@@ -640,8 +629,7 @@
       "components": [
         "dugite-native",
         "git",
-        "git-lfs",
-        "openai-codex"
+        "git-lfs"
       ]
     },
     "win-x64": {

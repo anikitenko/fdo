@@ -3,6 +3,10 @@
 Review updated 2026-11-23. This records engineering work and remaining
 clearance work separately. It is not a publication-rights attestation.
 
+## External CLI candidate
+
+The current 1.0.7 candidate removes the Codex CLI dependency and packaging steps. Users connect their own installation in AI Assistants. The native AI review remains pending until the release matrix verifies the Codex exclusion and retained TypeScript notices for each downloadable target. Previously recorded target hashes identify earlier candidates.
+
 ## Candidate reviewed on 2026-11-23
 
 FDO 1.0.7 at `e7612c01da5c2192176e98928bff356bb839dbc3` completed the

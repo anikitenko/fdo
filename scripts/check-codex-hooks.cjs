@@ -5,12 +5,11 @@ const shim={exports:{}};new Function('require','module','exports',esbuild.buildS
 (async()=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'fdo-hook-probe-'));let isolated,server,child;
  try{
-  const vendor=path.join(process.cwd(),'node_modules','@openai',`codex-${process.platform}-${process.arch}`,'vendor'),binaryName=process.platform==='win32'?'codex.exe':'codex';
-  const native=(await fs.readdir(vendor)).flatMap(triple=>['bin','codex'].map(folder=>path.join(vendor,triple,folder,binaryName))).find(file=>require('node:fs').existsSync(file));
+  const {command: native} = await require('./local-codex-probe.cjs')();
   const script=path.join(root,'fixture with spaces.cjs'),log=path.join(root,'events.jsonl');
   await fs.writeFile(script,`let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{const event=JSON.parse(input);require('node:fs').appendFileSync(process.env.PROBE_LOG,JSON.stringify({event:event.hook_event_name,secret:process.env.PROBE_VALUE})+'\\n');if(process.env.PROBE_BLOCK_EVENT===event.hook_event_name){process.stderr.write('HOOK_BLOCK_CANARY');process.exitCode=2;return;}process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:event.hook_event_name,additionalContext:'HOOK_CONTEXT_CANARY'}}));});`);
   const hooks=['SessionStart','UserPromptSubmit','Stop','SessionEnd','PreToolUse','PostToolUse'].map((event,index)=>({id:`probe${index}`,name:event,event,toolPattern:'',command:process.execPath,args:[script],cwd:root,environment:{PROBE_LOG:log,PROBE_VALUE:'fixture $VALUE'},timeoutSeconds:5,enabled:true,assistantIds:['fixture']}));
-  const statuses=[];isolated=await shim.exports.createPluginAssistantIsolation({command:native,bundled:true,args:[]},'codex-cli',[],{credentialRoot:root,codexHooks:hooks,onHookActivity:activity=>statuses.push(activity)});
+  const statuses=[];isolated=await shim.exports.createPluginAssistantIsolation({command:native,native:true,args:[]},'codex-cli',[],{credentialRoot:root,codexHooks:hooks,onHookActivity:activity=>statuses.push(activity)});
   let captured, inferenceCount=0, toolsCalled=0, offerTool=true;
   server=http.createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;const message=JSON.parse(body);
    if(req.url==='/mcp'){

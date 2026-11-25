@@ -1,3 +1,4 @@
+import CodexSetup from './CodexSetup';
 import {operationError} from '../../../utils/desktop/notificationContent';
 import React, { useState, useEffect } from "react";
 import {
@@ -54,6 +55,7 @@ export default function AIAssistantsPanel() {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [providerModels, setProviderModels] = useState([]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
+    const [modelReload, setModelReload] = useState(0);
     const [modelsError, setModelsError] = useState("");
     const [modelInputCapabilities, setModelInputCapabilities] = useState(null);
     const [loadingInputCapabilities, setLoadingInputCapabilities] = useState(false);
@@ -185,7 +187,7 @@ export default function AIAssistantsPanel() {
         return () => {
             cancelled = true;
         };
-    }, [form.apiKey, form.provider, form.baseUrl, form.accountId, form.executablePath, isDialogOpen]);
+    }, [form.apiKey, form.provider, form.baseUrl, form.accountId, form.executablePath, isDialogOpen, modelReload]);
 
     useEffect(() => {
         (async () => {
@@ -537,6 +539,7 @@ export default function AIAssistantsPanel() {
                                 <b>Purpose:</b>{" "}
                                 {PURPOSES.find((p) => p.value === a.purpose)?.label || a.purpose}
                             </p>
+                    {a.provider === "codex-cli" && <CodexSetup assistant={a} onRefresh={refreshAssistants}/>}
                     {(a.provider === "codex-cli" || a.provider === "gemini-cli") && a.executablePath ? (
                                 <>
                                     <div className={styles["assistant-meta-row"]}>
@@ -677,7 +680,7 @@ export default function AIAssistantsPanel() {
                         </div>}
                         {form.provider === "codex-cli" ? (
                             <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
-                                Codex is integrated into FDO on macOS, Windows and Linux. No separate Codex installation is needed. Model options come from FDO’s bundled runtime. Saving checks the model catalog without running an AI request. Sign-in opens automatically when authentication is needed.
+                                Install Codex CLI separately to use this coding assistant. FDO loads models from your local installation. Saving checks the model catalog without running an AI request. Sign-in opens automatically when authentication is needed.
                             </div>
                         ) : form.provider === "gemini-cli" ? (
                             <div style={{ marginTop: "6px", color: "var(--bp6-text-color-muted, #5f6b7c)", fontSize: "12px" }}>
@@ -717,7 +720,15 @@ export default function AIAssistantsPanel() {
 
                     {form.provider === "codex-cli" ? (
                         <>
-                            <p>FDO uses its bundled native Codex runtime and your Codex login. If the runtime is missing, repair or reinstall FDO.</p>
+                            <FormGroup label="Codex executable" labelFor="ai-codex-path">
+                                <InputGroup id="ai-codex-path" value={form.executablePath || 'Auto-detect from PATH'} readOnly/>
+                                <Button text="Choose executable…" onClick={async () => {
+                                    const file = await window.electron.system.openFileDialog({title:'Choose Codex CLI executable',properties:['openFile']});
+                                    if (file) setForm(previous => ({...previous, executablePath:file}));
+                                }}/>
+                                <Button text="Installation guide" onClick={() => window.electron.system.openExternal('https://developers.openai.com/codex/cli/')}/>
+                                <Button text="Check again" onClick={() => setModelReload(value => value + 1)}/>
+                            </FormGroup>
                         </>
                     ) : form.provider === "gemini-cli" ? (
                         <>

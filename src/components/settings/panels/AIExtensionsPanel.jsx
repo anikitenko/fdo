@@ -38,6 +38,8 @@ export default function AIExtensionsPanel({onOpenAssistants}) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [feedback, setFeedback] = useState('');
+    const [localSkills, setLocalSkills] = useState(null);
+    const [selectedKeys, setSelectedKeys] = useState([]);
     const [tab, setTab] = useState('skills');
     const mounted = useRef(false);
     const operationRef = useRef(false);
@@ -79,11 +81,30 @@ export default function AIExtensionsPanel({onOpenAssistants}) {
             Import SKILL.md with its name and description in YAML front matter. FDO stores a copy of this file; scripts, references, MCP connections, and hooks are not imported. These extensions are separate from the generated plugin’s /SKILL.md implementation guide, which still requires your approval.
         </Callout>
         <div className={styles.actions}>
+            <Button text="Import from local Codex" disabled={busy || loading} onClick={async () => {
+                setBusy(true); setError(''); setSelectedKeys([]);
+                try {setLocalSkills(await api.listLocalCodexSkills());}
+                catch (reason) {setError(reason.message);}
+                finally {setBusy(false);}
+            }}/>
             <Button icon="import" text="Import SKILL.md" intent="primary" disabled={busy || loading || !api.importCodexSkill}
                 loading={busy} onClick={() => run(() => api.importCodexSkill(), 'Skill imported. Select its Codex assistants and save assignments.')}/>
             <Button icon="refresh" text="Refresh" disabled={busy || !api.getExtensions} onClick={() => run(() => api.getExtensions(), 'AI Extensions refreshed.')}/>
             <Button text="Manage AI assistants" minimal onClick={onOpenAssistants} disabled={busy}/>
         </div>
+        {localSkills && <Card aria-label="Local Codex skills">
+            {localSkills.length === 0 && <p>No compatible SKILL.md files found in your Codex or user skills directory.</p>}
+            {localSkills.map(skill => <div key={skill.key}>
+                <Checkbox label={skill.name} checked={selectedKeys.includes(skill.key)} disabled={busy || inventory.skills.some(item => item.name === skill.name)}
+                    onChange={event => setSelectedKeys(keys => event.target.checked ? [...keys, skill.key] : keys.filter(key => key !== skill.key))}/>
+                <details><summary>{skill.description}</summary><p>{skill.file}</p><pre className={styles.source}>{skill.content}</pre></details>
+            </div>)}
+            <Button text="Import selected skills" disabled={busy || !selectedKeys.length} onClick={() => run(async () => {
+                const result = await api.importLocalCodexSkills(selectedKeys);
+                setLocalSkills(null); setSelectedKeys([]); return result;
+            }, 'Skills imported. Choose which assistants may use them and enable them when ready.')}/>
+            <Button text="Cancel" disabled={busy} onClick={() => setLocalSkills(null)}/>
+        </Card>}
         {!inventory.assistants.length && <Callout intent="warning">No Codex coding assistants are configured. Add Codex in AI Assistants; each saved model entry will appear as an assignment option.</Callout>}
         {!inventory.skills.length && <NonIdealState className={styles.emptyState} icon="document" title="No skills imported yet" description="Import a SKILL.md to get started, then assign it to your Codex assistants."/>}
         {inventory.skills.map(skill => <SkillCard key={skill.id} skill={skill} assistants={inventory.assistants} busy={busy}

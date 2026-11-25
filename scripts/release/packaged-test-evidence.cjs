@@ -2,7 +2,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {sha256,assetNames}=require('./common.cjs');
-const requiredTests=['plugin worker excludes host secrets and denies unrelated files while loading its own assets','zero-grant plugin enforces builtin and filesystem permissions in its real worker','migrates legacy AI secrets to OS protection, redacts IPC and survives restart','packaged application includes verified notices and opens them offline'];
+const requiredTests=['plugin worker excludes host secrets and denies unrelated files while loading its own assets','zero-grant plugin enforces builtin and filesystem permissions in its real worker','migrates legacy AI secrets to OS protection, redacts IPC and survives restart','packaged application includes verified notices and opens them offline','local Codex setup works without a CLI and imports only the selected skill'];
 function testCases(report) {
     const visit=suite=>[...(suite.specs||[]).flatMap(spec=>(spec.tests||[]).map(test=>({title:spec.title,status:test.status,results:(test.results||[]).map(r=>r.status)}))),...(suite.suites||[]).flatMap(visit)];
     return (report.suites||[]).flatMap(visit);

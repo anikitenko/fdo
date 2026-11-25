@@ -150,11 +150,15 @@ function createAiCredentialSettings(store, protection) {
     });
 }
 
+function migrateCodexPath(record) {
+    return record?.provider === 'codex-cli' && record.codexRuntime?.bundled ? {...record, executablePath: ''} : record;
+}
 function assistantRecords(settings, purpose) {
-    return settings.getAiAssistantRecords ? settings.getAiAssistantRecords(purpose) : settings.get(`ai.${purpose}`, []) || [];
+    const records = settings.getAiAssistantRecords ? settings.getAiAssistantRecords(purpose) : settings.get(`ai.${purpose}`, []) || [];
+    return records.map(migrateCodexPath);
 }
 function assistantMetadata(settings, purpose) {return assistantRecords(settings, purpose).map(publicAssistant);}
 function assistantCredentials(settings, purpose, assistant) {
-    return settings.resolveAiAssistant ? settings.resolveAiAssistant(purpose, assistant) : assistant;
+    return migrateCodexPath(settings.resolveAiAssistant ? settings.resolveAiAssistant(purpose, assistant) : assistant);
 }
 module.exports = {createAiCredentialSettings, assistantRecords, assistantMetadata, assistantCredentials, publicAssistant, PREFIX, MESSAGE};

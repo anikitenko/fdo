@@ -95,8 +95,6 @@
   {
     "file": "mxc-0.8.0-LICENSE.md",
     "source": "https://github.com/microsoft/mxc/blob/6cd3d58f05d3447e67109cfb75e042803b843ca4/LICENSE.md",
-    "sha256": "d9a1b1e30d633d5732ea18e3cba9538d293ebc53e1a9e4e96ab739e0c5c4f1cb",
-    "nativeComponent": "Microsoft MXC 0.8.0 (Windows Codex build)",
-    "platform": "win32"
+    "sha256": "d9a1b1e30d633d5732ea18e3cba9538d293ebc53e1a9e4e96ab739e0c5c4f1cb"
   }
 ]

@@ -33,7 +33,7 @@ Command servers run with your user permissions as separate trusted tools. Their 
 
 ## Runtime boundaries
 
-FDO connects to configured servers through the official MCP SDK and exposes an authenticated temporary loopback bridge to bundled Codex. Provider credentials remain in FDO. The bridge filters the tool catalog and rejects calls to unselected tools. Trusted connections may also expose MCP resources. Saving permissions authorizes the selected tools to run during requests without asking each time.
+FDO connects to configured servers through the official MCP SDK and exposes an authenticated temporary loopback bridge to local Codex. Provider credentials remain in FDO. The bridge filters the tool catalog and rejects calls to unselected tools. Trusted connections may also expose MCP resources. Saving permissions authorizes the selected tools to run during requests without asking each time.
 
 The bundled code-mode helper can call MCP tools without enabling shell tools or host filesystem imports. On macOS the agent sandbox allows only its temporary bridge ports while retaining host filesystem restrictions and denying other loopback ports. The bridge closes with the request. Staged recovery detects changes to server configuration, assignments, tool permissions, or explicit OAuth sign-out; routine token refresh does not invalidate a checkpoint.
 
@@ -42,7 +42,7 @@ AI Progress shows configured server/tool counts and actual native MCP start/comp
 ## Verification
 
 - `node scripts/check-mcp-transports.cjs`: offline stdio, local HTTP, custom headers, authenticated bridge, tool filtering, macOS port boundary, and OAuth discovery/registration/PKCE/state/token exchange.
-- `node scripts/check-codex-mcp.cjs`: bundled native direct and code-mode tool calls against mocked inference and MCP endpoints.
+- `node scripts/check-codex-mcp.cjs`: external native direct and code-mode tool calls against mocked inference and MCP endpoints.
 - `npm run test:ai:isolation`: native filesystem isolation.
 - `npx playwright test tests/e2e/ai-extensions-settings.spec.js --workers=1`: Settings IPC and persistence.
 

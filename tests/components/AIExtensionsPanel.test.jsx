@@ -152,3 +152,15 @@ test('adds a disabled hook using literal argument rows and assigns several Codex
     fireEvent.click(screen.getByLabelText('Enable Team context'));fireEvent.click(screen.getByRole('button',{name:'Save hook assignments'}));
     await waitFor(()=>expect(api.updateCodexHook).toHaveBeenCalledWith({id:'hook',enabled:true,assistantIds:['one','two']}));
 });
+
+test('local import previews skills and saves only the checked selection', async () => {
+    api.listLocalCodexSkills = jest.fn(async () => [{...skill, name:'local-helper', key:'helper', file:'/skills/helper/SKILL.md'}]);
+    api.importLocalCodexSkills = jest.fn(async () => inventory);
+    render(<AIExtensionsPanel onOpenAssistants={jest.fn()}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Import from local Codex'}));
+    const choice = await screen.findByLabelText('local-helper');
+    expect(screen.getByRole('button',{name:'Import selected skills'})).toBeDisabled();
+    fireEvent.click(choice);
+    fireEvent.click(screen.getByRole('button',{name:'Import selected skills'}));
+    await waitFor(() => expect(api.importLocalCodexSkills).toHaveBeenCalledWith(['helper']));
+});

@@ -14,7 +14,7 @@ import {createGenerationCheckpointStore} from '../../src/utils/ai/generation/cod
 
 jest.mock('electron', () => ({app: {getPath: jest.fn(), getAppPath: () => '/fdo', isPackaged: true}, ipcMain: {handle: jest.fn()}}));
 jest.mock('../../src/utils/persistence/store', () => ({settings: {get: jest.fn(), set: jest.fn()}}));
-jest.mock('../../src/utils/ai/codex/codexCli', () => ({resolveCodexCliInvocation: jest.fn(async () => ({command: '/fdo/codex', args: [], bundled: true, source: 'bundled', version: '0.162.1', execCapabilities: {supportsSandbox: true, supportsSkipGitRepoCheck: true, supportsModel: true}}))}));
+jest.mock('../../src/utils/ai/codex/codexCli', () => ({resolveCodexCliInvocation: jest.fn(async () => ({command: '/fdo/codex', args: [], native: true, source: 'bundled', version: '0.162.1', execCapabilities: {supportsSandbox: true, supportsSkipGitRepoCheck: true, supportsModel: true}}))}));
 jest.mock('../../src/utils/ai/generation/geminiCli', () => ({resolveGeminiCliInvocation: jest.fn(async () => ({command: '/electron', args: ['/external/gemini.js'], bundled: false}))}));
 jest.mock('../../src/utils/plugins/security/pluginAssistantIsolation', () => ({CODEX_PROPOSAL_FEATURES: ['shell_tool', 'unified_exec', 'view_image', 'code_mode_host'], createPluginAssistantIsolation: async (invocation, _provider, _hostPaths, options) => ({command: invocation.command, args: [], options: {cwd: '/private/empty', shell: false}, skillNames: options?.codexSkills?.map(skill => skill.name), setActiveSkills: async () => {}, cleanup: async () => {}})}));
 jest.mock('../../src/utils/sdk/installedSdkValidation', () => ({createInstalledSdkValidator: () => {const validate = () => []; validate.capabilities = {sdkVersion: 'test', fingerprint: 'test'}; validate.plan = () => []; return validate;}}));
@@ -136,7 +136,7 @@ test('Codex MCP requests expose configuration and actual call status, and missin
     const server = {id: 'docs', name: 'Docs', enabled: true, assistantIds: [assistant.id], enabledTools: ['search'], url: 'https://docs.example.com/mcp', bearerToken: 'private-token', tools: []};
     let configured = false;
     settings.get.mockImplementation((key, fallback) => key === 'ai.coding' ? [assistant] : key === 'ai.codexSkills' ? [] : key === 'ai.codexMcpServers' ? (configured ? [server] : []) : fallback);
-    resolveCodexCliInvocation.mockResolvedValue({command: '/fdo/codex', args: [], bundled: true, execCapabilities: {supportsJson: true, supportsModel: true}});
+    resolveCodexCliInvocation.mockResolvedValue({command: '/fdo/codex', args: [], native: true, execCapabilities: {supportsJson: true, supportsModel: true}});
     spawn.mockClear();
     registerAiCodingAgentHandlers();
     const handler = ipcMain.handle.mock.calls.find(([channel]) => channel === AiCodingAgentChannels.SMART_MODE)[1];
@@ -187,7 +187,7 @@ test('active native turns survive four minutes without answer text and ignore st
     const {markCodexJsonModeCooldown}=require('../../src/utils/ai/codex/codexCliJsonModePreference');
     const assistant={id:'reasoning-codex',provider:'codex-cli',model:'fixture',firstResponseTimeoutMs:240000};
     settings.get.mockImplementation((key,fallback)=>key==='ai.coding'?[assistant]:fallback);
-    resolveCodexCliInvocation.mockResolvedValue({command:'/fdo/codex',args:[],bundled:true,execCapabilities:{supportsJson:true,supportsModel:true}});
+    resolveCodexCliInvocation.mockResolvedValue({command:'/fdo/codex',args:[],native:true,execCapabilities:{supportsJson:true,supportsModel:true}});
     markCodexJsonModeCooldown({assistantId:assistant.id,model:assistant.model,command:'/fdo/codex'});
     let launched;
     spawn.mockImplementation((_command,args)=>{

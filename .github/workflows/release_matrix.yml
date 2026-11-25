@@ -113,6 +113,11 @@ jobs:
       - name: Build and verify signing (builder publishing disabled)
         run: node scripts/release/build.cjs
         env: *signing
+      - name: Install a separate Codex CLI for compatibility checks
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/fdo-cli-fixture" --no-audit --no-fund @openai/codex@0.162.1
+          node -e 'const fs=require("node:fs"),path=require("node:path");fs.appendFileSync(process.env.GITHUB_ENV, "FDO_TEST_CODEX_PATH="+path.join(process.env.RUNNER_TEMP,"fdo-cli-fixture","node_modules","@openai","codex","bin","codex.js")+"\n");'
       - name: Test the packaged Linux application
         if: matrix.platform == 'linux'
         run: bash scripts/run-linux-e2e.sh node scripts/run-packaged-host-services.cjs

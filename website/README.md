@@ -177,15 +177,14 @@ local validation yet be silently omitted from the deployment artifact.
 
 `ai-coding.html` documents SDK-aware AI assistance and Codex extensions. Keep the
 Codex-only scope explicit: imported Skills are instruction-only; MCP servers and
-Hook runtimes/scripts require their own setup. The Codex CLI itself is bundled
-with packaged FDO. Provider authentication is still required. The page is linked
+Hook runtimes/scripts require their own setup. Install Codex CLI separately. Provider authentication is still required. The page is linked
 from the homepage navigation, editor feature and dedicated AI feature section,
 and is included in the sitemap and deployment allowlist.
 
 The AI coding guide uses `assets/fdo-ai-coding.png`, a real detached assistant
 window with Codex selected and an unsent draft. Recapture it with
 `node scripts/website/capture-ai.cjs` after building FDO. This uses a disposable
-app profile and isolated CODEX_HOME, configures the bundled runtime without
+app profile and isolated CODEX_HOME, configures the local runtime without
 signing in, and makes no inference request. It does not use your account or
 manufacture an AI response. This capture does not replace the Monaco screenshots
 in the editor/history sections or the user-supplied Azure FinOps hero.

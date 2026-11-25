@@ -11,11 +11,11 @@ const quote = value => JSON.stringify(value);
 export const CODEX_PROPOSAL_FEATURES = ['shell_tool', 'unified_exec', 'apps', 'multi_agent', 'browser_use', 'browser_use_external', 'computer_use', 'code_mode', 'code_mode_host', 'js_repl', 'view_image', 'remote_plugin', 'skill_search', 'skill_mcp_dependency_install', 'image_generation', 'artifact', 'workspace_dependencies', 'goals'];
 
 // Trusted CLI runtimes get only supplied context, a temporary workspace, and their own authentication.
-// Local model tools are disabled; assigned remote MCP tools are explicitly allowed. On macOS bundled Codex additionally runs under a process-level seatbelt profile.
+// Local model tools are disabled; assigned remote MCP tools are explicitly allowed. On macOS Codex additionally runs under a process-level seatbelt profile.
 // The portable mode is a runtime tool policy, not an OS filesystem sandbox.
 export async function createPluginAssistantIsolation(invocation, provider, hostPaths = [], {platform = process.platform, credentialRoot, codexSkills = [], codexMcpServers = [], codexHooks = [], onHookActivity, prepareHookBridge = prepareCodexHookBridge, prepareMcpServers = prepareMcpBridges} = {}) {
     if (!['codex-cli', 'gemini-cli'].includes(provider)) throw new Error('Unsupported CLI assistant.');
-    if (provider === 'codex-cli' && (!invocation.bundled || invocation.args?.length)) throw new Error('FDO requires its integrated native Codex runtime. Repair the bundled runtime for this platform.');
+    if (provider === 'codex-cli' && (!invocation.native || invocation.args?.length)) throw new Error('Choose a compatible native Codex CLI in AI Assistants.');
     const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'fdo-plugin-assistant-')));
     let mcpRuntime, hookRuntime;
     let hookListener = onHookActivity;
@@ -75,13 +75,13 @@ export async function createPluginAssistantIsolation(invocation, provider, hostP
         let codeModeHostPath;
         if (provider === 'codex-cli' && codexMcpServers.length) {
             const hostName = platform === 'win32' ? 'codex-code-mode-host.exe' : 'codex-code-mode-host';
-            const bundledHost = path.join(path.dirname(invocation.command), hostName);
-            try {await fs.access(bundledHost);}
-            catch {throw new Error('The bundled Codex code-mode helper is missing. Repair or reinstall FDO to use MCP tools with this model.');}
-            codeModeHostPath = bundledHost;
+            const localHost = path.join(path.dirname(invocation.command), hostName);
+            try {await fs.access(localHost);}
+            catch {throw new Error('The local Codex code-mode helper is missing. Update or repair your Codex installation to use MCP tools with this model.');}
+            codeModeHostPath = localHost;
             if (platform === 'darwin') {
                 codeModeHostPath = path.join(root, hostName);
-                await fs.copyFile(bundledHost, codeModeHostPath); await fs.chmod(codeModeHostPath, 0o700);
+                await fs.copyFile(localHost, codeModeHostPath); await fs.chmod(codeModeHostPath, 0o700);
             }
         }
         if (provider === 'codex-cli' && codexMcpServers.length) {

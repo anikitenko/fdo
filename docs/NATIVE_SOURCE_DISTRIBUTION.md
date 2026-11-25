@@ -15,9 +15,7 @@ Each release target publishes `fdo-<version>-<platform>-native-source.zip` and a
 `third_party/native-source.json`, listed in the release checksum inventory and
 attestations, and required by `scripts/release/publication-gate.cjs`.
 
-- Unix targets (macOS, Linux): dugite-native build repository, Git and Git LFS. Linux also carries `openai/codex` at the Codex
-  0.162.1 build commit, which holds the vendored bubblewrap source (LGPL) for
-  the Codex Linux helper.
+- Unix targets (macOS, Linux): dugite-native build repository, Git and Git LFS.
 - Windows: dugite-native, the Git for Windows fork, Git LFS, Git for
   Windows build-extra, the MSYS2/MinGW packaging repositories and about 50
   MSYS2 source packages plus the OpenSSL upstream tarball.

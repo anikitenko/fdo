@@ -11,15 +11,12 @@ const shim = {exports: {}};
 new Function('require', 'module', 'exports', esbuild.buildSync({entryPoints: ['src/utils/plugins/security/pluginAssistantIsolation.js'], bundle: true, write: false, platform: 'node', format: 'cjs'}).outputFiles[0].text)(require, shim, shim.exports);
 
 (async () => {
-    const platformPackage = path.join(process.cwd(), 'node_modules', '@openai', `codex-${process.platform}-${process.arch}`, 'vendor');
-    const executable = process.platform === 'win32' ? 'codex.exe' : 'codex';
-    const binary = fs.readdirSync(platformPackage).flatMap(triple => ['bin', 'codex'].map(folder => path.join(platformPackage, triple, folder, executable))).find(file => fs.existsSync(file));
-    assert.ok(binary, 'Bundled native Codex is required for this probe.');
+    const {command: binary} = await require('./local-codex-probe.cjs')();
     const credentialRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'fdo-no-login-'));
     // The inference loopback endpoint is used only for this probe. Production Codex reaches MCP through authenticated bridges.
     // Preserve macOS filesystem restrictions and staged companion binaries,
     // relaxing only loopback in this temporary test profile for the mock endpoints.
-    const isolated = await shim.exports.createPluginAssistantIsolation({command: binary, args: [], bundled: true}, 'codex-cli', [],
+    const isolated = await shim.exports.createPluginAssistantIsolation({command: binary, args: [], native: true}, 'codex-cli', [],
         {credentialRoot, prepareMcpServers: async servers => ({servers, ports: [], close: async () => {}}), codexMcpServers: [{id: 'probe', url: 'https://docs.example.com/mcp', enabledTools: ['allowed_search']}]});
     if (isolated.osSandbox) {
         const profile = await fsp.readFile(isolated.args[1], 'utf8');
@@ -118,6 +115,6 @@ default_tools_approval_mode = "approve"
         assert.equal(codeModeResult.includes('LOCAL_EXEC_UNEXPECTED'), false);
         assert.equal(codeModeResult.includes('NODE_FS_UNEXPECTED'), false);
         if (process.env.FDO_MCP_PROBE_DEBUG) console.log(nested.stdout);
-        console.log('PASS: direct and code-mode MCP calls execute through the bundled runtime; unselected tools, shell execution, Node filesystem imports, process/require/fetch globals remain unavailable. No login or real inference.');
+        console.log('PASS: direct and code-mode MCP calls execute through the external runtime; unselected tools, shell execution, Node filesystem imports, process/require/fetch globals remain unavailable. No login or real inference.');
     } finally {server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await isolated.cleanup(); await fsp.rm(credentialRoot, {recursive: true, force: true});}
 })().catch(error => {console.error(error.message); process.exitCode = 1;});
