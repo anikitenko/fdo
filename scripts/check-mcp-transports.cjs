@@ -43,9 +43,8 @@ const close = server => {server.closeAllConnections(); return new Promise(resolv
   if(process.platform==='darwin'){
    const {spawn}=require('node:child_process');
    const {createPluginAssistantIsolation}=load('src/utils/plugins/security/pluginAssistantIsolation.js');
-   const vendor=path.join(process.cwd(),'node_modules','@openai',`codex-${process.platform}-${process.arch}`,'vendor');
-   const native=require('node:fs').readdirSync(vendor).flatMap(triple=>['bin','codex'].map(folder=>path.join(vendor,triple,folder,'codex'))).find(file=>require('node:fs').existsSync(file));
-   const isolated=await createPluginAssistantIsolation({command:native,bundled:true,args:[]},'codex-cli',[],{codexMcpServers:[{id:'probe'}],prepareMcpServers:async()=>({servers:[],ports:bridges.ports,close:async()=>{}})});
+   const {command: native} = await require('./local-codex-probe.cjs')();
+   const isolated=await createPluginAssistantIsolation({command:native,native:true,args:[]},'codex-cli',[],{codexMcpServers:[{id:'probe'}],prepareMcpServers:async()=>({servers:[],ports:bridges.ports,close:async()=>{}})});
    const curl=url=>new Promise(resolve=>{const child=spawn(isolated.command,[...isolated.args.slice(0,2),'/usr/bin/curl','--max-time','3','--silent',url],isolated.options);child.stderr.on('data',chunk=>process.stderr.write(chunk));child.on('exit',resolve);});
    try {assert.equal(await curl(bridged.url),0,'Bridge loopback port must be reachable');assert.notEqual(await curl(`http://127.0.0.1:${upstream.address().port}/mcp`),0,'Other loopback ports must be denied');}
    finally{await isolated.cleanup();}

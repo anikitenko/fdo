@@ -10,7 +10,7 @@ new Function('require', 'module', 'exports', esbuild.buildSync({entryPoints: ['s
     const externalHostData = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'fdo-host-canary-'));
     fs.writeFileSync(path.join(externalHostData, 'settings.json'), 'HOST_PRIVATE_CANARY');
     const selectedSkill = '---\nname: isolation-probe\ndescription: Selected skill fixture\n---\nSELECTED_SKILL_CANARY';
-    const isolated = await moduleShim.exports.createPluginAssistantIsolation({command: '/bin/sh', bundled: true, args: []}, 'codex-cli', [externalHostData],
+    const isolated = await moduleShim.exports.createPluginAssistantIsolation({command: '/bin/sh', native: true, args: []}, 'codex-cli', [externalHostData],
         {codexSkills: [{name: 'isolation-probe', description: 'Selected skill fixture', content: selectedSkill}]});
     try {
         const execute = script => spawnSync(isolated.command, [...isolated.args.slice(0, 2), "/bin/sh", '-c', script], {...isolated.options, encoding: 'utf8'});

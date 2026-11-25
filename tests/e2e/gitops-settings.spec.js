@@ -16,7 +16,9 @@ test('GitOps Settings exposes the repository form and validates input through na
         const {layout,environment} = require('../../src/utils/git/bundledGit.cjs');
         const git = layout(root), env = environment(process.env,git);
         expect(execFileSync(git.command,['--version'],{env,encoding:'utf8',timeout:5000})).toMatch(/^git version /);
-        const helper = path.join(git.execPath,process.platform==='win32'?'git-remote-https.exe':'git-remote-https');
+        const helper = process.platform === 'win32'
+            ? path.join(git.binPaths[0], 'git-remote-https.exe')
+            : path.join(git.execPath, 'git-remote-https');
         // No arguments invokes helper usage, without making a network request.
         // EACCES/ENOENT and Windows loader failures must not pass as usage exits.
         let httpsHelperStarted;
@@ -27,7 +29,11 @@ test('GitOps Settings exposes the repository form and validates input through na
         await page.waitForFunction(() => typeof window.electron?.settings?.gitops?.list === 'function');
         await page.getByLabel('Open command search').click();
         await page.getByRole('menuitem').filter({hasText: 'Configure FDO'}).click();
-        await page.getByRole('tab', {name: 'GitOps', exact: true}).click();
+        const settings = page.getByRole('dialog', {name: 'Settings', exact: true});
+        await expect(settings.locator('..')).toHaveClass(/bp6-overlay-enter-done/);
+        const tab = settings.getByRole('tab', {name: 'GitOps', exact: true});
+        await tab.click();
+        await expect(tab).toHaveAttribute('aria-selected', 'true');
         await expect(page.getByRole('heading', {name: 'GitOps', exact: true})).toBeVisible();
         await expect(page.getByRole('heading', {name: 'No Git repositories'})).toBeVisible();
         await expect(page.locator('.bp6-non-ideal-state')).toBeVisible();

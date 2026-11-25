@@ -62,7 +62,7 @@ export function gitEnvironment(input, directory) {
         config[`http.${input.url}/.extraHeader`] = `Authorization: Basic ${Buffer.from(`${input.username}:${input.password}`).toString('base64')}`;
     }
     Object.assign(env, {
-        GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: path.join(directory, 'isolated.gitconfig'),
         GIT_CONFIG_COUNT: String(Object.keys(config).length), GIT_LFS_SKIP_SMUDGE: '1',
     });
     Object.entries(config).forEach(([key, value], index) => {

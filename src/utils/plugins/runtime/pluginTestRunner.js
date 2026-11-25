@@ -214,18 +214,22 @@ export async function runPluginWorkspaceTests(latestContent = {}, {timeoutMs} = 
         const {compiledTestFiles, nodeModulesPath} = await transpilePluginTests(workspaceDir, compiledDir, testFiles, Object.fromEntries(files.map(file => [file.path, file.content])));
         await copyWorkspaceRuntimeFiles(workspaceDir, compiledDir, files, testFiles, compiledTestFiles);
         const result = await executeNodeTestFiles(compiledDir, compiledTestFiles, nodeModulesPath, timeoutMs);
+        // esbuild reports canonical paths even when Electron supplied a Windows
+        // short temp path. macOS source maps may also repeat the /private alias.
+        const normalize = value => process.platform === 'darwin'
+            ? value.replace(/^(?:\/private)+\//, '/') : path.normalize(value);
+        const sourceRoot = normalize(await fs.realpath(workspaceDir));
+        const results = (result.results || []).map(item => {
+            const index = compiledTestFiles.indexOf(item.file);
+            if (index >= 0) return {...item, file: testFiles[index]};
+            if (!item.file) return item;
+            const relative = path.relative(sourceRoot, normalize(item.file));
+            if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return item;
+            return {...item, file: '/' + relative.split(path.sep).join('/')};
+        });
         return {
             ...result,
-            results: (result.results || []).map(item => ({...item, file: (() => {
-                const compiledIndex = compiledTestFiles.indexOf(item.file);
-                if (compiledIndex >= 0) return testFiles[compiledIndex];
-                // Node source-map paths on macOS can duplicate /private when
-                // resolving the /var alias. Compare normalized absolute roots.
-                const normalize = value => value?.replace(/^(?:\/private)+\//, '/');
-                const sourceFile = normalize(item.file);
-                const sourceRoot = normalize(workspaceDir);
-                return sourceFile?.startsWith(sourceRoot + path.sep) ? '/' + path.relative(sourceRoot, sourceFile).split(path.sep).join('/') : item.file;
-            })()})),
+            results,
             skipped: false,
             testFiles,
         };

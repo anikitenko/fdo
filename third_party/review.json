@@ -3,46 +3,85 @@
   "items": [
     {
       "id": "missing-package-notices",
-      "status": "pending",
+      "status": "cleared",
       "scope": "@anikitenko/fdo-sdk 1.9.2 and lazy-val 1.0.5 (replaced in 1.0.7)",
-      "action": "SDK 1.9.2 has a maintainer-authorized ISC notice retained on the FDO side (third_party/permissions/fdo-sdk.md). lazy-val 1.0.5 (develar/lazy-val) ships no license file or copyright notice in its npm package or pinned source tree, so it is replaced in 1.0.7 by an original in-tree implementation (packages/lazy-val, MIT, same public Lazy API used by electron-updater) wired through package.json overrides. Remaining step: after the final release commit, record the reviewer, date and per-target input hashes from the packaged builds and mark this item cleared.",
+      "action": "Recheck the evidence and bind fresh target inputs after changes to the candidate.",
       "evidence": [
         "https://github.com/anikitenko/fdo-sdk/tree/50a9021bb60102255e66521a40ad1616c0db7f33",
         "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
         "third_party/permissions/fdo-sdk.md",
         "packages/lazy-val/index.js",
         "package.json",
-        "third_party/evidence/lazy-val-1.0.5-source-tree.json"
-      ]
+        "third_party/evidence/lazy-val-1.0.5-source-tree.json",
+        "https://github.com/anikitenko/fdo/actions/runs/45176465539",
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "reviewedBy": "Codex, engineering evidence review",
+      "reviewedAt": "2026-11-25",
+      "resolution": "All four inventories identify the local MIT lazy-val replacement and the pinned ISC notice for SDK 1.9.2. Each legal archive passed its file-manifest checks and reported no notice coverage issues.",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      }
     },
     {
       "id": "publication-rights",
-      "status": "pending",
+      "status": "cleared",
       "scope": "Code, documentation, logos, screenshots and workshop media",
-      "action": "Vendor-facing publication rights declaration prepared in docs/PUBLICATION_RIGHTS_STATEMENT.md. It records the confirmed six ChatGPT-generated logo/preview files and distinguishes original project material from third-party components. Before signing, the maintainer must validate the publication-authority statements, applicable approvals, derived-asset rights and permission to disclose information visible in screenshots/workshop media. Awaiting signature, date, exact release source revision, supporting permission evidence where applicable, and target-bound review clearance. Preparing or signing the declaration does not itself complete native/component or packaged-release reviews.",
+      "action": "Recheck the evidence and bind fresh target inputs after changes to the candidate.",
       "evidence": [
         "docs/PUBLICATION_RIGHTS_STATEMENT.md",
-        "third_party/source-evidence.json"
-      ]
+        "third_party/source-evidence.json",
+        "docs/PUBLICATION_RIGHTS_STATEMENT.md.asc",
+        "docs/PUBLICATION_RIGHTS_SIGNING_KEY.asc",
+        "docs/LICENSING_REASSESSMENT.md",
+        "https://github.com/anikitenko/fdo/actions/runs/45176465539",
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "reviewedBy": "Codex, engineering evidence review",
+      "reviewedAt": "2026-11-25",
+      "resolution": "On 2026-11-23 the maintainer personally confirmed in writing that the declaration for original FDO code, documentation and assets, including required employer/client approvals, covers e7612c01da5c2192176e98928bff356bb839dbc3 and the GCM removal, notice integration and tests since 5c6977f. The detached signature covers the revision stated in the declaration. On 2026-11-25 the maintainer personally confirmed the declaration, including required employer or client approvals for original FDO material, covers da917496703ce99776f491de5d6b9235b08e2bed and its licensing documentation, inventory generation and tests. On 2026-11-25 the maintainer personally confirmed in writing that the declaration for original FDO code, documentation and assets, including any required employer or client approvals, covers d24317d112f5e1db17246b6940be6514d0de120b and its 1.0.7 release-evidence record.",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      }
     },
     {
       "id": "cursor-redistribution",
-      "status": "pending",
+      "status": "cleared",
       "scope": "@cursor/sdk and platform runtime 1.0.40 (removed from FDO 1.0.7)",
-      "action": "Resolved by removal: the SDK, runtime packages and Cursor assistant provider are deleted from source, package.json and the lockfile, and third_party/distribution-policy.json fails packaging if any @cursor component returns. Existing Cursor assistants saved by earlier versions are deleted at startup. Remaining step: after the final release commit, record the reviewer, date and per-target input hashes from the packaged builds (see docs/LICENSING_AND_PROVENANCE.md) and mark this item cleared.",
+      "action": "Recheck the evidence and bind fresh target inputs after changes to the candidate.",
       "evidence": [
         "third_party/distribution-policy.json",
         "tests/unit/distribution-policy.test.js",
         "tests/unit/retired-providers.test.js",
         "package.json",
-        "package-lock.json"
-      ]
+        "package-lock.json",
+        "https://github.com/anikitenko/fdo/actions/runs/45176465539",
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "reviewedBy": "Codex, engineering evidence review",
+      "reviewedAt": "2026-11-25",
+      "resolution": "Cursor was removed. All four packaged inventories omit @cursor packages and the packaged distribution checks passed with the Cursor exclusion policy.",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      }
     },
     {
       "id": "git-native-distribution",
-      "status": "pending",
-      "scope": "Dugite native v2.53.0-4: Git, Git LFS, Git Credential Manager and platform libraries/tools",
-      "action": "Implemented: every release target now ships a corresponding-source archive built in CI (scripts/release/native-source.cjs, policy third_party/native-source.json) holding the pinned upstream sources of the exact bundled Git, Git LFS and Git Credential Manager (all platforms) plus, for Windows, the Git for Windows fork and the MSYS2/MinGW package sources, build-extra and OpenSSL. The archive is staged, checksummed, attested and required by the publication gate. Disclosed deviations: bash uses the MSYS2 5.2.037-2 source package (the -1 source is no longer hosted); OpenSSL 3.5.5 comes from the upstream tarball plus the Git for Windows packaging commits; MinGit's package-versions.txt is stale versus git.exe 2.53.0.windows.4. Remaining step: after the final release commit, run the release matrix, review the archives, then record the reviewer, date and per-target input hashes and mark this item cleared.",
+      "status": "cleared",
+      "scope": "Dugite-native v2.53.0-4, Git, Git LFS and target-specific libraries and tools",
+      "action": "Preserve the reviewed binary and corresponding-source archives together and verify their public download links when publishing.",
       "evidence": [
         "https://github.com/desktop/dugite-native/tree/4098283a7ecb8a227b9d43580336c78a06f90e5d",
         "https://github.com/git/git/tree/67ad42147a7acc2af6074753ebd03d904476118f",
@@ -50,14 +89,30 @@
         "docs/NATIVE_SOURCE_DISTRIBUTION.md",
         "third_party/native-source.json",
         "scripts/release/native-source.cjs",
-        "tests/unit/native-source.test.js"
-      ]
+        "tests/unit/native-source.test.js",
+        "third_party/gcm-files.json",
+        "tests/e2e/packaged-git-auth.spec.js",
+        "https://www.nuget.org/packages/Microsoft.Identity.Client.NativeInterop/0.20.6",
+        "https://github.com/anikitenko/fdo/actions/runs/45176465539",
+        "https://github.com/desktop/dugite-native/blob/4098283a7ecb8a227b9d43580336c78a06f90e5d/package.json",
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "resolution": "All four target sidecars identify the pinned Dugite-native scripts as GPL-2.0-only. The corresponding-source component hashes match the previously inspected sources. Target notices reproduce the pinned Git, Git LFS and Dugite-native texts. The staged inventories exclude every listed GCM private path and all four packaged scoped-credential and Git LFS checks passed. See the native-source documentation for the Windows Bash and OpenSSL source substitutions.",
+      "reviewedAt": "2026-11-25",
+      "reviewedBy": "Codex, engineering evidence review",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      }
     },
     {
       "id": "native-ai-notices",
-      "status": "pending",
-      "scope": "Native Codex and TypeScript-Go embedded dependencies",
-      "action": "Per-platform findings are recorded for macOS, Linux and Windows x64 (third_party/evidence/native-ai-platform-packages.json, from the published npm tarballs, not run on those platforms). TypeScript native 7.0.2: NOTICE.txt and LICENSE are in every platform package and byte-identical. Codex 0.162.1: every platform package also ships an optional voice runtime (LGPL-2.1 GStreamer/GLib, Opus, libffi, PCRE2, and Microsoft vcruntime140.dll on Windows) that FDO does not use; it is excluded from the app by webpack.main.config.js and enforced by third_party/distribution-policy.json (codex-voice-runtime), and the Codex CLI was confirmed to run without it. Linux ships a bubblewrap helper (LGPL-2.0-or-later) whose vendored source is added to the Linux native-source archive (openai/codex at commit 092d3acd). Still open: Codex helper binaries (rg, zsh, Windows sandbox executables) and Rust crates rely on the upstream NOTICE and the source-lock inventory; no complete native SBOM exists. After the final release commit, review the packaged builds, then record the reviewer, date and per-target input hashes.",
+      "status": "cleared",
+      "scope": "External Codex CLI exclusion and retained TypeScript native notices",
+      "action": "Use the local Codex installation. Keep the distribution exclusions and verify the shipped TypeScript license and notice on every target.",
       "evidence": [
         "https://github.com/openai/codex/tree/rust-v0.162.1",
         "third_party/licenses/codex-0.162.1-NOTICE",
@@ -67,20 +122,71 @@
         "third_party/evidence/native-ai-platform-packages.json",
         "third_party/distribution-policy.json",
         "third_party/native-source.json",
-        "webpack.main.config.js"
-      ]
+        "webpack.main.config.js",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/scripts/codex_package/rg",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/scripts/codex_package/codex-zsh",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/.github/scripts/build-zsh-release-artifact.sh",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/.github/workflows/rust-release.yml",
+        "https://github.com/openai/codex/releases/tag/codex-zsh-v0.1.0",
+        "third_party/recovered-notices.json",
+        "https://github.com/openai/codex/actions/runs/37967782807",
+        "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/third_party/v8/README.md",
+        "https://github.com/anikitenko/fdo/actions/runs/45176465539",
+        "tests/e2e/local-codex-setup.spec.js",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "reviewedBy": "Codex, engineering evidence review",
+      "reviewedAt": "2026-11-25",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      },
+      "resolution": "The packaged ASAR and resource exclusion tests passed for all four targets. Their inventories omit Codex platform packages and each retained TypeScript native package carries the supplier license and notice in the offline bundle."
     },
     {
       "id": "copied-artwork-and-builds",
-      "status": "pending",
+      "status": "cleared",
       "scope": "Former vscode-icons artwork (removed in 1.0.7), highlight.js custom build and copied stylesheets",
-      "action": "Resolved by replacement: the 1,374 vscode-icons files and the vscode-icons-js package are deleted. The file-tree icons are now an original set generated by scripts/generate-file-icons.cjs into src/assets/icons/files and registered as project assets. The unmatched npm-branded icon is gone. Both highlight stylesheets and Notyf CSS byte-match pinned npm archives and highlight.js has a reproducible recipe. Remaining step: after the final release commit, record the reviewer, date and per-target input hashes from the packaged builds and mark this item cleared.",
+      "action": "Recheck the evidence and bind fresh target inputs after changes to the candidate.",
       "evidence": [
         "third_party/source-evidence.json",
         "third_party/assets.json",
         "scripts/generate-file-icons.cjs",
-        "src/components/editor/utils/fileIcons.js"
-      ]
+        "src/components/editor/utils/fileIcons.js",
+        "https://github.com/anikitenko/fdo/actions/runs/45176465539",
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "reviewedBy": "Codex, engineering evidence review",
+      "reviewedAt": "2026-11-25",
+      "resolution": "All four asset inventories matched the registered tree hashes, including project assets and the pinned Highlight and Notyf groups. The packaged dependency inventories omit vscode-icons and vscode-icons-js.",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      }
     }
-  ]
+  ],
+  "reviewedRehearsal": {
+    "run": "https://github.com/anikitenko/fdo/actions/runs/45622919360",
+    "source": "d24317d112f5e1db17246b6940be6514d0de120b",
+    "inputs": {
+      "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+      "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+      "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+      "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+    },
+    "artifactId": 15045300085,
+    "artifactSha256": "31a1e1ca623c4373708dc007fc22dda484629e7e90dc675a716238ebef4dc0eb",
+    "packagedTestsPassed": {
+      "linux-x64": 21,
+      "mac-arm64": 21,
+      "mac-x64": 21,
+      "win-x64": 21
+    },
+    "findings": "Verified the assembled artifact digest, packaged test reports and installer checksums, legal archive file manifests, asset hashes, offline notices, SBOMs and native corresponding-source archives. All six decisions apply to the recorded target inputs. Publication and final signed installer verification run on the release tag."
+  }
 }

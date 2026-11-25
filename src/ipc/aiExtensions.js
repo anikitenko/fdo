@@ -1,3 +1,4 @@
+import {localCodexSkills} from '../utils/ai/codex/localCodexSkills';
 import {validateCodexHook, publicCodexHook} from '../utils/ai/codex/codexHooks';
 import {assistantRecords} from '../utils/persistence/aiCredentialSettings.cjs';
 import {runCodexHookCommand} from '../utils/ai/codex/codexHookRuntime';
@@ -135,6 +136,21 @@ export function registerAiExtensionsHandlers({ipcMain, dialog, BrowserWindow, se
         return saveServers(storedServers().filter(s => s.id !== id));
     });
     ipcMain.handle(channels.GET_EXTENSIONS, () => inventory());
+    ipcMain.handle(channels.LOCAL_CODEX_SKILLS, () => localCodexSkills());
+    ipcMain.handle(channels.IMPORT_LOCAL_CODEX_SKILLS, async (_event, keys) => {
+        if (!Array.isArray(keys) || !keys.length || keys.length > MAX_CODEX_SKILLS) throw new Error('Select up to 50 skills.');
+        const available = await localCodexSkills();
+        const {skills} = inventory();
+        const names = new Set(skills.map(skill => skill.name));
+        const additions = keys.map(key => {
+            const selected = available.find(skill => skill.key === key);
+            if (!selected) throw new Error('A local skill changed. Refresh the preview before importing.');
+            if (names.has(selected.name)) throw new Error(`Skill ${selected.name} is already selected or imported.`);
+            names.add(selected.name);
+            return {...parseCodexSkill(selected.content), id:randomUUID(), enabled:false, assistantIds:[]};
+        });
+        return save([...skills, ...additions]);
+    });
     ipcMain.handle(channels.IMPORT_CODEX_SKILL, async event => {
         const options = {title: 'Import Codex skill instructions', properties: ['openFile'], filters: [{name: 'SKILL.md', extensions: ['md']}]};
         const owner = BrowserWindow.fromWebContents(event.sender);

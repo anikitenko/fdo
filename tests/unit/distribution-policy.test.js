@@ -16,14 +16,9 @@ test('removed components are rejected when compiled into bundles, left in ASAR, 
     fs.rmSync(path.join(root,'app.asar.unpacked'),{recursive:true});
     expect(verifyDistribution({resources:root,policy,inventory:{packages:[]}}).excluded).toEqual(['cursor']);
 });
-test('the Codex voice runtime is excluded by path even though the Codex CLI itself ships',()=>{
-    const voice={schemaVersion:1,excluded:[{id:'codex-voice-runtime',packages:[],paths:['codex-resources/voice']}]};
-    const inventory={packages:[{name:'@openai/codex-darwin-arm64'}]};
-    expect(verifyDistribution({resources:root,policy:voice,inventory}).excluded).toEqual(['codex-voice-runtime']);
-    const directory=path.join(root,'app.asar.unpacked/dist/main/node_modules/@openai/codex-linux-x64/vendor/x/codex-resources/voice/lib');
-    fs.mkdirSync(directory,{recursive:true});
-    expect(()=>verifyDistribution({resources:root,policy:voice,inventory})).toThrow('codex-voice-runtime');
-});
-test('the shipped policy lists the Codex voice runtime',()=>{
-    expect(require('../../third_party/distribution-policy.json').excluded.map(item=>item.id)).toEqual(expect.arrayContaining(['cursor','codex-voice-runtime']));
+test('release policy rejects the external CLI and unpacked helpers', () => {
+    const shipped = require('../../third_party/distribution-policy.json');
+    expect(() => verifyDistribution({resources:root, policy:shipped, inventory:{packages:[{name:'@openai/codex-darwin-arm64'}]}})).toThrow('external-codex');
+    fs.writeFileSync(path.join(root,'codex-code-mode-host.exe'),'fixture');
+    expect(() => verifyDistribution({resources:root, policy:shipped, inventory:{packages:[]}})).toThrow('external-codex');
 });

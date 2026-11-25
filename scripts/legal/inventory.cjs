@@ -125,6 +125,10 @@ function generate({root=process.cwd(), platform=process.platform, arch=process.a
         if (pkg.root.startsWith('packages/')) originals.push(path.join(root,'LICENSE'));
         // Version-specific upstream recovery: the npm CLI package omits Apache LICENSE/NOTICE.
         if (/^@openai\/codex(?:-|$)/.test(pkg.name) && pkg.version.startsWith('0.162.1')) originals.push(...['codex-0.162.1-LICENSE','codex-0.162.1-NOTICE'].map(name=>path.join(root,'third_party/licenses',name)));
+        if (pkg.name === '@openai/codex' && /^0\.162\.1-(darwin|linux|win32)-/.test(pkg.version)) {
+            originals.push(path.join(root,'third_party/licenses/ripgrep-15.2.0-LICENSE-MIT'));
+            if (!pkg.version.includes('-win32-')) originals.push(path.join(root,'third_party/licenses/codex-zsh-LICENCE'));
+        }
         if (pkg.name==='exif-parser' && pkg.version==='0.1.12' && originals.some(file=>path.basename(file)==='LICENSE.md')) pkg.license='MIT';
         const recovered={
             '@anikitenko/fdo-sdk@1.9.2':['fdo-sdk-1.9.2-ISC.txt'],
@@ -158,6 +162,12 @@ function generate({root=process.cwd(), platform=process.platform, arch=process.a
     for (const group of assets.groups) {
         notices.push(`\n--- ${group.name} ${group.version} ---\nLicense: ${group.license}\nSource: ${group.source}\n${group.note}\nIncluded files: see asset-inventory.json`);
         for (const name of group.licenseFiles) notices.push(fs.readFileSync(path.join(root,'third_party/licenses',name),'utf8'));
+    }
+    for (const record of json(path.join(root,'third_party/recovered-notices.json'))) {
+        if (!record.nativeComponent || (record.platform && record.platform !== platform)) continue;
+        const bytes = fs.readFileSync(inside(path.join(root,'third_party/licenses'), record.file));
+        if (sha256(bytes) !== record.sha256) throw new Error(`Native notice checksum mismatch: ${record.file}`);
+        notices.push(`\n--- ${record.nativeComponent} ---\nSource: ${record.source}`, bytes.toString('utf8'));
     }
     for (const file of walk(path.join(root,'third_party/licenses'))) copyNotice(file,portable(path.relative(root,file)));
     const electronNotices=electronNoticesPath || path.join(root,'node_modules/electron/dist/LICENSES.chromium.html');

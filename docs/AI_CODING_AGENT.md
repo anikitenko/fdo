@@ -2,6 +2,12 @@
 
 Deployment tooling is shared with AI Coding and Live UI: see [Deployment authoring workflow](DEPLOYMENT_AUTHORING.md) for source review, tool editing, authentication and recovery.
 
+## Connect local Codex CLI
+
+Install Codex CLI separately on macOS, Windows or Linux. In Settings → AI Assistants, select Codex. FDO detects `codex` on PATH or lets you choose the executable. Supported npm launchers resolve to their native binary. FDO checks the version (0.162.1 or later) and required command options before loading models. Use the existing sign-in controls for your account. [Installation instructions](https://developers.openai.com/codex/cli/)
+
+An existing Codex assistant keeps its model and extension assignments. If its CLI is missing, the editor keeps the draft open while you choose an installation or another assistant. In AI Extensions → Codex → Skills, **Import from local Codex** previews user-installed instructions in the Codex home skills directory and `~/.agents/skills`. Select the skills to copy, then enable and assign them. FDO continues to manage MCP credentials, allowed tools and hooks separately for each assistant.
+
 ## Overview
 
 The AI Coding Agent is a new feature integrated into the FDO built-in code editor. It provides AI-powered coding assistance directly within the editor, using the official OpenAI, Anthropic, Google Gemini, Cloudflare and Ollama clients through FDO’s provider adapters and coding assistant configuration.

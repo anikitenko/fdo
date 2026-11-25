@@ -9,6 +9,23 @@ async function chooseCssProperty(visual, query) {
     await expect(visual.getByLabel('CSS value', {exact: true})).toBeFocused();
 }
 
+async function expectOpacityTransition(overlay, button, openSelector) {
+    // Arm the observer before the click. A busy runner can resume Playwright
+    // after the entire transition, when getAnimations() already returns [].
+    await overlay.evaluate(async (node, openSelector) => {
+        await Promise.allSettled(node.getAnimations().map(animation => animation.finished));
+        node.__observedOpacityTransition = false;
+        function record(event) {
+            if (event.target !== node || event.propertyName !== 'opacity' || !node.matches(openSelector)) return;
+            node.__observedOpacityTransition = true;
+            node.removeEventListener('transitionrun', record);
+        }
+        node.addEventListener('transitionrun', record);
+    }, openSelector);
+    await button.click();
+    await expect.poll(() => overlay.evaluate(node => node.__observedOpacityTransition)).toBe(true);
+}
+
 test('SDK motion presets persist, replay without workspace edits and honor reduced motion', async () => {
     test.setTimeout(120000);
     const app=await launchElectronApp(electron,{isolatedUserDataDir:true});
@@ -32,8 +49,9 @@ test('SDK motion presets persist, replay without workspace edits and honor reduc
         await expect(dialog).toBeVisible();
         await expect(dialog).toHaveCSS('transition-duration','0.8s, 0.8s, 0.8s, 0.8s');
         const before=await editor.evaluate(()=>window.__editorTestApi.getFileContent('/render.tsx'));
-        await visual.getByRole('button',{name:'Replay entrance',exact:true}).click();
-        await expect.poll(()=>frame.locator('[data-fdo-component="fdo.dialog"]').evaluate(node=>node.getAnimations().some(animation=>animation.transitionProperty==='opacity'))).toBe(true);
+        const replay = visual.getByRole('button', {name: 'Replay entrance', exact: true});
+        const dialogElement = frame.locator('[data-fdo-component="fdo.dialog"]');
+        await expectOpacityTransition(dialogElement, replay, '[open]');
         expect(await editor.evaluate(()=>window.__editorTestApi.getFileContent('/render.tsx'))).toBe(before);
         await visual.getByRole('button',{name:'Undo',exact:true}).click();
         await expect(dialog).toHaveCSS('transition-duration','0s');
@@ -54,14 +72,12 @@ test('SDK motion presets persist, replay without workspace edits and honor reduc
         const popover=frame.locator('[data-fdo-component="fdo.popover"]');
         await expect(popover).toBeVisible();
         await expect(popover).toHaveCSS('opacity','1');
-        await visual.getByRole('button',{name:'Close overlay preview',exact:true}).click();
-        await expect.poll(()=>popover.evaluate(node=>node.getAnimations().some(animation=>animation.transitionProperty==='opacity'))).toBe(true);
+        await expectOpacityTransition(popover, visual.getByRole('button', {name: 'Close overlay preview', exact: true}), ':not(:popover-open)');
         // Reopening during exit must survive the old close completion.
         await visual.getByRole('button',{name:'Popover · New Popover',exact:true}).click();
         await expect(popover).toHaveCSS('opacity','1');
         await expect(popover).toBeVisible();
-        await visual.getByRole('button',{name:'Replay entrance',exact:true}).click();
-        await expect.poll(()=>popover.evaluate(node=>node.getAnimations().some(animation=>animation.transitionProperty==='opacity'))).toBe(true);
+        await expectOpacityTransition(popover, replay, ':popover-open');
         await expect(popover).toHaveCSS('opacity','1');
         await visual.getByLabel('Motion preset',{exact:true}).selectOption('none');
         await visual.getByRole('button',{name:'Preview motion',exact:true}).click();
@@ -416,6 +432,7 @@ test('dialog design preview reveals hidden children, supports native focus and E
         let previewOpening = app.waitForEvent('window');
         await editor.getByRole('button', {name: 'Live UI editor', exact: true}).click();
         let visual = await previewOpening;
+        await visual.setViewportSize({width: 1600, height: 1000});
         let frame = visual.frameLocator('iframe[title="Plugin UI preview"]');
         const dialog = frame.locator('[data-role="settings-dialog"]');
         await expect(dialog).toBeHidden();
@@ -1019,6 +1036,7 @@ test('CSS states preview only the selected element and preserve isolated state e
         const previewOpening = app.waitForEvent('window');
         await editor.getByRole('button', {name: 'Live UI editor', exact: true}).click();
         const visual = await previewOpening;
+        await visual.setViewportSize({width: 1600, height: 1000});
         const frame = visual.frameLocator('iframe[title="Plugin UI preview"]');
         const originalButton = frame.locator('[data-role="run"]');
         await expect(originalButton).toBeVisible();
@@ -1107,6 +1125,7 @@ test('responsive max-width edits preview at exact widths, preserve wider styles 
         const previewOpening = app.waitForEvent('window');
         await editor.getByRole('button', {name: 'Live UI editor', exact: true}).click();
         const visual = await previewOpening;
+        await visual.setViewportSize({width: 1600, height: 1000});
         const frame = visual.frameLocator('iframe[title="Plugin UI preview"]');
         const button = frame.locator('[data-role="run"]');
         await expect(button).toBeVisible();

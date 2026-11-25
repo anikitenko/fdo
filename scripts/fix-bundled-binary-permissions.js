@@ -42,42 +42,6 @@ function getResourcesDir(appOutDir) {
     return directResources;
 }
 
-function fixCodexPermissions(resourcesDir) {
-    const unpackedRoot = path.join(resourcesDir, "app.asar.unpacked", "dist", "main", "node_modules", "@openai");
-    if (!fs.existsSync(unpackedRoot)) {
-        return [];
-    }
-
-    const updated = [];
-    const platformPackages = fs.readdirSync(unpackedRoot).filter((name) => name.startsWith("codex-"));
-
-    for (const platformPackage of platformPackages) {
-        const vendorRoot = path.join(unpackedRoot, platformPackage, "vendor");
-        if (!fs.existsSync(vendorRoot)) {
-            continue;
-        }
-
-        for (const triple of fs.readdirSync(vendorRoot)) {
-            const tripleRoot = path.join(vendorRoot, triple);
-            for (const codexName of ["codex", "codex.exe"]) {
-                const codexBinary = path.join(tripleRoot, "codex", codexName);
-                if (chmodIfPresent(codexBinary)) {
-                    updated.push(codexBinary);
-                }
-            }
-
-            for (const rgName of ["rg", "rg.exe"]) {
-                const rgBinary = path.join(tripleRoot, "path", rgName);
-                if (chmodIfPresent(rgBinary)) {
-                    updated.push(rgBinary);
-                }
-            }
-        }
-    }
-
-    return updated;
-}
-
 function fixEsbuildPermissions(resourcesDir) {
     const unpackedRoot = path.join(resourcesDir, "app.asar.unpacked", "dist", "main", "node_modules", "@esbuild");
     if (!fs.existsSync(unpackedRoot)) {
@@ -218,7 +182,6 @@ module.exports = async function afterPack(context) {
     const gitRoot = path.join(resourcesDir, "git");
     const repairedLinks = repairBundledGitSymlinks(gitRoot);
     const updated = [
-        ...fixCodexPermissions(resourcesDir),
         ...fixEsbuildPermissions(resourcesDir),
         ...fixTypeScriptPermissions(resourcesDir),
         ...fixGitPermissions(resourcesDir),

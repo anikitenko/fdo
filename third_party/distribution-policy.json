@@ -16,6 +16,35 @@
       "paths": [
         "codex-resources/voice"
       ]
+    },
+    {
+      "id": "bundled-gcm",
+      "packages": [],
+      "paths": [
+        "git-credential-manager",
+        "git-credential-manager.exe",
+        "Microsoft.Identity.Client.NativeInterop.dll",
+        "msalruntime.dll",
+        "gcmcore.dll",
+        "msalruntime_arm64.dll"
+      ]
+    },
+    {
+      "id": "external-codex",
+      "packages": [
+        "@openai/codex"
+      ],
+      "paths": [
+        "node_modules/@openai/codex",
+        "bin/codex",
+        "bin/codex.exe",
+        "codex-code-mode-host",
+        "codex-code-mode-host.exe",
+        "codex-command-runner.exe",
+        "codex-windows-sandbox-setup.exe",
+        "codex-resources",
+        "codex-path"
+      ]
     }
   ]
 }

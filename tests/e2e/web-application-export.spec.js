@@ -40,20 +40,31 @@ test('exported SDK-free application serves browser actions and retains encrypted
             const plot=document.createElement('div');plot.id='chart';plot.style.width='400px';document.querySelector('section').appendChild(plot);
             await window.FDOCharts.create(plot,{type:'bar',label:'Standalone chart',xKey:'day',data:[{day:'Monday',value:3}],series:[{key:'value'}],height:160});
         },handlers:`);
-        const result=await createRequire(converter)(converter).prepareWebApplicationExport({snapshot:{virtual:files,sourceEntry:'index.ts'},plugin:{id:'fixture',name:'Web counter',capabilities,customProcessScopes:[{scope:'test-cli',allowedExecutables:['/desktop/bin/fake-cli'],allowedCwdRoots:['/desktop/project'],allowedEnvKeys:[],requireConfirmation:true,timeoutCeilingMs:2000,argumentPolicy:{version:1,mode:'first-arg',allowedFirstArgs:['account']}}]},
+        const desktopCommand=path.resolve('/desktop/bin/fake-cli');
+        const desktopRoot=path.resolve('/desktop/project');
+        const result=await createRequire(converter)(converter).prepareWebApplicationExport({snapshot:{virtual:files,sourceEntry:'index.ts'},plugin:{id:'fixture',name:'Web counter',capabilities,customProcessScopes:[{scope:'test-cli',allowedExecutables:[desktopCommand],allowedCwdRoots:[desktopRoot],allowedEnvKeys:[],requireConfirmation:true,timeoutCeilingMs:2000,argumentPolicy:{version:1,mode:'first-arg',allowedFirstArgs:['account']}}]},
             sdkSource:fs.readFileSync(require.resolve('@anikitenko/fdo-sdk'),'utf8'),viewLibrary:await buildWebExportAssets(),runtimeSources:webExportRuntimeSources(),esbuild:require('esbuild'),port:selectedPort});
         expect(result.report.blockers).toEqual([]);
         expect(result.report.adapters).toContainEqual(expect.objectContaining({id:'charts',status:'supported'}));
         for(const [file,content] of Object.entries(result.files)){const target=path.join(output,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,content);}
-        const fake=path.join(directory,'fake-cli');fs.writeFileSync(fake,'#!'+process.execPath+'\nconsole.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()}));\n',{mode:0o700});
-        const serviceFile=path.join(output,'deployment/services.json'),services=JSON.parse(fs.readFileSync(serviceFile,'utf8'));services.executables['/desktop/bin/fake-cli']=fake;fs.writeFileSync(serviceFile,JSON.stringify(services));
-        execFileSync('npm',['ci','--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:output,stdio:'pipe',timeout:30000});
+        // Run a fixed fixture module with Node on both Unix and Windows.
+        const data=path.join(directory,'state');
+        const serviceFile=path.join(output,'deployment/services.json'),services=JSON.parse(fs.readFileSync(serviceFile,'utf8'));
+        services.executables[desktopCommand]=process.execPath;
+        fs.writeFileSync(serviceFile,JSON.stringify(services));
+        const cwd=path.join(data,path.posix.relative('/data',services.pathMappings[desktopRoot]));
+        fs.mkdirSync(cwd,{recursive:true});
+        fs.writeFileSync(path.join(cwd,'account'),"console.log(JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()}));\n");
+        const npmArgs=['ci','--ignore-scripts','--offline','--no-audit','--no-fund'];
+        const npmOptions={cwd:output,stdio:'pipe',timeout:30000};
+        if(process.env.npm_execpath)execFileSync(process.execPath,[path.join(path.dirname(process.env.npm_execpath),'npm-cli.js'),...npmArgs],npmOptions);
+        else execFileSync('npm',npmArgs,npmOptions);
         execFileSync(process.execPath,['build.cjs'],{cwd:output,stdio:'pipe',timeout:30000});
         const doctor=JSON.parse(execFileSync(process.execPath,['tools.cjs','check'],{cwd:output,encoding:'utf8',timeout:30000}));
         expect(doctor).toMatchObject({ok:true,tools:[{id:'fake-cli',status:'ready'}]});
         expect(fs.existsSync(path.join(output,'node_modules','@anikitenko','fdo-sdk'))).toBe(false);
         expect(fs.existsSync(path.join(output,'node_modules','electron'))).toBe(false);
-        const data=path.join(directory,'state');let logs='';
+        let logs='';
         const start=async()=>{
             const env={...process.env,WEB_APP_DATA_DIR:data,WEB_APP_USERNAME:'engineer',WEB_APP_PASSWORD:password,WEB_APP_SECRET_KEY:key};
             delete env.PORT; // Exercise the selected export default rather than overriding it.
@@ -97,7 +108,7 @@ test('exported SDK-free application serves browser actions and retains encrypted
         expect((await action('fdo.unknown.v1')).status).toBe(400);
         expect((await action('missing.handler')).status).toBe(404);
         headers['X-Web-App-View']=(await fetch(url+'/api/view',{headers}).then(response=>response.json())).viewId;
-        const cli={action:'system.process.exec',payload:{scope:'test-cli',command:'/desktop/bin/fake-cli',args:['account','show'],timeoutMs:1000,encoding:'utf8',dryRun:false,reason:'Export CLI regression'}};
+        const cli={action:'system.process.exec',payload:{scope:'test-cli',command:desktopCommand,args:['account','show'],timeoutMs:1000,encoding:'utf8',dryRun:false,reason:'Export CLI regression'}};
         const approved=action('requestPrivilegedAction',cli);
         let approval;
         await expect.poll(async()=>{const result=await fetch(url+'/api/confirmations',{headers}).then(response=>response.json());approval=result.items[0];return approval?.id;}).toBeTruthy();
@@ -105,7 +116,7 @@ test('exported SDK-free application serves browser actions and retains encrypted
         expect((await fetch(url+'/api/confirmations',{method:'POST',headers:{...headers,'X-Web-App-View':secondView},body:JSON.stringify({id:approval.id,approved:true})})).status).toBe(403);
         expect((await fetch(url+'/api/confirmations',{method:'POST',headers,body:JSON.stringify({id:approval.id,approved:true})})).status).toBe(200);
         const execution=await approved;expect(execution).toMatchObject({status:200,body:{result:{ok:true,result:{exitCode:0}}}});
-        expect(JSON.parse(execution.body.result.result.stdout)).toEqual({args:['account','show'],cwd:expect.stringContaining('scopes/root-')});
+        expect(JSON.parse(execution.body.result.result.stdout)).toEqual({args:['show'],cwd:fs.realpathSync(cwd)});
         expect(await action('requestPrivilegedAction',{...cli,payload:{...cli.payload,command:'/bin/sh'}})).toMatchObject({status:200,body:{result:{ok:false}}});
         expect(await action('requestPrivilegedAction',{...cli,payload:{...cli.payload,args:['delete','everything']}})).toMatchObject({status:200,body:{result:{ok:false}}});
         const denied=action('requestPrivilegedAction',cli);

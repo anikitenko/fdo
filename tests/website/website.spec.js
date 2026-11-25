@@ -271,7 +271,7 @@ test("AI coding is visible on the homepage and the Codex guide is crawlable and 
 }) => {
   await page.goto("/");
   const feature = page.locator("#ai-coding");
-  await expect(feature).toContainText("Codex CLI is built into FDO");
+  await expect(feature).toContainText("FDO does not bundle it");
   await expect(feature.locator(".ai-extension-grid article")).toHaveCount(3);
   await expect(
     page.getByRole("link", { name: "Explore AI coding & Codex extensions ↗" }),

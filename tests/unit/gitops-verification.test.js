@@ -103,7 +103,7 @@ test('isolates credentials from global Git config and scopes the authorization h
         const env = gitEnvironment(input, directory);
         const options = {cwd: directory, env};
         expect(env.GIT_TERMINAL_PROMPT).toBe('0');
-        expect(env.GIT_CONFIG_GLOBAL).toBe(os.devNull);
+        expect(env.GIT_CONFIG_GLOBAL).toBe(path.join(directory, 'isolated.gitconfig'));
         const matched = await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', `${input.url}/info/refs`], options);
         expect(matched.stdout.trim()).toBe(`Authorization: Basic ${Buffer.from('alice:secret-value').toString('base64')}`);
         await expect(execute('git', ['config', '--get-urlmatch', 'http.extraHeader', 'https://github.com/acme/another.git/info/refs'], options)).rejects.toThrow();

@@ -27,6 +27,17 @@ test('validated edits receive before/after snapshots and record current-source c
     expect(workspace.fs.snapshotSwitchRevision).toBe(1);
     expect(storage.setItem).toHaveBeenCalledWith('fdo:plugin-ai-history:v1:sandbox_a', expect.stringContaining('Use current workspace files'));
 });
+test('CRLF workspace edits use LF preview offsets and preserve editor line endings', async () => {
+    workspace.files['/render.tsx'].content = 'first\r\nsecond';
+    base = liveUiWorkspacePayload(workspace);
+    expect(base.files['/render.tsx']).toBe('first\nsecond');
+    const patch = {file: '/render.tsx', before: 'first\nsecond', after: 'first\r\nchanged', description: 'Edit second line'};
+    const result = await applyVisualEdit({workspace, base, patch, storage, validate, canCommit});
+    expect(result.status).toBe('applied');
+    expect(workspace.files['/render.tsx'].content).toBe('first\r\nchanged');
+    expect(result.workspace.files['/render.tsx']).toBe('first\nchanged');
+});
+
 test('validation failures leave files and snapshots unchanged and can be retried', async () => {
     validate.mockResolvedValueOnce({success: false, error: 'Build failed'});
     expect(await apply()).toMatchObject({status: 'error', message: 'Build failed'});

@@ -6,14 +6,14 @@ const service={providerId:'website-provider',name:'website-availability',version
 }};
 test.beforeAll(async()=>{
     app=await launchElectronApp(electron,{isolatedUserDataDir:true});
-    page=await openEditorWithMockedIPC(app,{__useRealAssistants:true});
-    await page.waitForFunction(()=>window.__editorTestApi?.getState().filesKeys.includes('/index.ts'));
-    await expect(page.locator('.monaco-editor').first()).toBeVisible();
     await app.evaluate(({ipcMain}, services)=>{
         ipcMain.removeHandler('plugin:plugin-shared-logic-catalog');
         globalThis.__sharedAutocompleteReads=0;
         ipcMain.handle('plugin:plugin-shared-logic-catalog',()=>{globalThis.__sharedAutocompleteReads++;return {success:true,services};});
     },[service]);
+    page=await openEditorWithMockedIPC(app,{__useRealAssistants:true});
+    await page.waitForFunction(()=>window.__editorTestApi?.getState().filesKeys.includes('/index.ts'));
+    await expect(page.locator('.monaco-editor').first()).toBeVisible();
     await expect.poll(()=>app.evaluate(()=>globalThis.__sharedAutocompleteReads),{timeout:15000}).toBeGreaterThan(0);
 },120000);
 test.afterAll(async()=>closeElectronApp(app),60000);
@@ -26,8 +26,11 @@ test.afterEach(async ({},info)=>{
 async function source(text) {
     await page.evaluate(text=>{
         window.__editorTestApi.createFile('/index.ts',text);
-        window.__editorTestApi.openTabs([{id:'/index.ts',active:true}]);
+        if (window.__editorTestApi.getEditorLocation().uri !== 'file:///index.ts') {
+            window.__editorTestApi.openTabs([{id:'/index.ts',active:true}]);
+        }
     },text);
+    await expect.poll(() => page.evaluate(() => window.__editorTestApi.getEditorLocation().uri)).toBe('file:///index.ts');
 }
 async function cursor(line,column) {
     await page.evaluate(({line,column})=>window.__editorTestApi.setEditorPosition(line,column),{line,column});
@@ -39,7 +42,6 @@ test('available shared methods insert real calls and expose typed method, input 
     await source(prefix+'async function example() {\n  return sdk.shared\n}');
     await cursor(4,'  return sdk.shared'.length+1);
     await page.keyboard.type('.');
-    await page.keyboard.press('Control+Space');
     const handler=page.locator('.suggest-widget .monaco-list-row').filter({hasText:'check — website-availability v1'});
     await expect(handler).toBeVisible({timeout:15000});
     await handler.click();
@@ -49,13 +51,13 @@ test('available shared methods insert real calls and expose typed method, input 
 
     await source(prefix+`const checks = sdk.shared.client(${target});\nchecks.call('');`);
     await cursor(4,"checks.call('".length+1);
-    await page.keyboard.press('Control+Space');
+    await page.evaluate(() => window.__editorTestApi.triggerSuggestions());
     await expect(page.locator('.suggest-widget .label-name').getByText('check',{exact:true})).toBeVisible({timeout:15000});
     await page.keyboard.press('Escape');
 
     await source(prefix+`const checks = sdk.shared.client(${target});\nchecks.call('check', {});`);
     await cursor(4,"checks.call('check', {".length+1);
-    await page.keyboard.press('Control+Space');
+    await page.evaluate(() => window.__editorTestApi.triggerSuggestions());
     await expect(page.locator('.suggest-widget .label-name').getByText('url',{exact:true})).toBeVisible({timeout:15000});
     await page.keyboard.press('Escape');
 

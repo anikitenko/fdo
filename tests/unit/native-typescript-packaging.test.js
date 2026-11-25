@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const beforePack = require('../../scripts/check-bundled-codex-runtime.cjs');
+const beforePack = require('../../scripts/check-typescript-runtime.cjs');
 const afterPack = require('../../scripts/fix-bundled-binary-permissions.js');
 let root;
 beforeEach(() => {root = fs.mkdtempSync(path.join(os.tmpdir(), 'fdo-native-packaging-'));});
@@ -12,8 +12,6 @@ function file(name) {fs.mkdirSync(path.dirname(name), {recursive: true}); fs.wri
 test('requires the native TypeScript compiler for the requested packaging architecture', async () => {
     const modules = path.join(root, 'dist/main/node_modules');
     const native = path.join(modules, '@typescript/typescript-linux-x64/lib/tsc');
-    const vendor = path.join(modules, '@openai/codex-linux-x64/vendor/x86_64-linux/bin');
-    file(path.join(vendor, 'codex')); file(path.join(vendor, 'codex-code-mode-host'));
     const context = {appDir: root, electronPlatformName: 'linux', arch: 'x64'};
     await expect(beforePack(context)).rejects.toThrow('Missing TypeScript native compiler for linux/x64');
     file(native);

@@ -85,3 +85,29 @@ test('creates disabled hooks, validates assignments, and removes without running
     expect(call('UPDATE_CODEX_HOOK',{id:hook.id,enabled:true,assistantIds:['one','two']}).hooks[0].assistantIds).toEqual(['one','two']);
     expect(call('REMOVE_CODEX_HOOK',{id:hook.id}).hooks).toEqual([]);
 });
+
+test('local import previews instructions and rejects changed files before saving any selection', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fdo-local-skills-'));
+    const original = process.env.CODEX_HOME;
+    const home = jest.spyOn(os, 'homedir').mockReturnValue(root);
+    process.env.CODEX_HOME = root;
+    try {
+        const directory = path.join(root,'skills','fixture');
+        await fs.mkdir(directory,{recursive:true});
+        const file = path.join(directory,'SKILL.md');
+        await fs.writeFile(file,source);
+        const [preview] = await call('LOCAL_CODEX_SKILLS');
+        expect(preview.content).toBe(source);
+        await fs.appendFile(file,'\nUpdated instructions');
+        await expect(call('IMPORT_LOCAL_CODEX_SKILLS',[preview.key])).rejects.toThrow('changed');
+        expect(data['ai.codexSkills']).toEqual([]);
+        const [updated] = await call('LOCAL_CODEX_SKILLS');
+        const imported = await call('IMPORT_LOCAL_CODEX_SKILLS',[updated.key]);
+        expect(imported.skills).toEqual([expect.objectContaining({enabled:false,assistantIds:[],content:updated.content})]);
+        await expect(call('IMPORT_LOCAL_CODEX_SKILLS',[updated.key])).rejects.toThrow('already');
+    } finally {
+        home.mockRestore();
+        if (original === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = original;
+        await fs.rm(root,{recursive:true,force:true});
+    }
+});

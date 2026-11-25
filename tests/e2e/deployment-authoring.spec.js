@@ -44,7 +44,11 @@ new Cloud();`;
         await expect(editor.getByText('Review workspace deployment requirements',{exact:true})).toBeVisible();
         await expect(editor.getByText('Current selection will be treated as the edit target.',{exact:true})).toBeHidden();
         const aiDeployment=editor.getByRole('region',{name:'Plugin deployment requirements',exact:true});
-        await aiDeployment.locator('details').first().evaluate(node=>{node.open=true;});
+        // The AI panel refreshes its declaration independently of the Live UI window.
+        const declaredSummary = aiDeployment.getByText('Deployment requirements · 1 declared tool', {exact: true});
+        await expect(declaredSummary).toBeVisible();
+        if (!await declaredSummary.evaluate(summary => summary.parentElement.open)) await declaredSummary.click();
+        await expect(aiDeployment.getByText('Declaration: checked', {exact: true})).toBeVisible();
         await expect(aiDeployment.getByText('Cloud sign-in / roles: not verified')).toBeVisible();
         expect(await app.evaluate(()=>globalThis.__deploymentAiCalls)).toEqual([]);
         await aiDeployment.getByRole('button',{name:'Manage in Live UI',exact:true}).click();

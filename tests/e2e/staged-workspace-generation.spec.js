@@ -7,7 +7,7 @@ const missingContractKey = require('node:fs').readFileSync(require('node:path').
 const oversizedManifest = JSON.stringify(require('../fixtures/ai/workspace-manifest-oversized-contract.json'));
 const flattenedEntry = require('../fixtures/ai/workspace-file-flattened-entry.json');
 const missingCommaSource = require('node:fs').readFileSync(require('node:path').join(__dirname,
-    '../fixtures/ai/workspace-render-missing-comma.ts'), 'utf8');
+    '../fixtures/ai/workspace-render-missing-comma.ts'), 'utf8').replace(/\r\n/g, '\n');
 
 test('native initial inventory retains composition and tests alongside twelve feature modules', async () => {
     const app = await launchElectronApp(electron, {reviewedWorkspaceFixture: true, isolatedUserDataDir: true,

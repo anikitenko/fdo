@@ -44,32 +44,35 @@ for (const repeated of [false, true]) {
                     return Response.json({result: {choices: [{message: {content: text}, finish_reason: finishReason}], usage}});
                 };
             }, repeated);
-            const observed = await page.evaluate(async () => {
+            const result = await page.evaluate(async () => {
                 await window.electron.settings.ai.addAssistant({name: 'Output recovery', provider: 'cloudflare', purpose: 'coding',
                     model: '@cf/qwen/qwen3.8-27b', accountId: 'a'.repeat(32), apiKey: 'test-token', defaultThinkingMode: 'off'});
                 const assistant = (await window.electron.settings.ai.getAssistants()).find(item => item.name === 'Output recovery');
-                const done = [], errors = [], stages = [];
-                window.electron.aiCodingAgent.on.streamDone(event => done.push(event));
-                window.electron.aiCodingAgent.on.streamError(event => errors.push(event));
-                window.electron.aiCodingAgent.on.streamDelta(event => { if (event.type === 'stage') stages.push(event); });
-                const result = await window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'output-recovery', assistantId: assistant.id,
+                const events = window.__outputRecoveryEvents = {done: [], errors: [], stages: []};
+                window.electron.aiCodingAgent.on.streamDone(event => { if (event.requestId === 'output-recovery') events.done.push(event); });
+                window.electron.aiCodingAgent.on.streamError(event => { if (event.requestId === 'output-recovery') events.errors.push(event); });
+                window.electron.aiCodingAgent.on.streamDelta(event => { if (event.requestId === 'output-recovery' && event.type === 'stage') events.stages.push(event); });
+                return window.electron.aiCodingAgent.planCode(window.__withReviewedWorkspace({requestId: 'output-recovery', assistantId: assistant.id,
                     prompt: 'Build a styled plugin with feature stylesheets.'}));
-                return {result, done, errors, stages};
             });
             const requests = await app.evaluate(() => globalThis.__outputRequests);
             // A depth-two CSS retry gets its single expansion to the complete-file
             // ceiling (3072); a validated response teaches that allowance onward.
             expect(requests.map(body => body.max_tokens)).toEqual([2048, 3072, 2048, 1536, 3072, 2048, 1024, 3072,
                 ...(repeated ? [] : [3072, 1536, 6144])]);
-            expect(observed.result.success).toBe(!repeated);
+            expect(result.success).toBe(!repeated);
+            // The invoke reply and stream events arrive through separate IPC callbacks.
+            const terminal = repeated ? 'errors' : 'done';
+            await expect.poll(() => page.evaluate(key => window.__outputRecoveryEvents[key].length, terminal)).toBe(1);
+            const observed = await page.evaluate(() => window.__outputRecoveryEvents);
             expect(observed.done).toHaveLength(repeated ? 0 : 1);
             expect(observed.stages.some(stage => stage.label === 'Retrying complete file: /styles/surfaces.css (3072 output tokens)')).toBe(true);
-            expect(JSON.stringify(observed)).not.toContain('DISCARDED_TRUNCATED_SOURCE');
-            if (repeated) expect(observed.result.error).toContain('after bounded file splitting');
+            expect(JSON.stringify({result, ...observed})).not.toContain('DISCARDED_TRUNCATED_SOURCE');
+            if (repeated) expect(result.error).toContain('after bounded file splitting');
             else {
                 expect(observed.errors).toEqual([]);
-                expect(observed.result.content).toContain('.surface { color: red; }');
-                expect(observed.result.content.match(/### File:/g)).toHaveLength(4);
+                expect(result.content).toContain('.surface { color: red; }');
+                expect(result.content.match(/### File:/g)).toHaveLength(4);
             }
             const budget = await app.evaluate(() => globalThis.__FDO_E2E_LIVE_AI_BUDGET__);
             expect(budget.used).toBe(requests.length);

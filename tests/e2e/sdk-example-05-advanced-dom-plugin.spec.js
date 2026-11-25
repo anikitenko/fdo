@@ -20,7 +20,7 @@ const {
   waitForPluginUiRendered,
   getPluginUiState,
   getPluginDiagnostics,
-  getPluginLogTail,
+  readFixtureRunLogs,
   removePlugin,
 } = require("./helpers/sdkExamples");
 
@@ -78,15 +78,6 @@ function resolveExamplesRootForThisSpec() {
   return require('./helpers/sdkExamples').resolveSdkExamplesPath();
 }
 
-function toTailText(logTail) {
-  const logs = Array.isArray(logTail?.logs) ? logTail.logs : [];
-  if (logs.length > 0) {
-    return logs.map((item) => String(item?.tail || "")).join("\n");
-  }
-  const files = Array.isArray(logTail?.files) ? logTail.files : [];
-  return files.map((file) => String(file?.content || file?.tail || "")).join("\n");
-}
-
 async function waitForAnyUiMarker(window, pluginName, markers = [], timeoutMs = 20000) {
   const expected = (Array.isArray(markers) ? markers : []).map((value) => String(value || "").trim()).filter(Boolean);
   if (expected.length === 0) return "";
@@ -106,8 +97,7 @@ async function waitForLogContains(window, pluginName, needle, timeoutMs = 12000)
   if (!expected) return false;
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 6, maxChars: 160000 });
-    const tailText = toTailText(logTail);
+    const tailText = await readFixtureRunLogs(electronApp, pluginName);
     if (String(tailText || "").includes(expected)) {
       return true;
     }
@@ -375,8 +365,7 @@ test.describe("SDK example 05-advanced-dom-plugin: live E2E line proof", () => {
       expect(uiState?.runtimeStatus?.inited).toBe(true);
       expect(uiState?.runtimeStatus?.loading).toBe(false);
 
-      const logTail = await getPluginLogTail(window, pluginName, { maxFiles: 3, maxChars: 180000 });
-      const tailText = toTailText(logTail);
+      const tailText = await readFixtureRunLogs(electronApp, pluginName);
       expect(String(tailText)).not.toContain("plugin.render.error");
       expect(String(tailText)).not.toContain("document is not defined");
 

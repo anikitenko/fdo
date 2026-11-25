@@ -1,3 +1,4 @@
+import CodexSetup from '../settings/panels/CodexSetup';
 import {liveUiWorkspacePayload} from '../../utils/plugins/authoring/liveUi/workspaceState';
 import AiDeploymentRequirements from './AiDeploymentRequirements';
 import {DEPLOYMENT_REVIEW_PROMPT} from '../../utils/plugins/deployment/workspaceDeployment';
@@ -3462,6 +3463,7 @@ Rules:
     const handleSubmit = async ({prompt: promptOverride, action: actionOverride, autoApply: autoApplyOverride, migrateGuide = false,
         retainedReview = null, reviewRecoveryMode = null} = {}) => {
         if (submitInFlightRef.current) return;
+        if (selectedAssistant?.provider === "codex-cli" && selectedAssistant.codexRuntime?.source === "unavailable") {setError("Connect Codex CLI or select another assistant."); return;}
         if (retainedReview) {
             try {assertWorkspaceReviewCurrent(retainedReview, {files: getAllProjectFiles(), workspace: virtualFS.sandboxName, revision: virtualFS.fs.snapshotSwitchRevision || 0});}
             catch (failure) {setError(failure.message); return;}
@@ -4992,6 +4994,7 @@ Rules:
                         disabled={isLoading || refreshingAssistants} loading={refreshingAssistants}
                         onClick={() => reloadAssistants()} />
                     </div>
+                    {selectedAssistant?.provider === "codex-cli" && selectedAssistant.codexRuntime?.source === "unavailable" && <CodexSetup assistant={selectedAssistant} onRefresh={reloadAssistants}/>}
                     {assistantLoadError && <Callout intent="warning" style={{marginTop: '8px'}}>{assistantLoadError}</Callout>}
                     <p style={{marginTop: '8px'}}>Screenshots: {imageSupportLabel(inputCapabilities)}</p>
                     {inputCapabilities.imageSupport === 'unknown' && <p>You can attach an image. The provider will check whether the selected model accepts it.</p>}

@@ -1,10 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const checkCodex = require('./check-bundled-codex-runtime.cjs');
+const checkTypeScript = require('./check-typescript-runtime.cjs');
 
 module.exports = async function checkHostRuntime(context) {
     const appDir = context.appDir || context.packager?.info?.appDir;
-    await checkCodex({...context, appDir});
+    await checkTypeScript({...context, appDir});
     // SSH uses the portable JavaScript implementation, never a system ssh binary.
     for (const [name, entry] of [['ssh2', 'lib/index.js'], ['asn1', 'lib/index.js'], ['safer-buffer', 'safer.js'], ['bcrypt-pbkdf', 'index.js'], ['tweetnacl', 'nacl-fast.js']]) {
         if (!fs.existsSync(path.join(appDir, 'dist', 'main', 'node_modules', name, entry))) {

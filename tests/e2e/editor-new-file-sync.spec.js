@@ -32,6 +32,9 @@ async function waitForModelMarkerMessage(page, filePath, messagePattern) {
 
 test.beforeAll(async () => {
   electronApp = await launchElectronApp(electron, {isolatedUserDataDir: true});
+}, 120000);
+
+test.beforeEach(async () => {
   editorWindow = await openEditorWithMockedIPC(electronApp);
   await waitForWorkspaceReady(editorWindow);
 }, 120000);
@@ -172,17 +175,19 @@ export function createWebsiteCheckUI() {
     .getByText('Compilation successful!', {exact: true})).toBeVisible({timeout: 15000});
 });
 
- test('a helper edited after snapshot restore immediately becomes a module for its importer', async () => {
+test('a helper edited after snapshot restore immediately becomes a module for its importer', async () => {
   await editorWindow.evaluate(() => {
     window.__editorTestApi.createFile('/shared/restored.ts', '// new helper');
     window.__editorTestApi.createFile('/index.ts', "import {answer} from './shared/restored'; const typed: string = answer;");
   });
+  await waitForModelMarkerMessage(editorWindow, '/index.ts', 'is not a module');
   const snapshot = await editorWindow.evaluate(() => window.__editorTestApi.createSnapshot());
   await editorWindow.evaluate(async version => {
     await window.__editorTestApi.switchSnapshot(version);
     window.__editorTestApi.openTabs([{id:'/shared/restored.ts',active:true},{id:'/index.ts',active:false}]);
   }, snapshot.version);
-  await expect.poll(() => editorWindow.evaluate(() => window.__editorTestApi.getState().activeTabId)).toBe('/shared/restored.ts');
+  await expect.poll(() => editorWindow.evaluate(() => window.__editorTestApi.getEditorLocation().uri),
+    {timeout: 15000}).toMatch(/\/shared\/restored\.ts$/);
   await editorWindow.evaluate(() => window.__editorTestApi.focusEditor());
   await editorWindow.keyboard.press('ControlOrMeta+a');
   await editorWindow.keyboard.insertText('export const answer = 42;');

@@ -1,4 +1,4 @@
-import {liveUiWorkspacePayload} from '../../../utils/plugins/authoring/liveUi/workspaceState';
+import {liveUiWorkspacePayload, workspaceFileText} from '../../../utils/plugins/authoring/liveUi/workspaceState';
 import {historyStorageKey, readHistory, writeHistory} from '../../editor/utils/aiCodingAgentHistory';
 
 const matches = (workspace, base) => {
@@ -9,7 +9,7 @@ const matches = (workspace, base) => {
 const fileFingerprint = entries => JSON.stringify(entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 const workspaceFingerprint = workspace => fileFingerprint(Object.entries(workspace.files)
     .filter(([file]) => !/^\/(node_modules|dist)\//.test(file))
-    .map(([file, entry]) => [file, entry.model && !entry.model.isDisposed?.() ? entry.model.getValue() : entry.content || '']));
+    .map(([file, entry]) => [file, workspaceFileText(entry)]));
 const snapshotFingerprint = snapshot => Array.isArray(snapshot?.content) ? fileFingerprint(snapshot.content.map(item => [item.id, item.content])) : null;
 
 export async function applyVisualEdit({workspace, base, patch, patches = [patch], validate, canCommit, isActive = () => true, storage, designSession, keepCheckpoint = false}) {
@@ -17,7 +17,7 @@ export async function applyVisualEdit({workspace, base, patch, patches = [patch]
     if (!patches.length || new Set(patches.map(item => item?.file)).size !== patches.length || patches.some(item => !item || base.files[item.file] !== item.before)) return {status: 'conflict', message: 'An edited file changed.'};
     const initialFingerprint = workspaceFingerprint(workspace);
     const unchanged = () => matches(workspace, base) && workspaceFingerprint(workspace) === initialFingerprint;
-    const candidate = {...base.files, ...Object.fromEntries(patches.map(item => [item.file, item.after]))};
+    const candidate = {...base.files, ...Object.fromEntries(patches.map(item => [item.file, item.after.replace(/\r\n/g, '\n')]))};
     const validation = await validate(candidate);
     if (!validation.success) return {status: 'error', message: validation.error || 'Candidate validation failed. No source edits were applied.'};
     if (!isActive() || !unchanged()) return {status: 'conflict', message: 'Source changed during validation. No source edits were applied.'};
@@ -25,6 +25,7 @@ export async function applyVisualEdit({workspace, base, patch, patches = [patch]
     // Recheck after the cross-process commit authorization, then commit without
     // yielding. All files in the draft are committed in the same synchronous section.
     if (!isActive() || !unchanged()) return {status: 'conflict', message: 'Source changed before commit. No source edits were applied.'};
+    const originals = new Map(patches.map(item => [item.file, workspaceFileText(workspace.files[item.file])]));
     const fs = workspace.fs;
     const saved = {versions: {...fs.versions}, current: fs.version_current, latest: fs.version_latest, tsCounter: fs.tsCounter, revision: fs.snapshotSwitchRevision, group: designSession?.group};
     let persisted;
@@ -46,10 +47,13 @@ export async function applyVisualEdit({workspace, base, patch, patches = [patch]
             throw new Error('Could not save a restore point.');
         }
         for (const item of patches) {
-            workspace.setFileContent(item.file, item.after);
-            if (liveUiWorkspacePayload(workspace).files[item.file] !== item.after) {
+            const original = originals.get(item.file);
+            const eol = workspace.files[item.file].model?.getEOL?.() || original.match(/\r?\n/)?.[0];
+            const expected = candidate[item.file];
+            workspace.setFileContent(item.file, eol === '\r\n' ? expected.replace(/\n/g, '\r\n') : expected);
+            if (liveUiWorkspacePayload(workspace).files[item.file] !== expected) {
                 //noinspection ExceptionCaughtLocallyJS
-                throw new Error('The IDE could not update the source model.');
+                throw new Error(`The IDE could not update the source model for ${item.file}.`);
             }
         }
         const after = fs.create(before.version, tabs, {quiet: true,
@@ -75,7 +79,7 @@ export async function applyVisualEdit({workspace, base, patch, patches = [patch]
             warning: historySaved ? '' : 'The edit is saved, but conversation history could not be updated.'};
     } catch (error) {
         const rollbackErrors = [];
-        for (const item of patches) {try {workspace.setFileContent(item.file, item.before);} catch {rollbackErrors.push(item.file);}}
+        for (const item of patches) {try {workspace.setFileContent(item.file, originals.get(item.file));} catch {rollbackErrors.push(item.file);}}
         fs.versions = saved.versions; fs.version_current = saved.current; fs.version_latest = saved.latest; fs.tsCounter = saved.tsCounter; fs.snapshotSwitchRevision = saved.revision;
         if (designSession) designSession.group = saved.group;
         let persistenceError = '';
