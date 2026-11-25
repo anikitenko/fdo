@@ -14,16 +14,17 @@
         "package.json",
         "third_party/evidence/lazy-val-1.0.5-source-tree.json",
         "https://github.com/anikitenko/fdo/actions/runs/45176465539",
-        "https://github.com/anikitenko/fdo/actions/runs/45229620613"
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
       ],
       "reviewedBy": "Codex, engineering evidence review",
       "reviewedAt": "2026-11-25",
       "resolution": "All four inventories identify the local MIT lazy-val replacement and the pinned ISC notice for SDK 1.9.2. Each legal archive passed its file-manifest checks and reported no notice coverage issues.",
       "inputs": {
-        "linux-x64": "dc9edc63048e735f8677aa4e03730b58349f60e7a6a83ab45f1dee596911ff2e",
-        "mac-arm64": "52070a0411cf4fae417d26378690feb91fb5f095dd56f67bd06f14d1aca83e52",
-        "mac-x64": "917a62288cd14ad1570a9a3b192e936681eb1cb89bed3c9123aacef20e062883",
-        "win-x64": "874bd7a326cc8da1b5e0cc41e8cacbb61c0453f8291a781e15e19e5b6e93c229"
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
       }
     },
     {
@@ -38,16 +39,17 @@
         "docs/PUBLICATION_RIGHTS_SIGNING_KEY.asc",
         "docs/LICENSING_REASSESSMENT.md",
         "https://github.com/anikitenko/fdo/actions/runs/45176465539",
-        "https://github.com/anikitenko/fdo/actions/runs/45229620613"
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
       ],
       "reviewedBy": "Codex, engineering evidence review",
       "reviewedAt": "2026-11-25",
-      "resolution": "On 2026-11-23 the maintainer personally confirmed in writing that the declaration for original FDO code, documentation and assets, including required employer/client approvals, covers e7612c01da5c2192176e98928bff356bb839dbc3 and the GCM removal, notice integration and tests since 5c6977f. The detached signature covers the revision stated in the declaration. On 2026-11-25 the maintainer personally confirmed the declaration, including required employer or client approvals for original FDO material, covers da917496703ce99776f491de5d6b9235b08e2bed and its licensing documentation, inventory generation and tests.",
+      "resolution": "On 2026-11-23 the maintainer personally confirmed in writing that the declaration for original FDO code, documentation and assets, including required employer/client approvals, covers e7612c01da5c2192176e98928bff356bb839dbc3 and the GCM removal, notice integration and tests since 5c6977f. The detached signature covers the revision stated in the declaration. On 2026-11-25 the maintainer personally confirmed the declaration, including required employer or client approvals for original FDO material, covers da917496703ce99776f491de5d6b9235b08e2bed and its licensing documentation, inventory generation and tests. On 2026-11-25 the maintainer personally confirmed in writing that the declaration for original FDO code, documentation and assets, including any required employer or client approvals, covers d24317d112f5e1db17246b6940be6514d0de120b and its 1.0.7 release-evidence record.",
       "inputs": {
-        "linux-x64": "dc9edc63048e735f8677aa4e03730b58349f60e7a6a83ab45f1dee596911ff2e",
-        "mac-arm64": "52070a0411cf4fae417d26378690feb91fb5f095dd56f67bd06f14d1aca83e52",
-        "mac-x64": "917a62288cd14ad1570a9a3b192e936681eb1cb89bed3c9123aacef20e062883",
-        "win-x64": "874bd7a326cc8da1b5e0cc41e8cacbb61c0453f8291a781e15e19e5b6e93c229"
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
       }
     },
     {
@@ -62,16 +64,17 @@
         "package.json",
         "package-lock.json",
         "https://github.com/anikitenko/fdo/actions/runs/45176465539",
-        "https://github.com/anikitenko/fdo/actions/runs/45229620613"
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
       ],
       "reviewedBy": "Codex, engineering evidence review",
       "reviewedAt": "2026-11-25",
       "resolution": "Cursor was removed. All four packaged inventories omit @cursor packages and the packaged distribution checks passed with the Cursor exclusion policy.",
       "inputs": {
-        "linux-x64": "dc9edc63048e735f8677aa4e03730b58349f60e7a6a83ab45f1dee596911ff2e",
-        "mac-arm64": "52070a0411cf4fae417d26378690feb91fb5f095dd56f67bd06f14d1aca83e52",
-        "mac-x64": "917a62288cd14ad1570a9a3b192e936681eb1cb89bed3c9123aacef20e062883",
-        "win-x64": "874bd7a326cc8da1b5e0cc41e8cacbb61c0453f8291a781e15e19e5b6e93c229"
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
       }
     },
     {
@@ -92,23 +95,24 @@
         "https://www.nuget.org/packages/Microsoft.Identity.Client.NativeInterop/0.20.6",
         "https://github.com/anikitenko/fdo/actions/runs/45176465539",
         "https://github.com/desktop/dugite-native/blob/4098283a7ecb8a227b9d43580336c78a06f90e5d/package.json",
-        "https://github.com/anikitenko/fdo/actions/runs/45229620613"
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
       ],
-      "resolution": "All four target sidecars identify the pinned Dugite-native scripts as GPL-2.0-only. The corresponding-source component hashes match the previously inspected sources. Target notices reproduce the pinned Git, Git LFS and Dugite-native texts. The staged inventories exclude every listed GCM private path and all four packaged scoped-credential and Git LFS checks passed. The Windows target also reproduces the MXC notice. See the native-source documentation for the Windows Bash and OpenSSL source substitutions.",
+      "resolution": "All four target sidecars identify the pinned Dugite-native scripts as GPL-2.0-only. The corresponding-source component hashes match the previously inspected sources. Target notices reproduce the pinned Git, Git LFS and Dugite-native texts. The staged inventories exclude every listed GCM private path and all four packaged scoped-credential and Git LFS checks passed. See the native-source documentation for the Windows Bash and OpenSSL source substitutions.",
       "reviewedAt": "2026-11-25",
       "reviewedBy": "Codex, engineering evidence review",
       "inputs": {
-        "linux-x64": "dc9edc63048e735f8677aa4e03730b58349f60e7a6a83ab45f1dee596911ff2e",
-        "mac-arm64": "52070a0411cf4fae417d26378690feb91fb5f095dd56f67bd06f14d1aca83e52",
-        "mac-x64": "917a62288cd14ad1570a9a3b192e936681eb1cb89bed3c9123aacef20e062883",
-        "win-x64": "874bd7a326cc8da1b5e0cc41e8cacbb61c0453f8291a781e15e19e5b6e93c229"
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
       }
     },
     {
       "id": "native-ai-notices",
-      "status": "pending",
+      "status": "cleared",
       "scope": "External Codex CLI exclusion and retained TypeScript native notices",
-      "action": "The maintainer selected removal of the Codex binary payload. Verify absence of its platform packages and helpers in ASAR, unpacked resources and packaged inventories on all four release targets; verify TypeScript notices and bind the reviewed inputs. The previous supplier review applies to the older bundled candidate.",
+      "action": "Use the local Codex installation. Keep the distribution exclusions and verify the shipped TypeScript license and notice on every target.",
       "evidence": [
         "https://github.com/openai/codex/tree/rust-v0.162.1",
         "third_party/licenses/codex-0.162.1-NOTICE",
@@ -128,9 +132,18 @@
         "https://github.com/openai/codex/actions/runs/37967782807",
         "https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/third_party/v8/README.md",
         "https://github.com/anikitenko/fdo/actions/runs/45176465539",
-        "third_party/distribution-policy.json",
-        "tests/e2e/local-codex-setup.spec.js"
-      ]
+        "tests/e2e/local-codex-setup.spec.js",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
+      ],
+      "reviewedBy": "Codex, engineering evidence review",
+      "reviewedAt": "2026-11-25",
+      "inputs": {
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
+      },
+      "resolution": "The packaged ASAR and resource exclusion tests passed for all four targets. Their inventories omit Codex platform packages and each retained TypeScript native package carries the supplier license and notice in the offline bundle."
     },
     {
       "id": "copied-artwork-and-builds",
@@ -143,30 +156,37 @@
         "scripts/generate-file-icons.cjs",
         "src/components/editor/utils/fileIcons.js",
         "https://github.com/anikitenko/fdo/actions/runs/45176465539",
-        "https://github.com/anikitenko/fdo/actions/runs/45229620613"
+        "https://github.com/anikitenko/fdo/actions/runs/45229620613",
+        "https://github.com/anikitenko/fdo/actions/runs/45622919360"
       ],
       "reviewedBy": "Codex, engineering evidence review",
       "reviewedAt": "2026-11-25",
       "resolution": "All four asset inventories matched the registered tree hashes, including project assets and the pinned Highlight and Notyf groups. The packaged dependency inventories omit vscode-icons and vscode-icons-js.",
       "inputs": {
-        "linux-x64": "dc9edc63048e735f8677aa4e03730b58349f60e7a6a83ab45f1dee596911ff2e",
-        "mac-arm64": "52070a0411cf4fae417d26378690feb91fb5f095dd56f67bd06f14d1aca83e52",
-        "mac-x64": "917a62288cd14ad1570a9a3b192e936681eb1cb89bed3c9123aacef20e062883",
-        "win-x64": "874bd7a326cc8da1b5e0cc41e8cacbb61c0453f8291a781e15e19e5b6e93c229"
+        "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+        "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+        "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+        "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
       }
     }
   ],
   "reviewedRehearsal": {
-    "run": "https://github.com/anikitenko/fdo/actions/runs/45229620613",
-    "source": "da917496703ce99776f491de5d6b9235b08e2bed",
+    "run": "https://github.com/anikitenko/fdo/actions/runs/45622919360",
+    "source": "d24317d112f5e1db17246b6940be6514d0de120b",
     "inputs": {
-      "linux-x64": "dc9edc63048e735f8677aa4e03730b58349f60e7a6a83ab45f1dee596911ff2e",
-      "mac-arm64": "52070a0411cf4fae417d26378690feb91fb5f095dd56f67bd06f14d1aca83e52",
-      "mac-x64": "917a62288cd14ad1570a9a3b192e936681eb1cb89bed3c9123aacef20e062883",
-      "win-x64": "874bd7a326cc8da1b5e0cc41e8cacbb61c0453f8291a781e15e19e5b6e93c229"
+      "linux-x64": "fc42c221bf51babc8d8b1df5c72e658ffa5b110d6c6d17297047b243bc2db989",
+      "mac-arm64": "a9eb82a93f2cd1b796d3928f333378ce8ea92c32a66bfa6a4e9fb1b114f7b360",
+      "mac-x64": "d302a051a30e9cc0436d87c0d99e140717b57d188cd6b54ced50cae9de9d061d",
+      "win-x64": "10cfbe1e52f556c43f452785f6352d74662a12d188d3068e91894f7f7e24a04c"
     },
-    "artifactId": 15015261086,
-    "artifactSha256": "2a13d478410429f740c3d8fb8b7746f0d5a244f09d92ef8c891b1f8e3bc42e59",
-    "findings": "All 20 packaged checks passed once on each of four targets. The corrected Git license metadata, original offline notices, four native-source archives and Git authentication regression were verified. Native Codex redistribution evidence remains open. The publication job was skipped."
+    "artifactId": 15045300085,
+    "artifactSha256": "31a1e1ca623c4373708dc007fc22dda484629e7e90dc675a716238ebef4dc0eb",
+    "packagedTestsPassed": {
+      "linux-x64": 21,
+      "mac-arm64": 21,
+      "mac-x64": 21,
+      "win-x64": 21
+    },
+    "findings": "Verified the assembled artifact digest, packaged test reports and installer checksums, legal archive file manifests, asset hashes, offline notices, SBOMs and native corresponding-source archives. All six decisions apply to the recorded target inputs. Publication and final signed installer verification run on the release tag."
   }
 }
