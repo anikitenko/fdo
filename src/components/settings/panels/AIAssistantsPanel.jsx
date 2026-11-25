@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import {
     Button,
     Card,
+    ControlGroup,
     Callout,
     Dialog,
     FormGroup,
@@ -25,7 +26,7 @@ const PROVIDERS = [
     { label: "OpenCode Zen (free & curated models)", value: "opencode" },
     { label: "OpenRouter (free & curated models)", value: "openrouter" },
     { label: "Ollama (local)", value: "ollama" },
-    { label: "Codex (built into FDO)", value: "codex-cli" },
+    { label: "Codex CLI (installed separately)", value: "codex-cli" },
     { label: "Gemini CLI (separate installation)", value: "gemini-cli" },
 ]
 
@@ -720,14 +721,26 @@ export default function AIAssistantsPanel() {
 
                     {form.provider === "codex-cli" ? (
                         <>
-                            <FormGroup label="Codex executable" labelFor="ai-codex-path">
-                                <InputGroup id="ai-codex-path" value={form.executablePath || 'Auto-detect from PATH'} readOnly/>
-                                <Button text="Choose executable…" onClick={async () => {
-                                    const file = await window.electron.system.openFileDialog({title:'Choose Codex CLI executable',properties:['openFile']});
-                                    if (file) setForm(previous => ({...previous, executablePath:file}));
-                                }}/>
-                                <Button text="Installation guide" onClick={() => window.electron.system.openExternal('https://developers.openai.com/codex/cli/')}/>
-                                <Button text="Check again" onClick={() => setModelReload(value => value + 1)}/>
+                            <FormGroup label="Codex CLI location" labelFor="ai-codex-path"
+                                helperText="Codex CLI is not bundled with FDO. Leave empty to find 'codex' on your PATH, or type/paste the full path (for example ~/.npm-global/bin/codex). Hidden folders are fine when typing the path.">
+                                <ControlGroup fill>
+                                    <InputGroup id="ai-codex-path" fill placeholder="Auto-detect 'codex' from PATH"
+                                        value={form.executablePath}
+                                        onChange={e => setForm({...form, executablePath: e.target.value})}/>
+                                    <Button text="Browse…" onClick={async () => {
+                                        const file = await window.electron.system.openFileDialog({title:'Choose Codex CLI executable',properties:['openFile','showHiddenFiles'],defaultPath:undefined});
+                                        if (file) setForm(previous => ({...previous, executablePath:file}));
+                                    }}/>
+                                </ControlGroup>
+                                <div style={{marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center'}}>
+                                    <Button text="Test Codex CLI" loading={isLoadingModels} onClick={() => setModelReload(value => value + 1)}/>
+                                    <Button minimal text="Installation guide" onClick={() => window.electron.system.openExternal('https://developers.openai.com/codex/cli/')}/>
+                                </div>
+                                <div style={{marginTop: '6px', fontSize: '12px'}} role="status">
+                                    {isLoadingModels ? 'Looking for Codex CLI…'
+                                        : modelsError ? `Codex CLI not usable: ${modelsError}`
+                                        : providerModels.length ? 'Codex CLI found and ready.' : ''}
+                                </div>
                             </FormGroup>
                         </>
                     ) : form.provider === "gemini-cli" ? (

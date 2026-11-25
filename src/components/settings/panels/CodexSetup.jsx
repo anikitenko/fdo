@@ -17,8 +17,8 @@ export default function CodexSetup({assistant, onRefresh}) {
     return <Callout title="Local Codex CLI">
         <p>{runtime?.version && !runtime.bundled ? `Connected to Codex ${runtime.version}` : runtime?.message || 'Install Codex CLI or choose an existing installation.'}</p>
         <Button text="Installation guide" onClick={() => window.electron.system.openExternal('https://developers.openai.com/codex/cli/')}/>
-        <Button text="Check again" disabled={busy} onClick={onRefresh}/>
-        <Button text="Choose executable…" loading={busy} onClick={choose}/>
+        <Button text="Test Codex CLI" disabled={busy} onClick={onRefresh}/>
+        <Button text="Browse for Codex CLI…" loading={busy} onClick={choose}/>
         {error && <p role="alert">{error}</p>}
     </Callout>;
 }

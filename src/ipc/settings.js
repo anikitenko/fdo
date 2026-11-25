@@ -442,7 +442,7 @@ export function registerSettingsHandlers() {
     });
 
     ipcMain.handle(SettingsChannels.ai_assistants.CHOOSE_CODEX_EXECUTABLE, async (_event, id) => {
-        const selected = await dialog.showOpenDialog({title: 'Choose Codex CLI executable', properties: ['openFile']});
+        const selected = await dialog.showOpenDialog({title: 'Choose Codex CLI executable', properties: ['openFile', 'showHiddenFiles']});
         if (selected.canceled || !selected.filePaths.length) return;
         const runtime = await resolveCodexCliInvocation({configuredPath: selected.filePaths[0]});
         const auth = await readCodexAuthStatus(runtime);
